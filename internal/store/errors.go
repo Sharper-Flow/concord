@@ -64,6 +64,14 @@ const (
 	// KindRelationNotFound marks a removal that cannot be explained by the
 	// preceding relation history.
 	KindRelationNotFound FailureKind = "relation_not_found"
+	// KindMembershipInvariant marks a final projection state that has lost a
+	// required Product, Project, or work membership.
+	KindMembershipInvariant FailureKind = "membership_invariant"
+	// KindMembershipConflict marks a duplicate or invalid primary membership.
+	KindMembershipConflict FailureKind = "membership_conflict"
+	// KindMembershipMigrationRequired marks a pre-PM5 database that needs an
+	// explicit operator-supplied membership mapping before migration 4.
+	KindMembershipMigrationRequired FailureKind = "membership_migration_required"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

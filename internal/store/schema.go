@@ -207,6 +207,71 @@ BEGIN
 END;
 `,
 	},
+	{
+		Version: 4,
+		Name:    "product_project_and_work_project_memberships",
+		SQL: `
+CREATE TABLE product_projects (
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    role       TEXT NOT NULL CHECK(role IN ('primary','secondary')),
+    PRIMARY KEY(product_id, project_id)
+);
+CREATE UNIQUE INDEX product_projects_one_primary
+    ON product_projects(product_id) WHERE role='primary';
+CREATE INDEX product_projects_by_project
+    ON product_projects(project_id, product_id);
+
+CREATE TABLE work_projects (
+    work_id    TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    role       TEXT NOT NULL CHECK(role IN ('primary','secondary')),
+    PRIMARY KEY(work_id, project_id)
+);
+CREATE UNIQUE INDEX work_projects_one_primary
+    ON work_projects(work_id) WHERE role='primary';
+CREATE INDEX work_projects_by_project
+    ON work_projects(project_id, work_id);
+
+CREATE TRIGGER product_projects_guard_insert
+BEFORE INSERT ON product_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'product_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER product_projects_guard_update
+BEFORE UPDATE ON product_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'product_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER product_projects_guard_delete
+BEFORE DELETE ON product_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'product_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER work_projects_guard_insert
+BEFORE INSERT ON work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER work_projects_guard_update
+BEFORE UPDATE ON work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER work_projects_guard_delete
+BEFORE DELETE ON work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -269,6 +334,11 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		if _, done := applied[m.Version]; done {
 			continue
 		}
+		if m.Version == 4 {
+			if err := preflightMembershipMigration(ctx, tx); err != nil {
+				return rollback(err)
+			}
+		}
 		if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
@@ -285,6 +355,24 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err := tx.Commit(); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", true,
 			"retry once the database is writable", err))
+	}
+	return nil
+}
+
+func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {
+	for _, table := range []string{"products", "projects", "work_items"} {
+		var populated bool
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM "+table+")").Scan(&populated); err != nil {
+			return wrapFailure(KindUnavailable, "migrate",
+				"cannot inspect the "+table+" projection before migration 4", true,
+				"confirm the database is readable", err)
+		}
+		if populated {
+			return newFailure(KindMembershipMigrationRequired, "migrate",
+				"migration 4 requires explicit memberships for the populated "+table+" projection",
+				false,
+				"run an explicit operator-mapped PM5 membership migration using stable IDs, or continue with the v3 binary; Concord must never infer memberships")
+		}
 	}
 	return nil
 }

@@ -8,12 +8,39 @@ import (
 	"time"
 )
 
-// Operation is one accepted domain operation. ExpectedVersions is keyed by
-// subject ID and checks that subject's version before the first event touching
-// it; later events in the same operation observe the version just produced.
+// SubjectRef identifies a versioned projection without conflating equal IDs
+// belonging to different subject types.
+type SubjectRef struct {
+	Type SubjectType
+	ID   string
+}
+
+// VersionRef constructs a typed optimistic-concurrency key.
+func VersionRef(subjectType SubjectType, id string) SubjectRef {
+	return SubjectRef{Type: subjectType, ID: id}
+}
+
+// Operation is one accepted domain operation. ExpectedVersions checks the
+// typed subject's version before the first event touching it; later events in
+// the same operation observe the version just produced.
 type Operation struct {
 	Events           []Event
-	ExpectedVersions map[string]int64
+	ExpectedVersions map[SubjectRef]int64
+}
+
+// MembershipImpact describes canonical work whose derived Product scope may
+// change during a Product↔Project membership operation.
+type MembershipImpact struct {
+	AffectedWorkCount      int
+	TotalAffectedWorkCount int
+	AffectedWorkIDs        []string
+	EventIDs               []string
+}
+
+// ApplyOperationResult is the durable result of an accepted operation.
+type ApplyOperationResult struct {
+	Impact   MembershipImpact
+	EventIDs []string
 }
 
 // Product is the typed current projection of a Product identity.
@@ -53,29 +80,43 @@ var projectionRegistry = map[string]projectionMutation{
 	"work.reopened_from_superseded": foldWorkReopenedFromSuperseded,
 	"relation.added":                foldRelationAdded,
 	"relation.removed":              foldRelationRemoved,
+	"product_project.added":         foldProductProjectAdded,
+	"product_project.removed":       foldProductProjectRemoved,
+	"product_project.role_changed":  foldProductProjectRoleChanged,
+	"work_project.added":            foldWorkProjectAdded,
+	"work_project.removed":          foldWorkProjectRemoved,
+	"work_project.role_changed":     foldWorkProjectRoleChanged,
 }
 
 // ApplyOperation appends and folds one operation in one transaction.
 func ApplyOperation(ctx context.Context, s *Store, operation Operation) error {
+	_, err := ApplyOperationWithResult(ctx, s, operation)
+	return err
+}
+
+// ApplyOperationWithResult appends and folds one operation in one transaction,
+// returning the bounded impact of any Product↔Project membership change.
+func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation) (ApplyOperationResult, error) {
+	var output ApplyOperationResult
 	if s == nil || s.db == nil {
-		return newFailure(KindUnavailable, "apply_operation", "store is not open", false,
+		return output, newFailure(KindUnavailable, "apply_operation", "store is not open", false,
 			"open a store before applying an operation")
 	}
 	if len(operation.Events) == 0 {
-		return newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false,
+		return output, newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false,
 			"supply at least one accepted event")
 	}
-	for subjectID, expected := range operation.ExpectedVersions {
-		if subjectID == "" || expected < 0 {
-			return newFailure(KindInvalidOperation, "apply_operation",
-				"expected versions must use non-empty IDs and non-negative versions", false,
-				"supply zero for a subject that must not yet exist")
+	for subject, expected := range operation.ExpectedVersions {
+		if !subject.Type.valid() || subject.ID == "" || expected < 0 {
+			return output, newFailure(KindInvalidOperation, "apply_operation",
+				"expected versions must use recognized typed subjects, non-empty IDs, and non-negative versions", false,
+				"supply a typed subject reference and zero for a subject that must not yet exist")
 		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "apply_operation", "cannot begin domain operation", true,
+		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot begin domain operation", true,
 			"retry once the database is writable", err)
 	}
 	rollback := func(cause error) error {
@@ -83,43 +124,52 @@ func ApplyOperation(ctx context.Context, s *Store, operation Operation) error {
 		return cause
 	}
 	if err := enterFold(ctx, tx); err != nil {
-		return rollback(err)
+		return output, rollback(err)
 	}
 
-	checked := make(map[string]bool, len(operation.ExpectedVersions))
+	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
 	for _, event := range operation.Events {
 		if err := event.validate(); err != nil {
-			return rollback(err)
+			return output, rollback(err)
 		}
 		mutation, ok := projectionRegistry[event.Kind]
 		if !ok {
-			return rollback(unknownEventKind(event.Kind))
+			return output, rollback(unknownEventKind(event.Kind))
 		}
-		if expected, hasExpected := operation.ExpectedVersions[event.SubjectID]; hasExpected && !checked[event.SubjectID] {
+		ref := VersionRef(event.SubjectType, event.SubjectID)
+		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
 			got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)
 			if err != nil {
-				return rollback(err)
+				return output, rollback(err)
 			}
 			if (expected == 0 && exists) || (expected > 0 && (!exists || got != expected)) {
-				return rollback(versionConflict(event.SubjectID, expected, got, exists))
+				return output, rollback(versionConflict(event.SubjectType, event.SubjectID, expected, got, exists))
 			}
-			checked[event.SubjectID] = true
+			checked[ref] = true
 		}
 		if _, err := AppendEvent(ctx, tx, event); err != nil {
-			return rollback(err)
+			return output, rollback(err)
 		}
 		if err := mutation(ctx, tx, event); err != nil {
-			return rollback(err)
+			return output, rollback(err)
 		}
+		output.EventIDs = append(output.EventIDs, event.EventID)
+	}
+	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
+		return output, rollback(err)
+	}
+	output.Impact, err = membershipImpact(ctx, tx, operation)
+	if err != nil {
+		return output, rollback(err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {
-		return rollback(err)
+		return output, rollback(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
+		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
 			"retry once the database is writable", err)
 	}
-	return nil
+	return output, nil
 }
 
 // RebuildFromLog replaces every live projection with a fold of the complete
@@ -147,7 +197,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
-	for _, table := range []string{"relations", "work_items", "products", "projects"} {
+	for _, table := range []string{"relations", "work_projects", "work_items", "product_projects", "products", "projects"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,
@@ -162,6 +212,9 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		if err := mutation(ctx, tx, event); err != nil {
 			return rollback(err)
 		}
+	}
+	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
+		return rollback(err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {
 		return rollback(err)
@@ -194,13 +247,13 @@ func unknownEventKind(kind string) *Failure {
 		false, "install a binary that recognizes the event or repair the log")
 }
 
-func versionConflict(subjectID string, expected, got int64, exists bool) *Failure {
+func versionConflict(subjectType SubjectType, subjectID string, expected, got int64, exists bool) *Failure {
 	actual := "missing"
 	if exists {
 		actual = fmt.Sprintf("%d", got)
 	}
 	return newFailure(KindVersionConflict, "apply_operation",
-		fmt.Sprintf("subject %s has version %s, want %d", subjectID, actual, expected), false,
+		fmt.Sprintf("%s %s has version %s, want %d", subjectType, subjectID, actual, expected), false,
 		"reload the subject and retry with its current version")
 }
 

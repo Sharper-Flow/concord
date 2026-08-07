@@ -79,6 +79,13 @@ const (
 	KindStaleRequiresReview         FailureKind = "stale_requires_review"
 	KindInvariantViolation          FailureKind = "invariant_violation"
 	KindUnreachable                 FailureKind = "unreachable"
+	KindInvalidNoteProof            FailureKind = "invalid_note_proof"
+	KindGitUnreachable              FailureKind = "git_unreachable"
+	KindKnowledgeIndexIncomplete    FailureKind = "knowledge_index_incomplete"
+	KindIndexDegraded               FailureKind = "index_degraded"
+	KindKnowledgeAmbiguous          FailureKind = "knowledge_ambiguous"
+	KindKnowledgeMissing            FailureKind = "knowledge_missing"
+	KindCompactionConflict          FailureKind = "compaction_conflict"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

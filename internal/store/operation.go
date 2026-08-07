@@ -86,6 +86,7 @@ var projectionRegistry = map[string]projectionMutation{
 	"work_project.added":            foldWorkProjectAdded,
 	"work_project.removed":          foldWorkProjectRemoved,
 	"work_project.role_changed":     foldWorkProjectRoleChanged,
+	"compaction_link.published":     foldCompactionLinkPublished,
 }
 
 // ApplyOperation appends and folds one operation in one transaction.
@@ -205,6 +206,11 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		}
 	}
 	for _, event := range events {
+		// Historical knowledge is git-derived. Domain-log replay must not
+		// rewrite archived_work, scope edges, or git watermarks.
+		if event.Kind == "compaction_link.published" {
+			continue
+		}
 		mutation, ok := projectionRegistry[event.Kind]
 		if !ok {
 			return rollback(unknownEventKind(event.Kind))

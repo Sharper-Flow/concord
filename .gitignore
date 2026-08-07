@@ -1,6 +1,7 @@
 # Local build output
 /concord
-/bin/
+/bin/*
+!/bin/oc-test
 
 # Go tooling and editor state
 *.test

@@ -280,6 +280,180 @@ CREATE INDEX idx_relations_to_kind
 ON relations(work_id_to, kind, work_id_from);
 `,
 	},
+	{
+		Version: 6,
+		Name:    "git_knowledge_index",
+		SQL: `
+CREATE TABLE archived_work (
+    id              TEXT PRIMARY KEY,
+    type            TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    completed_at    TEXT NOT NULL,
+    outcome_tag     TEXT NOT NULL,
+    lesson_tags     TEXT NOT NULL,
+    terminal_state  TEXT NOT NULL CHECK(terminal_state IN ('completed','cancelled','superseded')),
+    priority        INTEGER NOT NULL,
+    summary         TEXT NOT NULL,
+    successor_work_id TEXT,
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    note_path       TEXT NOT NULL,
+    commit_oid      TEXT NOT NULL,
+    content_hash    TEXT NOT NULL
+);
+
+CREATE TABLE archived_work_products (
+    work_id TEXT NOT NULL REFERENCES archived_work(id) ON DELETE RESTRICT,
+    product_id TEXT NOT NULL,
+    PRIMARY KEY(work_id, product_id)
+);
+CREATE TABLE archived_work_projects (
+    work_id TEXT NOT NULL REFERENCES archived_work(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL,
+    PRIMARY KEY(work_id, project_id)
+);
+CREATE TABLE archived_work_components (
+    work_id TEXT NOT NULL REFERENCES archived_work(id) ON DELETE RESTRICT,
+    component_id TEXT NOT NULL,
+    PRIMARY KEY(work_id, component_id)
+);
+CREATE TABLE archived_work_tags (
+    work_id TEXT NOT NULL REFERENCES archived_work(id) ON DELETE RESTRICT,
+    tag_id TEXT NOT NULL,
+    PRIMARY KEY(work_id, tag_id)
+);
+
+CREATE TABLE knowledge_index_watermark (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    head_ref TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    complete INTEGER NOT NULL CHECK(complete IN (0,1)),
+    PRIMARY KEY(home_project_id, home_locator_id, head_ref)
+);
+
+CREATE INDEX archived_work_completed_order ON archived_work(completed_at DESC, id);
+CREATE INDEX archived_work_products_lookup ON archived_work_products(product_id, work_id);
+CREATE INDEX archived_work_projects_lookup ON archived_work_projects(project_id, work_id);
+CREATE INDEX archived_work_components_lookup ON archived_work_components(component_id, work_id);
+CREATE INDEX archived_work_tags_lookup ON archived_work_tags(tag_id, work_id);
+
+CREATE TRIGGER archived_work_guard_insert
+BEFORE INSERT ON archived_work FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_guard_update
+BEFORE UPDATE ON archived_work FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_guard_delete
+BEFORE DELETE ON archived_work FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER archived_work_products_guard_insert
+BEFORE INSERT ON archived_work_products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_products_guard_update
+BEFORE UPDATE ON archived_work_products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_products_guard_delete
+BEFORE DELETE ON archived_work_products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER archived_work_projects_guard_insert
+BEFORE INSERT ON archived_work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_projects_guard_update
+BEFORE UPDATE ON archived_work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_projects_guard_delete
+BEFORE DELETE ON archived_work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER archived_work_components_guard_insert
+BEFORE INSERT ON archived_work_components FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_components is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_components_guard_update
+BEFORE UPDATE ON archived_work_components FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_components is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_components_guard_delete
+BEFORE DELETE ON archived_work_components FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_components is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER archived_work_tags_guard_insert
+BEFORE INSERT ON archived_work_tags FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_tags is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_tags_guard_update
+BEFORE UPDATE ON archived_work_tags FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_tags is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_tags_guard_delete
+BEFORE DELETE ON archived_work_tags FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_tags is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER knowledge_index_watermark_guard_insert
+BEFORE INSERT ON knowledge_index_watermark FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_index_watermark is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER knowledge_index_watermark_guard_update
+BEFORE UPDATE ON knowledge_index_watermark FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_index_watermark is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER knowledge_index_watermark_guard_delete
+BEFORE DELETE ON knowledge_index_watermark FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_index_watermark is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

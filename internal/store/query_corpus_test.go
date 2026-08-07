@@ -57,7 +57,13 @@ type queryCorpus struct {
 			Source string `json:"source"`
 			Target string `json:"target"`
 		} `json:"relations"`
-		Events []corpusEvent `json:"events"`
+		Events    []corpusEvent `json:"events"`
+		Knowledge []struct {
+			ID          string `json:"id"`
+			Path        string `json:"path"`
+			Commit      string `json:"commit"`
+			ContentHash string `json:"content_hash"`
+		} `json:"knowledge"`
 	} `json:"fixtures"`
 	Scenarios []struct {
 		ID              string         `json:"id"`
@@ -79,18 +85,19 @@ type queryCorpus struct {
 	} `json:"scenarios"`
 }
 
-func TestAcceptedQ1ToQ8Corpus(t *testing.T) {
+func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 	corpus := readQueryCorpus(t)
 	s := seedQueryCorpus(t, corpus)
+	gitKnowledge := seedKnowledgeCorpus(t, s, corpus)
 	results := map[string]any{}
 	run := 0
 	for _, scenario := range corpus.Scenarios {
-		if !q1ToQ8(scenario.QueryID) {
+		if !q1ToQ10(scenario.QueryID) {
 			continue
 		}
 		run++
 		input := resolveCorpusInput(scenario.Input, results)
-		result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride)
+		result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride, gitKnowledge.home)
 		if scenario.ExpectedError.Kind != "" {
 			if err == nil {
 				t.Fatalf("%s: expected %s, got success", scenario.ID, scenario.ExpectedError.Kind)
@@ -117,22 +124,23 @@ func TestAcceptedQ1ToQ8Corpus(t *testing.T) {
 			t.Fatalf("%s: authority %q, want %q", scenario.ID, authority, scenario.Expected.Authority)
 		}
 		for _, assertion := range scenario.Expected.Assertions {
-			assertCorpus(t, scenario.ID, encoded, assertion.Path, assertion.Op, assertion.Value)
+			value := resolveCorpusKnowledgeAlias(assertion.Path, assertion.Value, gitKnowledge)
+			assertCorpus(t, scenario.ID, encoded, assertion.Path, assertion.Op, value)
 		}
 		results[scenario.ID] = encoded
 	}
-	if run != 18 {
-		t.Fatalf("Q1-Q8 corpus scenarios executed = %d, want 18", run)
+	if run != 22 {
+		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 22", run)
 	}
 	assertExtraCrossProductFixture(t)
 }
 
-func q1ToQ8(id string) bool {
+func q1ToQ10(id string) bool {
 	if !strings.HasPrefix(id, "PM1.Q") {
 		return false
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(id, "PM1.Q"))
-	return err == nil && n >= 1 && n <= 8
+	return err == nil && n >= 1 && n <= 10
 }
 
 func readQueryCorpus(t *testing.T) queryCorpus {
@@ -326,7 +334,71 @@ func asFailure(err error, target **Failure) bool {
 	return false
 }
 
-func executeCorpusQuery(ctx context.Context, s *Store, id string, input map[string]any, override map[string]any) (any, error) {
+type corpusGitKnowledge struct {
+	home        KnowledgeHome
+	commitAlias map[string]string
+	hashAlias   map[string]string
+}
+
+func seedKnowledgeCorpus(t *testing.T, s *Store, corpus queryCorpus) corpusGitKnowledge {
+	t.Helper()
+	repo := initKnowledgeRepo(t)
+	workPath := "docs/work/2026-08-03-auth-release.md"
+	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z"))
+	writeKnowledgeFile(t, repo, "docs/lessons/2026-08-04-state-authority.md", canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-04T12:00:00Z", []string{"state-authority", "sqlite"}))
+	writeKnowledgeFile(t, repo, "docs/decisions/CD-0002-state-authority.md", canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-05T12:00:00Z", []string{"sqlite"}))
+	commit := commitKnowledgeRepo(t, repo, "accepted PM1 corpus")
+	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
+	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	var version int64
+	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id = 'work-done'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishCompactionLink(context.Background(), s, CompactionLinkRequest{EventID: "corpus-compaction-work-done", WorkID: "work-done", ExpectedVersion: version, Actor: "operator", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: workPath, Reason: "accepted corpus fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	commitAlias, hashAlias := map[string]string{}, map[string]string{}
+	for _, fixture := range corpus.Fixtures.Knowledge {
+		verified, err := VerifyCommittedNote(context.Background(), repo, commit, fixture.Path, "")
+		if err != nil {
+			t.Fatalf("fixture knowledge %q does not resolve to a committed note: %v", fixture.ID, err)
+		}
+		if existing := commitAlias[fixture.Commit]; existing != "" && existing != commit {
+			t.Fatalf("fixture commit alias %q resolves ambiguously", fixture.Commit)
+		}
+		if existing := hashAlias[fixture.ContentHash]; existing != "" && existing != verified.ContentHash {
+			t.Fatalf("fixture content hash alias %q resolves ambiguously", fixture.ContentHash)
+		}
+		commitAlias[fixture.Commit] = commit
+		hashAlias[fixture.ContentHash] = verified.ContentHash
+	}
+	return corpusGitKnowledge{home: home, commitAlias: commitAlias, hashAlias: hashAlias}
+}
+
+func resolveCorpusKnowledgeAlias(path string, value any, knowledge corpusGitKnowledge) any {
+	valueString, ok := value.(string)
+	if !ok {
+		return value
+	}
+	switch path {
+	case "$.note.commit", "$.items[*].commit":
+		if resolved := knowledge.commitAlias[valueString]; resolved != "" {
+			return resolved
+		}
+	case "$.note.content_hash", "$.items[*].content_hash":
+		if resolved := knowledge.hashAlias[valueString]; resolved != "" {
+			return resolved
+		}
+	}
+	return value
+}
+
+func executeCorpusQuery(ctx context.Context, s *Store, id string, input map[string]any, override map[string]any, home KnowledgeHome) (any, error) {
 	if override["source_stale"] == true && override["staleness_policy"] == "review_required" {
 		return nil, newFailure(KindStaleRequiresReview, id, "live source is stale and requires review", false, "review source freshness before retrying")
 	}
@@ -350,6 +422,25 @@ func executeCorpusQuery(ctx context.Context, s *Store, id string, input map[stri
 		return s.QueryQ7(ctx, Q7Request{Work: stringInput(input, "work"), Direction: stringInput(input, "direction"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q8":
 		return s.QueryQ8(ctx, Q8Request{Work: stringInput(input, "work"), RelationKinds: stringSliceInput(input, "relation_kinds"), Direction: stringInput(input, "direction")})
+	case "PM1.Q9":
+		result, err := s.QueryQ9(ctx, Q9Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Component: stringInput(input, "component"), Kinds: stringSliceInput(input, "kinds"), Tags: stringSliceInput(input, "tags"), Text: stringInput(input, "text"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
+		if err != nil {
+			return nil, err
+		}
+		if override["knowledge_index_lagging"] == true {
+			kept := result.Items[:0]
+			for _, item := range result.Items {
+				if item.ID != "knowledge-decision" {
+					kept = append(kept, item)
+				}
+			}
+			result.Items = kept
+			result.Authority = "degraded"
+			result.Omissions = []string{"knowledge-decision"}
+		}
+		return result, nil
+	case "PM1.Q10":
+		return s.QueryQ10(ctx, Q10Request{Work: stringInput(input, "work"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
 	}
 	return nil, fmt.Errorf("unsupported corpus query %s", id)
 }
@@ -361,6 +452,7 @@ func intInput(m map[string]any, k string) int {
 	}
 	return int(v)
 }
+func boolInput(m map[string]any, k string) bool { v, _ := m[k].(bool); return v }
 func stringSliceInput(m map[string]any, k string) []string {
 	v, ok := m[k].([]any)
 	if !ok {
@@ -530,6 +622,16 @@ func assertCorpus(t *testing.T, id string, result map[string]any, path, op strin
 	case "nonempty":
 		if got == nil || got == "" || (reflect.ValueOf(got).Kind() == reflect.Slice && reflect.ValueOf(got).Len() == 0) {
 			t.Fatalf("%s %s is empty", id, path)
+		}
+	case "all_nonempty":
+		items, ok := got.([]any)
+		if !ok || len(items) == 0 {
+			t.Fatalf("%s %s is empty or malformed", id, path)
+		}
+		for _, item := range items {
+			if item == nil || fmt.Sprint(item) == "" {
+				t.Fatalf("%s %s contains an empty value", id, path)
+			}
 		}
 	case "single_canonical_record":
 		m, ok := got.(map[string]any)

@@ -44,6 +44,9 @@ func knownSubjectTypes() []SubjectType {
 
 // Event is one row of the append-only log.
 type Event struct {
+	// Seq is populated when an event is read from the log. It is not caller
+	// supplied and is never persisted as part of the event payload.
+	Seq Sequence
 	// EventID is the caller-supplied stable identity. Repeating an append with
 	// the same identity is reported as a duplicate rather than creating a
 	// second effect.

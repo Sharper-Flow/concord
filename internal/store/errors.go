@@ -7,6 +7,15 @@ import "fmt"
 // changes.
 type FailureKind string
 
+// FailureStage is the closed phase where replay rejected an event.
+type FailureStage string
+
+const (
+	StageUpcast FailureStage = "upcast"
+	StageDecode FailureStage = "decode"
+	StageFold   FailureStage = "fold"
+)
+
 const (
 	// KindInvalidEvent marks an event whose required header fields are missing
 	// or empty.
@@ -103,6 +112,16 @@ type Failure struct {
 	// RecoveryAction states what resolves the failure.
 	RecoveryAction string   `json:"recovery_action"`
 	CandidateIDs   []string `json:"candidate_ids,omitempty"`
+	// Event attribution is populated for replay/reconstruction failures. It is
+	// deliberately bounded to the event header and fold stage; payload bytes do
+	// not belong in a durable diagnostic envelope.
+	EventID        string       `json:"event_id,omitempty"`
+	EventKind      string       `json:"event_kind,omitempty"`
+	PayloadVersion int          `json:"payload_version,omitempty"`
+	SubjectType    SubjectType  `json:"subject_type,omitempty"`
+	SubjectID      string       `json:"subject_id,omitempty"`
+	Sequence       int64        `json:"sequence,omitempty"`
+	Stage          FailureStage `json:"stage,omitempty"`
 	// Err is the underlying cause, when one exists.
 	Err error `json:"-"`
 }
@@ -131,4 +150,43 @@ func wrapFailure(kind FailureKind, op, detail string, retrySafe bool, recovery s
 	f := newFailure(kind, op, detail, retrySafe, recovery)
 	f.Err = err
 	return f
+}
+
+func attributeFailure(err error, event Event, stage FailureStage) error {
+	var failure *Failure
+	if !failureAs(err, &failure) {
+		failure = wrapFailure(KindInvalidPayload, "fold_event", "event fold failed", false,
+			"repair the event payload or install a compatible binary", err)
+	}
+	failure.EventID = event.EventID
+	failure.EventKind = event.Kind
+	failure.PayloadVersion = event.PayloadVersion
+	failure.SubjectType = event.SubjectType
+	failure.SubjectID = event.SubjectID
+	failure.Sequence = event.Seq
+	if failure.Stage == "" {
+		failure.Stage = stage
+	}
+	return failure
+}
+
+// failureAs is kept local so attribution can preserve wrapped typed failures
+// without requiring callers to know the implementation of errors.As.
+func failureAs(err error, target **Failure) bool {
+	if err == nil {
+		return false
+	}
+	for err != nil {
+		if failure, ok := err.(*Failure); ok {
+			*target = failure
+			return true
+		}
+		type unwrapper interface{ Unwrap() error }
+		u, ok := err.(unwrapper)
+		if !ok {
+			return false
+		}
+		err = u.Unwrap()
+	}
+	return false
 }

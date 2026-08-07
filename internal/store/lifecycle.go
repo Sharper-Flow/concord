@@ -3,15 +3,47 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 )
 
 type workCreatedPayload struct {
+	WorkKind string `json:"work_kind"`
+	Title    string `json:"title"`
+	Priority *int64 `json:"priority"`
+}
+
+type workCreatedV1Payload struct {
 	Kind     string `json:"kind"`
 	Title    string `json:"title"`
-	Priority int64  `json:"priority"`
+	Priority *int64 `json:"priority"`
+}
+
+func upcastWorkCreatedV1(event Event) (Event, error) {
+	var payload workCreatedV1Payload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event",
+			"work.created v1 payload is not valid", false,
+			"repair the stored work.created v1 payload", err)
+	}
+	if payload.Kind == "" || payload.Title == "" || payload.Priority == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event",
+			"work.created v1 payload is missing kind, title, or priority", false,
+			"supply work kind, title, and priority")
+	}
+	encoded, err := json.Marshal(workCreatedPayload{
+		WorkKind: payload.Kind, Title: payload.Title, Priority: payload.Priority,
+	})
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event",
+			"cannot encode work.created v2 payload", false,
+			"repair the stored work.created v1 payload", err)
+	}
+	event.PayloadVersion = 2
+	event.Payload = encoded
+	return event, nil
 }
 
 type workTransitionPayload struct {
@@ -78,7 +110,7 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if payload.Kind == "" || payload.Title == "" {
+	if payload.WorkKind == "" || payload.Title == "" || payload.Priority == nil {
 		return newFailure(KindInvalidPayload, "fold_event", "work.created payload has empty kind or title", false,
 			"supply non-empty work kind and title")
 	}
@@ -86,7 +118,7 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at, terminal_time)
 		VALUES (?, ?, ?, 'needed', ?, 1, ?, ?, NULL)`,
-		event.SubjectID, payload.Kind, payload.Title, payload.Priority, now, now)
+		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, now, now)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "work item already exists", false,

@@ -139,9 +139,15 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if payload.TerminalState != "completed" && payload.TerminalState != "cancelled" && payload.TerminalState != "superseded" {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction link has an invalid terminal state", false, "use a PM4 terminal state")
 	}
-	var existing compactionLinkPayload
-	err := tx.QueryRowContext(ctx, `SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,COALESCE(successor_work_id,''),home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, payload.ID).Scan(
-		&existing.ID, &existing.Type, &existing.Title, &existing.CompletedAt, &existing.OutcomeTag, &existing.LessonTags, &existing.TerminalState, &existing.Priority, &existing.Summary, &existing.SuccessorID, &existing.HomeProjectID, &existing.HomeLocatorID, &existing.NotePath, &existing.CommitOID, &existing.ContentHash)
+	var existing struct {
+		HomeProjectID string
+		HomeLocatorID string
+		NotePath      string
+		CommitOID     string
+		ContentHash   string
+	}
+	err := tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, payload.ID).Scan(
+		&existing.HomeProjectID, &existing.HomeLocatorID, &existing.NotePath, &existing.CommitOID, &existing.ContentHash)
 	if err == nil {
 		if existing.HomeProjectID != payload.HomeProjectID || existing.HomeLocatorID != payload.HomeLocatorID || existing.NotePath != payload.NotePath || existing.CommitOID != payload.CommitOID || existing.ContentHash != payload.ContentHash {
 			return newFailure(KindCompactionConflict, "fold_event", "work already has a different canonical locator", false, "resolve the competing canonical note before retrying")

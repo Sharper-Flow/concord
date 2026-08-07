@@ -30,6 +30,18 @@ const (
 	KindSchemaUnsupported FailureKind = "schema_unsupported"
 	// KindUnavailable marks a database that cannot be opened or prepared.
 	KindUnavailable FailureKind = "unavailable"
+	// KindInvalidOperation marks an operation that cannot be applied as a unit.
+	KindInvalidOperation FailureKind = "invalid_operation"
+	// KindVersionConflict marks an optimistic-concurrency precondition that no
+	// longer matches the projection version.
+	KindVersionConflict FailureKind = "version_conflict"
+	// KindUnknownEventKind marks a log event for which no fold handler exists.
+	KindUnknownEventKind FailureKind = "unknown_event_kind"
+	// KindProjectionNotFound marks an event whose subject has no current row.
+	KindProjectionNotFound FailureKind = "projection_not_found"
+	// KindProjectionConflict marks an event that cannot establish the requested
+	// projection identity because a row already exists.
+	KindProjectionConflict FailureKind = "projection_conflict"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

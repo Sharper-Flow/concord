@@ -65,6 +65,76 @@ BEGIN
 END;
 `,
 	},
+	{
+		Version: 2,
+		Name:    "typed_projections",
+		SQL: `
+CREATE TABLE fold_guard (
+    active INTEGER PRIMARY KEY,
+    CHECK (active = 1)
+);
+
+CREATE TABLE products (
+    id                          TEXT    PRIMARY KEY,
+    display_name                TEXT    NOT NULL,
+    stage_maturity              TEXT    NOT NULL CHECK (stage_maturity IN ('prototype', 'alpha', 'beta', 'production', 'deprecated')),
+    stage_audience_commitment   TEXT    NOT NULL CHECK (stage_audience_commitment IN ('operator_only', 'limited', 'public')),
+    version                     INTEGER NOT NULL,
+    created_at                  TEXT    NOT NULL,
+    updated_at                  TEXT    NOT NULL
+);
+
+CREATE TABLE projects (
+    id           TEXT    PRIMARY KEY,
+    display_name TEXT    NOT NULL,
+    version      INTEGER NOT NULL,
+    created_at   TEXT    NOT NULL,
+    updated_at   TEXT    NOT NULL
+);
+
+CREATE TRIGGER products_guard_insert
+BEFORE INSERT ON products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER products_guard_update
+BEFORE UPDATE ON products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER products_guard_delete
+BEFORE DELETE ON products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER projects_guard_insert
+BEFORE INSERT ON projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER projects_guard_update
+BEFORE UPDATE ON projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER projects_guard_delete
+BEFORE DELETE ON projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

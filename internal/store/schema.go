@@ -135,6 +135,78 @@ BEGIN
 END;
 `,
 	},
+	{
+		Version: 3,
+		Name:    "work_items_and_relations",
+		SQL: `
+CREATE TABLE work_items (
+    id            TEXT PRIMARY KEY,
+    kind          TEXT NOT NULL,
+    title         TEXT NOT NULL,
+    lifecycle     TEXT NOT NULL CHECK(lifecycle IN ('needed', 'in_progress', 'completed', 'cancelled', 'superseded')),
+    priority      INTEGER NOT NULL,
+    version       INTEGER NOT NULL,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    terminal_time TEXT
+);
+
+CREATE TABLE relations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id_from TEXT NOT NULL REFERENCES work_items(id),
+    work_id_to   TEXT NOT NULL REFERENCES work_items(id),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'blocks', 'supersedes', 'implements')),
+    created_at   TEXT NOT NULL,
+    CHECK(work_id_from <> work_id_to),
+    UNIQUE(work_id_from, work_id_to, kind)
+);
+
+CREATE INDEX idx_relations_from_kind ON relations(work_id_from, kind, work_id_to);
+CREATE UNIQUE INDEX relations_supersedes_target ON relations(work_id_to) WHERE kind = 'supersedes';
+
+CREATE TRIGGER work_items_guard_insert
+BEFORE INSERT ON work_items FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_items is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER work_items_guard_update
+BEFORE UPDATE ON work_items FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_items is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER work_items_guard_delete
+BEFORE DELETE ON work_items FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_items is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER relations_guard_insert
+BEFORE INSERT ON relations FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'relations is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER relations_guard_update
+BEFORE UPDATE ON relations FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'relations is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+CREATE TRIGGER relations_guard_delete
+BEFORE DELETE ON relations FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'relations is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -36,6 +36,21 @@ Before pushing, run the complete ordered gate in [AGENTS.md](AGENTS.md). The sca
 CLI has no dependencies beyond the Go toolchain; repository validation also requires
 Python 3.
 
+`bin/oc-test` groups those checks into three tiers and applies host admission
+control when a compatible throttle is installed, so several agents running local
+suites at once cannot saturate one machine:
+
+```sh
+bin/oc-test targeted -- -run TestRunVersion ./cmd/concord
+bin/oc-test smoke
+bin/oc-test full
+```
+
+`targeted` is unthrottled, `smoke` runs the Go sweep, and `full` reproduces the
+ordered gate with bounded workers and a wall-clock bound. The wrapper is
+optional: continuous integration calls the same commands natively, and the tiers
+still run, unthrottled and with a warning, when no throttle is installed.
+
 ## Repository map
 
 | Path | Purpose |
@@ -61,22 +76,6 @@ Development is GitHub-native until Concord proves replacement readiness:
 The first runtime milestone is the
 [storage-spine acceptance slice](docs/storage-spine-slice.md). Advance is predecessor
 evidence—not a dependency, development authority, or state store for Concord.
-
-`bin/oc-test` groups the same checks into three tiers and applies host
-admission control when a compatible throttle is installed, so several agents
-running local suites at once cannot saturate one machine:
-
-```sh
-bin/oc-test targeted -- -run TestRunVersion ./cmd/concord
-bin/oc-test smoke
-bin/oc-test full
-```
-
-`targeted` is unthrottled, `smoke` runs the Go sweep, and `full` reproduces the
-continuous-integration checks with bounded workers and a wall-clock bound. The
-wrapper is optional: continuous integration calls the same commands natively,
-and the tiers still run, unthrottled and with a warning, when no throttle is
-installed.
 
 ## Contributing and security
 

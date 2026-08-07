@@ -272,6 +272,14 @@ BEGIN
 END;
 `,
 	},
+	{
+		Version: 5,
+		Name:    "incoming_relation_lookup",
+		SQL: `
+CREATE INDEX idx_relations_to_kind
+ON relations(work_id_to, kind, work_id_from);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

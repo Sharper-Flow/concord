@@ -133,8 +133,8 @@ func TestMigrateEmptyVersion3DatabaseToVersion4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
-	if got != 4 {
-		t.Fatalf("SchemaVersion() = %d, want 4", got)
+	if got != 5 {
+		t.Fatalf("SchemaVersion() = %d, want 5", got)
 	}
 }
 

@@ -20,17 +20,17 @@ type membershipPayload struct {
 // ProjectMembership is a typed membership read with the Project's display
 // metadata. Role is intentionally read-only edge metadata.
 type ProjectMembership struct {
-	ID          string
-	DisplayName string
-	Role        string
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role"`
 }
 
 // ProductMembership is a typed membership read with the Product's display
 // metadata. Role is intentionally read-only edge metadata.
 type ProductMembership struct {
-	ID          string
-	DisplayName string
-	Role        string
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role"`
 }
 
 // ProductScope is the derived Product set for one canonical work item.

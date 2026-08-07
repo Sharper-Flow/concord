@@ -45,22 +45,22 @@ type ApplyOperationResult struct {
 
 // Product is the typed current projection of a Product identity.
 type Product struct {
-	ID                      string
-	DisplayName             string
-	StageMaturity           string
-	StageAudienceCommitment string
-	Version                 int64
-	CreatedAt               string
-	UpdatedAt               string
+	ID                      string `json:"id"`
+	DisplayName             string `json:"display_name"`
+	StageMaturity           string `json:"stage_maturity"`
+	StageAudienceCommitment string `json:"stage_audience_commitment"`
+	Version                 int64  `json:"version"`
+	CreatedAt               string `json:"created_at"`
+	UpdatedAt               string `json:"updated_at"`
 }
 
 // Project is the typed current projection of a Project identity.
 type Project struct {
-	ID          string
-	DisplayName string
-	Version     int64
-	CreatedAt   string
-	UpdatedAt   string
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Version     int64  `json:"version"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 type projectionMutation func(context.Context, *sql.Tx, Event) error

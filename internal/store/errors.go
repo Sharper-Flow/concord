@@ -72,6 +72,13 @@ const (
 	// KindMembershipMigrationRequired marks a pre-PM5 database that needs an
 	// explicit operator-supplied membership mapping before migration 4.
 	KindMembershipMigrationRequired FailureKind = "membership_migration_required"
+	KindUnknownScope                FailureKind = "unknown_scope"
+	KindAmbiguousScope              FailureKind = "ambiguous_scope"
+	KindInvalidFilter               FailureKind = "invalid_filter"
+	KindInvalidCursor               FailureKind = "invalid_cursor"
+	KindStaleRequiresReview         FailureKind = "stale_requires_review"
+	KindInvariantViolation          FailureKind = "invariant_violation"
+	KindUnreachable                 FailureKind = "unreachable"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's
@@ -79,17 +86,18 @@ const (
 // reclassifying it.
 type Failure struct {
 	// Kind is the closed classification.
-	Kind FailureKind
+	Kind FailureKind `json:"kind"`
 	// Op names the operation that failed.
-	Op string
+	Op string `json:"-"`
 	// Detail explains the specific cause.
-	Detail string
+	Detail string `json:"detail,omitempty"`
 	// RetrySafe reports whether repeating the same call is safe.
-	RetrySafe bool
+	RetrySafe bool `json:"retry_safe"`
 	// RecoveryAction states what resolves the failure.
-	RecoveryAction string
+	RecoveryAction string   `json:"recovery_action"`
+	CandidateIDs   []string `json:"candidate_ids,omitempty"`
 	// Err is the underlying cause, when one exists.
-	Err error
+	Err error `json:"-"`
 }
 
 func (f *Failure) Error() string {

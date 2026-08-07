@@ -95,6 +95,9 @@ const (
 	KindKnowledgeAmbiguous          FailureKind = "knowledge_ambiguous"
 	KindKnowledgeMissing            FailureKind = "knowledge_missing"
 	KindCompactionConflict          FailureKind = "compaction_conflict"
+	KindStaleAttempt                FailureKind = "stale_attempt"
+	KindIdempotencyConflict         FailureKind = "idempotency_conflict"
+	KindTakeoverRequired            FailureKind = "takeover_required"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

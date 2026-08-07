@@ -1,0 +1,25 @@
+name: ten-process-conformance
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - name: Run production-like ten-process conformance
+        env:
+          CONCORD_CONFORMANCE_LONG: "1"
+        run: go test -count=1 -run '^TestTenProcessConformance$' -v ./internal/store

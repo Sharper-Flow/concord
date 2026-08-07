@@ -5,6 +5,7 @@
 # Tiers:
 #   targeted  Ungated. Runs `go test` with caller-supplied arguments.
 #   smoke     Gated. Go sweep: gofmt, go vet, go test ./...
+#   conformance Gated production-like ten-process conformance harness.
 #   full      Gated, bounded workers and wall-clock bound. Continuous-integration
 #             parity: repository validators, gofmt, module tidiness, go vet, and
 #             the race-detector test run.
@@ -27,11 +28,12 @@ full_timeout="${OC_TEST_FULL_TIMEOUT:-20m}"
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bin/oc-test <targeted|smoke|full> [-- <go test args...>]
+Usage: bin/oc-test <targeted|smoke|conformance|full> [-- <go test args...>]
 
   targeted   Ungated go test; defaults to ./... when no arguments are given.
              Example: bin/oc-test targeted -- -run TestRunVersion ./cmd/concord
   smoke      gofmt, go vet, go test ./...
+  conformance  long uninstrumented ten-process SQLite harness under host admission control
   full       Validators, gofmt, module tidiness, go vet, go test -race,
              with bounded workers and a wall-clock bound.
 
@@ -109,6 +111,10 @@ git diff --exit-code -- go.mod go.sum
 go vet ./...
 go test -race -p \"\$1\" ./...
 " bash "$full_workers"
+    ;;
+  conformance)
+    [[ $# -eq 0 ]] || usage
+    run_tier full env CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessConformance$' ./internal/store -v
     ;;
   *)
     usage

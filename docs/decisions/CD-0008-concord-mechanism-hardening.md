@@ -5,7 +5,8 @@
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-06
 **Amended by operator:** 2026-08-06 — SQLite confirmed; alternative-engine
-comparison is falsifier-only.
+comparison is falsifier-only. CD-0011 records the completed 2026-08-07
+post-falsifier review and retains SQLite.
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.

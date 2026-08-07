@@ -133,8 +133,8 @@ func TestMigrateEmptyVersion3DatabaseToVersion4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
-	if got != 6 {
-		t.Fatalf("SchemaVersion() = %d, want 6", got)
+	if got != CurrentSchemaVersion() {
+		t.Fatalf("SchemaVersion() = %d, want %d", got, CurrentSchemaVersion())
 	}
 }
 
@@ -255,6 +255,12 @@ func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 	if applied != len(migrations) {
 		t.Errorf("applied migrations = %d, want %d", applied, len(migrations))
 	}
+}
+
+func TestSchemaCompatibilityRejectsCallerOlderThanDatabase(t *testing.T) {
+	s := openTemp(t)
+	_, err := CheckSchemaCompatibility(context.Background(), s.DB(), CurrentSchemaVersion()-1)
+	assertFailureKind(t, err, KindSchemaUnsupported)
 }
 
 // The manifest records a checksum per migration so an edited historical

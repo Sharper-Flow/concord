@@ -452,6 +452,49 @@ BEGIN
     SELECT RAISE(ABORT, 'knowledge_index_watermark is fold-only')
     WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
 END;
+		`,
+	},
+	{
+		Version: 7,
+		Name:    "durable_operations_and_idempotency",
+		SQL: `
+CREATE TABLE durable_operations (
+    op_id TEXT NOT NULL,
+    attempt_epoch INTEGER NOT NULL,
+    work_id TEXT NOT NULL,
+    workflow_type_ref TEXT NOT NULL,
+    workflow_type_version INTEGER NOT NULL,
+    step_id TEXT NOT NULL,
+    step_kind TEXT NOT NULL CHECK(step_kind IN ('internal_sqlite','cross_authority','external_effect')),
+    accepted_inputs_digest TEXT NOT NULL,
+    accepted_scope_snapshot TEXT NOT NULL,
+    result_kind TEXT CHECK(result_kind IS NULL OR result_kind IN ('completed','pending','partial','failed','failed_stale')),
+    result_payload TEXT,
+    evidence_refs TEXT NOT NULL DEFAULT '[]',
+    changed_refs TEXT NOT NULL DEFAULT '[]',
+    resume_cursor TEXT,
+    principal_ref TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    completed_at TEXT,
+    PRIMARY KEY(op_id, attempt_epoch)
+);
+CREATE INDEX durable_operations_pending ON durable_operations(work_id,result_kind)
+    WHERE result_kind IS NULL OR result_kind IN ('pending','partial');
+
+CREATE TABLE idempotency_records (
+    principal_ref TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    operation_kind TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    canonical_digest TEXT NOT NULL,
+    op_id TEXT NOT NULL,
+    result_event_ids TEXT NOT NULL DEFAULT '[]',
+    replayed_count INTEGER NOT NULL DEFAULT 0,
+    first_observed_at TEXT NOT NULL,
+    last_observed_at TEXT NOT NULL,
+    PRIMARY KEY(principal_ref,tool,operation_kind,idempotency_key)
+);
 `,
 	},
 }
@@ -504,8 +547,12 @@ func CurrentSchemaVersion() int {
 // CheckSchemaCompatibility verifies the complete recorded manifest and reports
 // whether this binary can operate on it. Newer or drifted manifests return the
 // existing typed fail-closed migration errors.
-func CheckSchemaCompatibility(ctx context.Context, db *sql.DB) (SchemaCompatibility, error) {
-	compatibility := SchemaCompatibility{CurrentVersion: CurrentSchemaVersion()}
+func CheckSchemaCompatibility(ctx context.Context, db *sql.DB, supportedMax ...int) (SchemaCompatibility, error) {
+	current := CurrentSchemaVersion()
+	if len(supportedMax) > 0 {
+		current = supportedMax[0]
+	}
+	compatibility := SchemaCompatibility{CurrentVersion: current}
 	if db == nil {
 		return compatibility, newFailure(KindUnavailable, "schema_compatibility", "database is not open", false, "open a database before checking schema compatibility")
 	}
@@ -515,6 +562,15 @@ func CheckSchemaCompatibility(ctx context.Context, db *sql.DB) (SchemaCompatibil
 	}
 	if err := checkManifest(applied); err != nil {
 		return compatibility, err
+	}
+	if compatibility.CurrentVersion < CurrentSchemaVersion() {
+		for version := range applied {
+			if version > compatibility.CurrentVersion {
+				return compatibility, newFailure(KindSchemaUnsupported, "schema_compatibility",
+					fmt.Sprintf("the database records migration %d, which exceeds the caller-supported schema %d", version, compatibility.CurrentVersion), true,
+					"upgrade the binary before opening this database")
+			}
+		}
 	}
 	for version := range applied {
 		if version > compatibility.AppliedVersion {

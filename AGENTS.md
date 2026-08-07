@@ -51,6 +51,7 @@ machine:
 |---|---|---|
 | `bin/oc-test targeted -- <args>` | `go test` with your arguments | no |
 | `bin/oc-test smoke` | `gofmt`, `go vet`, `go test ./...` | yes |
+| `bin/oc-test conformance` | ten-process SQLite race harness | yes |
 | `bin/oc-test full` | the ordered gate above, minus `govulncheck` | yes, plus bounded `go test -p` workers and a wall-clock bound |
 
 `full` scopes its module check to `git diff --exit-code -- go.mod go.sum`, so it works in

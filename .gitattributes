@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.go text diff=golang
+*.json text diff
+*.md text diff
+*.yml text diff
+*.yaml text diff

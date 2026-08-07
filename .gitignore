@@ -1,0 +1,14 @@
+# Local build output
+/concord
+/bin/
+
+# Go tooling and editor state
+*.test
+*.out
+coverage.out
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.idea/
+.vscode/

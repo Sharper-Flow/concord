@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/Sharper-Flow/concord/security/advisories/new
+    about: Report suspected vulnerabilities privately through GitHub Security Advisories.

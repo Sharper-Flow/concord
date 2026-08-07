@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - name: Validate public content
+        run: python3 scripts/check-public-content.py
+      - name: Validate documentation links
+        run: python3 scripts/check-doc-links.py
+      - name: Validate JSON
+        run: python3 scripts/check-json.py
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Tidy Go modules
+        run: go mod tidy
+      - name: Check module diff
+        run: git diff --exit-code
+      - name: Vet
+        run: go vet ./...
+      - name: Test with race detector
+        run: go test -race ./...
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

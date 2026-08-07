@@ -1,0 +1,98 @@
+# Concord Rollout Plan
+
+> **Status:** Public bootstrap and replacement-readiness sequence.
+> **Authority:** [`priorities.md`](./priorities.md) owns the ranked priorities and
+> operating envelope; this document owns sequencing and entry conditions.
+> **Origin:** Product direction recorded 2026-07-25; public bootstrap execution
+> authorized 2026-08-07 under CD-0007.
+
+## Public boundary
+
+The constitutional snapshot is prepared for `Sharper-Flow/concord`, module
+`github.com/sharper-flow/concord`, default branch `main`. Public authority begins
+at the annotated `constitutional-bootstrap` tag. The candidate does not import
+private history, dependency inventories, archive bundles, or synchronization files.
+
+Advance is a public predecessor and lesson source, not a runtime prerequisite or a
+second authority. Reachable issue-backed lessons are summarized in
+[`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md).
+
+## 1. Work allowed before replacement readiness
+
+The following may proceed through ordinary public GitHub Issues, branches, worktrees,
+pull requests, and checks:
+
+- refine constitutional docs, specifications, and decision records;
+- implement the accepted storage/core slice after bootstrap;
+- build contract validators and synthetic conformance scenarios;
+- develop the agent adapter and workflow types within accepted decisions;
+- run public-source research and record bounded, dated findings;
+- improve documentation links, examples, and release evidence.
+
+The authority model for this work is accepted in
+[`development-authority.md`](./development-authority.md) and CD-0010.
+
+## 2. Entry conditions
+
+Runtime implementation proceeds only when all of these are true:
+
+1. The public constitutional snapshot is tagged `constitutional-bootstrap`.
+2. GitHub Issues, pull requests, required checks, branches, and worktrees are the
+   active interim authority model.
+3. CD-0002 fixes SQLite as the sole durable authority; PM2/PM3 fix global scope and
+   typed projections.
+4. CD-0005 fixes the bounded agent surface and TS1–TS9 evaluation contracts.
+5. CD-0006 fixes root Product policy, workflow composition, rigor bands, and
+   cross-workflow impact propagation.
+6. CD-0008 fixes mechanism hardening: immutable evidence subjects, typed degradation,
+   attempt fencing, external conditions, and schema/history evolution.
+7. CD-0009 fixes active research context as bounded working context, not a second
+   durable-knowledge authority.
+8. The accepted storage-spine conformance slice has a public verification plan.
+
+Missing conditions block runtime implementation but do not block documentation,
+research, or clarification work.
+
+## 3. Replacement-ready floor
+
+Concord is not replacement-ready after a partial dashboard, isolated tool, or
+single workflow. The full floor must be proven for one operator and many concurrent
+agents on one machine:
+
+- Product-first visibility, planning, implementation, research, investigation, ops,
+  and durable product knowledge are covered;
+- every supported work kind has a versioned workflow and completion evidence;
+- SQLite authority, safe evolution, recovery, and cross-workflow impact rules are
+  demonstrated by conformance scenarios;
+- TS1–TS9 agent jobs and result envelopes are validated with synthetic scenarios;
+- external systems retain authority for their own execution and enforcement;
+- release, install, privacy, and Linux amd64 evidence meet CD-0007's floor.
+
+## 4. Later migration
+
+Concord does not self-host its own development workflow before the replacement-ready
+floor is proven. After the floor is accepted, migration proceeds one Product at a
+time under the accepted fix-forward policy:
+
+- all Projects in the selected Product move together;
+- only deliberately selected active work moves;
+- a migrated Product fixes forward in Concord and does not roll back;
+- the predecessor remains authority only for Products not yet migrated;
+- the predecessor retires after the final Product migration.
+
+Migration is a later accepted operation, not an implication of a passing test or a
+partial implementation.
+
+## 5. Related authority
+
+| Document | Role |
+|---|---|
+| [`priorities.md`](./priorities.md) | Canonical priorities, operating envelope, and replacement floor. |
+| [`development-authority.md`](./development-authority.md) | Interim GitHub/Git/docs authority. |
+| [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
+| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Accepted pre-readiness development authority. |
+| [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
+| [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
+| [`storage-spine-slice.md`](./storage-spine-slice.md) | First implementation acceptance slice. |
+
+*Each phase earns the next through public evidence, not calendar pressure.*

@@ -1,0 +1,27 @@
+name: Product proposal
+description: Propose a consequential Product, workflow, contract, or authority change
+title: "proposal: "
+labels:
+  - proposal
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and user outcome
+      description: What problem is being solved, for whom, and how will success be observed?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope
+      description: Describe the smallest coherent change and affected public contracts.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and alternatives
+      description: Provide evidence, rejected alternatives, risks, and verification plan.
+    validations:
+      required: true

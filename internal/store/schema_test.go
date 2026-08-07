@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -56,6 +57,121 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if applied != len(migrations) {
 		t.Errorf("applied migrations = %d, want %d", applied, len(migrations))
 	}
+}
+
+func TestMigrateLeavesPopulatedVersion3DatabaseUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord.db")
+	ctx := context.Background()
+	db := seedVersion3Database(t, path)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard (active) VALUES (1)`); err != nil {
+		t.Fatalf("enable fold guard: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO products (id, display_name, stage_maturity, stage_audience_commitment, version, created_at, updated_at) VALUES ('product-1', 'Concord', 'prototype', 'operator_only', 1, '2026-08-07T12:00:00Z', '2026-08-07T12:00:00Z')`); err != nil {
+		t.Fatalf("insert v3 Product fixture: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard WHERE active = 1`); err != nil {
+		t.Fatalf("disable fold guard: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("seed database Close() error = %v", err)
+	}
+
+	_, err := Open(ctx, path)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("Open() error = %v, want *Failure", err)
+	}
+	if failure.Kind != KindMembershipMigrationRequired {
+		t.Fatalf("Open() failure kind = %q, want %q", failure.Kind, KindMembershipMigrationRequired)
+	}
+	if failure.RetrySafe {
+		t.Fatal("membership migration failure is retry-safe; want explicit recovery")
+	}
+	if !strings.Contains(failure.RecoveryAction, "stable IDs") || !strings.Contains(failure.RecoveryAction, "v3 binary") {
+		t.Fatalf("RecoveryAction = %q, want explicit stable-ID or v3 recovery", failure.RecoveryAction)
+	}
+
+	check, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatalf("reopen v3 database: %v", err)
+	}
+	check.SetMaxOpenConns(1)
+	defer func() { _ = check.Close() }()
+	if got, err := SchemaVersion(ctx, check); err != nil || got != 3 {
+		t.Fatalf("SchemaVersion() = %d, error = %v, want exactly 3", got, err)
+	}
+	var membershipTables int
+	if err := check.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('product_projects', 'work_projects')`).Scan(&membershipTables); err != nil {
+		t.Fatalf("check membership tables: %v", err)
+	}
+	if membershipTables != 0 {
+		t.Fatalf("membership tables = %d, want none", membershipTables)
+	}
+	var id, name string
+	if err := check.QueryRowContext(ctx, `SELECT id, display_name FROM products`).Scan(&id, &name); err != nil {
+		t.Fatalf("read original Product fixture: %v", err)
+	}
+	if id != "product-1" || name != "Concord" {
+		t.Fatalf("original Product fixture = %q/%q, want product-1/Concord", id, name)
+	}
+}
+
+func TestMigrateEmptyVersion3DatabaseToVersion4(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord.db")
+	ctx := context.Background()
+	db := seedVersion3Database(t, path)
+	if err := db.Close(); err != nil {
+		t.Fatalf("seed database Close() error = %v", err)
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() empty v3 database error = %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	got, err := SchemaVersion(ctx, s.DB())
+	if err != nil {
+		t.Fatalf("SchemaVersion() error = %v", err)
+	}
+	if got != 4 {
+		t.Fatalf("SchemaVersion() = %d, want 4", got)
+	}
+}
+
+func seedVersion3Database(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("begin v3 seed transaction: %v", err)
+	}
+	rollback := func(err error) *sql.DB {
+		_ = tx.Rollback()
+		_ = db.Close()
+		t.Fatalf("seed v3 database: %v", err)
+		return nil
+	}
+	if _, err := tx.ExecContext(context.Background(), schemaManifestDDL); err != nil {
+		return rollback(err)
+	}
+	for _, m := range migrations[:3] {
+		if _, err := tx.ExecContext(context.Background(), m.SQL); err != nil {
+			return rollback(err)
+		}
+		if _, err := tx.ExecContext(context.Background(), `INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, '2026-08-07T12:00:00Z')`, m.Version, m.Name, m.checksum()); err != nil {
+			return rollback(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		_ = db.Close()
+		t.Fatalf("commit v3 seed transaction: %v", err)
+	}
+	return db
 }
 
 func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {

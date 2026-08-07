@@ -67,6 +67,36 @@ func projectionSnapshot(t *testing.T, s *Store) string {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate projection snapshot: %v", err)
 	}
+	rows.Close()
+	rows, err = s.DB().QueryContext(ctx, `SELECT product_id, project_id, role FROM product_projects ORDER BY product_id, project_id`)
+	if err != nil {
+		t.Fatalf("snapshot Product memberships: %v", err)
+	}
+	for rows.Next() {
+		var productID, projectID, role string
+		if err := rows.Scan(&productID, &projectID, &role); err != nil {
+			t.Fatalf("scan Product membership snapshot: %v", err)
+		}
+		snapshot += fmt.Sprintf("product_project|%s|%s|%s\n", productID, projectID, role)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate Product membership snapshot: %v", err)
+	}
+	rows.Close()
+	rows, err = s.DB().QueryContext(ctx, `SELECT work_id, project_id, role FROM work_projects ORDER BY work_id, project_id`)
+	if err != nil {
+		t.Fatalf("snapshot work memberships: %v", err)
+	}
+	for rows.Next() {
+		var workID, projectID, role string
+		if err := rows.Scan(&workID, &projectID, &role); err != nil {
+			t.Fatalf("scan work membership snapshot: %v", err)
+		}
+		snapshot += fmt.Sprintf("work_project|%s|%s|%s\n", workID, projectID, role)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate work membership snapshot: %v", err)
+	}
 	return snapshot
 }
 
@@ -75,11 +105,15 @@ func TestRebuildFromLogPreservesCompleteProjectionContent(t *testing.T) {
 	ctx := context.Background()
 
 	operations := []Operation{
-		{Events: []Event{productCreatedEvent("product-1", "event-1")}, ExpectedVersions: map[string]int64{"product-1": 0}},
-		{Events: []Event{projectCreatedEvent("project-1", "event-2")}, ExpectedVersions: map[string]int64{"project-1": 0}},
-		{Events: []Event{operationEvent("event-3", "product.renamed", SubjectProduct, "product-1", map[string]string{"display_name": "Concord Core"})}, ExpectedVersions: map[string]int64{"product-1": 1}},
-		{Events: []Event{operationEvent("event-4", "product.stage_changed", SubjectProduct, "product-1", map[string]string{"stage_maturity": "alpha", "stage_audience_commitment": "limited"})}, ExpectedVersions: map[string]int64{"product-1": 2}},
-		{Events: []Event{operationEvent("event-5", "project.renamed", SubjectProject, "project-1", map[string]string{"display_name": "Core Runtime"})}, ExpectedVersions: map[string]int64{"project-1": 1}},
+		{Events: []Event{
+			productCreatedEvent("product-1", "event-1"), projectCreatedEvent("project-1", "event-2"),
+			operationEvent("event-3", "product_project.added", SubjectProduct, "product-1", map[string]any{
+				"product_id": "product-1", "project_id": "project-1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
+			}),
+		}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0, VersionRef(SubjectProject, "project-1"): 0}},
+		{Events: []Event{operationEvent("event-4", "product.renamed", SubjectProduct, "product-1", map[string]string{"display_name": "Concord Core"})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 2}},
+		{Events: []Event{operationEvent("event-5", "product.stage_changed", SubjectProduct, "product-1", map[string]string{"stage_maturity": "alpha", "stage_audience_commitment": "limited"})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 3}},
+		{Events: []Event{operationEvent("event-6", "project.renamed", SubjectProject, "project-1", map[string]string{"display_name": "Core Runtime"})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-1"): 1}},
 	}
 	for _, operation := range operations {
 		if err := ApplyOperation(ctx, s, operation); err != nil {
@@ -101,16 +135,10 @@ func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{
-		Events:           []Event{productCreatedEvent("product-1", "event-1")},
-		ExpectedVersions: map[string]int64{"product-1": 0},
+		Events:           []Event{productCreatedEvent("product-1", "event-1"), projectCreatedEvent("project-1", "event-2"), operationEvent("event-3", "product_project.added", SubjectProduct, "product-1", map[string]any{"product_id": "product-1", "project_id": "project-1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0, VersionRef(SubjectProject, "project-1"): 0},
 	}); err != nil {
 		t.Fatalf("seed Product: %v", err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{
-		Events:           []Event{projectCreatedEvent("project-1", "event-2")},
-		ExpectedVersions: map[string]int64{"project-1": 0},
-	}); err != nil {
-		t.Fatalf("seed Project: %v", err)
 	}
 
 	for _, tc := range []struct {
@@ -137,7 +165,7 @@ func TestFoldGuardIsEmptyAfterSuccessfulFolds(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("product-1", "event-1")}, ExpectedVersions: map[string]int64{"product-1": 0}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("product-1", "event-1"), projectCreatedEvent("project-1", "event-2"), operationEvent("event-3", "product_project.added", SubjectProduct, "product-1", map[string]any{"product_id": "product-1", "project_id": "project-1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0, VersionRef(SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatalf("ApplyOperation() error = %v", err)
 	}
 	assertFoldGuardEmpty(t, s)
@@ -154,7 +182,7 @@ func TestFailedOperationRollsBackLogProjectionAndGuard(t *testing.T) {
 	err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		productCreatedEvent("product-1", "event-1"),
 		operationEvent("event-2", "product.renamed", SubjectProduct, "product-1", map[string]int{"display_name": 7}),
-	}, ExpectedVersions: map[string]int64{"product-1": 0}})
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0}})
 	assertFailureKind(t, err, KindInvalidPayload)
 	assertFoldGuardEmpty(t, s)
 	assertTableCount(t, s, "domain_events", 0)
@@ -164,16 +192,16 @@ func TestFailedOperationRollsBackLogProjectionAndGuard(t *testing.T) {
 func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("product-1", "event-1")}, ExpectedVersions: map[string]int64{"product-1": 0}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("product-1", "event-1"), projectCreatedEvent("project-1", "event-2"), operationEvent("event-3", "product_project.added", SubjectProduct, "product-1", map[string]any{"product_id": "product-1", "project_id": "project-1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0, VersionRef(SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatalf("seed ApplyOperation() error = %v", err)
 	}
 
 	err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		operationEvent("event-2", "product.renamed", SubjectProduct, "product-1", map[string]string{"display_name": "stale"}),
-	}, ExpectedVersions: map[string]int64{"product-1": 0}})
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0}})
 	assertFailureKind(t, err, KindVersionConflict)
 	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "domain_events", 1)
+	assertTableCount(t, s, "domain_events", 3)
 	assertTableCount(t, s, "products", 1)
 	var name string
 	if err := s.DB().QueryRowContext(ctx, `SELECT display_name FROM products WHERE id = 'product-1'`).Scan(&name); err != nil {
@@ -215,7 +243,7 @@ func TestMultiEventOperationRollsBackWhenSecondEventFails(t *testing.T) {
 	operation := Operation{Events: []Event{
 		productCreatedEvent("product-1", "event-1"),
 		operationEvent("event-2", "product.stage_changed", SubjectProduct, "product-1", map[string]string{"stage_maturity": "invalid", "stage_audience_commitment": "limited"}),
-	}, ExpectedVersions: map[string]int64{"product-1": 0}}
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0}}
 
 	err := ApplyOperation(context.Background(), s, operation)
 	assertFailureKind(t, err, KindInvalidPayload)

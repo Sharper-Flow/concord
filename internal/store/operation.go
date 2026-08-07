@@ -65,6 +65,33 @@ type Project struct {
 
 type projectionMutation func(context.Context, *sql.Tx, Event) error
 
+// operationObserver is an unexported white-box measurement surface. It is
+// passed through the operation call graph rather than stored globally, so
+// production callers pay no instrumentation cost and concurrent workers cannot
+// overwrite one another's samples.
+type operationObserver struct {
+	beginWait      time.Duration
+	commitDuration time.Duration
+}
+
+func beginObservedTx(ctx context.Context, db *sql.DB, observer *operationObserver) (*sql.Tx, error) {
+	started := time.Now()
+	tx, err := db.BeginTx(ctx, nil)
+	if observer != nil {
+		observer.beginWait = time.Since(started)
+	}
+	return tx, err
+}
+
+func commitObservedTx(tx *sql.Tx, observer *operationObserver) error {
+	started := time.Now()
+	err := tx.Commit()
+	if observer != nil {
+		observer.commitDuration = time.Since(started)
+	}
+	return err
+}
+
 // Upcaster turns one persisted payload version into the next version. It must
 // be pure: the input Event is copied by value, and the returned payload is the
 // only state visible to the current fold.
@@ -191,6 +218,19 @@ func ApplyOperation(ctx context.Context, s *Store, operation Operation) error {
 // ApplyOperationWithResult appends and folds one operation in one transaction,
 // returning the bounded impact of any Product↔Project membership change.
 func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation) (ApplyOperationResult, error) {
+	return applyOperationWithResult(ctx, s, operation, nil)
+}
+
+// preCommitHook is deliberately unexported. Tests use it to stop a process at
+// the exact point where all writes are present but before SQLite commit; the
+// production API always passes nil and has no mutable hook or callback state.
+type preCommitHook func() error
+
+func applyOperationWithResult(ctx context.Context, s *Store, operation Operation, beforeCommit preCommitHook) (ApplyOperationResult, error) {
+	return applyOperationObserved(ctx, s, operation, beforeCommit, nil)
+}
+
+func applyOperationObserved(ctx context.Context, s *Store, operation Operation, beforeCommit preCommitHook, observer *operationObserver) (ApplyOperationResult, error) {
 	var output ApplyOperationResult
 	if s == nil || s.db == nil {
 		return output, newFailure(KindUnavailable, "apply_operation", "store is not open", false,
@@ -208,7 +248,7 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 		}
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginObservedTx(ctx, s.db, observer)
 	if err != nil {
 		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot begin domain operation", true,
 			"retry once the database is writable", err)
@@ -264,7 +304,12 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 	if err := leaveFold(ctx, tx); err != nil {
 		return output, rollback(err)
 	}
-	if err := tx.Commit(); err != nil {
+	if beforeCommit != nil {
+		if err := beforeCommit(); err != nil {
+			return output, rollback(err)
+		}
+	}
+	if err := commitObservedTx(tx, observer); err != nil {
 		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
 			"retry once the database is writable", err)
 	}

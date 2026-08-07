@@ -54,8 +54,8 @@ func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 6 {
-		t.Fatalf("schema version = %d, want 6", version)
+	if version != CurrentSchemaVersion() {
+		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion())
 	}
 	rows, err := s.DB().Query(`EXPLAIN QUERY PLAN SELECT work_id_from FROM relations WHERE work_id_to = ? AND kind = ?`, "blocked", "blocks")
 	if err != nil {

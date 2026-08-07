@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAX_FINDINGS = 200
 SKIP = {"scripts/check-public-content.py", "scripts/check-doc-links.py", "scripts/check-json.py"}
-TEXT_NAMES = {".editorconfig", ".gitattributes", ".gitignore", "LICENSE"}
+TEXT_NAMES = {".editorconfig", ".gitattributes", ".gitignore", "LICENSE", "oc-test"}
 TEXT_SUFFIXES = {".go", ".json", ".md", ".py", ".toml", ".txt", ".yml", ".yaml"}
 
 PATTERNS = [

@@ -26,6 +26,13 @@ pull request when their scope is clear.
 Run the relevant checks before opening a pull request:
 
 ```sh
+bin/oc-test full
+```
+
+That tier runs the repository validators, formatting, module tidiness, vetting,
+and the race-detector test run. The individual commands remain available:
+
+```sh
 gofmt -l .
 python3 scripts/check-doc-links.py
 python3 scripts/check-public-content.py

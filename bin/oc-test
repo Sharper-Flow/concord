@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# Repository-local test throttle wrapper.
+#
+# Tiers:
+#   targeted  Ungated. Runs `go test` with caller-supplied arguments.
+#   smoke     Gated. Go sweep: gofmt, go vet, go test ./...
+#   full      Gated, bounded workers and wall-clock bound. Continuous-integration
+#             parity: repository validators, gofmt, module tidiness, go vet, and
+#             the race-detector test run.
+#
+# Host admission control is provided by `oc-test-gate` when it is installed.
+# When it is missing the tier still runs, unthrottled, after a warning. The
+# continuous-integration workflow does not use this wrapper; it calls the same
+# underlying commands natively so its behavior stays deterministic.
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+# `go test -p` caps how many package test binaries run at once; without it Go
+# defaults to GOMAXPROCS, which saturates the machine when several agents run
+# the full tier concurrently.
+full_workers="${OC_TEST_GO_WORKERS:-4}"
+full_timeout="${OC_TEST_FULL_TIMEOUT:-20m}"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: bin/oc-test <targeted|smoke|full> [-- <go test args...>]
+
+  targeted   Ungated go test; defaults to ./... when no arguments are given.
+             Example: bin/oc-test targeted -- -run TestRunVersion ./cmd/concord
+  smoke      gofmt, go vet, go test ./...
+  full       Validators, gofmt, module tidiness, go vet, go test -race,
+             with bounded workers and a wall-clock bound.
+
+Environment:
+  OC_TEST_GO_WORKERS     full-tier `go test -p` value (default 4)
+  OC_TEST_FULL_TIMEOUT   full-tier wall-clock bound (default 20m)
+USAGE
+  exit 64
+}
+
+# Run one tier, wrapped in host admission control when it is available.
+run_tier() {
+  local tier="$1"
+  shift
+
+  local -a gate=()
+  if command -v oc-test-gate >/dev/null 2>&1; then
+    gate=(oc-test-gate "$tier")
+    if [[ "$tier" == "full" ]]; then
+      gate+=(--timeout "$full_timeout")
+    fi
+    gate+=(--)
+  elif [[ "$tier" != "targeted" ]]; then
+    printf 'bin/oc-test: oc-test-gate not found on PATH; running the %s tier unthrottled.\n' "$tier" >&2
+    printf 'bin/oc-test: concurrent runs on this machine are not admission-controlled.\n' >&2
+  fi
+
+  local rc=0
+  set +e
+  "${gate[@]+"${gate[@]}"}" "$@"
+  rc=$?
+  set -e
+  exit "$rc"
+}
+
+check_gofmt='
+unformatted="$(gofmt -l .)"
+if [ -n "$unformatted" ]; then
+  printf "gofmt: files need formatting:\n%s\n" "$unformatted" >&2
+  exit 1
+fi
+'
+
+tier="${1:-}"
+[[ -n "$tier" ]] || usage
+shift || true
+[[ "${1:-}" != "--" ]] || shift
+
+case "$tier" in
+  targeted)
+    if [[ $# -eq 0 ]]; then
+      set -- ./...
+    fi
+    run_tier targeted go test "$@"
+    ;;
+  smoke)
+    [[ $# -eq 0 ]] || usage
+    run_tier smoke bash -c "
+set -euo pipefail
+${check_gofmt}
+go vet ./...
+go test ./...
+"
+    ;;
+  full)
+    [[ $# -eq 0 ]] || usage
+    run_tier full bash -c "
+set -euo pipefail
+python3 scripts/check-public-content.py
+python3 scripts/check-doc-links.py
+python3 scripts/check-json.py
+${check_gofmt}
+go mod tidy
+git diff --exit-code -- go.mod go.sum
+go vet ./...
+go test -race -p \"\$1\" ./...
+" bash "$full_workers"
+    ;;
+  *)
+    usage
+    ;;
+esac

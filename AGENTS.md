@@ -43,9 +43,23 @@ CI runs `git diff --exit-code` in its clean checkout after `go mod tidy` to reje
 uncommitted module changes. Locally, inspect and stage intentional `go.mod` or
 `go.sum` changes rather than expecting that CI-only command to pass in a dirty tree.
 
-For tight Go TDD loops, run the smallest package/test first, then the full gate before
-push. Issue #2 will add the repository-local heavy-suite throttle before storage tests
-become expensive.
+`bin/oc-test` runs those commands in three tiers and adds host admission control when a
+compatible throttle is installed, so concurrent agent sessions cannot saturate one
+machine:
+
+| Tier | Runs | Throttled |
+|---|---|---|
+| `bin/oc-test targeted -- <args>` | `go test` with your arguments | no |
+| `bin/oc-test smoke` | `gofmt`, `go vet`, `go test ./...` | yes |
+| `bin/oc-test full` | the ordered gate above, minus `govulncheck` | yes, plus bounded `go test -p` workers and a wall-clock bound |
+
+`full` scopes its module check to `git diff --exit-code -- go.mod go.sum`, so it works in
+a dirty tree. Override `OC_TEST_GO_WORKERS` (default 4) or `OC_TEST_FULL_TIMEOUT`
+(default `20m`) when needed. When no throttle is installed the tier warns and runs
+unthrottled. CI does not use the wrapper; it calls the same commands natively.
+
+For tight Go TDD loops, use `targeted` on the smallest package/test first, then
+`bin/oc-test full` before push.
 
 ## Public-content boundary
 

@@ -15,11 +15,12 @@ type workCreatedPayload struct {
 }
 
 type workTransitionPayload struct {
-	From             string `json:"from"`
-	To               string `json:"to"`
-	Reason           string `json:"reason"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
+	From             string   `json:"from"`
+	To               string   `json:"to"`
+	Reason           string   `json:"reason"`
+	EvidenceRefs     []string `json:"evidence_refs,omitempty"`
+	ExpectedVersion  int64    `json:"expected_version"`
+	ResultingVersion int64    `json:"resulting_version"`
 }
 
 type workReopenedPayload struct {

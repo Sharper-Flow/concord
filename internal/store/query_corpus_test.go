@@ -169,7 +169,11 @@ func fixtureEvent(id, kind string, subject SubjectType, subjectID, actor, occurr
 	if err != nil {
 		when = time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	}
-	return Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: actor, OccurredAt: when, PayloadVersion: 1, Payload: raw}
+	version := 1
+	if kind == "work.created" {
+		version = 2
+	}
+	return Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: actor, OccurredAt: when, PayloadVersion: version, Payload: raw}
 }
 
 func seedQueryCorpus(t *testing.T, corpus queryCorpus) *Store {
@@ -227,7 +231,7 @@ func seedQueryCorpus(t *testing.T, corpus queryCorpus) *Store {
 		if created.To != nil {
 			to = *created.To
 		}
-		events := []Event{fixtureEvent("create-"+w.ID, "work.created", SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
+		events := []Event{fixtureEvent("create-"+w.ID, "work.created", SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
 		for i, p := range w.Projects {
 			role := p.Role
 			events = append(events, fixtureEvent(fmt.Sprintf("membership-%s-%d", w.ID, i), "work_project.added", SubjectWorkItem, w.ID, "operator", w.CreatedAt, map[string]any{"work_id": w.ID, "project_id": p.ID, "role": role, "reason": "fixture adapter", "expected_version": int64(i + 1), "resulting_version": int64(i + 2)}))

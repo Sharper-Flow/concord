@@ -7,9 +7,11 @@ import (
 )
 
 func workCreatedEvent(id, eventID string) Event {
-	return operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
-		"kind": "task", "title": id, "priority": 10,
+	event := operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
+		"work_kind": "task", "title": id, "priority": 10,
 	})
+	event.PayloadVersion = 2
+	return event
 }
 
 func workTransitionEvent(eventID, id, from, to string, expected, resulting int64) Event {

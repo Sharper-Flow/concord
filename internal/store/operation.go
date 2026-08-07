@@ -65,28 +65,121 @@ type Project struct {
 
 type projectionMutation func(context.Context, *sql.Tx, Event) error
 
-// projectionRegistry is shared by live application and recovery replay. A
-// rebuild must exercise exactly the same state transitions as normal writes.
-var projectionRegistry = map[string]projectionMutation{
-	"product.created":               foldProductCreated,
-	"product.renamed":               foldProductRenamed,
-	"product.stage_changed":         foldProductStageChanged,
-	"project.created":               foldProjectCreated,
-	"project.renamed":               foldProjectRenamed,
-	"work.created":                  foldWorkCreated,
-	"work.transitioned":             foldWorkTransitioned,
-	"work.superseded":               foldWorkSuperseded,
-	"work.reopened":                 foldWorkReopened,
-	"work.reopened_from_superseded": foldWorkReopenedFromSuperseded,
-	"relation.added":                foldRelationAdded,
-	"relation.removed":              foldRelationRemoved,
-	"product_project.added":         foldProductProjectAdded,
-	"product_project.removed":       foldProductProjectRemoved,
-	"product_project.role_changed":  foldProductProjectRoleChanged,
-	"work_project.added":            foldWorkProjectAdded,
-	"work_project.removed":          foldWorkProjectRemoved,
-	"work_project.role_changed":     foldWorkProjectRoleChanged,
-	"compaction_link.published":     foldCompactionLinkPublished,
+// Upcaster turns one persisted payload version into the next version. It must
+// be pure: the input Event is copied by value, and the returned payload is the
+// only state visible to the current fold.
+type Upcaster func(Event) (Event, error)
+
+// EventKindRegistration is the closed schema and projection contract for one
+// event kind. Upcasters are keyed by their source version and must form a
+// complete chain from MinSupported through CurrentVersion.
+type EventKindRegistration struct {
+	CurrentVersion int
+	MinSupported   int
+	Upcasters      map[int]Upcaster
+	Fold           projectionMutation
+}
+
+// eventKindRegistry is the one registry used by live application, rebuild, and
+// point-in-time reconstruction. Keeping version and fold metadata together
+// prevents a reader from accidentally accepting a version that its fold cannot
+// decode.
+var eventKindRegistry = map[string]EventKindRegistration{
+	"product.created":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProductCreated},
+	"product.renamed":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProductRenamed},
+	"product.stage_changed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProductStageChanged},
+	"project.created":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectCreated},
+	"project.renamed":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectRenamed},
+	"work.created":                  {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkCreatedV1}, Fold: foldWorkCreated},
+	"work.transitioned":             {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkTransitioned},
+	"work.superseded":               {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkSuperseded},
+	"work.reopened":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopened},
+	"work.reopened_from_superseded": {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopenedFromSuperseded},
+	"relation.added":                {CurrentVersion: 1, MinSupported: 1, Fold: foldRelationAdded},
+	"relation.removed":              {CurrentVersion: 1, MinSupported: 1, Fold: foldRelationRemoved},
+	"product_project.added":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectAdded},
+	"product_project.removed":       {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectRemoved},
+	"product_project.role_changed":  {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectRoleChanged},
+	"work_project.added":            {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectAdded},
+	"work_project.removed":          {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectRemoved},
+	"work_project.role_changed":     {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectRoleChanged},
+	"compaction_link.published":     {CurrentVersion: 1, MinSupported: 1, Fold: foldCompactionLinkPublished},
+}
+
+func validateEventKindRegistry() error {
+	for kind, registration := range eventKindRegistry {
+		if registration.Fold == nil || registration.MinSupported < 1 || registration.MinSupported > registration.CurrentVersion {
+			return fmt.Errorf("event kind %q has invalid registration bounds", kind)
+		}
+		for version := registration.MinSupported; version < registration.CurrentVersion; version++ {
+			if registration.Upcasters[version] == nil {
+				return fmt.Errorf("event kind %q has no upcaster from version %d", kind, version)
+			}
+		}
+	}
+	return nil
+}
+
+func upcastEvent(event Event) (Event, error) {
+	registration, ok := eventKindRegistry[event.Kind]
+	if !ok {
+		return Event{}, unknownEventKind(event.Kind)
+	}
+	if event.PayloadVersion < registration.MinSupported || event.PayloadVersion > registration.CurrentVersion {
+		return Event{}, unsupportedEventVersion(event, registration)
+	}
+	for event.PayloadVersion < registration.CurrentVersion {
+		upcaster := registration.Upcasters[event.PayloadVersion]
+		if upcaster == nil {
+			return Event{}, unsupportedEventVersion(event, registration)
+		}
+		var err error
+		event, err = upcaster(event)
+		if err != nil {
+			return Event{}, err
+		}
+		if event.PayloadVersion <= 0 {
+			return Event{}, unsupportedEventVersion(event, registration)
+		}
+	}
+	if event.PayloadVersion != registration.CurrentVersion {
+		return Event{}, unsupportedEventVersion(event, registration)
+	}
+	return event, nil
+}
+
+func validateRegisteredEvent(event Event) error {
+	_, err := upcastEvent(event)
+	return err
+}
+
+func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
+	registration, ok := eventKindRegistry[event.Kind]
+	if !ok {
+		return attributeFailure(unknownEventKind(event.Kind), event, "fold")
+	}
+	current, err := upcastEvent(event)
+	if err != nil {
+		return attributeFailure(err, event, "upcast")
+	}
+	if current.PayloadVersion != registration.CurrentVersion {
+		return attributeFailure(unsupportedEventVersion(event, registration), event, "upcast")
+	}
+	if err := registration.Fold(ctx, tx, current); err != nil {
+		stage := StageFold
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Stage != "" {
+			stage = failure.Stage
+		}
+		return attributeFailure(err, event, stage)
+	}
+	return nil
+}
+
+func unsupportedEventVersion(event Event, registration EventKindRegistration) *Failure {
+	return newFailure(KindUnsupportedPayloadVersion, "fold_event",
+		fmt.Sprintf("event %s uses payload version %d; supported range is %d..%d", event.EventID, event.PayloadVersion, registration.MinSupported, registration.CurrentVersion), false,
+		"upcast the event or install a binary that supports its payload version")
 }
 
 // ApplyOperation appends and folds one operation in one transaction.
@@ -133,9 +226,12 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 		if err := event.validate(); err != nil {
 			return output, rollback(err)
 		}
-		mutation, ok := projectionRegistry[event.Kind]
-		if !ok {
-			return output, rollback(unknownEventKind(event.Kind))
+		// Validate and upcast before AppendEvent so unsupported versions and
+		// incomplete chains cannot leave even a log row behind. The fold below
+		// deliberately repeats the same registry path after the original bytes
+		// have been appended.
+		if err := validateRegisteredEvent(event); err != nil {
+			return output, rollback(attributeFailure(err, event, "upcast"))
 		}
 		ref := VersionRef(event.SubjectType, event.SubjectID)
 		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
@@ -148,10 +244,12 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 			}
 			checked[ref] = true
 		}
-		if _, err := AppendEvent(ctx, tx, event); err != nil {
+		seq, err := AppendEvent(ctx, tx, event)
+		if err != nil {
 			return output, rollback(err)
 		}
-		if err := mutation(ctx, tx, event); err != nil {
+		event.Seq = seq
+		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
 			return output, rollback(err)
 		}
 		output.EventIDs = append(output.EventIDs, event.EventID)
@@ -196,6 +294,14 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	if err != nil {
 		return rollback(err)
 	}
+	// Version-window and chain failures are rejected before the first
+	// projection DELETE. Fold/decode failures remain transactionally atomic, and
+	// are attributed by the shared fold path below.
+	for _, event := range events {
+		if err := validateRegisteredEvent(event); err != nil {
+			return rollback(attributeFailure(err, event, "upcast"))
+		}
+	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
 	for _, table := range []string{"relations", "work_projects", "work_items", "product_projects", "products", "projects"} {
@@ -208,14 +314,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	for _, event := range events {
 		// Historical knowledge is git-derived. Domain-log replay must not
 		// rewrite archived_work, scope edges, or git watermarks.
-		if event.Kind == "compaction_link.published" {
-			continue
-		}
-		mutation, ok := projectionRegistry[event.Kind]
-		if !ok {
-			return rollback(unknownEventKind(event.Kind))
-		}
-		if err := mutation(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
 			return rollback(err)
 		}
 	}
@@ -298,7 +397,7 @@ func projectionTable(subjectType SubjectType) (string, bool) {
 
 func readEvents(ctx context.Context, tx *sql.Tx) ([]Event, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload
+		SELECT seq, event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload
 		FROM domain_events ORDER BY seq`)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "rebuild_from_log", "cannot read the event log", true,
@@ -309,7 +408,7 @@ func readEvents(ctx context.Context, tx *sql.Tx) ([]Event, error) {
 	for rows.Next() {
 		var event Event
 		var occurredAt string
-		if err := rows.Scan(&event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID,
+		if err := rows.Scan(&event.Seq, &event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID,
 			&event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload); err != nil {
 			return nil, wrapFailure(KindInvalidEvent, "rebuild_from_log", "cannot decode an event row", false,
 				"repair the event log before rebuilding", err)
@@ -353,15 +452,12 @@ type projectRenamedPayload struct {
 }
 
 func decodePayload(event Event, target any) error {
-	if event.PayloadVersion != 1 {
-		return newFailure(KindUnsupportedPayloadVersion, "fold_event",
-			fmt.Sprintf("event %s uses payload version %d", event.EventID, event.PayloadVersion), false,
-			"upcast the event or install a binary that supports its payload version")
-	}
 	if err := json.Unmarshal(event.Payload, target); err != nil {
-		return wrapFailure(KindInvalidPayload, "fold_event",
+		failure := wrapFailure(KindInvalidPayload, "fold_event",
 			fmt.Sprintf("event %s payload does not match its kind", event.EventID), false,
 			"repair the event payload before rebuilding", err)
+		failure.Stage = StageDecode
+		return failure
 	}
 	return nil
 }

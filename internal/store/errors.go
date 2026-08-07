@@ -42,6 +42,28 @@ const (
 	// KindProjectionConflict marks an event that cannot establish the requested
 	// projection identity because a row already exists.
 	KindProjectionConflict FailureKind = "projection_conflict"
+	// KindIllegalLifecycleTransition marks a state change outside PM4's closed
+	// transition table. Keeping this distinct prevents callers from retrying a
+	// permanently invalid workflow action.
+	KindIllegalLifecycleTransition FailureKind = "illegal_lifecycle_transition"
+	// KindCycleDetected marks an edge that would make a governing relation graph
+	// cyclic. The graph check is performed before the edge is inserted.
+	KindCycleDetected FailureKind = "cycle_detected"
+	// KindSupersessionTargetAlreadySuperseded marks a supersession whose target
+	// has already reached the terminal superseded state.
+	KindSupersessionTargetAlreadySuperseded FailureKind = "supersession_target_already_superseded"
+	// KindSupersessionSecondSuccessor marks a second direct successor for one
+	// predecessor, which would make canonical replacement ambiguous.
+	KindSupersessionSecondSuccessor FailureKind = "supersession_second_successor"
+	// KindRelationContractViolation marks a relation event that bypasses the
+	// composite operation responsible for preserving lifecycle invariants.
+	KindRelationContractViolation FailureKind = "relation_contract_violation"
+	// KindRelationConflict marks a relation that violates a database-enforced
+	// structural rule such as uniqueness or the no-self-edge check.
+	KindRelationConflict FailureKind = "relation_conflict"
+	// KindRelationNotFound marks a removal that cannot be explained by the
+	// preceding relation history.
+	KindRelationNotFound FailureKind = "relation_not_found"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

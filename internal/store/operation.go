@@ -41,11 +41,18 @@ type projectionMutation func(context.Context, *sql.Tx, Event) error
 // projectionRegistry is shared by live application and recovery replay. A
 // rebuild must exercise exactly the same state transitions as normal writes.
 var projectionRegistry = map[string]projectionMutation{
-	"product.created":       foldProductCreated,
-	"product.renamed":       foldProductRenamed,
-	"product.stage_changed": foldProductStageChanged,
-	"project.created":       foldProjectCreated,
-	"project.renamed":       foldProjectRenamed,
+	"product.created":               foldProductCreated,
+	"product.renamed":               foldProductRenamed,
+	"product.stage_changed":         foldProductStageChanged,
+	"project.created":               foldProjectCreated,
+	"project.renamed":               foldProjectRenamed,
+	"work.created":                  foldWorkCreated,
+	"work.transitioned":             foldWorkTransitioned,
+	"work.superseded":               foldWorkSuperseded,
+	"work.reopened":                 foldWorkReopened,
+	"work.reopened_from_superseded": foldWorkReopenedFromSuperseded,
+	"relation.added":                foldRelationAdded,
+	"relation.removed":              foldRelationRemoved,
 }
 
 // ApplyOperation appends and folds one operation in one transaction.
@@ -138,7 +145,9 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	if err != nil {
 		return rollback(err)
 	}
-	for _, table := range []string{"products", "projects"} {
+	// Relations reference work_items, so clear the dependent projection first;
+	// replay then restores the same event order under the fold guard.
+	for _, table := range []string{"relations", "work_items", "products", "projects"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,
@@ -221,6 +230,8 @@ func projectionTable(subjectType SubjectType) (string, bool) {
 		return "products", true
 	case SubjectProject:
 		return "projects", true
+	case SubjectWorkItem:
+		return "work_items", true
 	default:
 		return "", false
 	}

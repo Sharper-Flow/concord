@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestWorkCreatedV1UpcasterIsDeterministic(t *testing.T) {
@@ -186,8 +187,31 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	if err := validateEventKindRegistry(); err != nil {
 		t.Fatal(err)
 	}
-	if len(eventKindRegistry) != 23 {
-		t.Fatalf("registry entries = %d, want 23", len(eventKindRegistry))
+	if len(eventKindRegistry) != 28 {
+		t.Fatalf("registry entries = %d, want 28", len(eventKindRegistry))
+	}
+}
+
+func TestIntentRevisionReplaysDeterministically(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "intent-work")
+	payload := []byte(`{"title":"Revised","value_statement":"A complete replacement","kind":"task","priority":4,"tags":["durable"],"reason":"clarified","expected_version":2,"resulting_version":3}`)
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "intent-revised", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: "intent-work", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "intent-work"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	var before string
+	if err := s.DB().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-work'`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	var after string
+	if err := s.DB().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-work'`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatalf("intent replay changed projection: before=%s after=%s", before, after)
 	}
 }
 

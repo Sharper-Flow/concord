@@ -1,0 +1,695 @@
+{
+  "$schema": "contracts/agent-tool-surface.schema.json",
+  "schema_version": "1.0",
+  "surface": {
+    "version": "1.0.0",
+    "name": "concord-agent-tool-surface",
+    "tool_count": 8
+  },
+  "envelope": {
+    "schema_version": "1.0",
+    "schema_ref": "contracts/agent-tool-envelope.schema.json",
+    "outcomes": [
+      "ok",
+      "pending",
+      "partial",
+      "error"
+    ],
+    "origins": [
+      "core",
+      "adapter"
+    ],
+    "max_bytes": 65536
+  },
+  "tools": [
+    {
+      "id": "concord_product_view",
+      "description": "Resolve Product context and bounded Product snapshots.",
+      "operations": [
+        "concord_product_view.resolve",
+        "concord_product_view.snapshot"
+      ]
+    },
+    {
+      "id": "concord_work_browse",
+      "description": "Browse current, ready, blocked, and scoped work.",
+      "operations": [
+        "concord_work_browse.list",
+        "concord_work_browse.ready",
+        "concord_work_browse.blocked",
+        "concord_work_browse.scope"
+      ]
+    },
+    {
+      "id": "concord_work_trace",
+      "description": "Trace work history and relations.",
+      "operations": [
+        "concord_work_trace.history",
+        "concord_work_trace.relations"
+      ]
+    },
+    {
+      "id": "concord_knowledge",
+      "description": "Search and resolve durable knowledge.",
+      "operations": [
+        "concord_knowledge.search",
+        "concord_knowledge.resolve_note"
+      ]
+    },
+    {
+      "id": "concord_work_define",
+      "description": "Capture or revise one work intent.",
+      "operations": [
+        "concord_work_define.capture",
+        "concord_work_define.revise_intent"
+      ]
+    },
+    {
+      "id": "concord_work_transition",
+      "description": "Apply lifecycle or workflow-defined transitions.",
+      "operations": [
+        "concord_work_transition.lifecycle",
+        "concord_work_transition.workflow_action"
+      ]
+    },
+    {
+      "id": "concord_work_relate",
+      "description": "Change memberships and typed work relations.",
+      "operations": [
+        "concord_work_relate.set_memberships",
+        "concord_work_relate.link",
+        "concord_work_relate.unlink",
+        "concord_work_relate.supersede",
+        "concord_work_relate.restore_superseded"
+      ]
+    },
+    {
+      "id": "concord_work_compact",
+      "description": "Publish or reconcile canonical durable knowledge.",
+      "operations": [
+        "concord_work_compact.publish",
+        "concord_work_compact.reconcile"
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "id": "concord_product_view.resolve",
+      "tool": "concord_product_view",
+      "kind": "read",
+      "query_id": "PM1.Q1",
+      "input_schema": "#/schemas/product_view_resolve_input",
+      "result_schema": "#/schemas/product_context",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_product_view.snapshot",
+      "tool": "concord_product_view",
+      "kind": "read",
+      "query_id": "PM1.Q2",
+      "input_schema": "#/schemas/product_view_snapshot_input",
+      "result_schema": "#/schemas/product_snapshot",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_browse.list",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "PM1.Q3",
+      "input_schema": "#/schemas/work_browse_list_input",
+      "result_schema": "#/schemas/work_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_browse.blocked",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "PM1.Q4",
+      "input_schema": "#/schemas/work_browse_blocked_input",
+      "result_schema": "#/schemas/blocked_work_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_browse.ready",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "PM1.Q5",
+      "input_schema": "#/schemas/work_browse_ready_input",
+      "result_schema": "#/schemas/work_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_browse.scope",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "PM1.Q6",
+      "input_schema": "#/schemas/work_browse_scope_input",
+      "result_schema": "#/schemas/work_scope",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_trace.history",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "PM1.Q7",
+      "input_schema": "#/schemas/work_trace_history_input",
+      "result_schema": "#/schemas/work_event_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_trace.relations",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "PM1.Q8",
+      "input_schema": "#/schemas/work_trace_relations_input",
+      "result_schema": "#/schemas/work_relation_graph",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_knowledge.search",
+      "tool": "concord_knowledge",
+      "kind": "read",
+      "query_id": "PM1.Q9",
+      "input_schema": "#/schemas/knowledge_search_input",
+      "result_schema": "#/schemas/knowledge_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_knowledge.resolve_note",
+      "tool": "concord_knowledge",
+      "kind": "read",
+      "query_id": "PM1.Q10",
+      "input_schema": "#/schemas/knowledge_resolve_input",
+      "result_schema": "#/schemas/canonical_note_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_define.capture",
+      "tool": "concord_work_define",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_define_capture_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_define",
+      "consequence": "intent",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_define.revise_intent",
+      "tool": "concord_work_define",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_define_revise_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_define",
+      "consequence": "intent",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_transition.lifecycle",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_lifecycle_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "conditional",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_transition.workflow_action",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "availability": "workflow_definition",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_action_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "workflow_action",
+      "approval": "conditional",
+      "metadata": {
+        "context": "workflow",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_relate.set_memberships",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_memberships_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "scope",
+      "approval": "conditional",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_relate.link",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_link_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_relate.unlink",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_unlink_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_relate.supersede",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_supersede_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "supersession",
+      "approval": "required",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_relate.restore_superseded",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_restore_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "supersession",
+      "approval": "required",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_compact.publish",
+      "tool": "concord_work_compact",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_compact_publish_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_compact",
+      "consequence": "publication",
+      "approval": "required",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_compact.reconcile",
+      "tool": "concord_work_compact",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_compact_reconcile_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_compact",
+      "consequence": "recovery",
+      "approval": "conditional",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    }
+  ],
+  "schemas": {
+    "base_envelope": {
+      "ref": "contracts/agent-tool-envelope.schema.json#/$defs/base",
+      "closed": true
+    },
+    "mutation_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/mutation_result",
+      "closed": true
+    },
+    "product_view_resolve_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resolve_input",
+      "closed": true
+    },
+    "product_view_snapshot_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_snapshot_input",
+      "closed": true
+    },
+    "work_browse_list_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_list_input",
+      "closed": true
+    },
+    "work_browse_blocked_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_blocked_input",
+      "closed": true
+    },
+    "work_browse_ready_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_ready_input",
+      "closed": true
+    },
+    "work_browse_scope_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_scope_input",
+      "closed": true
+    },
+    "work_trace_history_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_history_input",
+      "closed": true
+    },
+    "work_trace_relations_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_relations_input",
+      "closed": true
+    },
+    "knowledge_search_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_search_input",
+      "closed": true
+    },
+    "knowledge_resolve_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_resolve_input",
+      "closed": true
+    },
+    "product_context": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_context",
+      "closed": true
+    },
+    "product_snapshot": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_snapshot",
+      "closed": true
+    },
+    "work_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_page",
+      "closed": true
+    },
+    "blocked_work_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_work_page",
+      "closed": true
+    },
+    "work_scope": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_scope",
+      "closed": true
+    },
+    "work_event_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_event_page",
+      "closed": true
+    },
+    "work_relation_graph": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relation_graph",
+      "closed": true
+    },
+    "knowledge_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_page",
+      "closed": true
+    },
+    "canonical_note_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/canonical_note_result",
+      "closed": true
+    },
+    "work_define_capture_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_capture_input",
+      "closed": true
+    },
+    "work_define_revise_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_revise_input",
+      "closed": true
+    },
+    "work_transition_lifecycle_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_lifecycle_input",
+      "closed": true
+    },
+    "work_transition_action_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_action_input",
+      "closed": true
+    },
+    "work_relate_memberships_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_memberships_input",
+      "closed": true
+    },
+    "work_relate_link_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_link_input",
+      "closed": true
+    },
+    "work_relate_unlink_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_unlink_input",
+      "closed": true
+    },
+    "work_relate_supersede_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_supersede_input",
+      "closed": true
+    },
+    "work_relate_restore_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_restore_input",
+      "closed": true
+    },
+    "work_compact_publish_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_publish_input",
+      "closed": true
+    },
+    "work_compact_reconcile_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_reconcile_input",
+      "closed": true
+    }
+  },
+  "capabilities": [
+    "product_read",
+    "work_define",
+    "work_transition",
+    "work_relate",
+    "work_compact",
+    "cross_scope"
+  ],
+  "consequences": [
+    "read",
+    "intent",
+    "lifecycle",
+    "workflow_action",
+    "scope",
+    "relation",
+    "supersession",
+    "publication",
+    "recovery"
+  ],
+  "bounds": {
+    "max_output_bytes": 65536,
+    "max_items": 100,
+    "max_warnings": 16,
+    "max_omissions": 16,
+    "max_evidence_refs": 32,
+    "max_changed_refs": 32,
+    "max_next_intents": 16,
+    "max_candidates": 20,
+    "max_violations": 20
+  },
+  "deprecations": [],
+  "generation": {
+    "targets": [
+      "internal/agent/generated_contracts.go",
+      "internal/agent/generated_payload_schemas.go",
+      "adapter/opencode/generated-contracts.ts",
+      "adapter/opencode/generated-contract-tests.ts",
+      "contracts/agent-tool-surface.digest",
+      "contracts/agent-tool-surface.fixtures.json",
+      "docs/generated-agent-tool-surface.md"
+    ],
+    "digest_excludes": [
+      "digest"
+    ]
+  },
+  "payload_digest": "sha256:1109520d7a6f1bddb5ac75877758ff86250c71e4d2ea3f28b5931a6b3f89a182",
+  "digest": "sha256:ff0c8d047ab5565c168072eb6ca5daa6e4d664c482064abb920d583bb3bec6a5"
+}

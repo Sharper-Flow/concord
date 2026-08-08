@@ -81,16 +81,18 @@ type CompleteRequest struct {
 
 // FenceResult is the stable result of a claim, completion, or takeover.
 type FenceResult struct {
-	OpID           string     `json:"op_id"`
-	AttemptEpoch   int64      `json:"attempt_epoch"`
-	ResultKind     ResultKind `json:"result_kind,omitempty"`
-	ResultPayload  string     `json:"result_payload,omitempty"`
-	EvidenceRefs   []string   `json:"evidence_refs,omitempty"`
-	ChangedRefs    []string   `json:"changed_refs,omitempty"`
-	ResumeCursor   string     `json:"resume_cursor,omitempty"`
-	ResultEventIDs []string   `json:"result_event_ids,omitempty"`
-	Replayed       bool       `json:"replayed"`
-	ApprovalRef    string     `json:"approval_ref,omitempty"`
+	OpID                  string     `json:"op_id"`
+	WorkID                string     `json:"work_id,omitempty"`
+	AttemptEpoch          int64      `json:"attempt_epoch"`
+	ResultKind            ResultKind `json:"result_kind,omitempty"`
+	ResultPayload         string     `json:"result_payload,omitempty"`
+	EvidenceRefs          []string   `json:"evidence_refs,omitempty"`
+	ChangedRefs           []string   `json:"changed_refs,omitempty"`
+	ResumeCursor          string     `json:"resume_cursor,omitempty"`
+	AcceptedScopeSnapshot string     `json:"accepted_scope_snapshot,omitempty"`
+	ResultEventIDs        []string   `json:"result_event_ids,omitempty"`
+	Replayed              bool       `json:"replayed"`
+	ApprovalRef           string     `json:"approval_ref,omitempty"`
 }
 
 // Step returns the newest durable attempt without changing its epoch. Reads
@@ -111,7 +113,18 @@ func ClaimStep(ctx context.Context, s *Store, req ClaimRequest) (FenceResult, er
 	return claimStepObserved(ctx, s, req, nil)
 }
 
+// ClaimStepAuthorized runs an authorization callback in the same transaction
+// that creates the durable claim. It is used when approval consumption must be
+// committed together with the durable operation identity.
+func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, authorize func(*sql.Tx) error) (FenceResult, error) {
+	return claimStepObservedAuthorized(ctx, s, req, nil, authorize)
+}
+
 func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver) (FenceResult, error) {
+	return claimStepObservedAuthorized(ctx, s, req, observer, nil)
+}
+
+func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
 	}
@@ -143,6 +156,11 @@ func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer
 		result.Replayed = true
 		return result, nil
 	}
+	if authorize != nil {
+		if err := authorize(tx); err != nil {
+			return rollback(err)
+		}
+	}
 	var epoch int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch), 0) + 1 FROM durable_operations WHERE op_id = ?`, req.OpID).Scan(&epoch); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "claim_step", "cannot allocate attempt epoch", true, "retry once the database is readable", err))
@@ -157,6 +175,9 @@ func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer
 		return rollback(wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err))
 	}
 	if err := insertIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey, digest, req.OpID, nil, req.ObservedAt); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET authorized_scope_snapshot=? WHERE principal_ref=? AND tool=? AND operation_kind='claim' AND idempotency_key=?`, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey); err != nil {
 		return rollback(err)
 	}
 	if err := commitObservedTx(tx, observer); err != nil {
@@ -425,7 +446,7 @@ func readStep(ctx context.Context, q interface {
 }, opID string, txRead bool) (FenceResult, error) {
 	var result FenceResult
 	var kind, payload, evidence, changed, cursor, scope sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT op_id,attempt_epoch,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.AttemptEpoch, &kind, &payload, &evidence, &changed, &cursor, &scope)
+	err := q.QueryRowContext(ctx, `SELECT op_id,work_id,attempt_epoch,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.WorkID, &result.AttemptEpoch, &kind, &payload, &evidence, &changed, &cursor, &scope)
 	if err == sql.ErrNoRows {
 		return result, newFailure(KindProjectionNotFound, "step", "operation does not exist", false, "claim the operation before reading it")
 	}
@@ -433,6 +454,7 @@ func readStep(ctx context.Context, q interface {
 		return result, wrapFailure(KindUnavailable, "step", "cannot read durable operation", true, "retry once the database is readable", err)
 	}
 	result.ResultKind, result.ResultPayload, result.ResumeCursor = ResultKind(kind.String), payload.String, cursor.String
+	result.AcceptedScopeSnapshot = scope.String
 	if err := json.Unmarshal([]byte(evidence.String), &result.EvidenceRefs); err != nil {
 		return result, wrapFailure(KindUnavailable, "step", "durable evidence references are corrupt", false, "repair or restore the database", err)
 	}
@@ -462,6 +484,12 @@ func durableResult(ctx context.Context, q interface {
 }
 func idempotencyConflict(operationKind, key string) *Failure {
 	return newFailure(KindIdempotencyConflict, operationKind, fmt.Sprintf("idempotency key %q was reused with a different canonical request", key), false, "reuse the original canonical request or choose a new key")
+}
+
+// IdempotencyConflict exposes the stable typed failure to higher-level runtime
+// boundaries that perform their own transaction orchestration.
+func IdempotencyConflict(operationKind, key string) error {
+	return idempotencyConflict(operationKind, key)
 }
 func staleAttempt(opID string, epoch int64) *Failure {
 	return newFailure(KindStaleAttempt, "complete_step", fmt.Sprintf("attempt epoch %d for %s is not current", epoch, opID), false, "reconcile the current attempt or obtain an explicit operator takeover")

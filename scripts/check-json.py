@@ -63,6 +63,12 @@ def main() -> int:
                     )
         validate_fixture_sources(path, value, findings)
 
+    generator = ROOT / "scripts/generate-agent-contracts.py"
+    if generator.is_file():
+        checked = subprocess.run([sys.executable, str(ROOT / "scripts/check-agent-contracts.py")], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"agent contract drift: {checked.stderr.strip() or checked.stdout.strip()}")
+
     for finding in findings[:MAX_FINDINGS]:
         print(finding)
     if len(findings) > MAX_FINDINGS:

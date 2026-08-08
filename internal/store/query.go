@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,14 +57,28 @@ type Q2Request struct {
 type Q3Request struct {
 	Product         string
 	Project         string
+	ProjectIDs      []string
+	WorkIDs         []string
 	LifecycleStates []string
+	Kind            string
+	ComponentID     string
+	TagIDs          []string
+	PriorityMin     *int64
+	PriorityMax     *int64
+	TerminalSince   *string
+	Detail          string
 	Limit           int
 	Cursor          string
 }
 
 type Q4Request struct {
 	Product   string
+	Project   string
+	Work      string
+	Kind      string
 	Limit     int
+	Cursor    string
+	Offset    int
 	Depth     int
 	NodeLimit int
 	EdgeLimit int
@@ -71,26 +86,35 @@ type Q4Request struct {
 
 type Q5Request struct {
 	Product string
+	Project string
+	Kind    string
 	Limit   int
+	Cursor  string
+	Offset  int
 }
 
 type Q6Request struct {
 	Product string
 	Project string
 	Work    string
+	Limit   int
+	Cursor  string
+	Offset  int
 }
 
 type Q7Request struct {
-	Work      string
-	Direction string
-	Limit     int
-	Cursor    string
+	Work       string
+	Direction  string
+	EventKinds []string
+	Limit      int
+	Cursor     string
 }
 
 type Q8Request struct {
 	Work          string
 	RelationKinds []string
 	Direction     string
+	Depth         int
 }
 
 type Q1Result struct {
@@ -149,19 +173,30 @@ type WorkItem struct {
 
 type Q4Result struct {
 	ResultMeta
-	Items []WorkItem `json:"items"`
+	Items      []WorkItem `json:"items"`
+	NextCursor *string    `json:"next_cursor"`
 }
 
 type Q5Result struct {
 	ResultMeta
-	Items []WorkItem `json:"items"`
+	Items      []WorkItem `json:"items"`
+	NextCursor *string    `json:"next_cursor"`
 }
 
 type Q6Result struct {
 	ResultMeta
-	Work   *WorkItem            `json:"work,omitempty"`
-	Items  []WorkItem           `json:"items,omitempty"`
-	Result *Q6WorkResultPayload `json:"result,omitempty"`
+	Work       *WorkItem            `json:"work,omitempty"`
+	Items      []WorkItem           `json:"items,omitempty"`
+	Result     *Q6WorkResultPayload `json:"result,omitempty"`
+	NextCursor *string              `json:"next_cursor"`
+}
+
+type q6Cursor struct {
+	Version int    `json:"version"`
+	Product string `json:"product"`
+	Project string `json:"project"`
+	Order   string `json:"order"`
+	Offset  int    `json:"offset"`
 }
 
 type Q6WorkResultPayload struct {
@@ -169,6 +204,7 @@ type Q6WorkResultPayload struct {
 }
 
 type TimelineEvent struct {
+	EventID      string   `json:"event_id"`
 	Seq          int      `json:"seq"`
 	GlobalSeq    int64    `json:"global_seq,omitempty"`
 	Kind         string   `json:"kind"`
@@ -213,9 +249,9 @@ const (
 	q4MaxDepth        = 3
 	// Q4 graph caps keep recursive blocker reads bounded when callers omit caps.
 	q4DefaultNodeLimit = 100
-	q4MaxNodeLimit     = 1000
+	q4MaxNodeLimit     = 100
 	q4DefaultEdgeLimit = 100
-	q4MaxEdgeLimit     = 1000
+	q4MaxEdgeLimit     = 200
 )
 
 func queryLimit(got int) (int, error) {
@@ -614,6 +650,15 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if err != nil {
 		return out, err
 	}
+	if req.Detail != "" && req.Detail != "summary" && req.Detail != "full" {
+		return out, newFailure(KindInvalidFilter, "PM1.Q3", "detail must be summary or full", false, "choose a closed detail value")
+	}
+	if req.ComponentID != "" || len(req.TagIDs) > 0 {
+		return out, newFailure(KindInvalidFilter, "PM1.Q3", "component and tag filters are not yet modeled in the live work projection", false, "remove the unsupported filter or use a Product/Project/work filter")
+	}
+	if req.PriorityMin != nil && req.PriorityMax != nil && *req.PriorityMin > *req.PriorityMax {
+		return out, newFailure(KindInvalidFilter, "PM1.Q3", "priority_min exceeds priority_max", false, "supply an ordered priority range")
+	}
 	terminalOnly := terminalOnlyQ3(states)
 	order := "priority:asc,relevant_time:desc,id:asc"
 	orderSQL := "priority ASC, relevant_time DESC, id ASC"
@@ -629,7 +674,11 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
-	filter, projectArgs := productWorkScopeSQL(nonEmptyStrings([]string{req.Project}))
+	projectIDs := req.ProjectIDs
+	if len(projectIDs) == 0 && req.Project != "" {
+		projectIDs = []string{req.Project}
+	}
+	filter, projectArgs := productWorkScopeSQL(projectIDs)
 	args := scopeArgs(req.Product, projectArgsToIDs(projectArgs))
 	placeholders := ""
 	stateArgs := []any{}
@@ -640,6 +689,30 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 			stateArgs = append(stateArgs, state)
 		}
 		placeholders = " AND lifecycle IN (" + strings.Join(ph, ",") + ")"
+	}
+	if req.Kind != "" {
+		placeholders += " AND kind = ?"
+		stateArgs = append(stateArgs, req.Kind)
+	}
+	if len(req.WorkIDs) > 0 {
+		ph := make([]string, len(req.WorkIDs))
+		for i := range ph {
+			ph[i] = "?"
+			stateArgs = append(stateArgs, req.WorkIDs[i])
+		}
+		placeholders += " AND id IN (" + strings.Join(ph, ",") + ")"
+	}
+	if req.PriorityMin != nil {
+		placeholders += " AND priority >= ?"
+		stateArgs = append(stateArgs, *req.PriorityMin)
+	}
+	if req.PriorityMax != nil {
+		placeholders += " AND priority <= ?"
+		stateArgs = append(stateArgs, *req.PriorityMax)
+	}
+	if req.TerminalSince != nil {
+		placeholders += " AND terminal_time >= ?"
+		stateArgs = append(stateArgs, *req.TerminalSince)
 	}
 	cursorSQL := ""
 	cursorArgs := []any{}
@@ -818,6 +891,13 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 	if err != nil {
 		return out, err
 	}
+	if req.Cursor != "" {
+		offset, parseErr := strconv.Atoi(req.Cursor)
+		if parseErr != nil || offset < 0 {
+			return out, newFailure(KindInvalidCursor, "PM1.Q4", "blocked cursor is invalid", false, "restart the blocked query")
+		}
+		req.Offset = offset
+	}
 	depth, nodeLimit, edgeLimit, err := q4GraphBounds(req)
 	if err != nil {
 		return out, err
@@ -832,24 +912,40 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 	}
 	// Stage one bounds blocked work identities before any blocker join. This
 	// prevents one work's many blockers from consuming the work-item limit.
+	scopeFilter := ""
+	queryArgs := []any{req.Product}
+	if req.Project != "" {
+		scopeFilter += " AND pp.project_id=?"
+		queryArgs = append(queryArgs, req.Project)
+	}
+	workFilter := ""
+	if req.Work != "" {
+		workFilter += " AND w.id=?"
+		queryArgs = append(queryArgs, req.Work)
+	}
+	if req.Kind != "" {
+		workFilter += " AND w.kind=?"
+		queryArgs = append(queryArgs, req.Kind)
+	}
 	q := `WITH scoped AS (
 		SELECT DISTINCT wp.work_id
 		FROM work_projects wp
 		JOIN product_projects pp ON pp.project_id=wp.project_id
-		WHERE pp.product_id=?
+		WHERE pp.product_id=?` + scopeFilter + `
 	), ranked AS (
 		SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') AS terminal_time,MIN(b.created_at) AS oldest_blocker
 		FROM scoped s
 		JOIN work_items w ON w.id=s.work_id
 		JOIN relations r ON r.work_id_to=w.id AND r.kind='blocks'
-		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')
+		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')` + workFilter + `
 		GROUP BY w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,w.terminal_time
 	)
 	SELECT id,kind,title,lifecycle,priority,created_at,updated_at,terminal_time
 	FROM ranked
 	ORDER BY priority,oldest_blocker,id
-	LIMIT ?`
-	rows, err := tx.QueryContext(ctx, q, req.Product, limit)
+	LIMIT ? OFFSET ?`
+	queryArgs = append(queryArgs, limit+1, req.Offset)
+	rows, err := tx.QueryContext(ctx, q, queryArgs...)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q4", "cannot select blocked work", true, "retry once the database is readable", err)
 	}
@@ -871,6 +967,11 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 		return out, err
 	}
 	rows.Close()
+	if len(selected) > limit {
+		selected = selected[:limit]
+		next := strconv.Itoa(req.Offset + limit)
+		out.NextCursor = &next
+	}
 	edgeCapped, nodeCapped := false, false
 	if len(selected) == 0 {
 		out.Items = []WorkItem{}
@@ -1008,6 +1109,13 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 	if err != nil {
 		return out, err
 	}
+	if req.Cursor != "" {
+		offset, parseErr := strconv.Atoi(req.Cursor)
+		if parseErr != nil || offset < 0 {
+			return out, newFailure(KindInvalidCursor, "PM1.Q5", "ready cursor is invalid", false, "restart the ready query")
+		}
+		req.Offset = offset
+	}
 	tx, err := beginRead(ctx, s, "PM1.Q5")
 	if err != nil {
 		return out, err
@@ -1016,8 +1124,20 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
-	q := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id WHERE w.lifecycle='needed' AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) ORDER BY w.priority,w.created_at DESC,w.id LIMIT ?`
-	out.Items, err = scanWorkItems(ctx, tx, q, req.Product, limit)
+	scopeFilter := ""
+	queryArgs := []any{req.Product}
+	if req.Project != "" {
+		scopeFilter += " AND pp.project_id=?"
+		queryArgs = append(queryArgs, req.Project)
+	}
+	workFilter := ""
+	if req.Kind != "" {
+		workFilter += " AND w.kind=?"
+		queryArgs = append(queryArgs, req.Kind)
+	}
+	q := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + scopeFilter + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id WHERE w.lifecycle='needed'` + workFilter + ` AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) ORDER BY w.priority,w.created_at DESC,w.id LIMIT ? OFFSET ?`
+	queryArgs = append(queryArgs, limit+1, req.Offset)
+	out.Items, err = scanWorkItems(ctx, tx, q, queryArgs...)
 	if err != nil {
 		return out, err
 	}
@@ -1027,6 +1147,11 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 	}
 	if out.Items == nil {
 		out.Items = []WorkItem{}
+	}
+	if len(out.Items) > limit {
+		out.Items = out.Items[:limit]
+		next := strconv.Itoa(req.Offset + limit)
+		out.NextCursor = &next
 	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q5", ResolvedScope{ProductID: req.Product}, []string{"priority", "created_at", "id"})
 	return out, err
@@ -1062,6 +1187,14 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	var out Q6Result
 	if req.Work == "" && req.Project == "" {
 		return out, unknownScope("PM1.Q6", "Q6 requires a work or Project reference")
+	}
+	if req.Cursor != "" {
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(req.Cursor)
+		var cursor q6Cursor
+		if decodeErr != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.Version != 1 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Order != "priority:asc,updated_at:desc,id:asc" || cursor.Offset < 0 {
+			return out, newFailure(KindInvalidCursor, "PM1.Q6", "scope cursor is invalid", false, "restart the scope query")
+		}
+		req.Offset = cursor.Offset
 	}
 	tx, err := beginRead(ctx, s, "PM1.Q6")
 	if err != nil {
@@ -1134,19 +1267,33 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id=?`, req.Project).Scan(&exists); err == sql.ErrNoRows {
 		return out, unknownScope("PM1.Q6", "Project does not exist")
 	}
+	limit, err := queryLimit(req.Limit)
+	if err != nil {
+		return out, err
+	}
 	q := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.project_id=?` + func() string {
 		if req.Product != "" {
 			return " AND pp.product_id=?"
 		}
 		return ""
-	}() + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY w.priority,w.updated_at DESC,w.id`
+	}() + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY w.priority,w.updated_at DESC,w.id LIMIT ? OFFSET ?`
 	args := []any{req.Project}
 	if req.Product != "" {
 		args = append(args, req.Product)
 	}
+	args = append(args, limit+1, req.Offset)
 	out.Items, err = scanWorkItems(ctx, tx, q, args...)
 	if err != nil {
 		return out, err
+	}
+	if len(out.Items) > limit {
+		out.Items = out.Items[:limit]
+		encoded, encodeErr := json.Marshal(q6Cursor{Version: 1, Product: req.Product, Project: req.Project, Order: "priority:asc,updated_at:desc,id:asc", Offset: req.Offset + limit})
+		if encodeErr != nil {
+			return out, wrapFailure(KindInvariantViolation, "PM1.Q6", "cannot encode scope cursor", false, "restart the scope query", encodeErr)
+		}
+		next := base64.RawURLEncoding.EncodeToString(encoded)
+		out.NextCursor = &next
 	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q6", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"priority", "updated_at", "id"})
 	return out, err
@@ -1196,7 +1343,21 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	if direction == "oldest_first" {
 		order = "ASC"
 	}
-	q := `SELECT seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN ('work.created','work.transitioned','work.reopened','work.superseded','work.reopened_from_superseded')` + where + ` ORDER BY seq ` + order + ` LIMIT ?`
+	eventKinds := req.EventKinds
+	if len(eventKinds) == 0 {
+		eventKinds = []string{"work.created", "work.transitioned", "work.reopened", "work.superseded", "work.reopened_from_superseded"}
+	}
+	for _, kind := range eventKinds {
+		if _, ok := eventKindRegistry[kind]; !ok {
+			return out, newFailure(KindInvalidFilter, "PM1.Q7", "event kind is not recognized", false, "choose an accepted work event kind")
+		}
+	}
+	kindPlaceholders := make([]string, len(eventKinds))
+	for i, kind := range eventKinds {
+		kindPlaceholders[i] = "?"
+		args = append(args, kind)
+	}
+	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?`
 	args = append(args, limit+1)
 	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -1205,12 +1366,13 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	defer rows.Close()
 	var raw []TimelineEvent
 	for rows.Next() {
+		var eventID string
 		var global int64
 		var kind, actor, occurred, payload string
-		if err := rows.Scan(&global, &kind, &actor, &occurred, &payload); err != nil {
+		if err := rows.Scan(&eventID, &global, &kind, &actor, &occurred, &payload); err != nil {
 			return out, err
 		}
-		e, err := decodeTimelineEvent(global, kind, actor, occurred, []byte(payload))
+		e, err := decodeTimelineEvent(eventID, global, kind, actor, occurred, []byte(payload))
 		if err != nil {
 			return out, err
 		}
@@ -1242,12 +1404,12 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"seq"})
 	return out, err
 }
-func decodeTimelineEvent(global int64, kind, actor, occurred string, payload []byte) (TimelineEvent, error) {
+func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred string, payload []byte) (TimelineEvent, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event payload is malformed", false, "repair the event log before reading history")
 	}
-	e := TimelineEvent{GlobalSeq: global, Kind: kind, Actor: actor, OccurredAt: occurred, EvidenceRefs: []string{}}
+	e := TimelineEvent{EventID: eventID, GlobalSeq: global, Kind: kind, Actor: actor, OccurredAt: occurred, EvidenceRefs: []string{}}
 	for name, dst := range map[string]**string{"from": &e.From, "to": &e.To} {
 		if raw, ok := fields[name]; ok && string(raw) != "null" {
 			var v string
@@ -1290,6 +1452,51 @@ func relationSpecs(kinds []string) ([]relationSpec, error) {
 	}
 	return out, nil
 }
+
+func readRelationDepth(ctx context.Context, tx *sql.Tx, work string, specs []relationSpec, direction string, depth int) ([]RelationEdge, error) {
+	var out []RelationEdge
+	for _, spec := range specs {
+		anchor := "r.work_id_from=?"
+		recurse := "r.work_id_from=g.target"
+		if direction == "incoming" {
+			anchor = "r.work_id_to=?"
+			recurse = "r.work_id_to=g.source"
+		}
+		if spec.invert {
+			if direction == "outgoing" {
+				anchor = "r.work_id_to=?"
+				recurse = "r.work_id_to=g.target"
+			} else {
+				anchor = "r.work_id_from=?"
+				recurse = "r.work_id_from=g.source"
+			}
+		}
+		q := `WITH RECURSIVE graph(depth,source,target) AS (
+SELECT 1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM relations r WHERE r.kind=? AND ` + anchor + `
+UNION
+SELECT g.depth+1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM graph g JOIN relations r ON r.kind=? AND ` + recurse + ` WHERE g.depth < ?
+) SELECT ? AS kind,source,target FROM graph ORDER BY depth,source,target`
+		args := []any{spec.invert, spec.invert, spec.stored, work, spec.invert, spec.invert, spec.stored, depth, spec.label}
+		rows, err := tx.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "PM1.Q8", "cannot read relation graph", true, "retry once the database is readable", err)
+		}
+		for rows.Next() {
+			var edge RelationEdge
+			if err := rows.Scan(&edge.Kind, &edge.Source, &edge.Target); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, edge)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
+}
 func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 	var out Q8Result
 	if req.Work == "" {
@@ -1299,8 +1506,15 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 	if direction == "" {
 		direction = "outgoing"
 	}
-	if direction != "incoming" && direction != "outgoing" {
-		return out, newFailure(KindInvalidFilter, "PM1.Q8", "direction must be incoming or outgoing", false, "choose a closed relation direction")
+	if direction != "incoming" && direction != "outgoing" && direction != "both" {
+		return out, newFailure(KindInvalidFilter, "PM1.Q8", "direction must be incoming, outgoing, or both", false, "choose a closed relation direction")
+	}
+	depth := req.Depth
+	if depth == 0 {
+		depth = 1
+	}
+	if depth < 1 || depth > 3 {
+		return out, newFailure(KindInvalidFilter, "PM1.Q8", "depth must be between 1 and 3", false, "supply a bounded relation depth")
 	}
 	specs, err := relationSpecs(req.RelationKinds)
 	if err != nil {
@@ -1312,6 +1526,47 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 	}
 	defer tx.Rollback()
 	if _, err := readOneWork(ctx, tx, req.Work); err != nil {
+		return out, err
+	}
+	if depth > 1 || direction == "both" {
+		allEdges := []RelationEdge{}
+		for _, dir := range []string{direction} {
+			if dir == "both" {
+				for _, one := range []string{"outgoing", "incoming"} {
+					edges, e := readRelationDepth(ctx, tx, req.Work, specs, one, depth)
+					if e != nil {
+						return out, e
+					}
+					allEdges = append(allEdges, edges...)
+				}
+			} else {
+				edges, e := readRelationDepth(ctx, tx, req.Work, specs, dir, depth)
+				if e != nil {
+					return out, e
+				}
+				allEdges = append(allEdges, edges...)
+			}
+		}
+		sort.Slice(allEdges, func(i, j int) bool {
+			if allEdges[i].Kind != allEdges[j].Kind {
+				return allEdges[i].Kind < allEdges[j].Kind
+			}
+			if allEdges[i].Source != allEdges[j].Source {
+				return allEdges[i].Source < allEdges[j].Source
+			}
+			return allEdges[i].Target < allEdges[j].Target
+		})
+		seen := map[string]bool{}
+		out.Edges = out.Edges[:0]
+		for _, edge := range allEdges {
+			key := edge.Kind + "|" + edge.Source + "|" + edge.Target
+			if !seen[key] {
+				seen[key] = true
+				out.Edges = append(out.Edges, edge)
+			}
+		}
+		out.Result = &Q8ResultPayload{Edges: out.Edges}
+		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target"})
 		return out, err
 	}
 	parts := make([]string, 0, len(specs))

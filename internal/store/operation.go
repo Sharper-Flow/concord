@@ -117,7 +117,12 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"product.stage_changed":           {CurrentVersion: 1, MinSupported: 1, Fold: foldProductStageChanged},
 	"project.created":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectCreated},
 	"project.renamed":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectRenamed},
+	"project.locator_added":           {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectLocatorAdded},
+	"project.locator_updated":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectLocatorUpdated},
+	"project.locator_removed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectLocatorRemoved},
 	"work.created":                    {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkCreatedV1}, Fold: foldWorkCreated},
+	"work.intent_revised":             {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkIntentRevised},
+	"work.memberships_replaced":       {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkMembershipsReplaced},
 	"work.transitioned":               {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkTransitioned},
 	"work.superseded":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkSuperseded},
 	"work.reopened":                   {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopened},
@@ -228,6 +233,72 @@ func ApplyOperation(ctx context.Context, s *Store, operation Operation) error {
 // returning the bounded impact of any Product↔Project membership change.
 func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation) (ApplyOperationResult, error) {
 	return applyOperationWithResult(ctx, s, operation, nil)
+}
+
+// ApplyOperationTx applies one domain operation to a caller-owned transaction.
+// The caller is responsible for commit or rollback; this is the mutation seam
+// used when authorization, approval consumption, idempotency, and the domain
+// effect must share one transaction.
+func ApplyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (ApplyOperationResult, error) {
+	var output ApplyOperationResult
+	if tx == nil {
+		return output, newFailure(KindUnavailable, "apply_operation", "transaction is not open", false, "open a mutation transaction")
+	}
+	if len(operation.Events) == 0 {
+		return output, newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false, "supply at least one accepted event")
+	}
+	for subject, expected := range operation.ExpectedVersions {
+		if !subject.Type.valid() || subject.ID == "" || expected < 0 {
+			return output, newFailure(KindInvalidOperation, "apply_operation", "expected versions must use recognized typed subjects, non-empty IDs, and non-negative versions", false, "supply a typed subject reference")
+		}
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		return output, err
+	}
+	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
+	for _, event := range operation.Events {
+		if err := event.validate(); err != nil {
+			return output, err
+		}
+		if err := validateRegisteredEvent(event); err != nil {
+			return output, attributeFailure(err, event, "upcast")
+		}
+		ref := VersionRef(event.SubjectType, event.SubjectID)
+		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
+			got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)
+			if err != nil {
+				return output, err
+			}
+			if (expected == 0 && exists) || (expected > 0 && (!exists || got != expected)) {
+				return output, versionConflict(event.SubjectType, event.SubjectID, expected, got, exists)
+			}
+			checked[ref] = true
+		}
+		seq, err := AppendEvent(ctx, tx, event)
+		if err != nil {
+			return output, err
+		}
+		event.Seq = seq
+		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+			return output, err
+		}
+		output.EventIDs = append(output.EventIDs, event.EventID)
+	}
+	var err error
+	output.Impact, err = membershipImpact(ctx, tx, operation)
+	if err != nil {
+		return output, err
+	}
+	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
+		return output, err
+	}
+	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
+		return output, err
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return output, err
+	}
+	return output, nil
 }
 
 // preCommitHook is deliberately unexported. Tests use it to stop a process at
@@ -368,7 +439,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
-	for _, table := range []string{"epic_entries", "relations", "work_projects", "work_items", "product_projects", "products", "projects"} {
+	for _, table := range []string{"epic_entries", "relations", "work_projects", "work_items", "product_projects", "project_locators", "products", "projects"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,

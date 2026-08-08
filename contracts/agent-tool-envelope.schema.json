@@ -257,7 +257,20 @@
         "current_versions": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/changedRef" } },
         "candidates": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
         "violations": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
-        "details": { "type": "object", "maxProperties": 20, "additionalProperties": { "type": ["string", "number", "integer", "boolean", "null"] } }
+        "details": {
+          "type": "object",
+          "maxProperties": 20,
+          "additionalProperties": {
+            "oneOf": [
+              { "type": ["string", "number", "integer", "boolean", "null"] },
+              {
+                "type": "array",
+                "maxItems": 20,
+                "items": { "type": ["string", "number", "integer", "boolean", "null"] }
+              }
+            ]
+          }
+        }
       },
       "allOf": [
         {

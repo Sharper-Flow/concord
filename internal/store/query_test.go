@@ -123,6 +123,89 @@ func TestQueryQ6ValidatesExplicitProductForWork(t *testing.T) {
 	assertFailureKind(t, err, KindUnknownScope)
 }
 
+func TestQueryQ10AcceptsExactlyOneStableReferenceAndReturnsTypedStates(t *testing.T) {
+	s := seedQueryFixture(t)
+	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: t.TempDir(), HeadRef: "HEAD"}
+	result, err := s.QueryQ10(context.Background(), Q10Request{Work: "blocked", AllowDegraded: true, Home: home})
+	if err != nil || result.Status != "not_compacted" {
+		t.Fatalf("work-only result=%#v, err=%v", result, err)
+	}
+	result, err = s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "missing-knowledge", AllowDegraded: true, Home: home})
+	if err != nil || result.Status != "missing" || result.Result == nil || result.Result.Status != "missing" {
+		t.Fatalf("knowledge-only missing result=%#v, err=%v", result, err)
+	}
+	for _, request := range []Q10Request{{}, {Work: "blocked", KnowledgeID: "knowledge"}} {
+		_, err := s.QueryQ10(context.Background(), request)
+		assertFailureKind(t, err, KindInvalidFilter)
+	}
+}
+
+func TestQueryQ10ContainsKnowledgeInSelectedProduct(t *testing.T) {
+	s := openTemp(t)
+	insertArchivedKnowledge(t, s, "knowledge-b", "home", "locator", "missing.md", "missing", "missing", []string{"product-b"})
+	result, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-b", Product: "product-a", AllowDegraded: true, Home: KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: t.TempDir(), HeadRef: "HEAD"}})
+	if err == nil {
+		t.Fatalf("knowledge from another Product resolved: %#v", result)
+	}
+	assertFailureKind(t, err, KindUnknownScope)
+}
+
+func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
+	s := openTemp(t)
+	repo := initKnowledgeRepo(t)
+	path := "docs/lessons/different.md"
+	writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("different-id", "lesson", "2026-08-07T00:00:00Z", []string{"test"}))
+	commit := commitKnowledgeRepo(t, repo, "ambiguous knowledge")
+	note, err := VerifyCommittedNote(context.Background(), repo, commit, path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertArchivedKnowledge(t, s, "knowledge-id", "home", "locator", path, commit, note.ContentHash, nil)
+	result, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-id", AllowDegraded: true, Home: KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}})
+	if err != nil || result.Status != "ambiguous" || result.Result == nil || result.Result.Status != "ambiguous" {
+		t.Fatalf("ambiguous result=%#v, err=%v", result, err)
+	}
+}
+
+func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocator, path, commit, hash string, products []string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := s.DB().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "lesson", id, "2026-08-07T00:00:00Z", "published", "[]", "completed", 1, "summary", homeProject, homeLocator, path, commit, hash); err != nil {
+		t.Fatal(err)
+	}
+	for _, product := range products {
+		if _, err := s.DB().ExecContext(ctx, `INSERT INTO archived_work_products(work_id,product_id) VALUES (?,?)`, id, product); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestQueryQ6ProjectPaginationBoundsContinuationAndTamper(t *testing.T) {
+	s := seedQueryFixture(t)
+	for _, id := range []string{"scope-a", "scope-b", "scope-c"} {
+		addQ4Work(t, s, id, 1, time.Now().UTC())
+	}
+	first, err := s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 2})
+	if err != nil || len(first.Items) != 2 || first.NextCursor == nil {
+		t.Fatalf("first scope page=%#v, err=%v", first, err)
+	}
+	second, err := s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 2, Cursor: *first.NextCursor})
+	if err != nil || len(second.Items) == 0 || second.Items[0].ID == first.Items[0].ID {
+		t.Fatalf("continuation scope page=%#v, err=%v", second, err)
+	}
+	tampered := *first.NextCursor + "x"
+	_, err = s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 2, Cursor: tampered})
+	assertFailureKind(t, err, KindInvalidCursor)
+	_, err = s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 0, Cursor: *first.NextCursor})
+	if err != nil {
+		t.Fatalf("default bounded limit rejected continuation: %v", err)
+	}
+}
+
 func TestTerminalOnlyQ3RecognizesEveryTerminalFilter(t *testing.T) {
 	for _, tc := range []struct {
 		states []string

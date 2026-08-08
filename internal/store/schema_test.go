@@ -31,6 +31,47 @@ func TestOpenAppliesSchemaManifest(t *testing.T) {
 	}
 }
 
+func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v8.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:8] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-08T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"agent_clients", "agent_client_keys", "agent_nonce_replay", "agent_grants", "agent_approval_challenges", "agent_approvals", "idempotency_records"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("table %s missing after v8->v9 migration", table)
+		}
+	}
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 14 {
+		t.Fatalf("schema version = %d, want 14", version)
+	}
+}
+
 func TestMigrateIsIdempotent(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

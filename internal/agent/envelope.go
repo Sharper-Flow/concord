@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -244,7 +245,7 @@ func (e *Envelope) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode agent envelope: %w", err)
 	}
 	var extra any
-	if err := dec.Decode(&extra); err == nil {
+	if err := dec.Decode(&extra); err != io.EOF {
 		return errors.New("agent envelope contains trailing JSON")
 	}
 	*e = Envelope(value)

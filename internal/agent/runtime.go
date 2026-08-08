@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
 		return request, CallEnvelope{}, fmt.Errorf("decode invoke request: %w", err)
 	}
 	var trailing any
-	if err := dec.Decode(&trailing); err == nil {
+	if err := dec.Decode(&trailing); err != io.EOF {
 		return request, CallEnvelope{}, errors.New("invoke request contains trailing JSON")
 	}
 	if request.Tool == "" || request.Operation == "" || len(request.Input) == 0 || len(request.CallEnvelope) == 0 {
@@ -72,7 +73,7 @@ func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
 	if err := dec.Decode(&env); err != nil {
 		return request, CallEnvelope{}, fmt.Errorf("decode call envelope: %w", err)
 	}
-	if err := dec.Decode(&trailing); err == nil {
+	if err := dec.Decode(&trailing); err != io.EOF {
 		return request, CallEnvelope{}, errors.New("call envelope contains trailing JSON")
 	}
 	if env.SchemaVersion == "" || env.RequestID == "" || env.GrantRef == "" {
@@ -530,7 +531,7 @@ func decodeStrict(data []byte, value any) error {
 		return err
 	}
 	var extra any
-	if err := dec.Decode(&extra); err == nil {
+	if err := dec.Decode(&extra); err != io.EOF {
 		return errors.New("trailing JSON")
 	}
 	return nil

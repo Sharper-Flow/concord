@@ -44,6 +44,51 @@ func TestCanonicalHostApprovalVector(t *testing.T) {
 	}
 }
 
+func TestCanonicalAssertionArrayVector(t *testing.T) {
+	raw, err := os.ReadFile("../../adapter/opencode/grant-assertion-vector.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector struct {
+		ClientRef             string   `json:"client_ref"`
+		ClientVersion         string   `json:"client_version"`
+		SessionRef            string   `json:"session_ref"`
+		AgentRef              string   `json:"agent_ref"`
+		Directory             string   `json:"directory"`
+		Worktree              string   `json:"worktree"`
+		RequestedProductID    string   `json:"requested_product_id"`
+		RequestedProjectIDs   []string `json:"requested_project_ids"`
+		RequestedCapabilities []string `json:"requested_capabilities"`
+		IssuedAt              string   `json:"issued_at"`
+		Nonce                 string   `json:"nonce"`
+		SurfaceRange          string   `json:"surface_range"`
+		EnvelopeVersions      string   `json:"envelope_versions"`
+		ManifestDigest        string   `json:"manifest_digest"`
+		CanonicalBase64       string   `json:"canonical_base64"`
+	}
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatal(err)
+	}
+	issuedAt, err := time.Parse(time.RFC3339Nano, vector.IssuedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities := make([]Capability, len(vector.RequestedCapabilities))
+	for i, capability := range vector.RequestedCapabilities {
+		capabilities[i] = Capability(capability)
+	}
+	assertion := SignedAssertion{
+		ClientRef: vector.ClientRef, ClientVersion: vector.ClientVersion, SessionRef: vector.SessionRef,
+		AgentRef: vector.AgentRef, Directory: vector.Directory, Worktree: vector.Worktree,
+		RequestedProductID: vector.RequestedProductID, RequestedProjectIDs: vector.RequestedProjectIDs,
+		RequestedCapabilities: capabilities, IssuedAt: issuedAt, Nonce: vector.Nonce,
+		SurfaceRange: vector.SurfaceRange, EnvelopeVersions: vector.EnvelopeVersions, ManifestDigest: vector.ManifestDigest,
+	}
+	if got := base64.StdEncoding.EncodeToString(CanonicalAssertion(assertion)); got != vector.CanonicalBase64 {
+		t.Fatalf("canonical assertion mismatch: got %s want %s", got, vector.CanonicalBase64)
+	}
+}
+
 func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 	db := openAgentDB(t)
 	now := fixedTime()

@@ -173,6 +173,8 @@ func TestStrictOperationUnions(t *testing.T) {
 	}
 	if err := ValidateOperationPayload("concord_product_view", "resolve", []byte(`{"product_id":"p-1","project_id":"pr-1"}`), false); err == nil {
 		t.Fatal("resolve accepted product/project union overlap")
+	} else if got := err.Error(); !strings.Contains(got, "oneOf mismatch at $") || !strings.Contains(got, "product_id") || !strings.Contains(got, "project_id") || strings.Contains(got, "p-1") || strings.Contains(got, "pr-1") {
+		t.Fatalf("union diagnostic = %q, want accepted field variants without payload values", got)
 	}
 	if err := ValidateOperationPayload("concord_work_compact", "reconcile", []byte(`{"operation_id":"op-1","expected_operation_version":2,"idempotency_key":"idem"}`), false); err != nil {
 		t.Fatal(err)
@@ -182,6 +184,19 @@ func TestStrictOperationUnions(t *testing.T) {
 	}
 	if err := ValidateOperationPayload("concord_work_compact", "reconcile", []byte(`{"operation_id":"op-1","expected_operation_version":2,"work_id":"w-1","expected_work_version":2,"idempotency_key":"idem"}`), false); err == nil {
 		t.Fatal("reconcile accepted both branches")
+	}
+}
+
+func TestDecodeEnvelopeRejectsInvalidTrailingJSON(t *testing.T) {
+	valid := NewOKRead(NewBase("request-1", "concord_product_view", "resolve", ManifestVersion), "PM1.Q1", json.RawMessage(`{"product_id":"product-1","projects":[]}`), false)
+	raw, err := valid.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{" {}", " garbage"} {
+		if _, err := DecodeEnvelope(append(raw, []byte(suffix)...)); err == nil {
+			t.Fatalf("suffix %q was accepted", suffix)
+		}
 	}
 }
 

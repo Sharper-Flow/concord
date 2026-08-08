@@ -52,6 +52,15 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	}
 }
 
+func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
+	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","grant_ref":"grant-1"},"tool":"concord_product_view","operation":"resolve","input":{}}`
+	for _, suffix := range []string{" {}", " garbage"} {
+		if _, _, err := DecodeInvokeRequest([]byte(valid + suffix)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
+			t.Fatalf("suffix %q error = %v, want trailing JSON rejection", suffix, err)
+		}
+	}
+}
+
 func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	s, err := store.Open(context.Background(), t.TempDir()+"/concord.db")
 	if err != nil {

@@ -59,6 +59,45 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMigrateV7ToV8PreservesValidMultiParentRelations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:7] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-07T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('p','P','prototype','operator_only',1,'now','now'); INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('pr','PR',1,'now','now'); INSERT INTO product_projects(product_id,project_id,role) VALUES('p','pr','primary'); INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('parent','task','Parent','needed',1,1,'now','now'),('child-a','task','A','needed',1,1,'now','now'),('child-b','task','B','needed',1,1,'now','now'); INSERT INTO work_projects(work_id,project_id,role) VALUES('parent','pr','primary'),('child-a','pr','primary'),('child-b','pr','primary'); INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('parent','child-a','parent','now'),('parent','child-b','parent','now'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var count int
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='parent'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("multi-parent relation count = %d, want 2", count)
+	}
+}
+
 func TestMigrateLeavesPopulatedVersion3DatabaseUntouched(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concord.db")
 	ctx := context.Background()

@@ -149,10 +149,33 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.From != current.lifecycle || !ordinaryTransitions[payload.From][payload.To] {
 		return illegalTransition(payload.From, payload.To)
 	}
+	if payload.To == "completed" {
+		kind, err := readWorkKind(ctx, tx, event.SubjectID)
+		if err != nil {
+			return err
+		}
+		if kind == "architecture_spike" {
+			// Fail closed until an accepted workflow adds structural decision-record
+			// acceptance. Research attachments and EvidenceRefs are intentionally
+			// not treated as heuristic substitutes for that future proof.
+			return newFailure(KindDecisionRecordRequired, "fold_event", "architecture_spike completion requires an accepted decision record", false, "complete through the accepted decision-record workflow once implemented")
+		}
+		if kind == "epic" {
+			if _, err := epicRequiredChildrenComplete(ctx, tx, event.SubjectID); err != nil {
+				return err
+			}
+		}
+	}
 	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
-	return updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion)
+	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion); err != nil {
+		return err
+	}
+	if isTerminalLifecycle(payload.To) {
+		return removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt)
+	}
+	return nil
 }
 
 func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -232,7 +255,10 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Successor, To: payload.Superseded, Kind: "supersedes"}); err != nil {
 		return err
 	}
-	return updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion)
+	if err := updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion); err != nil {
+		return err
+	}
+	return removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt)
 }
 
 func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -296,6 +322,19 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.Kind == "supersedes" {
 		return relationContractViolation()
 	}
+	if payload.Kind == "parent" {
+		fromKind, err := readWorkKind(ctx, tx, payload.From)
+		if err != nil {
+			return err
+		}
+		toKind, err := readWorkKind(ctx, tx, payload.To)
+		if err != nil {
+			return err
+		}
+		if fromKind == "epic" || toKind == "epic" {
+			return newFailure(KindRelationContractViolation, "fold_event", "Epic parent edges must be created by Epic entry events", false, "append an Epic entry event")
+		}
+	}
 	current, err := readWork(ctx, tx, payload.From)
 	if err != nil {
 		return err
@@ -334,6 +373,19 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if payload.Kind == "supersedes" {
 		return relationContractViolation()
+	}
+	if payload.Kind == "parent" {
+		fromKind, err := readWorkKind(ctx, tx, payload.From)
+		if err != nil {
+			return err
+		}
+		toKind, err := readWorkKind(ctx, tx, payload.To)
+		if err != nil {
+			return err
+		}
+		if fromKind == "epic" || toKind == "epic" {
+			return newFailure(KindRelationContractViolation, "fold_event", "Epic parent edges must be removed by Epic entry events", false, "append an Epic entry removal event")
+		}
 	}
 	current, err := readWork(ctx, tx, payload.From)
 	if err != nil {
@@ -498,7 +550,7 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err := tx.QueryRowContext(ctx, `
 		SELECT count(*) FROM domain_events
 		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		  AND kind IN ('relation.added', 'work.superseded')`, event.EventID).Scan(&relationID); err != nil {
+		  AND kind IN ('relation.added', 'work.superseded', 'epic_entry.added')`, event.EventID).Scan(&relationID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
 			"retry once the event log is readable", err)
 	}

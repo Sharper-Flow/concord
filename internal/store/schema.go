@@ -497,6 +497,109 @@ CREATE TABLE idempotency_records (
 );
 `,
 	},
+	{
+		Version: 8,
+		Name:    "active_research_and_epic_entries",
+		SQL: `
+CREATE TABLE active_research_packs (
+    pack_id         TEXT PRIMARY KEY,
+    owner_work_id   TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    current_revision INTEGER NOT NULL CHECK(current_revision > 0),
+    freshness       TEXT NOT NULL CHECK(freshness IN ('current','stale','unknown')),
+    expected_version INTEGER NOT NULL CHECK(expected_version > 0),
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    CHECK(length(pack_id) > 0),
+    CHECK(length(owner_work_id) > 0)
+);
+
+CREATE TABLE active_research_revisions (
+    pack_id         TEXT NOT NULL,
+    revision        INTEGER NOT NULL CHECK(revision > 0),
+    question        TEXT NOT NULL,
+    scope_in_json   TEXT NOT NULL CHECK(json_valid(scope_in_json)),
+    scope_out_json  TEXT NOT NULL CHECK(json_valid(scope_out_json)),
+    done_when_json  TEXT NOT NULL CHECK(json_valid(done_when_json)),
+    method          TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY(pack_id, revision),
+    FOREIGN KEY(pack_id) REFERENCES active_research_packs(pack_id) ON DELETE CASCADE,
+    CHECK(length(question) > 0),
+    CHECK(length(method) > 0)
+);
+
+CREATE TABLE active_research_findings (
+    pack_id         TEXT NOT NULL,
+    revision        INTEGER NOT NULL,
+    finding_id      TEXT NOT NULL,
+    kind            TEXT NOT NULL CHECK(kind IN ('observation','inference','hypothesis','conclusion','recommendation')),
+    statement       TEXT NOT NULL,
+    confidence      TEXT NOT NULL CHECK(confidence IN ('low','medium','high')),
+    freshness       TEXT NOT NULL CHECK(freshness IN ('current','stale','unknown')),
+    status          TEXT NOT NULL CHECK(status IN ('active','contradicted','superseded')),
+    PRIMARY KEY(pack_id, revision, finding_id),
+    FOREIGN KEY(pack_id, revision) REFERENCES active_research_revisions(pack_id, revision) ON DELETE CASCADE,
+    CHECK(length(finding_id) > 0),
+    CHECK(length(statement) > 0)
+);
+
+CREATE TABLE active_research_sources (
+    pack_id         TEXT NOT NULL,
+    revision        INTEGER NOT NULL,
+    source_id       TEXT NOT NULL,
+    kind            TEXT NOT NULL CHECK(kind IN ('official_doc','source_code','issue','paper','web','local_evidence')),
+    locator         TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    publisher_or_author TEXT NOT NULL,
+    published_at    TEXT,
+    accessed_at     TEXT NOT NULL,
+    PRIMARY KEY(pack_id, revision, source_id),
+    FOREIGN KEY(pack_id, revision) REFERENCES active_research_revisions(pack_id, revision) ON DELETE CASCADE,
+    CHECK(length(source_id) > 0),
+    CHECK(length(locator) > 0),
+    CHECK(length(title) > 0),
+    CHECK(length(publisher_or_author) > 0),
+    CHECK(length(accessed_at) > 0)
+);
+
+CREATE TABLE active_research_finding_sources (
+    pack_id         TEXT NOT NULL,
+    revision        INTEGER NOT NULL,
+    finding_id      TEXT NOT NULL,
+    source_id       TEXT NOT NULL,
+    PRIMARY KEY(pack_id, revision, finding_id, source_id),
+    FOREIGN KEY(pack_id, revision, finding_id) REFERENCES active_research_findings(pack_id, revision, finding_id) ON DELETE CASCADE,
+    FOREIGN KEY(pack_id, revision, source_id) REFERENCES active_research_sources(pack_id, revision, source_id) ON DELETE CASCADE
+);
+
+CREATE TABLE active_research_consumers (
+    pack_id         TEXT NOT NULL,
+    revision        INTEGER NOT NULL,
+    consumer_work_id TEXT NOT NULL,
+    use_role        TEXT NOT NULL CHECK(use_role IN ('context','design_input','verification_basis','decision_basis')),
+    required        INTEGER NOT NULL CHECK(required IN (0,1)),
+    accepted_at     TEXT NOT NULL,
+    PRIMARY KEY(pack_id, revision, consumer_work_id),
+    FOREIGN KEY(pack_id, revision) REFERENCES active_research_revisions(pack_id, revision) ON DELETE CASCADE,
+    FOREIGN KEY(consumer_work_id) REFERENCES work_items(id) ON DELETE RESTRICT,
+    CHECK(length(accepted_at) > 0)
+);
+
+CREATE INDEX active_research_consumers_by_work
+    ON active_research_consumers(consumer_work_id, pack_id, revision);
+
+CREATE TABLE epic_entries (
+    epic_work_id   TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    position       INTEGER NOT NULL CHECK(position >= 0),
+    required       INTEGER NOT NULL CHECK(required IN (0,1)),
+    PRIMARY KEY(epic_work_id, child_work_id),
+    UNIQUE(epic_work_id, position),
+    CHECK(epic_work_id <> child_work_id)
+);
+CREATE INDEX epic_entries_by_child ON epic_entries(child_work_id, epic_work_id);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

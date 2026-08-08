@@ -35,6 +35,7 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public, issue-linked lessons from the predecessor; non-authorizing design input. |
 | [`provenance.md`](./provenance.md) | Public-safety boundary, preserved identifiers, and authority transition. |
 | [`development-authority.md`](./development-authority.md) | Accepted GitHub/Git/docs authority model before replacement readiness. |
+| [`installation.md`](./installation.md) | Release installation, Secret Service prerequisites, OpenCode registration, upgrade, and uninstall. |
 | [`clarifications.md`](./clarifications.md) | Accepted clarification history plus explicitly deferred later-phase questions. |
 | [`product-memory-query-contract.md`](./product-memory-query-contract.md) + [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json) | **Accepted PM1** canonical query contract and golden corpus; binding input to PM2/PM3 and TS1/TS3 evaluation. |
 | [`agent-tool-surface-jobs.md`](./agent-tool-surface-jobs.md) + [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json) | **Accepted TS1:** eight canonical end-to-end agent jobs and 21 tool-neutral evaluation scenarios; binding input to TS2–TS9. |

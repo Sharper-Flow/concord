@@ -1,10 +1,9 @@
 # Concord
 
 Concord is a Product-first, agent-native coordination system for one operator and
-many local AI agents. The repository currently contains the accepted constitutional
-design, public contracts/scenarios, repository safety gates, and a minimal Go CLI
-boundary. Runtime storage, adapters, workflow execution, installation, and releases
-are not implemented yet.
+many local AI agents. The repository contains the accepted constitutional design,
+public contracts/scenarios, repository safety gates, a Go CLI boundary, and a
+release-ready Linux amd64 distribution path.
 
 ## Status and support
 
@@ -19,6 +18,7 @@ Start with:
 - [Canonical priorities](docs/priorities.md)
 - [Public provenance](docs/provenance.md)
 - [Development authority](docs/development-authority.md)
+- [Installation and upgrades](docs/installation.md)
 - [Agent instructions](AGENTS.md)
 
 ## Build and verify
@@ -30,6 +30,8 @@ go vet ./...
 python3 scripts/check-doc-links.py
 python3 scripts/check-public-content.py
 python3 scripts/check-json.py
+python3 scripts/test-release.py
+python3 scripts/test-installer.py
 ```
 
 Before pushing, run the complete ordered gate in [AGENTS.md](AGENTS.md). The scaffold
@@ -59,7 +61,7 @@ still run, unthrottled and with a warning, when no throttle is installed.
 | `contracts/` | Public machine-readable contracts. |
 | `scenarios/` | Synthetic conformance scenarios. |
 | `docs/` | Accepted Product law and design evidence. |
-| `adapter/opencode/` | Reserved OpenCode adapter boundary. |
+| `adapter/opencode/` | OpenCode custom-tool adapter boundary. |
 | `workflows/` | Reserved workflow-definition boundary. |
 | `skills/` | Conditional/deferred skill boundary. |
 

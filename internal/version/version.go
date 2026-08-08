@@ -1,5 +1,8 @@
-// Package version contains the build version shown by the scaffold CLI.
+// Package version contains the build version shown by the CLI.
 package version
 
-// Value is replaced by release tooling when versioned artifacts exist.
-const Value = "dev"
+// Development is the version shown by an unstamped development build.
+const Development = "dev"
+
+// Value is replaced by release tooling with -ldflags -X for versioned artifacts.
+var Value = Development

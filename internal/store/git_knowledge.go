@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path"
 	"strconv"
@@ -58,6 +59,83 @@ type VerifiedNote struct {
 	Content       []byte
 }
 
+// PublishCanonicalNote writes one approved note into the selected git home,
+// commits only that path, and verifies the exact committed proof before the
+// caller records SQLite linkage. It is intentionally separate from the SQLite
+// transaction because Git and SQLite cannot share one atomic commit.
+func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, content, expectedHash string) (VerifiedNote, error) {
+	if home.RepoPath == "" || workID == "" || content == "" {
+		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "canonical note publication is missing home, work, or content", false, "supply the approved note and git home")
+	}
+	note, err := parseKnowledgeNote([]byte(content))
+	if err != nil {
+		return VerifiedNote{}, err
+	}
+	if note.ID != workID || note.Kind != "work_note" {
+		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved note identity does not match the terminal work", false, "publish the canonical work note for the requested work ID")
+	}
+	if expectedHash != "" {
+		sum := sha256.Sum256([]byte(content))
+		if expectedHash != "sha256:"+hex.EncodeToString(sum[:]) {
+			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved content digest does not match note bytes", false, "recompute the content digest over the exact approved bytes")
+		}
+	}
+	date := time.Now().UTC().Format("2006-01-02")
+	if len(note.CompletedAt) >= 10 {
+		date = note.CompletedAt[:10]
+	}
+	name := slugifyKnowledgeTitle(note.Title)
+	suffix := workID
+	if len(suffix) > 16 {
+		suffix = suffix[len(suffix)-16:]
+	}
+	notePath := "docs/work/" + date + "-" + name + "-" + suffix + ".md"
+	fullPath := path.Join(home.RepoPath, notePath)
+	if head, headErr := runGit(ctx, home.RepoPath, "rev-parse", "HEAD"); headErr == nil {
+		if existing, verifyErr := VerifyCommittedNote(ctx, home.RepoPath, strings.TrimSpace(string(head)), notePath, expectedHash); verifyErr == nil {
+			if existing.ID != workID {
+				return VerifiedNote{}, newFailure(KindKnowledgeAmbiguous, "publish_note", "canonical path already claims a different work ID", false, "resolve the competing canonical note before retrying")
+			}
+			return existing, nil
+		}
+	}
+	if err := os.MkdirAll(path.Dir(fullPath), 0o755); err != nil {
+		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot create the canonical note directory", true, "restore write access to the git home", err)
+	}
+	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot write the canonical note draft", true, "restore write access to the git home", err)
+	}
+	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath); err != nil {
+		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot stage the canonical note", true, "restore git write access and retry", err)
+	}
+	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord work note", "--", notePath); err != nil {
+		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot commit the canonical note", true, "complete the native git commit and reconcile", err)
+	}
+	commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
+	if err != nil {
+		return VerifiedNote{}, err
+	}
+	return VerifyCommittedNote(ctx, home.RepoPath, strings.TrimSpace(string(commit)), notePath, expectedHash)
+}
+
+func slugifyKnowledgeTitle(value string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+		} else if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+		if b.Len() >= 48 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
 // VerifyCommittedNote proves a canonical note from a committed git tree. It
 // deliberately never reads note_path from the working tree.
 func VerifyCommittedNote(ctx context.Context, repo, commitOID, notePath, expectedHash string) (VerifiedNote, error) {
@@ -92,6 +170,50 @@ func VerifyCommittedNote(ctx context.Context, repo, commitOID, notePath, expecte
 	}
 	note.NotePath, note.CommitOID, note.ContentHash, note.Content = notePath, commitOID, hash, append([]byte(nil), content...)
 	return note, nil
+}
+
+// FindVerifiedWorkNote scans only the bounded canonical note directories at a
+// recorded home head, verifies every candidate from the committed tree, and
+// returns the unique note claiming workID. It never reads the working tree and
+// never chooses between competing locators.
+func FindVerifiedWorkNote(ctx context.Context, home KnowledgeHome, workID, expectedHash string) (VerifiedNote, error) {
+	if workID == "" {
+		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "find_work_note", "work ID is empty", false, "supply the terminal work identity")
+	}
+	head, err := resolveKnowledgeHead(ctx, home)
+	if err != nil {
+		return VerifiedNote{}, err
+	}
+	paths, err := scanKnowledgeTree(ctx, home, head)
+	if err != nil {
+		return VerifiedNote{}, err
+	}
+	var matches []VerifiedNote
+	var hashMismatch error
+	for _, notePath := range paths {
+		note, verifyErr := VerifyCommittedNote(ctx, home.RepoPath, head, notePath, "")
+		if verifyErr != nil {
+			continue
+		}
+		if note.ID != workID {
+			continue
+		}
+		if expectedHash != "" && note.ContentHash != expectedHash {
+			hashMismatch = newFailure(KindInvalidNoteProof, "find_work_note", "orphan note content hash does not match the approved proof", false, "supply the exact committed note digest")
+			continue
+		}
+		matches = append(matches, note)
+	}
+	if len(matches) > 1 {
+		return VerifiedNote{}, newFailure(KindKnowledgeAmbiguous, "find_work_note", "multiple canonical notes claim the same work ID", false, "resolve the competing canonical locators before reconciling")
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if hashMismatch != nil {
+		return VerifiedNote{}, hashMismatch
+	}
+	return VerifiedNote{}, newFailure(KindKnowledgeMissing, "find_work_note", "no committed canonical note claims the terminal work ID", true, "commit the approved note or retry reconciliation")
 }
 
 type treeEntry struct {

@@ -28,6 +28,8 @@ jobs:
         run: python3 scripts/check-doc-links.py
       - name: Validate JSON
         run: python3 scripts/check-json.py
+      - name: Validate agent tool-surface contracts
+        run: python3 scripts/check-agent-contracts.py
       - name: Check Go formatting
         run: test -z "$(gofmt -l .)"
       - name: Tidy Go modules

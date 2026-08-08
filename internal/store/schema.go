@@ -598,6 +598,226 @@ CREATE TABLE epic_entries (
     CHECK(epic_work_id <> child_work_id)
 );
 CREATE INDEX epic_entries_by_child ON epic_entries(child_work_id, epic_work_id);
+		`,
+	},
+	{
+		Version: 9,
+		Name:    "agent_authority_and_approvals",
+		SQL: `
+CREATE TABLE agent_clients (
+    client_ref TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK(status IN ('active','revoked')),
+    principal_ref TEXT NOT NULL,
+    capabilities_json TEXT NOT NULL CHECK(json_valid(capabilities_json) AND json_type(capabilities_json)='array' AND json_array_length(capabilities_json) <= 32),
+    product_scope_json TEXT NOT NULL CHECK(json_valid(product_scope_json) AND json_type(product_scope_json)='array' AND json_array_length(product_scope_json) <= 100),
+    project_scope_json TEXT NOT NULL CHECK(json_valid(project_scope_json) AND json_type(project_scope_json)='array' AND json_array_length(project_scope_json) <= 100),
+    created_at TEXT NOT NULL,
+    rotated_at TEXT,
+    revoked_at TEXT,
+    CHECK(length(client_ref) > 0 AND length(client_ref) <= 128),
+    CHECK(length(principal_ref) > 0 AND length(principal_ref) <= 128),
+    CHECK((status='active' AND revoked_at IS NULL) OR (status='revoked' AND revoked_at IS NOT NULL))
+);
+
+CREATE TABLE agent_client_keys (
+    client_ref TEXT NOT NULL REFERENCES agent_clients(client_ref) ON DELETE RESTRICT,
+    key_id TEXT NOT NULL,
+    public_key BLOB NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','revoked')),
+    created_at TEXT NOT NULL,
+    revoked_at TEXT,
+    PRIMARY KEY(client_ref, key_id),
+    UNIQUE(public_key),
+    CHECK(length(key_id) > 0 AND length(key_id) <= 128),
+    CHECK(length(public_key) = 32),
+    CHECK((status='active' AND revoked_at IS NULL) OR (status='revoked' AND revoked_at IS NOT NULL))
+);
+CREATE UNIQUE INDEX agent_client_one_active_key ON agent_client_keys(client_ref) WHERE status='active';
+
+CREATE TABLE agent_nonce_replay (
+    client_ref TEXT NOT NULL REFERENCES agent_clients(client_ref) ON DELETE RESTRICT,
+    nonce TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    PRIMARY KEY(client_ref, nonce),
+    CHECK(length(nonce) >= 16 AND length(nonce) <= 256),
+    CHECK(length(observed_at) > 0 AND length(expires_at) > 0)
+);
+CREATE INDEX agent_nonce_replay_expiry ON agent_nonce_replay(expires_at);
+
+CREATE TABLE agent_grants (
+    grant_ref TEXT PRIMARY KEY,
+    grant_hash BLOB NOT NULL UNIQUE,
+    principal_ref TEXT NOT NULL,
+    client_ref TEXT NOT NULL REFERENCES agent_clients(client_ref) ON DELETE RESTRICT,
+    session_ref TEXT NOT NULL,
+    agent_ref TEXT NOT NULL,
+    directory TEXT NOT NULL,
+    worktree TEXT NOT NULL,
+    client_version TEXT NOT NULL,
+    client_key_id TEXT NOT NULL,
+    surface_version TEXT NOT NULL,
+    envelope_version TEXT NOT NULL,
+    manifest_digest TEXT NOT NULL,
+    capabilities_json TEXT NOT NULL CHECK(json_valid(capabilities_json) AND json_type(capabilities_json)='array'),
+    product_scope_json TEXT NOT NULL CHECK(json_valid(product_scope_json) AND json_type(product_scope_json)='array'),
+    project_scope_json TEXT NOT NULL CHECK(json_valid(project_scope_json) AND json_type(project_scope_json)='array'),
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    max_uses INTEGER NOT NULL DEFAULT 0 CHECK(max_uses >= 0 AND max_uses <= 1000000),
+    used_count INTEGER NOT NULL DEFAULT 0 CHECK(used_count >= 0 AND used_count <= max_uses OR max_uses=0),
+    CHECK(length(grant_ref) = 64 AND length(grant_hash) = 32),
+    CHECK(length(principal_ref) > 0 AND length(principal_ref) <= 128),
+    CHECK(length(session_ref) > 0 AND length(session_ref) <= 128),
+    CHECK(length(agent_ref) > 0 AND length(agent_ref) <= 128),
+    CHECK(length(directory) > 0 AND length(directory) <= 4096),
+    CHECK(length(worktree) > 0 AND length(worktree) <= 4096),
+    CHECK(length(client_version) > 0 AND length(client_version) <= 64),
+    CHECK(length(client_key_id) > 0 AND length(client_key_id) <= 128),
+    CHECK(length(surface_version) > 0 AND length(surface_version) <= 64),
+    CHECK(length(envelope_version) > 0 AND length(envelope_version) <= 64),
+    CHECK(length(manifest_digest) = 71),
+    CHECK(expires_at > issued_at)
+);
+CREATE INDEX agent_grants_lookup ON agent_grants(client_ref, session_ref, agent_ref);
+
+CREATE TABLE agent_approvals (
+    approval_ref TEXT PRIMARY KEY,
+    operation_digest TEXT NOT NULL,
+    scope_json TEXT NOT NULL CHECK(json_valid(scope_json) AND json_type(scope_json)='object'),
+    version_json TEXT NOT NULL CHECK(json_valid(version_json) AND json_type(version_json)='object'),
+    consequence TEXT NOT NULL CHECK(consequence IN ('read','intent','lifecycle','workflow_action','scope','relation','supersession','publication','recovery')),
+    human_principal_ref TEXT NOT NULL,
+    client_ref TEXT NOT NULL REFERENCES agent_clients(client_ref) ON DELETE RESTRICT,
+    session_ref TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    max_uses INTEGER NOT NULL CHECK(max_uses > 0 AND max_uses <= 100),
+    used_count INTEGER NOT NULL DEFAULT 0 CHECK(used_count >= 0 AND used_count <= max_uses),
+    revoked_at TEXT,
+    protected_evidence_ref TEXT NOT NULL,
+    protected_evidence_digest TEXT NOT NULL,
+    CHECK(length(approval_ref) = 64),
+    CHECK(length(operation_digest) > 0 AND length(operation_digest) <= 128),
+    CHECK(length(human_principal_ref) > 0 AND length(human_principal_ref) <= 128),
+    CHECK(length(session_ref) > 0 AND length(session_ref) <= 128),
+    CHECK(length(protected_evidence_ref) > 0 AND length(protected_evidence_ref) <= 256),
+    CHECK(length(protected_evidence_digest) > 0 AND length(protected_evidence_digest) <= 128),
+    CHECK(expires_at > issued_at)
+);
+CREATE INDEX agent_approvals_lookup ON agent_approvals(client_ref, session_ref, operation_digest);
+
+CREATE TABLE agent_approval_challenges (
+    challenge_ref TEXT PRIMARY KEY,
+    grant_ref TEXT NOT NULL REFERENCES agent_grants(grant_ref) ON DELETE RESTRICT,
+    operation_digest TEXT NOT NULL,
+    scope_json TEXT NOT NULL CHECK(json_valid(scope_json) AND json_type(scope_json)='object'),
+    version_json TEXT NOT NULL CHECK(json_valid(version_json) AND json_type(version_json)='object'),
+    consequence TEXT NOT NULL CHECK(consequence IN ('read','intent','lifecycle','workflow_action','scope','relation','supersession','publication','recovery')),
+    host_assertion_digest TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','consumed','revoked')),
+    consumed_at TEXT,
+    CHECK(length(challenge_ref) = 64),
+    CHECK(length(operation_digest) > 0 AND length(operation_digest) <= 128),
+    CHECK(length(host_assertion_digest) > 0 AND length(host_assertion_digest) <= 128),
+    CHECK(expires_at > issued_at),
+    CHECK((status='active' AND consumed_at IS NULL) OR (status IN ('consumed','revoked')))
+);
+CREATE INDEX agent_approval_challenges_grant ON agent_approval_challenges(grant_ref, status);
+
+-- Stable Project identity is projected from locator events. A filesystem path
+-- or remote is never the Project identity itself; each is replaceable evidence
+-- for one stable Project ID.
+CREATE TABLE project_locators (
+    locator_id       TEXT PRIMARY KEY,
+    project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    kind             TEXT NOT NULL CHECK(kind IN ('git_remote','canonical_path')),
+    locator_value    TEXT NOT NULL,
+    normalized_value TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    CHECK(length(locator_id) > 0 AND length(locator_id) <= 128),
+    CHECK(length(locator_value) > 0 AND length(locator_value) <= 4096),
+    CHECK(length(normalized_value) > 0 AND length(normalized_value) <= 4096),
+    UNIQUE(kind, normalized_value)
+);
+CREATE INDEX project_locators_by_project ON project_locators(project_id, kind, normalized_value);
+CREATE TRIGGER project_locators_guard_insert
+BEFORE INSERT ON project_locators FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_locators is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER project_locators_guard_update
+BEFORE UPDATE ON project_locators FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_locators is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER project_locators_guard_delete
+BEFORE DELETE ON project_locators FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_locators is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
+-- One installation-scoped random key authenticates opaque pagination cursors.
+-- It is authority state, not adapter state or a source-code secret.
+CREATE TABLE agent_installation_keys (
+    key_name  TEXT PRIMARY KEY,
+    key_bytes BLOB NOT NULL CHECK(length(key_bytes) = 32),
+    created_at TEXT NOT NULL
+);
+
+-- Grant context is retained as a structural snapshot for stale-context checks.
+ALTER TABLE agent_grants ADD COLUMN scope_version TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_grants ADD COLUMN scope_snapshot_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE agent_grants ADD COLUMN candidate_products_json TEXT NOT NULL DEFAULT '[]';
+		`,
+	},
+	{
+		Version: 10,
+		Name:    "work_intent_and_membership_revisions",
+		SQL: `
+ALTER TABLE work_items ADD COLUMN intent_json TEXT NOT NULL DEFAULT '{}';
+		`,
+	},
+	{
+		Version: 11,
+		Name:    "mutation_result_replay_payloads",
+		SQL: `
+ALTER TABLE idempotency_records ADD COLUMN result_payload TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE idempotency_records ADD COLUMN changed_refs TEXT NOT NULL DEFAULT '[]';
+		`,
+	},
+	{
+		Version: 12,
+		Name:    "approval_challenge_use_bounds",
+		SQL: `
+ALTER TABLE agent_approval_challenges ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1 CHECK(max_uses > 0 AND max_uses <= 100);
+ALTER TABLE agent_approval_challenges ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0 CHECK(used_count >= 0 AND used_count <= max_uses);
+		`,
+	},
+	{
+		Version: 13,
+		Name:    "idempotency_authorized_scope_snapshot",
+		SQL: `
+ALTER TABLE idempotency_records ADD COLUMN authorized_scope_snapshot TEXT NOT NULL DEFAULT '{}';
+		`,
+	},
+	{
+		Version: 14,
+		Name:    "product_knowledge_homes",
+		SQL: `
+CREATE TABLE product_knowledge_homes (
+    product_id TEXT PRIMARY KEY REFERENCES products(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    locator_id TEXT NOT NULL REFERENCES project_locators(locator_id) ON DELETE RESTRICT,
+    UNIQUE(project_id, locator_id)
+);
 `,
 	},
 }

@@ -10,9 +10,14 @@ import (
 )
 
 type workCreatedPayload struct {
-	WorkKind string `json:"work_kind"`
-	Title    string `json:"title"`
-	Priority *int64 `json:"priority"`
+	WorkKind        string   `json:"work_kind"`
+	Title           string   `json:"title"`
+	ValueStatement  string   `json:"value_statement,omitempty"`
+	Priority        *int64   `json:"priority"`
+	Tags            []string `json:"tags,omitempty"`
+	ComponentID     string   `json:"component_id,omitempty"`
+	WorkflowTypeRef string   `json:"workflow_type_ref,omitempty"`
+	ExternalRef     string   `json:"external_ref,omitempty"`
 }
 
 type workCreatedV1Payload struct {
@@ -55,6 +60,31 @@ type workTransitionPayload struct {
 	ResultingVersion int64    `json:"resulting_version"`
 }
 
+type workIntentPayload struct {
+	Title            string   `json:"title"`
+	ValueStatement   string   `json:"value_statement"`
+	Kind             string   `json:"kind"`
+	Priority         int64    `json:"priority"`
+	Tags             []string `json:"tags"`
+	ComponentID      string   `json:"component_id,omitempty"`
+	WorkflowTypeRef  string   `json:"workflow_type_ref,omitempty"`
+	ExternalRef      string   `json:"external_ref,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
+	ExpectedVersion  int64    `json:"expected_version"`
+	ResultingVersion int64    `json:"resulting_version"`
+}
+
+type workMembershipsPayload struct {
+	Memberships      []workMembershipPayload `json:"memberships"`
+	ExpectedVersion  int64                   `json:"expected_version"`
+	ResultingVersion int64                   `json:"resulting_version"`
+}
+
+type workMembershipPayload struct {
+	ProjectID string `json:"project_id"`
+	Role      string `json:"role"`
+}
+
 type workReopenedPayload struct {
 	From             string `json:"from"`
 	Reason           string `json:"reason"`
@@ -63,28 +93,36 @@ type workReopenedPayload struct {
 }
 
 type workSupersededPayload struct {
-	Successor        string `json:"successor"`
-	Superseded       string `json:"superseded"`
-	Reason           string `json:"reason"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
+	Successor             string `json:"successor"`
+	Superseded            string `json:"superseded"`
+	Reason                string `json:"reason"`
+	ExpectedVersion       int64  `json:"expected_version"`
+	ResultingVersion      int64  `json:"resulting_version"`
+	SuccessorVersion      int64  `json:"successor_expected_version"`
+	SuccessorResultingVer int64  `json:"successor_resulting_version"`
 }
 
 type workReopenedFromSupersededPayload struct {
-	Superseded       string `json:"superseded"`
-	Replacement      string `json:"replacement_successor"`
-	Reason           string `json:"reason"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
+	Superseded           string `json:"superseded"`
+	Replacement          string `json:"replacement_successor"`
+	Reason               string `json:"reason"`
+	ExpectedVersion      int64  `json:"expected_version"`
+	ResultingVersion     int64  `json:"resulting_version"`
+	SuccessorExpected    int64  `json:"successor_expected_version"`
+	SuccessorResulting   int64  `json:"successor_resulting_version"`
+	ReplacementExpected  int64  `json:"replacement_successor_expected_version"`
+	ReplacementResulting int64  `json:"replacement_successor_resulting_version"`
 }
 
 type relationPayload struct {
-	From             string `json:"from"`
-	To               string `json:"to"`
-	Kind             string `json:"kind"`
-	Reason           string `json:"reason"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
+	From               string `json:"from"`
+	To                 string `json:"to"`
+	Kind               string `json:"kind"`
+	Reason             string `json:"reason"`
+	ExpectedVersion    int64  `json:"expected_version"`
+	ResultingVersion   int64  `json:"resulting_version"`
+	ToExpectedVersion  int64  `json:"to_expected_version,omitempty"`
+	ToResultingVersion int64  `json:"to_resulting_version,omitempty"`
 }
 
 var relationKinds = map[string]bool{
@@ -115,10 +153,11 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 			"supply non-empty work kind and title")
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	intent, _ := json.Marshal(map[string]any{"title": payload.Title, "value_statement": payload.ValueStatement, "kind": payload.WorkKind, "priority": *payload.Priority, "tags": payload.Tags, "component_id": payload.ComponentID, "workflow_type_ref": payload.WorkflowTypeRef, "external_ref": payload.ExternalRef})
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at, terminal_time)
-		VALUES (?, ?, ?, 'needed', ?, 1, ?, ?, NULL)`,
-		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, now, now)
+		INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at, terminal_time, intent_json)
+		VALUES (?, ?, ?, 'needed', ?, 1, ?, ?, NULL, ?)`,
+		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, now, now, string(intent))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "work item already exists", false,
@@ -128,6 +167,88 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 			"retry once the database is writable", err)
 	}
 	return nil
+}
+
+func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	var payload workIntentPayload
+	if err := decodePayload(event, &payload); err != nil {
+		return err
+	}
+	if payload.Title == "" || payload.ValueStatement == "" || payload.Kind == "" || payload.Reason == "" {
+		return newFailure(KindInvalidPayload, "fold_event", "work.intent_revised payload is incomplete", false, "supply the complete mutable intent and reason")
+	}
+	current, err := readWork(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+		return err
+	}
+	intent, err := json.Marshal(payload)
+	if err != nil {
+		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode revised work intent", false, "supply a JSON-safe mutable intent", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET kind=?,title=?,priority=?,intent_json=?,version=?,updated_at=? WHERE id=? AND version=?`, payload.Kind, payload.Title, payload.Priority, string(intent), payload.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, payload.ExpectedVersion)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot revise work intent", true, "retry once the database is writable", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist at expected version", false, "reload the work item before revising intent")
+	}
+	return nil
+}
+
+func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	var payload workMembershipsPayload
+	if err := decodePayload(event, &payload); err != nil {
+		return err
+	}
+	if len(payload.Memberships) == 0 {
+		return newFailure(KindMembershipInvariant, "fold_event", "work membership replacement cannot be empty", false, "supply at least one Project membership")
+	}
+	primary := 0
+	seen := map[string]bool{}
+	for _, membership := range payload.Memberships {
+		if membership.ProjectID == "" || (membership.Role != "primary" && membership.Role != "secondary") || seen[membership.ProjectID] {
+			return newFailure(KindMembershipConflict, "fold_event", "work membership replacement contains a duplicate or invalid Project", false, "supply unique Project memberships and at most one primary")
+		}
+		seen[membership.ProjectID] = true
+		if membership.Role == "primary" {
+			primary++
+		}
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE id=?)`, membership.ProjectID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return newFailure(KindProjectionNotFound, "fold_event", "work membership Project does not exist", false, "create the Project before assigning work")
+		}
+	}
+	if primary > 1 {
+		return newFailure(KindMembershipConflict, "fold_event", "work membership replacement has multiple primary Projects", false, "supply at most one primary membership")
+	}
+	current, err := readWork(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id=?`, event.SubjectID); err != nil {
+		return err
+	}
+	for _, membership := range payload.Memberships {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,?)`, event.SubjectID, membership.ProjectID, membership.Role); err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot replace work memberships", true, "retry once the database is writable", err)
+		}
+	}
+	return updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion)
 }
 
 func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -230,6 +351,15 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := validateWorkVersion(event, predecessor.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
+	successor, err := readWork(ctx, tx, payload.Successor)
+	if err != nil {
+		return err
+	}
+	if payload.SuccessorVersion != 0 && payload.SuccessorResultingVer != 0 {
+		if err := validateWorkVersion(event, successor.version, payload.SuccessorVersion, payload.SuccessorResultingVer); err != nil {
+			return err
+		}
+	}
 	if exists, err := workExists(ctx, tx, payload.Successor); err != nil {
 		return err
 	} else if !exists {
@@ -257,6 +387,11 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if err := updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion); err != nil {
 		return err
+	}
+	if payload.SuccessorVersion != 0 && payload.SuccessorResultingVer != 0 {
+		if err := updateWorkVersionByID(ctx, tx, payload.Successor, successor.version, payload.SuccessorResultingVer, event.OccurredAt); err != nil {
+			return err
+		}
 	}
 	return removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt)
 }
@@ -293,12 +428,52 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect the active supersession edge", true,
 			"retry once the database is readable", err)
 	}
-	// Replacement is metadata for the caller's decision. This event intentionally
-	// removes only the old edge; a new successor is a separate supersession event.
-	_ = payload.Replacement
+	if payload.SuccessorExpected != 0 {
+		successorWork, err := readWork(ctx, tx, successor)
+		if err != nil {
+			return err
+		}
+		if err := validateWorkVersion(event, successorWork.version, payload.SuccessorExpected, payload.SuccessorResulting); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from = ? AND work_id_to = ? AND kind = 'supersedes'`, successor, event.SubjectID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the active supersession edge", true,
 			"retry once the database is writable", err)
+	}
+	if payload.SuccessorExpected != 0 {
+		if err := updateWorkVersionByID(ctx, tx, successor, payload.SuccessorExpected, payload.SuccessorResulting, event.OccurredAt); err != nil {
+			return err
+		}
+	}
+	if payload.Replacement != "" {
+		if payload.ReplacementExpected == 0 && payload.ReplacementResulting == 0 {
+			// Historical composite reopen events carried a replacement label as
+			// caller metadata only. New mutation events include both endpoint
+			// versions and create the replacement edge below.
+			return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
+		}
+		replacement, err := readWork(ctx, tx, payload.Replacement)
+		if err != nil {
+			return err
+		}
+		if payload.ReplacementExpected == 0 || payload.ReplacementResulting == 0 {
+			return newFailure(KindInvalidPayload, "fold_event", "replacement successor version is required", false, "supply the replacement endpoint version")
+		}
+		if err := validateWorkVersion(event, replacement.version, payload.ReplacementExpected, payload.ReplacementResulting); err != nil {
+			return err
+		}
+		if cycle, err := relationWouldCycle(ctx, tx, payload.Replacement, event.SubjectID, "supersedes"); err != nil {
+			return err
+		} else if cycle {
+			return newFailure(KindCycleDetected, "fold_event", "replacement supersession would create a cycle", false, "choose a non-cyclic replacement successor")
+		}
+		if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Replacement, To: event.SubjectID, Kind: "supersedes"}); err != nil {
+			return err
+		}
+		if err := updateWorkVersionByID(ctx, tx, payload.Replacement, payload.ReplacementExpected, payload.ReplacementResulting, event.OccurredAt); err != nil {
+			return err
+		}
 	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 }
@@ -342,6 +517,15 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
+	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
+		other, err := readWork(ctx, tx, payload.To)
+		if err != nil {
+			return err
+		}
+		if err := validateWorkVersion(event, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
+			return err
+		}
+	}
 	// Let SQLite's CHECK produce the structural error for self-edges. This keeps
 	// the schema proof exercised instead of turning the same violation into a
 	// graph-derived error before the constraint fires.
@@ -356,7 +540,13 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := insertRelation(ctx, tx, event, payload); err != nil {
 		return err
 	}
-	return updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion)
+	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
+		return err
+	}
+	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
+		return updateWorkVersionByID(ctx, tx, payload.To, payload.ToExpectedVersion, payload.ToResultingVersion, event.OccurredAt)
+	}
+	return nil
 }
 
 func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -394,6 +584,15 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
+	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
+		other, err := readWork(ctx, tx, payload.To)
+		if err != nil {
+			return err
+		}
+		if err := validateWorkVersion(event, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
+			return err
+		}
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from = ? AND work_id_to = ? AND kind = ?`, payload.From, payload.To, payload.Kind)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove relation projection", true,
@@ -408,7 +607,13 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindRelationNotFound, "fold_event", "relation does not exist", false,
 			"reload the relation graph before removing an edge")
 	}
-	return updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion)
+	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
+		return err
+	}
+	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
+		return updateWorkVersionByID(ctx, tx, payload.To, payload.ToExpectedVersion, payload.ToResultingVersion, event.OccurredAt)
+	}
+	return nil
 }
 
 type workProjection struct {
@@ -483,11 +688,15 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 }
 
 func updateWorkVersion(ctx context.Context, tx *sql.Tx, event Event, current, resulting int64) error {
-	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	return updateWorkVersionByID(ctx, tx, event.SubjectID, current, resulting, event.OccurredAt)
+}
+
+func updateWorkVersionByID(ctx context.Context, tx *sql.Tx, id string, current, resulting int64, occurredAt time.Time) error {
+	now := occurredAt.UTC().Format(time.RFC3339Nano)
 	result, err := tx.ExecContext(ctx, `
 		UPDATE work_items
 		SET version = ?, updated_at = ?
-		WHERE id = ? AND version = ?`, resulting, now, event.SubjectID, current)
+		WHERE id = ? AND version = ?`, resulting, now, id, current)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot update work item version", true,
 			"retry once the database is writable", err)
@@ -550,7 +759,7 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err := tx.QueryRowContext(ctx, `
 		SELECT count(*) FROM domain_events
 		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		  AND kind IN ('relation.added', 'work.superseded', 'epic_entry.added')`, event.EventID).Scan(&relationID); err != nil {
+		  AND kind IN ('relation.added', 'work.superseded', 'work.reopened_from_superseded', 'epic_entry.added')`, event.EventID).Scan(&relationID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
 			"retry once the event log is readable", err)
 	}

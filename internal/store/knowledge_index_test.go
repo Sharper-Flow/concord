@@ -73,6 +73,51 @@ func TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths(t *testing.T) {
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
 
+func TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes(t *testing.T) {
+	repo := initKnowledgeRepo(t)
+	path := "docs/work/2026-08-07-orphan.md"
+	writeKnowledgeFile(t, repo, path, canonicalWorkNote("orphan-work", "2026-08-07T00:00:00Z"))
+	commit := commitKnowledgeRepo(t, repo, "orphan note")
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+	note, err := FindVerifiedWorkNote(context.Background(), home, "orphan-work", "")
+	if err != nil || note.ID != "orphan-work" || note.NotePath != path {
+		t.Fatalf("orphan discovery note=%#v err=%v", note, err)
+	}
+	if _, err := FindVerifiedWorkNote(context.Background(), home, "absent-work", ""); err == nil {
+		t.Fatal("absent orphan was accepted")
+	} else {
+		assertFailureKind(t, err, KindKnowledgeMissing)
+	}
+	if _, err := FindVerifiedWorkNote(context.Background(), home, "orphan-work", "sha256:"+strings.Repeat("0", 64)); err == nil {
+		t.Fatal("hash-mismatched orphan was accepted")
+	} else {
+		assertFailureKind(t, err, KindInvalidNoteProof)
+	}
+	writeKnowledgeFile(t, repo, "docs/work/2026-08-08-orphan-copy.md", canonicalWorkNote("orphan-work", "2026-08-08T00:00:00Z"))
+	commitKnowledgeRepo(t, repo, "competing orphan")
+	if _, err := FindVerifiedWorkNote(context.Background(), home, "orphan-work", ""); err == nil {
+		t.Fatal("competing orphan locator was silently selected")
+	} else {
+		assertFailureKind(t, err, KindKnowledgeAmbiguous)
+	}
+	_ = commit
+}
+
+func TestPublishCanonicalNoteCommitsAndVerifiesOneNote(t *testing.T) {
+	repo := initKnowledgeRepo(t)
+	content := canonicalWorkNote("publish-work", "2026-08-07T00:00:00Z")
+	sum := sha256.Sum256([]byte(content))
+	hash := "sha256:" + hex.EncodeToString(sum[:])
+	note, err := PublishCanonicalNote(context.Background(), KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}, "publish-work", content, hash)
+	if err != nil || note.ID != "publish-work" || note.CommitOID == "" || note.NotePath == "" {
+		t.Fatalf("published note=%#v err=%v", note, err)
+	}
+	repeat, err := PublishCanonicalNote(context.Background(), KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}, "publish-work", content, hash)
+	if err != nil || repeat.CommitOID != note.CommitOID || repeat.NotePath != note.NotePath {
+		t.Fatalf("repeat publication created a second note: first=%#v repeat=%#v err=%v", note, repeat, err)
+	}
+}
+
 func TestRunGitBoundsCommandOutput(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	largePath := "docs/work/large.md"

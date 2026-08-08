@@ -8,12 +8,14 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	// Registers the pure-Go "sqlite" driver.
 	_ "modernc.org/sqlite"
@@ -75,6 +77,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, wrapFailure(KindUnavailable, "open", "cannot create the data directory", true,
 			"check directory permissions", err)
 	}
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+		return nil, wrapFailure(KindUnavailable, "open", "cannot secure the data directory", true,
+			"check directory permissions", err)
+	}
 
 	db, err := sql.Open(driverName, dataSourceName(path))
 	if err != nil {
@@ -96,11 +102,54 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = db.Close()
+		return nil, wrapFailure(KindUnavailable, "open", "cannot secure the database file", true,
+			"check database file permissions", err)
+	}
+	if err := ensureInstallationKey(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := validateMembershipInvariants(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// ensureInstallationKey creates the one authority-owned cursor signing key.
+// INSERT is idempotent so concurrent short-lived opens converge on one key.
+func ensureInstallationKey(ctx context.Context, db *sql.DB) error {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot create the installation cursor key", true,
+			"retry once the operating system random source is available", err)
+	}
+	_, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot persist the installation cursor key", true,
+			"retry once the database is writable", err)
+	}
+	return nil
+}
+
+// InstallationKey returns the authority-owned key for authenticated cursors.
+// The bytes are never serialized into an agent response.
+func InstallationKey(ctx context.Context, db *sql.DB) ([]byte, error) {
+	if db == nil {
+		return nil, newFailure(KindUnavailable, "cursor_key", "database is not open", true, "open the authority database")
+	}
+	var key []byte
+	if err := db.QueryRowContext(ctx, `SELECT key_bytes FROM agent_installation_keys WHERE key_name='cursor'`).Scan(&key); err != nil {
+		return nil, wrapFailure(KindUnavailable, "cursor_key", "cannot read the installation cursor key", true,
+			"open a migrated authority database", err)
+	}
+	if len(key) != 32 {
+		return nil, newFailure(KindInvariantViolation, "cursor_key", "installation cursor key has an invalid length", false,
+			"rebuild the authority from its migration")
+	}
+	return append([]byte(nil), key...), nil
 }
 
 // dataSourceName builds the connection string. Every setting travels in the

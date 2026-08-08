@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 type Q9Request struct {
@@ -15,6 +16,8 @@ type Q9Request struct {
 	Kinds         []string
 	Tags          []string
 	Text          string
+	Since         string
+	Until         string
 	Limit         int
 	Cursor        string
 	AllowDegraded bool
@@ -50,6 +53,8 @@ type Q9Result struct {
 
 type Q10Request struct {
 	Work          string
+	KnowledgeID   string
+	Product       string
 	AllowDegraded bool
 	Home          KnowledgeHome
 }
@@ -90,6 +95,16 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	}
 	if len(req.Text) > 256 {
 		return out, newFailure(KindInvalidFilter, "PM1.Q9", "bounded knowledge text is too long", false, "limit text to 256 characters")
+	}
+	if req.Since != "" {
+		if _, err := time.Parse(time.RFC3339Nano, req.Since); err != nil {
+			return out, newFailure(KindInvalidFilter, "PM1.Q9", "since must be RFC3339", false, "supply a valid time window")
+		}
+	}
+	if req.Until != "" {
+		if _, err := time.Parse(time.RFC3339Nano, req.Until); err != nil {
+			return out, newFailure(KindInvalidFilter, "PM1.Q9", "until must be RFC3339", false, "supply a valid time window")
+		}
 	}
 	kinds, err := knowledgeKinds(req.Kinds)
 	if err != nil {
@@ -142,7 +157,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	var cursor *string
 	if len(items) == limit {
 		last := items[len(items)-1]
-		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 1, Product: req.Product, Project: req.Project, Component: req.Component, Kinds: kinds, Tags: tags, Text: req.Text, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, CompletedAt: last.CompletedAt, ID: last.ID})
+		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 1, Product: req.Product, Project: req.Project, Component: req.Component, Kinds: kinds, Tags: tags, Text: req.Text, Since: req.Since, Until: req.Until, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, CompletedAt: last.CompletedAt, ID: last.ID})
 		if err != nil {
 			return out, err
 		}
@@ -163,8 +178,8 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q10", "store is not open", false, "open a store before querying knowledge")
 	}
-	if req.Work == "" {
-		return out, newFailure(KindInvalidFilter, "PM1.Q10", "Q10 requires a work reference", false, "supply a stable work ID")
+	if (req.Work == "") == (req.KnowledgeID == "") {
+		return out, newFailure(KindInvalidFilter, "PM1.Q10", "Q10 requires exactly one stable reference", false, "supply either work or knowledge_id")
 	}
 	watermark, authority, err := validateKnowledgeHomeForQuery(ctx, s, req.Home, req.AllowDegraded, "PM1.Q10")
 	if err != nil {
@@ -174,24 +189,40 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 		watermark = "unindexed"
 	}
 	meta := knowledgeWatermarkMeta("PM1.Q10", req.Home, watermark, authority)
-	meta.ResolvedScope = ResolvedScope{WorkID: req.Work}
+	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, WorkID: req.Work}
 	out.ResultMeta = meta
 	var note CanonicalNote
 	var homeProject, homeLocator, path, commit, hash string
-	err = s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ? AND type = 'work_note'`, req.Work).Scan(&homeProject, &homeLocator, &path, &commit, &hash)
+	lookupID := req.Work
+	if lookupID == "" {
+		lookupID = req.KnowledgeID
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, lookupID).Scan(&homeProject, &homeLocator, &path, &commit, &hash)
 	if err == sql.ErrNoRows {
-		var exists bool
-		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, req.Work).Scan(&exists); err != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect live work", true, "retry once the database is readable", err)
+		if req.Work != "" {
+			var exists bool
+			if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, lookupID).Scan(&exists); err != nil {
+				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect live work", true, "retry once the database is readable", err)
+			}
+			if exists {
+				out.Status, out.Result = "not_compacted", &Q10Payload{Status: "not_compacted"}
+				return out, nil
+			}
 		}
-		if !exists {
-			return out, newFailure(KindUnknownScope, "PM1.Q10", "work item does not exist", false, "supply a known work ID")
-		}
-		out.Status, out.Result = "not_compacted", &Q10Payload{Status: "not_compacted"}
+		out.Status, out.Result = "missing", &Q10Payload{Status: "missing"}
 		return out, nil
 	}
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read the canonical note locator", true, "retry once the database is readable", err)
+	}
+	if req.Product != "" {
+		var inScope bool
+		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=?)`, lookupID, req.Product).Scan(&inScope); err != nil {
+			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
+		}
+		if !inScope {
+			return out, unknownScope("PM1.Q10", "knowledge note is not in the explicit Product scope")
+		}
 	}
 	note = CanonicalNote{HomeProjectID: homeProject, HomeLocatorID: homeLocator, NotePath: path, NotePathRef: path, Commit: commit, CommitOID: commit, ContentHash: hash}
 	if homeProject != req.Home.HomeProjectID || homeLocator != req.Home.HomeLocatorID {
@@ -207,8 +238,9 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 		}
 		return out, wrapFailure(KindKnowledgeMissing, "PM1.Q10", "recorded canonical note proof is unavailable", true, "restore the git object or rebuild the index", err)
 	}
-	if verified.ID != req.Work {
-		return out, newFailure(KindKnowledgeAmbiguous, "PM1.Q10", "recorded canonical note has a different stable ID", false, "reconcile the archived locator and committed note")
+	if req.Work != "" && verified.ID != req.Work || req.KnowledgeID != "" && verified.ID != req.KnowledgeID {
+		out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
+		return out, nil
 	}
 	out.Status, out.Note, out.Result = "canonical", &note, &Q10Payload{Status: "canonical", Note: &note}
 	return out, nil
@@ -238,6 +270,7 @@ func knowledgeKinds(values []string) ([]string, error) {
 type knowledgeCursor struct {
 	Version                               int `json:"version"`
 	Product, Project, Component, Text     string
+	Since, Until                          string
 	Kinds, Tags                           []string
 	HomeProjectID, HomeLocatorID, HeadRef string
 	CompletedAt, ID                       string
@@ -254,7 +287,7 @@ func encodeKnowledgeCursor(cursor knowledgeCursor) (string, error) {
 func decodeKnowledgeCursor(raw string, req Q9Request, kinds, tags []string) (knowledgeCursor, error) {
 	b, err := base64.RawURLEncoding.DecodeString(raw)
 	var cursor knowledgeCursor
-	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 1 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Component != req.Component || cursor.Text != req.Text || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.CompletedAt == "" || cursor.ID == "" {
+	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 1 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Component != req.Component || cursor.Text != req.Text || cursor.Since != req.Since || cursor.Until != req.Until || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.CompletedAt == "" || cursor.ID == "" {
 		return knowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query", false, "use a cursor returned for the same query and filters")
 	}
 	return cursor, nil
@@ -290,6 +323,14 @@ func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string
 		where = append(where, "(aw.title LIKE ? OR aw.summary LIKE ?)")
 		needle := "%" + req.Text + "%"
 		args = append(args, needle, needle)
+	}
+	if req.Since != "" {
+		where = append(where, "aw.completed_at >= ?")
+		args = append(args, req.Since)
+	}
+	if req.Until != "" {
+		where = append(where, "aw.completed_at <= ?")
+		args = append(args, req.Until)
 	}
 	if req.Cursor != "" {
 		cursor, _ := decodeKnowledgeCursor(req.Cursor, req, kinds, tags)

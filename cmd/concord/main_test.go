@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +19,33 @@ func TestRunVersion(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("version error output = %q, want empty", errOut.String())
+	}
+}
+
+func TestDatabaseOverrideRefusesRepositoryLocalPath(t *testing.T) {
+	repo := t.TempDir()
+	cmd := exec.Command("git", "init", "--quiet", repo)
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, filepath.Join(repo, "nested", "concord.db"))
+	if _, err := databasePath(); err == nil {
+		t.Fatal("repository-local database override accepted")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "nested")); !os.IsNotExist(err) {
+		t.Fatal("database override created a repository-local directory")
+	}
+}
+
+func TestInvokeNeverEchoesGrantToken(t *testing.T) {
+	grantRef := strings.Repeat("a", 63) + "b"
+	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","grant_ref":"` + grantRef + `","client_ref":"c","scope_version":""},"tool":"concord_product_view","operation":"resolve","input":{}}`)
+	var out, errOut bytes.Buffer
+	if code := runInvoke(raw, nil, nil, &out, &errOut); code != 0 {
+		t.Fatalf("runInvoke exit=%d stderr=%q", code, errOut.String())
+	}
+	if strings.Contains(out.String(), grantRef) || strings.Contains(errOut.String(), grantRef) {
+		t.Fatal("grant token leaked through invoke output")
 	}
 }
 

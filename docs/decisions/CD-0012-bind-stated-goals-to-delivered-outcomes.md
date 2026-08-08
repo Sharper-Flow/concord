@@ -293,7 +293,9 @@ about recorded findings, not about a change being made.
   with its own record instead of an undocumented substitution.
 - The pattern is not new machinery. It is CD-0006 D10 applied to a second object, using
   the same approval moment, the same authority, and the same completion check.
-- No new agent tool, no capture-payload change, and therefore no agent-surface MAJOR bump.
+- No additional agent tool identity is required, and the capture payload is unchanged. This
+  says nothing about surface compatibility; TS8 classification is deferred by D2 and a
+  MAJOR bump is stated as a likely cost below.
 
 ### Cost
 
@@ -334,43 +336,47 @@ The implementation acceptance suite must exercise each of the following. Scenari
 follow the existing corpus conventions; this decision does not itself modify
 [`agent-jobs.v1.json`](../../scenarios/agent-jobs.v1.json).
 
-1. A change contract approved with no required end-state is refused at approval (D4).
-2. A change contract whose required end-state already holds before execution is refused as
+1. A work item is captured with no required end-state and is accepted at capture; the same
+   item is approved at planning with its required end-state recorded alongside the CD-0006
+   D10 spec mandate; completion is then verified against that recorded approved contract
+   and not against any later-authored assertion (D2).
+2. A change contract approved with no required end-state is refused at approval (D4).
+3. A change contract whose required end-state already holds before execution is refused as
    vacuous (D4).
-3. A delivery asserting a weaker end-state than approved is refused at completion, with a
+4. A delivery asserting a weaker end-state than approved is refused at completion, with a
    typed outcome-mismatch result rather than a generic error (D3, TS7).
-4. A delivery asserting a stronger end-state than approved is accepted (D3).
-5. An absence end-state over a named ground-truth surface is satisfied by removal and
+5. A delivery asserting a stronger end-state than approved is accepted (D3).
+6. An absence end-state over a named ground-truth surface is satisfied by removal and
    refused when the subject is relocated rather than removed (D3, D5).
-6. Candidate-set revision during execution succeeds without re-approval, appends an event,
+7. Candidate-set revision during execution succeeds without re-approval, appends an event,
    and leaves premise and required end-state byte-identical (D1).
-7. Premise revision is refused as an in-place edit and is representable only as
+8. Premise revision is refused as an in-place edit and is representable only as
    supersession with a successor item (D1).
-8. An execution-time write to the approved required end-state is refused rather than
+9. An execution-time write to the approved required end-state is refused rather than
    merged (D7, authorship fencing).
-9. Work discovered mid-execution that lies outside the approved end-state produces
-   forward-linked successor work and does not close the current item (D6).
-10. End-state revision by the operator supersedes the prior contract, re-enters planning
+10. Work discovered mid-execution that lies outside the approved end-state produces
+    forward-linked successor work and does not close the current item (D6).
+11. End-state revision by the operator supersedes the prior contract, re-enters planning
     before execution resumes, retains both contracts in history, and records which option
     was chosen, by whom, and when (D6, CD-0006 D5), matching the audit shape in
     [`specs-as-laws.md`](../specs-as-laws.md) §6.
-11. An executing agent attempting to author, replace, or disable its own end-state check is
+12. An executing agent attempting to author, replace, or disable its own end-state check is
     refused (D7).
-12. A completion carrying an outcome verdict whose actor is the executing actor of the same
+13. A completion carrying an outcome verdict whose actor is the executing actor of the same
     work item is refused, as is a verdict with no recorded actor (D7, evaluator
     distinctness).
-13. A delivery route relying on an undeclared convention that determines the operative verb
+14. A delivery route relying on an undeclared convention that determines the operative verb
     is refused at approval; the same route with that convention declared proceeds (D8).
-14. A work item at the lowest maturity and audience bands still requires an approved outcome
+15. A work item at the lowest maturity and audience bands still requires an approved outcome
     contract; only the proof depth demanded of its end-state evidence differs from the
     highest bands (D10).
-15. A research work item concluding `no change` satisfies its required end-state and
+16. A research work item concluding `no change` satisfies its required end-state and
     completes (D11).
-16. An architecture spike concluding `insufficient evidence` satisfies its required
+17. An architecture spike concluding `insufficient evidence` satisfies its required
     end-state and completes (D11).
-17. Completion where all postconditions pass but the operator has not confirmed premise
+18. Completion where all postconditions pass but the operator has not confirmed premise
     satisfaction does not reach an accepted terminal state (D9).
-18. Contract and terminal metadata commit together; no observer sees an item terminal with
+19. Contract and terminal metadata commit together; no observer sees an item terminal with
     an unresolved outcome verdict (PM4 invariant 7).
 
 ## Deferred to implementation design
@@ -397,10 +403,11 @@ This decision **extends** CD-0006 D10 to a second object and does not weaken it.
 mandate remains exactly as accepted; the end-state mandate is its sibling, approved at the
 same moment under the same authority.
 
-Every document this decision touches, classified by the force of the change:
+Every document this decision touches or introduces, classified by the force of the change:
 
 | Document | Change | Class |
 |---|---|---|
+| [`research/R5-goal-to-outcome-binding.md`](../research/R5-goal-to-outcome-binding.md) | New research file recording this decision's evidence, its four insufficient-evidence findings, and its counter-evidence. Carries no authority of its own. | New evidence document |
 | [`workflows.md`](../workflows.md) §2.1 | The one-sentence value statement remains and gains a stated limit: it answers why the work matters, not what must be true when it is done. | Binding amendment |
 | [`workflows.md`](../workflows.md) §2.1a | New section defining the outcome contract, plus an `Outcome contract` row in the §2 workflow-type aspect table. | Binding amendment |
 | [`design-constraints.md`](../design-constraints.md) §10 | Completion criteria declared by a workflow type must include an outcome contract. | Binding amendment |

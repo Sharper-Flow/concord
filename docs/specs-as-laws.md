@@ -137,7 +137,7 @@ design; instruction-only is insufficient and cannot weaken the policy above.
 |---|---|
 | `feature-inventory.md` §2.8 | The capability entry. |
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws, the user is the legislator. |
-| [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | The counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, and reuses this document's three-option flow and audit shape. |
+| [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | The counterpart direction, **proposed and not yet binding**. This document governs scope **contraction** under spec-law pressure; CD-0012 would govern outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
 
 ---
 

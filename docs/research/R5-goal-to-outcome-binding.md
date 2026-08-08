@@ -194,10 +194,14 @@ Two limitations rule it out as Concord's outcome form. Its authors caution that 
 claim that omissions have been eliminated needs to be treated with caution," and — the
 decisive one — EARS has **no negation pattern**: "there's no template for 'shall not'."
 
-Since the motivating Concord failure is a removal goal, a formalism that cannot express
-absence cannot express the requirement. EARS is a good discipline for stating required
-*behavior* and a poor one for stating required *end-state*, which is what a work-item
-outcome is.
+The precise scope of that second limitation matters, and it is narrower than it first
+appears. The `<system response>` slot accepts arbitrary natural language, so an absence
+requirement can be *phrased* within an EARS pattern. What EARS lacks is a dedicated,
+mechanically checkable negative form — so the sentence is expressible while the structural
+checkability that makes the syntax worth adopting is not. Since the motivating Concord
+failure is a removal goal that must fail a weaker delivery, that is disqualifying for this
+use. EARS remains a good discipline for stating required *behavior* and a poor fit for
+stating required *end-state*, which is what a work-item outcome is.
 
 Sources: <https://alistairmavin.com/ears/> ·
 <https://ccy05327.github.io/SDD/08-PDF/Easy%20Approach%20to%20Requirements%20Syntax%20(EARS).pdf>

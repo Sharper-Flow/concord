@@ -11,6 +11,7 @@ import dataclasses
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -19,6 +20,13 @@ CONVENTIONAL_HEADER = re.compile(
     r"^(?P<type>[A-Za-z][A-Za-z0-9-]*)(?:\((?P<scope>[^()\r\n]+)\))?(?P<breaking>!)?: (?P<subject>.+)$"
 )
 BREAKING_FOOTER = re.compile(r"^BREAKING(?:-| )CHANGE\s*:", re.IGNORECASE)
+NO_RELEASE_AUTHORITY = (
+    "no semver release tag found and constitutional-bootstrap is missing or unreachable"
+)
+
+
+class ReleaseError(RuntimeError):
+    """A release cannot be computed from authoritative Git history."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -34,7 +42,10 @@ class Commit:
 
 def run_git(repo: Path, *args: str) -> str:
     return subprocess.check_output(
-        ["git", "-C", str(repo), *args], text=True, encoding="utf-8"
+        ["git", "-C", str(repo), *args],
+        text=True,
+        encoding="utf-8",
+        stderr=subprocess.PIPE,
     )
 
 
@@ -45,23 +56,40 @@ def version_tuple(tag: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
 
 
+def is_ancestor(repo: Path, boundary: str) -> bool:
+    try:
+        run_git(repo, "merge-base", "--is-ancestor", boundary, "HEAD")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
 def latest_semver_tag(repo: Path) -> str | None:
+    """Return the highest reachable strict-semver tag.
+
+    Semver-shaped tags that are malformed, point at an invalid object, or are
+    not ancestors of HEAD are ignored deterministically. The constitutional
+    boundary is required when no reachable release tag remains.
+    """
     tags = [
         tag
-        for tag in run_git(repo, "tag", "--merged", "HEAD", "--list").splitlines()
+        for tag in run_git(repo, "tag", "--list").splitlines()
         if SEMVER_TAG.fullmatch(tag)
     ]
-    if not tags:
+    reachable = [tag for tag in tags if is_ancestor(repo, tag)]
+    if not reachable:
         return None
-    return max(tags, key=lambda tag: (version_tuple(tag), tag))
+    return max(reachable, key=lambda tag: (version_tuple(tag), tag))
 
 
-def constitutional_tag(repo: Path) -> str | None:
+def constitutional_tag(repo: Path) -> str:
     try:
         run_git(repo, "rev-parse", "--verify", "constitutional-bootstrap^{commit}")
-        return "constitutional-bootstrap"
     except subprocess.CalledProcessError:
-        return None
+        raise ReleaseError(NO_RELEASE_AUTHORITY) from None
+    if not is_ancestor(repo, "constitutional-bootstrap"):
+        raise ReleaseError(NO_RELEASE_AUTHORITY)
+    return "constitutional-bootstrap"
 
 
 def parse_commit(sha: str, subject: str, body: str) -> Commit:
@@ -162,6 +190,8 @@ def changelog(version: str, commits: list[Commit]) -> str:
 def compute(repo: Path) -> dict[str, object]:
     tag = latest_semver_tag(repo)
     boundary = tag or constitutional_tag(repo)
+    if tag is not None and not is_ancestor(repo, tag):
+        raise ReleaseError(f"release boundary is not an ancestor of HEAD: {tag}")
     commits = commits_since(repo, boundary)
     bump = select_bump(commits)
     base = version_tuple(tag) if tag else (0, 0, 0)
@@ -201,7 +231,11 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
-    result = compute(args.repo.resolve())
+    try:
+        result = compute(args.repo.resolve())
+    except ReleaseError as exc:
+        print(f"release error: {exc}", file=sys.stderr)
+        return 1
     if args.output_dir:
         write_outputs(result, args.output_dir, args.github_output)
     else:

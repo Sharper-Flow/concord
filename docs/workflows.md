@@ -80,6 +80,7 @@ A **workflow type** is a purpose-built definition:
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Work kind** | What shape of work it's for (implementation, operations, database, break-fix, configuration, infrastructure, options research, evidence research, RCA, static-analysis variants, …). |
 | **Value statement** | One sentence stating the Epic/change value: what it delivers and why it matters. |
+| **Outcome contract** | The premise, required end-state, and candidate set the type requires at approval. See §2.1a. |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
@@ -97,6 +98,34 @@ answers:
 
 The value statement is part of the durable workflow record and is visible in the
 Product → component browse surface.
+
+The value statement answers *why the work matters*. It does not answer *what must
+be true when the work is done*, and it is not falsified by a weaker delivery — a
+value statement about removal survives an archive that removes nothing. That
+second question belongs to the outcome contract below.
+
+### 2.1a Outcome contract
+
+Accepted CD-0012 gives the value statement a binding counterpart. Every work item
+additionally carries a three-part **outcome contract**, each part with its own
+revision authority:
+
+| Part | Content | Revision authority |
+|---|---|---|
+| **Premise** | Why this work exists, in the operator's terms. | Operator only; revision supersedes rather than edits. |
+| **Required end-state** | Falsifiable postconditions carrying the operative verb. | Operator only, at planning approval. |
+| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution, by appended event. |
+
+The required end-state is approved at planning beside CD-0006 D10's spec mandate,
+and verified at completion. A delivered end-state may only be stronger than the
+approved one, never weaker. Work discovered mid-execution that lies outside the
+approved end-state forward-links as successor work under CD-0006 R1; it never
+substitutes.
+
+Every workflow type carries an outcome contract; only the verb differs by type.
+Research concluding `no change` and a spike concluding `insufficient evidence`
+both satisfy their required end-state. Binding form and per-type verbs:
+[`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 
 ### 2.2 Factored lifecycle truth
 

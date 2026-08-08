@@ -1,8 +1,10 @@
 # CD-0012: Bind Stated Goals to Delivered Outcomes
 
-**Status:** Proposed — not binding until operator acceptance
+**Status:** Accepted
 **Date:** 2026-08-08
 **Decision owner:** Operator
+**Accepted by operator:** 2026-08-08
+**Reviewer:** Independent review per [`architecture-spike.md`](../architecture-spike.md) §5; three rounds, approved.
 **Scope:** The outcome contract carried by a work item, its revision authorities, the
 refusal of weakened deliveries, the handling of work discovered mid-execution, and the
 verification boundary at completion.
@@ -427,6 +429,7 @@ nine-tool ceiling; CD-0002 or PM3 storage authority; TS8's version-classificatio
 which D2 defers to rather than pre-empts; or Priority 2's governance by attributes rather
 than gate count.
 
-An unaccepted decision does not bind. Per
-[`architecture-spike.md`](../architecture-spike.md) §5, operator acceptance is what makes
-this record binding on downstream work.
+This record was accepted by the operator on 2026-08-08 and binds downstream work until
+superseded. Per [`architecture-spike.md`](../architecture-spike.md) §3.1, a downstream
+change that contradicts it surfaces a conflict requiring explicit resolution, and the
+escape hatch is a superseding spike rather than divergence inside implementation work.

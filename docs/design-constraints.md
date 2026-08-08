@@ -145,7 +145,7 @@ This supports Priority 6 (Durable product knowledge).
 
 **Direction.** Every workflow type declares its own artifacts, steps, and completion criteria. Independent review is required where the risk or consequence warrants it.
 
-Proposed CD-0012 would additionally require completion criteria to include an **outcome contract**: the premise, the required end-state as falsifiable postconditions, and the candidate set those postconditions range over — approved at planning, verified at completion, with a delivered end-state weaker than the approved one failing. That is what would make *intent fidelity* and *no silent drift* enforceable rather than aspirational. Not in force until operator acceptance: [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
+Accepted CD-0012 additionally requires completion criteria to include an **outcome contract**: the premise, the required end-state as falsifiable postconditions, and the candidate set those postconditions range over. The contract is approved at planning and verified at completion, and a delivered end-state weaker than the approved one fails. This is what makes *intent fidelity* and *no silent drift* enforceable rather than aspirational. Binding form: [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 
 This supports Priority 2 (Quality governance) and Priority 5 (Workflow versatility).
 

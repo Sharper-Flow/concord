@@ -1,6 +1,6 @@
 # R5: Goal-to-Outcome Binding — Research Findings
 
-> **Status:** Research complete; recommendations proposed to CD-0012.
+> **Status:** Research complete; recommendations accepted by CD-0012 on 2026-08-08.
 > **Decision:** [`CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 > **Question:** How should Concord make a work item's stated goal structurally binding on its delivered outcome, so that a delivery which is weaker than, or different from, the stated goal fails rather than passes?
 > **Date:** 2026-08-08.

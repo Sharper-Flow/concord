@@ -106,9 +106,9 @@ second question belongs to the outcome contract below.
 
 ### 2.1a Outcome contract
 
-Proposed CD-0012 would give the value statement a binding counterpart. It is not
-in force until operator acceptance. Under it, every work item additionally carries
-a three-part **outcome contract**, each part with its own revision authority:
+Accepted CD-0012 gives the value statement a binding counterpart. Every work item
+additionally carries a three-part **outcome contract**, each part with its own
+revision authority:
 
 | Part | Content | Revision authority |
 |---|---|---|

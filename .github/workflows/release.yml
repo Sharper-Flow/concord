@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: compute release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out merged tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Compute version and release notes
+        id: release
+        run: python3 scripts/release.py --output-dir release --github-output "$GITHUB_OUTPUT"
+
+  build-and-publish:
+    name: build and publish release
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out merged tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: true
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - name: Recompute release metadata
+        id: release
+        run: python3 scripts/release.py --output-dir release --github-output "$GITHUB_OUTPUT"
+      - name: Build Linux amd64 binary
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          test -n "$VERSION"
+          test "$VERSION" = "${{ needs.prepare.outputs.version }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.workflow_run.head_sha }}"
+          mkdir -p release
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+            -trimpath -buildvcs=false \
+            -ldflags "-X github.com/sharper-flow/concord/internal/version.Value=$VERSION" \
+            -o "release/concord-$VERSION" ./cmd/concord
+          mkdir -p release/package/bin release/package/adapter/opencode release/package/skills
+          cp "release/concord-$VERSION" release/package/bin/concord
+          cp adapter/opencode/concord.ts adapter/opencode/generated-contracts.ts \
+            adapter/opencode/generated-contract-tests.ts release/package/adapter/opencode/
+          cp -a skills/. release/package/skills/
+          cp scripts/install.py release/concord-installer.py
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -C release/package -cf - bin adapter skills | gzip -n > "release/concord-$VERSION.tar.gz"
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          file: release/concord-${{ steps.release.outputs.version }}.tar.gz
+          format: spdx-json
+          output-file: release/concord-${{ steps.release.outputs.version }}.sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Verify release artifacts
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          test "$(./release/concord-$VERSION --version)" = "$VERSION"
+          mkdir -p release/upload
+          cp "release/concord-$VERSION" "release/upload/concord-$VERSION"
+          cp "release/concord-$VERSION.tar.gz" "release/upload/concord-$VERSION.tar.gz"
+          cp "release/concord-$VERSION.sbom.spdx.json" "release/upload/concord-$VERSION.sbom.spdx.json"
+          cp release/concord-installer.py release/upload/concord-installer.py
+          cp release/CHANGELOG.md release/upload/CHANGELOG.md
+          cd release/upload
+          mapfile -t assets < <(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#assets[@]}" -gt 0
+          sha256sum "${assets[@]}" > "concord-$VERSION.sha256"
+          mapfile -t checksummed < <(awk '{print $2}' "concord-$VERSION.sha256" | sort)
+          diff -u <(printf '%s\n' "${assets[@]}") <(printf '%s\n' "${checksummed[@]}")
+          echo "Every uploaded release asset is present in the checksum manifest."
+          sha256sum --check "concord-$VERSION.sha256"
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-checksums: release/upload/concord-${{ steps.release.outputs.version }}.sha256
+      - name: Create annotated release tag
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$VERSION" "${{ github.event.workflow_run.head_sha }}" --message "Release $VERSION"
+          git push origin "$VERSION"
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.release.outputs.version }}
+          name: Concord ${{ steps.release.outputs.version }}
+          body_path: release/upload/CHANGELOG.md
+          files: release/upload/*

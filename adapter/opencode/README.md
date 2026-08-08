@@ -1,5 +1,9 @@
 # Concord OpenCode adapter
 
+The release installer owns adapter placement and version registration. Follow
+the [installation guide](../../docs/installation.md) for release artifacts,
+Secret Service prerequisites, upgrade, and uninstall behavior.
+
 Install `concord.ts` as a global OpenCode custom tool under
 `~/.config/opencode/tools/concord.ts` (or project-local `.opencode/tools/`). Keep
 the generated contract files beside it.

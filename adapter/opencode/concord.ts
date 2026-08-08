@@ -165,7 +165,7 @@ async function grantFor(context: ToolContext, capability: string): Promise<any> 
   let privateKey
   try { privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef())) } catch (error) { throw new AdapterFailure("transport_failure", "grant_bootstrap_failed", String(error)) }
   const issuedAt = new Date().toISOString()
-  const assertionFields = { client_ref: clientRef(), client_version: ADAPTER_VERSION, session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, requested_product_id: "", requested_project_ids: "", requested_capabilities: capability, issued_at: issuedAt, nonce: randomNonce(), surface_range: SURFACE_RANGE, envelope_versions: ENVELOPE_VERSIONS, manifest_digest: manifestDigest }
+  const assertionFields = { client_ref: clientRef(), client_version: ADAPTER_VERSION, session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, requested_product_id: "", requested_project_ids: [] as string[], requested_capabilities: [capability], issued_at: issuedAt, nonce: randomNonce(), surface_range: SURFACE_RANGE, envelope_versions: ENVELOPE_VERSIONS, manifest_digest: manifestDigest }
   const assertion = { ...assertionFields, signature: b64(signBytes(null, Buffer.from(canonicalAssertion(assertionFields)), privateKey)) }
   let result
   try { result = await runner.run([process.env.CONCORD_BIN ?? "concord", "grant"], JSON.stringify({ assertion, expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), max_uses: 0 }), context.abort) } catch (error) { throw runnerFailure(error, context.abort.aborted) }

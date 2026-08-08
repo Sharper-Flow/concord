@@ -199,13 +199,21 @@ func (s *Service) RevokeClient(ctx context.Context, clientRef string) error {
 // contract and matches generated-contracts.ts. List values are pre-normalized
 // by the caller and use comma-separated sorted members.
 type SignedAssertion struct {
-	ClientRef, ClientVersion, SessionRef, AgentRef, Directory, Worktree string
-	RequestedProductID                                                  string
-	RequestedProjectIDs                                                 []string
-	RequestedCapabilities                                               []Capability
-	IssuedAt                                                            time.Time
-	Nonce, SurfaceRange, EnvelopeVersions, ManifestDigest               string
-	Signature                                                           []byte `json:"-"`
+	ClientRef             string       `json:"client_ref"`
+	ClientVersion         string       `json:"client_version"`
+	SessionRef            string       `json:"session_ref"`
+	AgentRef              string       `json:"agent_ref"`
+	Directory             string       `json:"directory"`
+	Worktree              string       `json:"worktree"`
+	RequestedProductID    string       `json:"requested_product_id"`
+	RequestedProjectIDs   []string     `json:"requested_project_ids"`
+	RequestedCapabilities []Capability `json:"requested_capabilities"`
+	IssuedAt              time.Time    `json:"issued_at"`
+	Nonce                 string       `json:"nonce"`
+	SurfaceRange          string       `json:"surface_range"`
+	EnvelopeVersions      string       `json:"envelope_versions"`
+	ManifestDigest        string       `json:"manifest_digest"`
+	Signature             []byte       `json:"signature"`
 }
 
 func CanonicalAssertion(a SignedAssertion) []byte {

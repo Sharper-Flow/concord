@@ -1,7 +1,8 @@
 import { test, expect, mock } from "bun:test"
-import { contractOperations, manifestDigest } from "./generated-contracts"
+import { canonicalAssertion, contractOperations, manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope } from "./generated-contract-tests"
 import approvalVector from "./approval-vector.json"
+import grantAssertionVector from "./grant-assertion-vector.json"
 
 function schemaBuilder() {
   return {
@@ -33,6 +34,40 @@ test("transport and approval boundaries stay fail-closed", () => {
   expect(source).toContain("secret-tool")
   expect(source).not.toContain("console.log")
   expect(source).not.toContain("grant_token:")
+})
+
+test("grant bootstrap sends typed assertion arrays and preserves the canonical vector", async () => {
+  let grantRequest: any
+  let calls = 0
+  const result: any = await runProduct({ async run(_argv: string[], input: string) {
+    calls++
+    if (calls === 1) {
+      grantRequest = JSON.parse(input)
+      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    }
+    return { exitCode: 1, stdout: "", stderr: "invoke not needed" }
+  } })
+  expect(result.outcome).toBe("error")
+  expect(Array.isArray(grantRequest.assertion.requested_project_ids)).toBe(true)
+  expect(grantRequest.assertion.requested_project_ids).toEqual([])
+  expect(Array.isArray(grantRequest.assertion.requested_capabilities)).toBe(true)
+  expect(grantRequest.assertion.requested_capabilities).toEqual(["product_read"])
+  const canonicalFields = { ...grantAssertionVector, canonical_base64: undefined }
+  expect(Buffer.from(canonicalAssertion(canonicalFields as any)).toString("base64")).toBe(grantAssertionVector.canonical_base64)
+})
+
+test("single core response rejects invalid trailing content", async () => {
+  for (const suffix of [" garbage", "\n{}"] as const) {
+    let calls = 0
+    const result: any = await runProduct({ async run() {
+      calls++
+      if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+      return { exitCode: 0, stdout: `{"schema_version":"1.0"}${suffix}`, stderr: "" }
+    } })
+    assertAdapterEnvelope(result)
+    expect(result.error.kind).toBe("malformed_response")
+    expect(result.error.adapter_reason).toBe("malformed_core_response")
+  }
 })
 
 const grantResponse = () => ({ manifest_digest: manifestDigest, surface_version: "1.0.0", grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", envelope_version: "1.0", scope_version: "1" })

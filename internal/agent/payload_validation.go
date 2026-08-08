@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -59,6 +60,10 @@ func ValidatePayloadSchema(name string, data []byte) error {
 	dec.UseNumber()
 	if err := dec.Decode(&value); err != nil {
 		return err
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("trailing JSON")
 	}
 	return validateSchemaValue(value, schema, root, "$")
 }
@@ -189,7 +194,7 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 			}
 		}
 	}
-	for keyword := range map[string]bool{"allOf": true, "anyOf": true, "oneOf": true} {
+	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
 		if branches, ok := schema[keyword].([]any); ok {
 			matches := 0
 			for _, raw := range branches {
@@ -199,6 +204,9 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 				}
 			}
 			if keyword == "allOf" && matches != len(branches) || keyword == "anyOf" && matches < 1 || keyword == "oneOf" && matches != 1 {
+				if keyword == "oneOf" {
+					return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches), "; "))
+				}
 				return fmt.Errorf("%s mismatch at %s", keyword, path)
 			}
 		}
@@ -208,6 +216,75 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 	}
 	return nil
 }
+
+func schemaVariantDescriptions(branches []any) []string {
+	descriptions := make([]string, 0, len(branches))
+	for _, raw := range branches {
+		branch, ok := raw.(map[string]any)
+		if !ok {
+			descriptions = append(descriptions, "schema variant")
+			continue
+		}
+		parts := []string{}
+		if fields := schemaFieldList(branch["required"]); len(fields) > 0 {
+			parts = append(parts, "requires ["+strings.Join(fields, ", ")+"]")
+		} else {
+			parts = append(parts, "requires no fields")
+		}
+		if forbidden := schemaForbiddenFields(branch["not"]); forbidden != "" {
+			parts = append(parts, forbidden)
+		}
+		descriptions = append(descriptions, strings.Join(parts, " "))
+	}
+	return descriptions
+}
+
+func schemaFieldList(raw any) []string {
+	values, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	fields := make([]string, 0, len(values))
+	for _, value := range values {
+		if field, ok := value.(string); ok {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func schemaForbiddenFields(raw any) string {
+	notSchema, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	if fields := schemaFieldList(notSchema["required"]); len(fields) > 0 {
+		return "without [" + strings.Join(fields, ", ") + "]"
+	}
+	branches, ok := notSchema["anyOf"].([]any)
+	if !ok {
+		return ""
+	}
+	seen := map[string]bool{}
+	fields := []string{}
+	for _, branch := range branches {
+		branchMap, ok := branch.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, field := range schemaFieldList(branchMap["required"]) {
+			if !seen[field] {
+				seen[field] = true
+				fields = append(fields, field)
+			}
+		}
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return "without any of [" + strings.Join(fields, ", ") + "]"
+}
+
 func matchesAnyType(value any, raw any) bool {
 	types := []string{}
 	switch typed := raw.(type) {

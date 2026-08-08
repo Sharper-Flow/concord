@@ -98,6 +98,15 @@ const (
 	KindStaleAttempt                FailureKind = "stale_attempt"
 	KindIdempotencyConflict         FailureKind = "idempotency_conflict"
 	KindTakeoverRequired            FailureKind = "takeover_required"
+	KindResearchRevisionImmutable   FailureKind = "research_revision_immutable"
+	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
+	KindEpicScopeViolation          FailureKind = "epic_scope_violation"
+	KindEpicEntryConflict           FailureKind = "epic_entry_conflict"
+	KindEpicCompletionBlocked       FailureKind = "epic_completion_blocked"
+	// KindDecisionRecordRequired marks the deliberate pre-workflow boundary for
+	// architecture spikes. Generic storage cannot yet verify accepted decision
+	// records, so completion fails closed rather than inferring proof from refs.
+	KindDecisionRecordRequired FailureKind = "decision_record_required"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

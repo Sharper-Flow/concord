@@ -186,8 +186,8 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	if err := validateEventKindRegistry(); err != nil {
 		t.Fatal(err)
 	}
-	if len(eventKindRegistry) != 19 {
-		t.Fatalf("registry entries = %d, want 19", len(eventKindRegistry))
+	if len(eventKindRegistry) != 23 {
+		t.Fatalf("registry entries = %d, want 23", len(eventKindRegistry))
 	}
 }
 

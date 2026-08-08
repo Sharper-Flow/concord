@@ -86,11 +86,19 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	if note.TerminalState != lifecycle {
 		return newFailure(KindInvalidNoteProof, "publish_compaction_link", "note terminal_state does not match live work", false, "publish a note whose terminal state matches the work projection")
 	}
+	var blockedConsumer string
+	err = s.db.QueryRowContext(ctx, `SELECT c.consumer_work_id FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id JOIN work_items w ON w.id=c.consumer_work_id WHERE p.owner_work_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded') LIMIT 1`, req.WorkID).Scan(&blockedConsumer)
+	if err == nil {
+		return newFailure(KindResearchConsumerBlocked, "publish_compaction_link", "required active consumer remains bound: "+blockedConsumer, false, "unbind, rebind, or terminalize every required active consumer")
+	}
+	if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "publish_compaction_link", "cannot inspect required research consumers", true, "retry once the database is readable", err)
+	}
 	var existing struct{ homeProject, homeLocator, notePath, commitOID, contentHash string }
 	err = s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, req.WorkID).Scan(&existing.homeProject, &existing.homeLocator, &existing.notePath, &existing.commitOID, &existing.contentHash)
 	if err == nil {
 		if existing.homeProject == req.Home.HomeProjectID && existing.homeLocator == req.Home.HomeLocatorID && existing.notePath == note.NotePath && existing.commitOID == note.CommitOID && existing.contentHash == note.ContentHash {
-			return nil
+			return cleanupTerminalResearch(ctx, s, req.WorkID)
 		}
 		return newFailure(KindCompactionConflict, "publish_compaction_link", "work already has a different canonical locator", false, "resolve the competing canonical note before retrying")
 	}
@@ -110,10 +118,13 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "publish_compaction_link", "cannot encode the bounded compaction payload", false, "repair the note metadata", err)
 	}
-	return ApplyOperation(ctx, s, Operation{
+	if err := ApplyOperation(ctx, s, Operation{
 		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 1, Payload: payloadBytes}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
-	})
+	}); err != nil {
+		return err
+	}
+	return cleanupTerminalResearch(ctx, s, req.WorkID)
 }
 
 func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -139,6 +150,14 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if payload.TerminalState != "completed" && payload.TerminalState != "cancelled" && payload.TerminalState != "superseded" {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction link has an invalid terminal state", false, "use a PM4 terminal state")
 	}
+	var blockedConsumer string
+	err := tx.QueryRowContext(ctx, `SELECT c.consumer_work_id FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id JOIN work_items w ON w.id=c.consumer_work_id WHERE p.owner_work_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded') LIMIT 1`, payload.ID).Scan(&blockedConsumer)
+	if err == nil {
+		return newFailure(KindResearchConsumerBlocked, "fold_event", "required active consumer remains bound: "+blockedConsumer, false, "unbind, rebind, or terminalize every required active consumer")
+	}
+	if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect required research consumers", true, "retry once the database is readable", err)
+	}
 	var existing struct {
 		HomeProjectID string
 		HomeLocatorID string
@@ -146,7 +165,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 		CommitOID     string
 		ContentHash   string
 	}
-	err := tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, payload.ID).Scan(
+	err = tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, payload.ID).Scan(
 		&existing.HomeProjectID, &existing.HomeLocatorID, &existing.NotePath, &existing.CommitOID, &existing.ContentHash)
 	if err == nil {
 		if existing.HomeProjectID != payload.HomeProjectID || existing.HomeLocatorID != payload.HomeLocatorID || existing.NotePath != payload.NotePath || existing.CommitOID != payload.CommitOID || existing.ContentHash != payload.ContentHash {

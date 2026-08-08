@@ -112,25 +112,29 @@ type EventKindRegistration struct {
 // prevents a reader from accidentally accepting a version that its fold cannot
 // decode.
 var eventKindRegistry = map[string]EventKindRegistration{
-	"product.created":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProductCreated},
-	"product.renamed":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProductRenamed},
-	"product.stage_changed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProductStageChanged},
-	"project.created":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectCreated},
-	"project.renamed":               {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectRenamed},
-	"work.created":                  {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkCreatedV1}, Fold: foldWorkCreated},
-	"work.transitioned":             {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkTransitioned},
-	"work.superseded":               {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkSuperseded},
-	"work.reopened":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopened},
-	"work.reopened_from_superseded": {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopenedFromSuperseded},
-	"relation.added":                {CurrentVersion: 1, MinSupported: 1, Fold: foldRelationAdded},
-	"relation.removed":              {CurrentVersion: 1, MinSupported: 1, Fold: foldRelationRemoved},
-	"product_project.added":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectAdded},
-	"product_project.removed":       {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectRemoved},
-	"product_project.role_changed":  {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectRoleChanged},
-	"work_project.added":            {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectAdded},
-	"work_project.removed":          {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectRemoved},
-	"work_project.role_changed":     {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectRoleChanged},
-	"compaction_link.published":     {CurrentVersion: 1, MinSupported: 1, Fold: foldCompactionLinkPublished},
+	"product.created":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProductCreated},
+	"product.renamed":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProductRenamed},
+	"product.stage_changed":           {CurrentVersion: 1, MinSupported: 1, Fold: foldProductStageChanged},
+	"project.created":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectCreated},
+	"project.renamed":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectRenamed},
+	"work.created":                    {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkCreatedV1}, Fold: foldWorkCreated},
+	"work.transitioned":               {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkTransitioned},
+	"work.superseded":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkSuperseded},
+	"work.reopened":                   {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopened},
+	"work.reopened_from_superseded":   {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopenedFromSuperseded},
+	"relation.added":                  {CurrentVersion: 1, MinSupported: 1, Fold: foldRelationAdded},
+	"relation.removed":                {CurrentVersion: 1, MinSupported: 1, Fold: foldRelationRemoved},
+	"product_project.added":           {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectAdded},
+	"product_project.removed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectRemoved},
+	"product_project.role_changed":    {CurrentVersion: 1, MinSupported: 1, Fold: foldProductProjectRoleChanged},
+	"work_project.added":              {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectAdded},
+	"work_project.removed":            {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectRemoved},
+	"work_project.role_changed":       {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkProjectRoleChanged},
+	"compaction_link.published":       {CurrentVersion: 1, MinSupported: 1, Fold: foldCompactionLinkPublished},
+	"epic_entry.added":                {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryAdded},
+	"epic_entry.removed":              {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryRemoved},
+	"epic_entry.reordered":            {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryReordered},
+	"epic_entry.requiredness_changed": {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryRequirednessChanged},
 }
 
 func validateEventKindRegistry() error {
@@ -148,7 +152,7 @@ func validateEventKindRegistry() error {
 }
 
 func upcastEvent(event Event) (Event, error) {
-	registration, ok := eventKindRegistry[event.Kind]
+	registration, ok := registeredEventKind(event.Kind)
 	if !ok {
 		return Event{}, unknownEventKind(event.Kind)
 	}
@@ -181,7 +185,7 @@ func validateRegisteredEvent(event Event) error {
 }
 
 func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
-	registration, ok := eventKindRegistry[event.Kind]
+	registration, ok := registeredEventKind(event.Kind)
 	if !ok {
 		return attributeFailure(unknownEventKind(event.Kind), event, "fold")
 	}
@@ -201,6 +205,11 @@ func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
 		return attributeFailure(err, event, stage)
 	}
 	return nil
+}
+
+func registeredEventKind(kind string) (EventKindRegistration, bool) {
+	registration, ok := eventKindRegistry[kind]
+	return registration, ok
 }
 
 func unsupportedEventVersion(event Event, registration EventKindRegistration) *Failure {
@@ -297,6 +306,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return output, rollback(err)
 	}
+	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
+		return output, rollback(err)
+	}
 	output.Impact, err = membershipImpact(ctx, tx, operation)
 	if err != nil {
 		return output, rollback(err)
@@ -329,12 +341,19 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 			"retry once the database is writable", err)
 	}
 	rollback := func(cause error) error {
+		_ = dropActiveResearchRebuildSnapshot(ctx, tx)
 		_ = tx.Rollback()
 		return cause
 	}
 	if err := enterFold(ctx, tx); err != nil {
 		return rollback(err)
 	}
+	if err := snapshotActiveResearchForRebuild(ctx, tx); err != nil {
+		return rollback(err)
+	}
+	// Active research is direct-table authority, but its work-item FKs prevent
+	// deleting the fold projections in place. The transaction snapshots and
+	// restores those rows byte-for-byte; the event log never becomes their source.
 	events, err := readEvents(ctx, tx)
 	if err != nil {
 		return rollback(err)
@@ -349,7 +368,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
-	for _, table := range []string{"relations", "work_projects", "work_items", "product_projects", "products", "projects"} {
+	for _, table := range []string{"epic_entries", "relations", "work_projects", "work_items", "product_projects", "products", "projects"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,
@@ -363,10 +382,19 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 			return rollback(err)
 		}
 	}
+	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
+		return rollback(err)
+	}
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return rollback(err)
 	}
+	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
+		return rollback(err)
+	}
 	if err := leaveFold(ctx, tx); err != nil {
+		return rollback(err)
+	}
+	if err := dropActiveResearchRebuildSnapshot(ctx, tx); err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {

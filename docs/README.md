@@ -55,7 +55,9 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`decisions/CD-0011-retain-sqlite-after-conformance.md`](./decisions/CD-0011-retain-sqlite-after-conformance.md) | **Accepted CD-0011:** retain direct local SQLite after reviewing environment-sensitive ten-process latency evidence; correctness and recovery remain clean, with explicit future reopen conditions. |
 | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) | **Accepted CD-0008:** one shared Product authority with isolated worktree sets, immutable-subject evidence binding, dependency-aware unreadable-record policy, workflow checkpoints/attempt fencing, typed external conditions, event upcasters/history reads, and confirmed SQLite authority with alternative comparison only after a falsifier. |
 | [`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md) | **Accepted CD-0009:** Epics and research remain ordinary work-item kinds; active research packs are versioned SQLite working context, never retained events/Git knowledge, and are deleted after proof-backed archive compaction. |
+| [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012:** three-part outcome contract (premise, required end-state, candidate set) with separate revision authorities; end-state approved at planning beside the CD-0006 D10 spec mandate and verified at completion; strengthen-only delivery comparison; mid-execution discoveries forward-link rather than substitute. |
 | [`research/R4-competitive-mechanism-hardening.md`](./research/R4-competitive-mechanism-hardening.md) | **Accepted through CD-0008:** ranked mechanism findings across Beads/Dolt, LangGraph, Restate/DBOS, Letta, Herdr, Claude, Jido, Qodo, Devin, Orca, and Superset; includes SQLite ten-process conformance and target multi-agent worktree topology. |
+| [`research/R5-goal-to-outcome-binding.md`](./research/R5-goal-to-outcome-binding.md) | **Accepted through CD-0012:** measured goal drift, specification gaming, and goal misgeneralization evidence; mechanism and formalism surveys; four explicit insufficient-evidence findings; and the counter-evidence that shapes the contract. |
 | [`product-memory-authority-scope.md`](./product-memory-authority-scope.md) | **Accepted PM2:** one global local SQLite authority per Concord installation/operator-machine. |
 | [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) | **Accepted PM3, amended by CD-0009:** generic authoritative event log plus explicit typed Product-memory projections; retention-bounded active research context is the sole direct-table exception. |
 | [`product-memory-lifecycle-relations.md`](./product-memory-lifecycle-relations.md) | **Accepted PM4:** five-state work lifecycle, derived blocked/ready views, canonical typed relations, atomic supersession, and cycle rejection. |
@@ -113,6 +115,10 @@ CD-0007 fixes the public repository, migration, governance, release/install,
 platform/privacy, workflow/conformance, and skill boundaries. CD-0010 fixes the
 pre-readiness development authority; Concord must not self-host its own development
 workflow before replacement readiness.
+CD-0012 gives Priority 2's *intent fidelity* and *no silent drift* attributes a mechanism,
+extending CD-0006 D10's approved-mandate pattern from specs authorized for modification to
+end-state required for delivery: a delivered outcome weaker than the approved one fails,
+and work discovered mid-execution forward-links rather than substituting.
 The ordered decisions, current non-authorizing leans, evidence plans,
 dependencies, and decision artifacts live in
 [`clarifications.md`](./clarifications.md) under the Product-memory and minimal

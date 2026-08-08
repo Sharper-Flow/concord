@@ -163,7 +163,7 @@ It becomes usable when:
 
 ## Product-level decision tracker
 
-Ten questions have resolved directions. Replacement-relation home remains the one
+Eleven questions have resolved directions. Replacement-relation home remains the one
 open Product-level question and must be answered by a later design pass rather than
 silently decided by implication.
 
@@ -179,6 +179,7 @@ silently decided by implication.
 | **Managed-resource inventory shape** | Affects the ownership model and storage. Sharing a resource across Products is a stated requirement; per-resource stage and cross-Product replacement both depend on the answer. | **Resolved by C15 (2026-08-06):** first-class resource registry, singular owner Product, consumer links, explicit stage, typed locators/work/replacement edges. See [`managed-resource-inventory.md`](./managed-resource-inventory.md). |
 | **Stage-to-evidence mapping** | Affects Priority 2. Stage is inert until it resolves to a concrete evidence bar. | **Resolved by CD-0006 R2:** independent maturity and audience obligations, global proof floor, high-water-mark combination, and upward-only local policy. |
 | **Cross-workflow impact/freshness** | Prevents one workflow from acting after related work invalidates its assumptions. | **Resolved by CD-0006 R3:** declared edges, completion notices, bounded consequential-boundary checks, hard-edge-plus-breaking blocking, and deterministic version fallback. |
+| **Goal-to-outcome binding** | Affects Priority 2. *Intent fidelity* and *no silent drift* stay inert until a stated goal is checkable against what was actually delivered. | **Resolved by CD-0012 (2026-08-08):** three-part outcome contract (premise, required end-state, candidate set) approved at planning beside the CD-0006 D10 spec mandate; a weaker delivered end-state fails; mid-execution discoveries forward-link rather than substitute. See [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md). |
 | **Replacement relation home** | Affects Priority 1 and 6. | **Open.** A property of the ownership model, or its own relation store. Couples to the Product-entity home question above. See [`product-data-model.md`](./product-data-model.md) §10. |
 
 ---

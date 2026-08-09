@@ -207,6 +207,31 @@ re-litigate them silently.
   authority. No copied `shared_with` records, credentials, live status, or automatic
   agent-surface expansion.
 
+### C17. What does the Product coordination drill-down render?
+- **Question:** After a Product row is selected, what does the coordination detail
+  show for dependencies, blockage, and next work? (`product-row-contract.md` §1,
+  `priorities.md` §4)
+- **Why:** Priority 4 requires that dependencies and sequences are visible before
+  they become blockers, and that the operator sees what is ready, what is blocked,
+  and what is next. Accepted C14 deliberately answers none of this: the row is an
+  orientation projection with one focus item and explicitly excludes the raw blocker
+  graph. C14 defers the rest to Product/workflow detail in one sentence and no
+  accepted document specifies what that detail renders.
+- **Lean:** two modes over already-accepted canonical queries — a structural relation
+  tree from Q8, and a ranked work table from Q5 joined with Q4 for blocked and blocker
+  columns. Ranking uses the stored explicit priority rank; blocked stays PM4-derived
+  and two-valued; grouping comes from declared edges only; incomplete coverage renders
+  `unavailable` rather than a shortened table. Single-Product only, since cross-Product
+  prioritization remains deferred pending PM2 authority and portability.
+- **Candidate:** [`product-coordination-view.md`](./product-coordination-view.md),
+  non-authorizing design input.
+- **Direction (2026-08-09):** 🟡 open. Adds no field to the C14 row and changes no
+  accepted contract; terminal interaction and prototype detail remain implementation
+  design per `rollout-plan.md` and CD-0006 D6.
+- **Blocks:** nothing. Runtime storage, adapters, and workflow execution do not exist
+  yet, so this resolves before the first drill-down consumer is built, not before
+  storage.
+
 ---
 
 ## 🟡 Medium — resolve as they come up

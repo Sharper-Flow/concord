@@ -1,0 +1,175 @@
+# Product coordination view — candidate
+
+**Status:** Non-authorizing candidate answer to open clarification C17.
+
+This document proposes a shape. It binds nothing, authorizes no implementation, and
+does not narrow any accepted contract. It becomes authority only if the operator
+accepts it, at which point it takes the accepted-contract form used by
+[`product-row-contract.md`](./product-row-contract.md).
+
+Terminal-launcher interaction and prototype detail are explicitly reserved as
+implementation design by [`rollout-plan.md`](./rollout-plan.md) and CD-0006 D6, so a
+candidate at this layer does not require a new decision record.
+
+## 1. The gap
+
+Priority 4 in [`priorities.md`](./priorities.md) requires that dependencies and
+sequences are visible before they become blockers, and that the operator can see what
+is ready, what is blocked, and what is next.
+
+Accepted C14 in [`product-row-contract.md`](./product-row-contract.md) deliberately
+does not answer this. The row is an orientation and selection projection, not a
+Product dashboard. It carries at most one focus item and explicitly excludes the raw
+blocker graph. That is correct for a row and insufficient for coordination.
+
+C14 defers the rest in one sentence: selecting a row opens the Product or workflow
+detail where the remaining concerns belong. No accepted document specifies what that
+detail renders for coordination. This candidate proposes that one view.
+
+## 2. Proposed shape
+
+One **Product coordination view**, reached by selecting a Product row and opening
+Product detail, rendering two modes over already-accepted canonical queries from
+[`product-memory-query-contract.md`](./product-memory-query-contract.md).
+
+### Mode 1 — Relation tree
+
+Source: Q8, dependencies and supersession.
+
+| Aspect | Proposed rule |
+|---|---|
+| Relation kinds | `parent`, `blocks`, `depends_on`, `supersedes`, `implements` |
+| Depth | Default 1, maximum 3, matching the Q8 bound |
+| Grouping | Connected components over the returned edge set, structural only |
+| Roots | Node with no in-edge of a traversed kind |
+| Cycles | Rendered as `invariant_violation`, never hidden, matching the Q8 oracle |
+| Supersession | Resolves to the canonical successor exactly once, no duplicate authority |
+| Pruned follow-up | Typed `archived_work_linked`, not a live PM4 relation |
+| Cross-Project work | Appears once with `project_count` per PM5, never per-Project copies |
+
+Grouping derives from declared edges only. Topical or thematic grouping is excluded:
+it carries no authority and is not stable across two renders of unchanged state.
+
+### Mode 2 — Ranked work table
+
+Source: Q5, highest-priority ready work, joined with Q4, explain blocked work.
+
+| Column | Source | Proposed rule |
+|---|---|---|
+| Work ID and title | Q5 | Title truncates before identity or priority meaning is lost |
+| Priority | Q5 explicit priority rank | Stored value, never computed or inferred |
+| Lifecycle | Q5 | Displayed for rigor, never silently rewrites business priority |
+| Blocked | Q4, derived | Derived from canonical `blocks` edges and blocker terminality |
+| Blocker | Q4 blocker nodes | Blocker identity, blocker authority, blocker age, external-blocker marker |
+| Project count | PM5 | Breadth signal only, no repository list |
+
+Order follows the Q5 contract exactly: explicit priority rank, then created time, then
+stable work ID.
+
+Blocked is two-valued. PM4 derives blocked from canonical `blocks` edges and blocker
+terminality and defines no stored blocked flag, so no third state may be introduced.
+
+## 3. Reliance and coverage
+
+The view inherits the reliance discipline C14 already established:
+
+- One shared source and version watermark per render, with per-row reliance where
+  sources differ.
+- Authority is `authoritative`, `degraded`, or `unreachable`. Degraded and unreachable
+  carry a textual or icon marker and never depend on color alone.
+- Incomplete required coverage renders `unavailable` with a typed reason and bounded
+  omissions. Partial data never renders as complete, and unknown never renders as
+  zero.
+
+## 4. What this candidate does not change
+
+| Accepted item | Status under this candidate |
+|---|---|
+| R1 in [`clarifications.md`](./clarifications.md) — the launcher is the primary operator surface and the predecessor session bootstrap layer is not a candidate for it | Unchanged. This is a view inside the accepted launcher. |
+| C14 default Product row fields and exclusions | Unchanged. No field is added to the row. |
+| C14 exclusion of the raw blocker graph from the row | Honored. The graph appears only after selection. |
+| C14 finding that activity is not value or priority | Honored. Activity time is not a ranking input and is not a default column. |
+| Query-contract deferral of cross-Product prioritization pending PM2 authority and portability | Honored. This view is single-Product only. |
+| R5 — active work first, history behind drill-down | Honored. Terminal and completed work is excluded. |
+| [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored. The view navigates and explains; it takes no substantive workflow action. |
+
+## 5. Proposed anti-requirements
+
+Each of these is proposed as a prohibition because prose-based coordination answers
+have produced it, and each produced output that looked authoritative while being
+non-derivable and unstable across runs.
+
+1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
+   model-assigned numeric importance is heuristic authority over correctness.
+2. **No activity-derived priority.** Last-update recency may appear on explicit
+   drill-down with a non-priority label, never as an ordering input.
+3. **No thematic clustering.** Components come from declared relation edges only.
+4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
+5. **No silent truncation.** A result the query could not fully cover renders
+   `unavailable`, never a shorter table presented as whole.
+6. **No dashboard drift.** Terminal counts, repository paths, velocity, percent
+   complete, estimates, owners, and assignments stay excluded, consistent with C14.
+
+## 6. Read path and bounds
+
+- One bounded query per mode, with no per-work fan-out.
+- Q8 depth capped at 3 with node and edge caps.
+- Q5 paged by limit and cursor.
+- Q4 relation depth default 1, maximum 3.
+- Both modes derive from the same typed projections and authority watermark as PM1.
+
+## 7. Proposed acceptance tests
+
+A prototype would need to satisfy at minimum:
+
+- A multi-level parent chain renders as one component tree with a single root.
+- A relation cycle renders `invariant_violation` and is neither hidden nor silently
+  broken.
+- Superseded work resolves to its canonical successor exactly once.
+- Cross-Project work appears once with a correct `project_count`.
+- Blocked work shows blocker identity, blocker authority, and blocker age.
+- An external blocker carries its marker.
+- Incomplete required coverage renders `unavailable` rather than zero rows.
+- A higher-priority blocked item is excluded from ready ranking and the next unblocked
+  item wins deterministically.
+- Two renders over unchanged state produce identical ordering and identical grouping.
+- A narrow terminal collapses tree indentation without losing meaning and without
+  horizontal scroll.
+- No-color and screen-reader rendering preserves reliance and blocked meaning.
+
+Operator test: from the coordination view, name what is blocked, name what blocks it,
+and name the next item to start, without opening any work item. Failure would reopen
+the column set or the ordering rule; it would not authorize adding inferred fields.
+
+## 8. Sequencing
+
+This candidate depends only on already-accepted contracts, so it does not block on new
+law. Its implementation depends on the named bounded reads being available through
+the production query surface. A practical order is:
+
+1. Q4, Q5, and Q8 read paths exist against real storage.
+2. The C14 Product row renders.
+3. This view is built as the first drill-down consumer, which also exercises Q4, Q5,
+   and Q8 against a real corpus.
+
+## 9. Risks
+
+| Risk | Proposed mitigation |
+|---|---|
+| Relation edges are under-declared, so the tree looks empty and invites heuristic inference | Empty renders as authoritative-empty with an explicit reason and never falls back to inferred edges |
+| Priority ranks are unset in early corpora, making ordering look arbitrary | Missing priority is a typed absent value ordered last, never a substituted guess |
+| Drill-down accretes fields until it becomes the dashboard C14 rejected | The anti-requirements form part of acceptance; any new field requires a named operator job plus prototype evidence |
+| A depth cap hides a real transitive blocker | Truncated traversal is marked explicitly at the boundary node, never silently cut |
+
+## 10. Falsifiers
+
+This candidate should be revised or withdrawn when:
+
+- the operator cannot name blocked, blocker, and next from the view in one pass;
+- structural grouping proves unusable because real work carries too few declared
+  edges, and the correct fix is edge declaration rather than inference;
+- the two modes prove to be one view rather than two;
+- bounded single-Product scope proves insufficient and the cross-Product
+  prioritization deferral has since been lifted; or
+- the ranked table duplicates the C14 focus item without adding a distinct operator
+  job.

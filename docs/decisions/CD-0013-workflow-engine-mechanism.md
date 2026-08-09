@@ -571,7 +571,7 @@ This decision produces:
 
 ### Cost
 
-- A migration (V15) adds nine new projections and approximately fifteen event
+- A migration (V15) adds ten new projections and approximately sixteen event
   families; upcaster scaffolding for `payload_version=1` must ship with the engine.
 - The workflow-action dispatcher reuses agent authority; an upgrade to
   `concord_work_transition.workflow_action` is required under TS8 once the engine

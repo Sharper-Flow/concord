@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/workflow-engine-scenarios.schema.json",
+  "title": "Concord CD-0013 workflow-engine scenario corpus v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "contract", "contract_status", "surface_version", "engine_status", "pending_amendments", "fixtures", "assertion_contract", "runner_requirements", "scenarios"],
+  "properties": {
+    "$schema": {"type": "string", "minLength": 1, "maxLength": 256},
+    "schema_version": {"const": "1.0"},
+    "contract": {"const": "CD-0013"},
+    "contract_status": {"const": "accepted"},
+    "surface_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "minLength": 5, "maxLength": 16},
+    "engine_status": {"enum": ["specification_only", "engine_shipped"]},
+    "pending_amendments": {"type": "array", "minItems": 0, "maxItems": 8, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["error_kind", "surface_version", "ships_with", "status"], "properties": {"error_kind": {"$ref": "#/$defs/id"}, "surface_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "minLength": 5, "maxLength": 16}, "ships_with": {"enum": ["workflow_engine"]}, "status": {"const": "pending"}}}},
+    "fixtures": {"$ref": "#/$defs/fixtures"},
+    "assertion_contract": {"$ref": "#/$defs/assertionContract"},
+    "runner_requirements": {"$ref": "#/$defs/runnerRequirements"},
+    "scenarios": {"type": "array", "minItems": 47, "maxItems": 47, "items": {"$ref": "#/$defs/scenario"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$", "minLength": 2, "maxLength": 128},
+    "short": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "jsonValue": {"oneOf": [{"type": "null"}, {"type": "boolean"}, {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}, {"type": "string", "minLength": 0, "maxLength": 4096}, {"type": "array", "minItems": 0, "maxItems": 100, "items": {"$ref": "#/$defs/jsonValue"}}, {"type": "object", "minProperties": 0, "maxProperties": 64, "additionalProperties": {"$ref": "#/$defs/jsonValue"}}]},
+    "workItem": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind", "state", "definition_ref", "definition_version"],
+      "properties": {"id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}, "state": {"enum": ["planned", "ready", "running", "blocked", "awaiting_condition", "verifying", "completed", "cancelled", "superseded"]}, "definition_ref": {"$ref": "#/$defs/id"}, "definition_version": {"type": "integer", "minimum": 1, "maximum": 2147483647}}
+    },
+    "actor": {
+      "type": "object", "additionalProperties": false, "required": ["actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class"],
+      "properties": {"actor_ref": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70}, "principal_ref": {"$ref": "#/$defs/id"}, "client_ref": {"$ref": "#/$defs/id"}, "agent_ref": {"$ref": "#/$defs/id"}, "session_ref": {"$ref": "#/$defs/id"}, "actor_class": {"enum": ["agent", "operator"]}}
+    },
+    "definitionRef": {
+      "type": "object", "additionalProperties": false, "required": ["ref", "version", "digest"],
+      "properties": {"ref": {"$ref": "#/$defs/id"}, "version": {"type": "integer", "minimum": 1, "maximum": 2147483647}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71}}
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "subject", "producer", "run"],
+      "properties": {"kind": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}, "subject": {"$ref": "#/$defs/short"}, "producer": {"$ref": "#/$defs/id"}, "run": {"$ref": "#/$defs/id"}}
+    },
+    "relation": {
+      "type": "object", "additionalProperties": false, "required": ["source", "target", "kind", "class", "severity"],
+      "properties": {"source": {"$ref": "#/$defs/id"}, "target": {"$ref": "#/$defs/id"}, "kind": {"enum": ["modifies", "depends_on", "forward_link"]}, "class": {"enum": ["hard", "soft", "none"]}, "severity": {"enum": ["breaking", "non-breaking", "informational"]}}
+    },
+    "fixtures": {
+      "type": "object", "additionalProperties": false, "required": ["work_items", "actors", "definitions", "evidence", "relations"],
+      "properties": {
+        "work_items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/workItem"}},
+        "actors": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/actor"}},
+        "definitions": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/definitionRef"}},
+        "evidence": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/evidence"}},
+        "relations": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"$ref": "#/$defs/relation"}}
+      }
+    },
+    "assertionContract": {
+      "type": "object", "additionalProperties": false, "required": ["required_fields", "targets", "ops"],
+      "properties": {
+        "required_fields": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["target", "path", "op"]}},
+        "targets": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"enum": ["state", "result", "communication", "effects", "authority"]}},
+        "ops": {"type": "array", "minItems": 8, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["eq", "not_eq", "contains", "not_contains", "set_eq", "unique", "nonempty", "absent"]}}
+      }
+    },
+    "runnerRequirements": {
+      "type": "object", "additionalProperties": false, "required": ["passing_rule", "mutation_oracle", "stub_resistance", "required_measurements", "evaluation_order"],
+      "properties": {"passing_rule": {"$ref": "#/$defs/short"}, "mutation_oracle": {"$ref": "#/$defs/short"}, "stub_resistance": {"$ref": "#/$defs/short"}, "required_measurements": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "evaluation_order": {"$ref": "#/$defs/short"}}
+    },
+    "assertion": {
+      "type": "object", "additionalProperties": false, "required": ["target", "path", "op"],
+      "properties": {"target": {"enum": ["state", "result", "communication", "effects", "authority"]}, "path": {"type": "string", "minLength": 1, "maxLength": 256}, "op": {"enum": ["eq", "not_eq", "contains", "not_contains", "set_eq", "unique", "nonempty", "absent"]}, "value": {"$ref": "#/$defs/jsonValue"}}
+    },
+    "expected": {
+      "type": "object", "additionalProperties": false, "required": ["assertions"],
+      "properties": {"assertions": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/assertion"}}, "invariants": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}}
+    },
+    "case": {
+      "type": "object", "additionalProperties": false, "required": ["id", "initial_state", "action", "expected"],
+      "properties": {"id": {"$ref": "#/$defs/id"}, "initial_state": {"type": "object", "minProperties": 1, "maxProperties": 64, "additionalProperties": {"$ref": "#/$defs/jsonValue"}}, "action": {"$ref": "#/$defs/id"}, "expected": {"$ref": "#/$defs/expected"}}
+    },
+    "scenario": {
+      "type": "object", "additionalProperties": false, "required": ["id", "scenario_number", "mechanism", "initial_state", "action"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "scenario_number": {"type": "integer", "minimum": 1, "maximum": 47}, "mechanism": {"$ref": "#/$defs/short"},
+        "initial_state": {"type": "object", "minProperties": 1, "maxProperties": 64, "additionalProperties": {"$ref": "#/$defs/jsonValue"}}, "action": {"$ref": "#/$defs/id"},
+        "expected": {"$ref": "#/$defs/expected"}, "cases": {"type": "array", "minItems": 2, "maxItems": 8, "items": {"$ref": "#/$defs/case"}}
+      },
+      "anyOf": [{"required": ["expected"]}, {"required": ["cases"]}]
+    }
+  }
+}

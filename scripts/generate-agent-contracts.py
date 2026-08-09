@@ -15,9 +15,10 @@ def canonical(value: object) -> bytes:
 def fail(message: str) -> None:
     raise ValueError(message)
 
-SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "required", "additionalProperties", "unevaluatedProperties", "items", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties"}
+SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties"}
 
 def schema_validate(value, schema, root, path="$"):
+    """Validate an instance using every JSON-Schema keyword used in-repo."""
     if not isinstance(schema, dict): fail(f"schema node is not an object at {path}")
     unsupported = set(schema) - SCHEMA_KEYWORDS
     if unsupported: fail(f"unsupported JSON Schema keywords at {path}: {sorted(unsupported)}")
@@ -35,6 +36,7 @@ def schema_validate(value, schema, root, path="$"):
         def is_type(kind):
             return {"object": isinstance(value, dict), "array": isinstance(value, list), "string": isinstance(value, str), "integer": isinstance(value, int) and not isinstance(value, bool), "number": isinstance(value, (int,float)) and not isinstance(value,bool), "boolean": isinstance(value,bool), "null": value is None}.get(kind, False)
         if not any(is_type(kind) for kind in types): fail(f"type mismatch at {path}")
+    evaluated = set()
     if isinstance(value, dict):
         if "minProperties" in schema and len(value) < schema["minProperties"]: fail(f"minProperties at {path}")
         if "maxProperties" in schema and len(value) > schema["maxProperties"]: fail(f"maxProperties at {path}")
@@ -42,38 +44,80 @@ def schema_validate(value, schema, root, path="$"):
         for key in required:
             if key not in value: fail(f"missing required {path}.{key}")
         properties = schema.get("properties", {})
-        if schema.get("additionalProperties") is False:
-            unknown = set(value) - set(properties)
-            if unknown: fail(f"unknown properties at {path}: {sorted(unknown)}")
+        patterns = schema.get("patternProperties", {})
         for key, child in properties.items():
-            if key in value: schema_validate(value[key], child, root, f"{path}.{key}")
+            if key in value:
+                schema_validate(value[key], child, root, f"{path}.{key}")
+                evaluated.add(key)
+        for pattern, child in patterns.items():
+            for key in value:
+                if re.search(pattern, key):
+                    schema_validate(value[key], child, root, f"{path}.{key}")
+                    evaluated.add(key)
+        additional = set(value) - evaluated
+        if schema.get("additionalProperties") is False and additional:
+            fail(f"unknown properties at {path}: {sorted(additional)}")
+        if isinstance(schema.get("additionalProperties"), dict):
+            for key in additional:
+                schema_validate(value[key], schema["additionalProperties"], root, f"{path}.{key}")
+                evaluated.add(key)
     if isinstance(value, list):
         if "minItems" in schema and len(value) < schema["minItems"]: fail(f"minItems at {path}")
         if "maxItems" in schema and len(value) > schema["maxItems"]: fail(f"maxItems at {path}")
         if schema.get("uniqueItems") and len({json.dumps(item, sort_keys=True) for item in value}) != len(value): fail(f"uniqueItems at {path}")
         if "items" in schema:
             for index, item in enumerate(value): schema_validate(item, schema["items"], root, f"{path}[{index}]")
+        if "contains" in schema and not any(_valid(item, schema["contains"], root, f"{path}[{index}]") for index, item in enumerate(value)):
+            fail(f"contains at {path}")
     if isinstance(value, str):
         if "minLength" in schema and len(value) < schema["minLength"]: fail(f"minLength at {path}")
         if "maxLength" in schema and len(value) > schema["maxLength"]: fail(f"maxLength at {path}")
         if "pattern" in schema and not re.search(schema["pattern"], value): fail(f"pattern at {path}")
+        if schema.get("format") == "date-time":
+            from datetime import datetime
+            try: datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError: fail(f"format at {path}")
     if isinstance(value, (int,float)) and not isinstance(value,bool):
         if "minimum" in schema and value < schema["minimum"]: fail(f"minimum at {path}")
         if "maximum" in schema and value > schema["maximum"]: fail(f"maximum at {path}")
     for keyword in ("allOf", "anyOf", "oneOf"):
         if keyword in schema:
             results=[]
+            errors=[]
+            branch_evaluated=[]
             for branch in schema[keyword]:
-                try: schema_validate(value, branch, root, path); results.append(True)
-                except ValueError: results.append(False)
+                try: branch_evaluated.append(schema_validate(value, branch, root, path)); results.append(True)
+                except ValueError as exc: results.append(False); errors.append(str(exc))
             count=sum(results)
-            if keyword=="allOf" and count != len(results): fail(f"allOf mismatch at {path}")
-            if keyword=="anyOf" and count < 1: fail(f"anyOf mismatch at {path}")
-            if keyword=="oneOf" and count != 1: fail(f"oneOf mismatch at {path}")
+            detail = f": {'; '.join(errors)}" if errors else ""
+            if keyword=="allOf" and count != len(results): fail(f"allOf mismatch at {path}{detail}")
+            if keyword=="anyOf" and count < 1: fail(f"anyOf mismatch at {path}{detail}")
+            if keyword=="oneOf" and count != 1: fail(f"oneOf mismatch at {path}{detail}")
+            for branch_result in branch_evaluated: evaluated.update(branch_result)
+    if "if" in schema:
+        condition = _valid(value, schema["if"], root, path)
+        branch = schema.get("then") if condition else schema.get("else")
+        if branch is not None: evaluated.update(schema_validate(value, branch, root, path))
     if "not" in schema:
         try: schema_validate(value, schema["not"], root, path)
         except ValueError: pass
         else: fail(f"not mismatch at {path}")
+    if isinstance(value, dict) and "unevaluatedProperties" in schema:
+        remaining = set(value) - evaluated
+        if schema["unevaluatedProperties"] is False and remaining:
+            fail(f"unevaluated properties at {path}: {sorted(remaining)}")
+        if isinstance(schema["unevaluatedProperties"], dict):
+            for key in remaining:
+                schema_validate(value[key], schema["unevaluatedProperties"], root, f"{path}.{key}")
+                evaluated.add(key)
+    return evaluated
+
+def _valid(value, schema, root, path):
+    try:
+        schema_validate(value, schema, root, path)
+        return True
+    except ValueError:
+        return False
 
 def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")

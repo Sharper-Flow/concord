@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/workflow-definition.schema.json",
+  "title": "Concord workflow definition manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ref", "version", "digest", "work_kind", "step_graph", "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules", "staleness_rules", "composition_rules"],
+  "properties": {
+    "$schema": {"type": "string", "minLength": 1, "maxLength": 256},
+    "schema_version": {"const": "1.0"},
+    "ref": {"type": "string", "pattern": "^workflow\\.[a-z][a-z0-9_.-]{1,62}$", "minLength": 10, "maxLength": 64},
+    "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+    "work_kind": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]},
+    "step_graph": {"$ref": "#/$defs/stepGraph"},
+    "available_actions": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "action_definitions": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/actionDefinition"}},
+    "required_evidence_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}},
+    "outcome_schema": {"$ref": "#/$defs/outcomeSchema"},
+    "rigor_rules": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/rigorRule"}},
+    "staleness_rules": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/stalenessRule"}},
+    "composition_rules": {"$ref": "#/$defs/compositionRules"}
+  },
+  "allOf": [
+    {"if": {"properties": {"work_kind": {"const": "implementation"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "check"}, "allowed_kinds": {"const": ["exists", "absent", "check"]}, "allowed_outcome_tokens": {"const": []}, "decision_record_required": {"const": false}}}}}},
+    {"if": {"properties": {"work_kind": {"const": "break_fix"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "absent"}, "allowed_kinds": {"const": ["exists", "absent", "check"]}, "allowed_outcome_tokens": {"const": []}, "decision_record_required": {"const": false}}}}}},
+    {"if": {"properties": {"work_kind": {"const": "research"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "outcome"}, "allowed_kinds": {"const": ["outcome"]}, "allowed_outcome_tokens": {"const": ["no_change", "resolved", "report_recorded"]}, "decision_record_required": {"const": false}}}}}},
+    {"if": {"properties": {"work_kind": {"const": "architecture_spike"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "outcome"}, "allowed_kinds": {"const": ["outcome"]}, "allowed_outcome_tokens": {"const": ["accepted_decision", "insufficient_evidence"]}, "decision_record_required": {"const": true}}}}}},
+    {"if": {"properties": {"work_kind": {"const": "ops_runbook"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "check"}, "allowed_kinds": {"const": ["exists", "absent", "check"]}, "allowed_outcome_tokens": {"const": []}, "decision_record_required": {"const": false}}}}}},
+    {"if": {"properties": {"work_kind": {"const": "static_analysis"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "check"}, "allowed_kinds": {"const": ["exists", "absent", "check"]}, "allowed_outcome_tokens": {"const": []}, "decision_record_required": {"const": false}}}}}},
+    {"if": {"properties": {"work_kind": {"const": "generic_one_off"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "outcome"}, "allowed_kinds": {"const": ["exists", "absent", "outcome", "check"]}, "allowed_outcome_tokens": {"const": ["no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"]}, "decision_record_required": {"const": false}}}}}}
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$", "minLength": 2, "maxLength": 64},
+    "ref": {"type": "string", "pattern": "^[a-z][a-z0-9_.:/-]{1,127}$", "minLength": 2, "maxLength": 128},
+    "stepGraph": {
+      "type": "object", "additionalProperties": false,
+      "required": ["start_step", "terminal_steps", "steps", "edges"],
+      "properties": {
+        "start_step": {"$ref": "#/$defs/id"},
+        "terminal_steps": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "steps": {"type": "array", "minItems": 2, "maxItems": 32, "items": {"$ref": "#/$defs/step"}},
+        "edges": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/edge"}}
+      }
+    },
+    "step": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "actions"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["internal_sqlite", "cross_authority", "external_effect", "human_checkpoint"]},
+        "actions": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "required_evidence_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}}
+      }
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from", "to", "kind"],
+      "properties": {
+        "from": {"$ref": "#/$defs/id"},
+        "to": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["forward", "retry", "optional", "failure"]}
+      }
+    },
+    "actionDefinition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "consequence", "approval", "payload"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "consequence": {"enum": ["internal_sqlite", "cross_authority", "external_effect"]},
+        "approval": {"enum": ["none", "conditional", "required"]},
+        "payload": {"$ref": "#/$defs/payloadDefinition"}
+      }
+    },
+    "payloadDefinition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fields"],
+      "properties": {"fields": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/payloadField"}}}
+    },
+    "payloadField": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "value_type", "required"],
+      "properties": {
+        "name": {"$ref": "#/$defs/id"},
+        "value_type": {"enum": ["string", "integer", "boolean", "ref", "digest"]},
+        "required": {"type": "boolean"},
+        "min_length": {"type": "integer", "minimum": 0, "maximum": 4096},
+        "max_length": {"type": "integer", "minimum": 0, "maximum": 4096},
+        "minimum": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+        "maximum": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}
+      }
+    },
+    "outcomeSchema": {
+      "type": "object", "additionalProperties": false,
+      "required": ["default_kind", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"],
+      "properties": {
+        "default_kind": {"enum": ["exists", "absent", "outcome", "check"]},
+        "allowed_kinds": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["exists", "absent", "outcome", "check"]}},
+        "allowed_outcome_tokens": {"type": "array", "minItems": 0, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"]}},
+        "decision_record_required": {"type": "boolean"}
+      }
+    },
+    "rigorRule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maturity", "audience_band", "required_evidence_kinds"],
+      "properties": {
+        "maturity": {"enum": ["prototype", "production", "critical"]},
+        "audience_band": {"enum": ["internal", "trusted", "public", "safety_critical"]},
+        "required_evidence_kinds": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}}
+      }
+    },
+    "stalenessRule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "input_ref", "severity"],
+      "properties": {"id": {"$ref": "#/$defs/id"}, "input_ref": {"$ref": "#/$defs/ref"}, "severity": {"enum": ["warning", "block"]}}
+    },
+    "compositionRules": {
+      "type": "object", "additionalProperties": false,
+      "required": ["forward_link_only", "allowed_successor_work_kinds", "forbidden_compositions"],
+      "properties": {
+        "forward_link_only": {"const": true},
+        "allowed_successor_work_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}},
+        "forbidden_compositions": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["successor_work_kind", "reason"], "properties": {"successor_work_kind": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 256}}}}
+      }
+    }
+  }
+}

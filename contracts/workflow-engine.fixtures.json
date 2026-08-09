@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "contract": "CD-0013",
+  "cases": [
+    {
+      "id": "definition-implementation-valid",
+      "schema": "workflow-definition.schema.json",
+      "valid": true,
+      "instance": {
+        "schema_version": "1.0",
+        "ref": "workflow.implementation",
+        "version": 1,
+        "digest": "sha256:9345da1d1390a49870386578337eb49ab86c7283c1acf4cb71c2db2255c0c489",
+        "work_kind": "implementation",
+        "step_graph": {
+          "start_step": "proposal",
+          "terminal_steps": ["release"],
+          "steps": [
+            {"id": "proposal", "kind": "internal_sqlite", "actions": ["record_proposal"]},
+            {"id": "discovery", "kind": "internal_sqlite", "actions": ["record_discovery"]},
+            {"id": "design", "kind": "internal_sqlite", "actions": ["record_design"]},
+            {"id": "planning", "kind": "human_checkpoint", "actions": ["approve_contract"]},
+            {"id": "execution", "kind": "external_effect", "actions": ["start_execution", "checkpoint_execution", "bind_evidence"]},
+            {"id": "acceptance", "kind": "human_checkpoint", "actions": ["record_verdict", "confirm_premise"]},
+            {"id": "release", "kind": "internal_sqlite", "actions": ["complete"]}
+          ],
+          "edges": [
+            {"from": "proposal", "to": "discovery", "kind": "forward"},
+            {"from": "discovery", "to": "design", "kind": "forward"},
+            {"from": "design", "to": "planning", "kind": "forward"},
+            {"from": "planning", "to": "execution", "kind": "forward"},
+            {"from": "execution", "to": "acceptance", "kind": "forward"},
+            {"from": "acceptance", "to": "release", "kind": "forward"},
+            {"from": "execution", "to": "execution", "kind": "retry"}
+          ]
+        },
+        "available_actions": ["record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "record_verdict", "confirm_premise", "complete"],
+        "action_definitions": [
+          {"id": "record_proposal", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "record_discovery", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "record_design", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "approve_contract", "consequence": "internal_sqlite", "approval": "required", "payload": {"fields": []}},
+          {"id": "start_execution", "consequence": "external_effect", "approval": "none", "payload": {"fields": []}},
+          {"id": "checkpoint_execution", "consequence": "external_effect", "approval": "none", "payload": {"fields": []}},
+          {"id": "bind_evidence", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "record_verdict", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "confirm_premise", "consequence": "internal_sqlite", "approval": "required", "payload": {"fields": []}},
+          {"id": "complete", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}}
+        ],
+        "required_evidence_kinds": ["verification", "review"],
+        "outcome_schema": {"default_kind": "check", "allowed_kinds": ["exists", "absent", "check"], "allowed_outcome_tokens": [], "decision_record_required": false},
+        "rigor_rules": [{"maturity": "prototype", "audience_band": "internal", "required_evidence_kinds": ["verification"]}],
+        "staleness_rules": [],
+        "composition_rules": {"forward_link_only": true, "allowed_successor_work_kinds": ["break_fix", "research"], "forbidden_compositions": []}
+      }
+    },
+    {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},
+    {"id": "outcome-absent-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "absent", "surface": "git:tree", "subjects": ["path:legacy"], "distinguish_from": ["archived", "relocated"]}},
+    {"id": "outcome-research-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "outcome", "allowed": ["no_change"]}},
+    {"id": "outcome-check-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "check", "check_ref": "check:workflow-proof", "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "expected_result": "pass"}},
+    {"id": "outcome-spike-record-valid", "schema": "workflow-outcome.schema.json", "work_kind": "architecture_spike", "valid": true, "instance": {"kind": "outcome", "allowed": ["accepted_decision"], "decision_record": {"question": "Which public mechanism should bind state?", "options_considered": ["sqlite", "remote"], "decision": "accepted_decision", "rationale": "The local authority is sufficient.", "consequences": ["One writer remains authoritative."], "inputs": ["docs/architecture-spike.md"], "poc_findings": "No POC built.", "supersedes": null, "superseded_by": null, "unknowns": [], "required_to_decide": [], "reviewer_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc", "operator_approval_ref": "approval:spike-1"}}},
+    {"id": "outcome-extra-property-invalid", "schema": "workflow-outcome.schema.json", "valid": false, "expected_error": "unknown properties", "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"], "extra": true}},
+    {"id": "outcome-unknown-kind-invalid", "schema": "workflow-outcome.schema.json", "valid": false, "expected_error": "oneOf mismatch", "instance": {"kind": "expression", "surface": "git:tree", "subjects": ["path:cmd/concord"]}}
+  ],
+  "semantic_negative_cases": [
+    {"id": "definition-start-node-invalid", "base_case": "definition-implementation-valid", "mutation": "start_step", "expected_error": "graph start endpoint"},
+    {"id": "definition-terminal-node-invalid", "base_case": "definition-implementation-valid", "mutation": "terminal_step", "expected_error": "graph terminal endpoint"},
+    {"id": "definition-edge-node-invalid", "base_case": "definition-implementation-valid", "mutation": "edge_endpoint", "expected_error": "graph edge endpoint"},
+    {"id": "definition-non-retry-cycle-invalid", "base_case": "definition-implementation-valid", "mutation": "non_retry_cycle", "expected_error": "non-retry graph cycle"},
+    {"id": "definition-step-action-invalid", "base_case": "definition-implementation-valid", "mutation": "step_action", "expected_error": "step action not declared at root"},
+    {"id": "definition-root-action-invalid", "base_case": "definition-implementation-valid", "mutation": "root_action", "expected_error": "root action definitions do not match available actions"},
+    {"id": "definition-digest-invalid", "base_case": "definition-implementation-valid", "mutation": "definition_digest", "expected_error": "definition digest mismatch"}
+  ],
+  "predicate_negative_cases": [
+    {"id": "predicate-implementation-spike-token", "work_kind": "implementation", "predicate": {"kind": "outcome", "allowed": ["accepted_decision"]}, "expected_error": "predicate kind not allowed"},
+    {"id": "predicate-break-fix-spike-token", "work_kind": "break_fix", "predicate": {"kind": "outcome", "allowed": ["accepted_decision"]}, "expected_error": "predicate kind not allowed"},
+    {"id": "predicate-research-spike-token", "work_kind": "research", "predicate": {"kind": "outcome", "allowed": ["accepted_decision"]}, "expected_error": "outcome token not allowed"},
+    {"id": "predicate-architecture-missing-record", "work_kind": "architecture_spike", "predicate": {"kind": "outcome", "allowed": ["accepted_decision"]}, "expected_error": "decision record required"},
+    {"id": "predicate-ops-spike-token", "work_kind": "ops_runbook", "predicate": {"kind": "outcome", "allowed": ["accepted_decision"]}, "expected_error": "predicate kind not allowed"},
+    {"id": "predicate-static-spike-token", "work_kind": "static_analysis", "predicate": {"kind": "outcome", "allowed": ["accepted_decision"]}, "expected_error": "predicate kind not allowed"},
+    {"id": "predicate-generic-unknown-kind", "work_kind": "generic_one_off", "predicate": {"kind": "expression", "allowed": ["accepted_decision"]}, "expected_error": "predicate kind not allowed"}
+  ],
+  "scenario_negative_cases": [
+    {"id": "scenario-actor-ref-invalid", "mutation": "actor_ref", "expected_error": "pattern"},
+    {"id": "scenario-initial-state-float-invalid", "mutation": "invalid_float", "expected_error": "oneOf mismatch"},
+    {"id": "scenario-unknown-error-kind", "mutation": "unknown_error_kind", "expected_error": "undeclared scenario error kind"},
+    {"id": "scenario-shipped-pending-amendment", "mutation": "engine_shipped_pending", "expected_error": "pending amendments remain"},
+    {"id": "scenario-notice-id-invalid", "mutation": "wrong_notice_id", "expected_error": "notice-ID derivation mismatch"},
+    {"id": "scenario-literal-backslash-zero-actor", "mutation": "literal_backslash_zero_actor", "expected_error": "actor-ID derivation mismatch"}
+  ]
+}

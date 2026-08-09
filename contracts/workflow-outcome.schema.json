@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/workflow-outcome.schema.json",
+  "title": "Concord workflow outcome predicate v1",
+  "oneOf": [
+    {"$ref": "#/$defs/exists"},
+    {"$ref": "#/$defs/absent"},
+    {"$ref": "#/$defs/outcome"},
+    {"$ref": "#/$defs/check"}
+  ],
+  "$defs": {
+    "surface": {"type": "string", "pattern": "^[a-z][a-z0-9_.:/-]{1,127}$", "minLength": 2, "maxLength": 128},
+    "subject": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$", "minLength": 2, "maxLength": 128},
+    "exists": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "surface", "subjects"],
+      "properties": {"kind": {"const": "exists"}, "surface": {"$ref": "#/$defs/surface"}, "subjects": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/subject"}}}
+    },
+    "absent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "surface", "subjects", "distinguish_from"],
+      "properties": {
+        "kind": {"const": "absent"},
+        "surface": {"$ref": "#/$defs/surface"},
+        "subjects": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/subject"}},
+        "distinguish_from": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["archived", "relocated", "renamed", "disabled"]}}
+      }
+    },
+    "decisionRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"],
+      "properties": {
+        "question": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "options_considered": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
+        "decision": {"enum": ["accepted_decision", "insufficient_evidence"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "consequences": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
+        "inputs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+        "poc_findings": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "supersedes": {"type": ["string", "null"], "minLength": 2, "maxLength": 128},
+        "superseded_by": {"type": ["string", "null"], "minLength": 2, "maxLength": 128},
+        "unknowns": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
+        "required_to_decide": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
+        "reviewer_actor_ref": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70},
+        "operator_approval_ref": {"type": "string", "pattern": "^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$", "minLength": 9, "maxLength": 136}
+      }
+    },
+    "outcome": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "allowed"],
+      "properties": {
+        "kind": {"const": "outcome"},
+        "allowed": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"]}},
+        "decision_record": {"$ref": "#/$defs/decisionRecord"}
+      }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "check_ref", "immutable_subject_ref", "expected_result"],
+      "properties": {
+        "kind": {"const": "check"},
+        "check_ref": {"type": "string", "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$", "minLength": 7, "maxLength": 134},
+        "immutable_subject_ref": {"type": "string", "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$", "minLength": 2, "maxLength": 256},
+        "expected_result": {"enum": ["true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"]}
+      }
+    }
+  }
+}

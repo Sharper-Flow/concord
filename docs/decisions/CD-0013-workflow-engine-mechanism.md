@@ -1,8 +1,10 @@
 # CD-0013: Workflow Engine Mechanism and Contract
 
-**Status:** Proposed — not binding until operator acceptance
+**Status:** Accepted
 **Date:** 2026-08-08
 **Decision owner:** Operator
+**Accepted by operator:** 2026-08-08
+**Reviewer:** Independent review per [`architecture-spike.md`](../architecture-spike.md) §5; five rounds, approved.
 **Scope:** Workflow engine authority, definition registry, instance lifecycle, progression,
 evidence binding, outcome verification, impact propagation, and the durable shapes a
 workflow engine must add to the existing storage spine.

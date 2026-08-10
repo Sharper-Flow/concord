@@ -241,11 +241,10 @@ re-litigate them silently.
   layout toolkit, and the detail screen; C17 proposes a drill-down and defers the
   container to the launcher.
 - **Operator direction (2026-08-09):** the launcher exists to see status and resume
-  work in the OpenCode TUI. It performs no durable write. Durable knowledge belongs to
-  its owning Product, Project, Epic, or change rather than to a global browse surface,
-  and its section is written into the UI in the first round as a reserved stub while
-  knowledge resolution across docs and file types is delivered later.
-- **Candidate (2026-08-09):** three closed screens (portfolio, Product, work) with
+   work in the OpenCode TUI. It performs no durable write. Durable knowledge belongs to
+   its owning Product, Project, Epic, or change rather than to a global browse surface,
+   and its section uses the shipped resolver once launcher wiring is implemented.
+- **Accepted by CD-0014 (2026-08-10):** three closed screens (portfolio, Product, work) with
   knowledge as a scoped section rather than a screen; stack navigation; ambient context
   established by Product selection and changed nowhere else; a navigate-and-launch
   action surface with no writes; a launch handoff carrying identity but never workflow
@@ -253,10 +252,16 @@ re-litigate them silently.
   and a refresh model with no timer or poll, where staleness is displayed and never
   enforced by the launcher. See
   [`terminal-launcher-contract.md`](./terminal-launcher-contract.md).
-- **Open sub-questions:** the terminal rendering dependency, which conflicts with the
-  current third-party-dependency rule and plausibly needs its own decision record; and
-  whether query scope stays within the ambient Product or extends across Products.
-- **Direction:** 🟠 candidate recorded, awaiting operator direction.
+- **Resolved sub-questions:** Bubble Tea v2 is selected behind an isolated adapter;
+  query is Product-only and scoped to the ambient Product. The exact versions,
+  dependency inventory, hard-proof results, no-poll interpretation, and tcell v3
+  fallback are binding in [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md).
+- **Direction:** ✅ accepted. The workflow engine and durable knowledge resolver have
+   shipped; stale sequencing statements that treated them as C18 prerequisites are
+   retired.
+- **Implementation status:** The accepted screen contract and renderer spike do not
+  mean the launcher screens or read-port wiring are built; those remain implementation
+  work under the accepted contract.
 
 ---
 

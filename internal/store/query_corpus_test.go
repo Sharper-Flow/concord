@@ -349,10 +349,17 @@ func seedKnowledgeCorpus(t *testing.T, s *Store, corpus queryCorpus) corpusGitKn
 	repo := initKnowledgeRepo(t)
 	workPath := "docs/work/2026-08-03-auth-release.md"
 	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z"))
-	writeKnowledgeFile(t, repo, "docs/lessons/2026-08-04-state-authority.md", canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-04T12:00:00Z", []string{"state-authority", "sqlite"}))
-	writeKnowledgeFile(t, repo, "docs/decisions/CD-0002-state-authority.md", canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-05T12:00:00Z", []string{"sqlite"}))
+	lessonPath := "docs/lessons/2026-08-04-state-authority.md"
+	decisionPath := "docs/decisions/CD-0002-state-authority.md"
+	writeKnowledgeFile(t, repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-04T12:00:00Z", []string{"state-authority", "sqlite"}))
+	writeKnowledgeFile(t, repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-05T12:00:00Z", []string{"sqlite"}))
+	writeManifestFixture(t, repo,
+		manifestFixtureFromFile(t, repo, "knowledge-lesson", "lesson", lessonPath, "published", "2026-08-04T12:00:00Z", "Durable lesson", "Durable summary", []string{"state-authority", "sqlite"}, KnowledgeRecordScopes{Mode: "home"}),
+		manifestFixtureFromFile(t, repo, "knowledge-decision", "decision", decisionPath, "accepted", "2026-08-05T12:00:00Z", "Durable decision", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}),
+	)
 	commit := commitKnowledgeRepo(t, repo, "accepted PM1 corpus")
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}

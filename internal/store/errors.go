@@ -100,6 +100,7 @@ const (
 	KindIndexDegraded               FailureKind = "index_degraded"
 	KindKnowledgeAmbiguous          FailureKind = "knowledge_ambiguous"
 	KindKnowledgeMissing            FailureKind = "knowledge_missing"
+	KindKnowledgeUnavailable        FailureKind = "knowledge_unavailable"
 	KindCompactionConflict          FailureKind = "compaction_conflict"
 	KindStaleAttempt                FailureKind = "stale_attempt"
 	KindIdempotencyConflict         FailureKind = "idempotency_conflict"
@@ -148,8 +149,9 @@ type Failure struct {
 	// RetrySafe reports whether repeating the same call is safe.
 	RetrySafe bool `json:"retry_safe"`
 	// RecoveryAction states what resolves the failure.
-	RecoveryAction string   `json:"recovery_action"`
-	CandidateIDs   []string `json:"candidate_ids,omitempty"`
+	RecoveryAction   string   `json:"recovery_action"`
+	CandidateIDs     []string `json:"candidate_ids,omitempty"`
+	UnavailableKinds []string `json:"unavailable_kinds,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`

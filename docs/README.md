@@ -38,6 +38,7 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`installation.md`](./installation.md) | Release installation, Secret Service prerequisites, OpenCode registration, upgrade, and uninstall. |
 | [`clarifications.md`](./clarifications.md) | Accepted clarification history plus explicitly deferred later-phase questions. |
 | [`product-memory-query-contract.md`](./product-memory-query-contract.md) + [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json) | **Accepted PM1** canonical query contract and golden corpus; binding input to PM2/PM3 and TS1/TS3 evaluation. |
+| [`concord-knowledge-index.md`](./concord-knowledge-index.md) + [`concord-knowledge-index.v1.json`](./concord-knowledge-index.v1.json) | Manifest-primary durable decisions, specs, and lessons; strict blob proofs, scope modes, and typed research availability. |
 | [`agent-tool-surface-jobs.md`](./agent-tool-surface-jobs.md) + [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json) | **Accepted TS1:** eight canonical end-to-end agent jobs and 21 tool-neutral evaluation scenarios; binding input to TS2–TS9. |
 | [`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md) | **Accepted TS2:** at most nine always-visible domain tools, structural merge/split rules, static v1 exposure, and scenario-first candidate selection. |
 | [`agent-read-tool-contract.md`](./agent-read-tool-contract.md) | **Accepted TS3:** four bounded read tools covering Product orientation, actionable work, work provenance, and durable knowledge. |

@@ -1,0 +1,422 @@
+{
+  "schema_version": "1.0",
+  "supported_kinds": [
+    "work_note",
+    "decision",
+    "spec",
+    "lesson",
+    "research"
+  ],
+  "indexed_kinds": [
+    "work_note",
+    "decision",
+    "spec",
+    "lesson"
+  ],
+  "records": [
+    {
+      "id": "CD-0002",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0002-concord-state-authority.md",
+      "status": "accepted",
+      "date": "2026-07-25T00:00:00Z",
+      "title": "Concord state authority",
+      "summary": "Defines SQLite authority and durable state boundaries.",
+      "tags": [
+        "state-authority",
+        "sqlite"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d2b0cad7b3d9205b7064c9c1e355f4b4754f3bebc7a47d55148bf09220572f7f"
+    },
+    {
+      "id": "CD-0003",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0003-concord-storage-layer-shape.md",
+      "status": "accepted",
+      "date": "2026-07-25T00:00:00Z",
+      "title": "Concord storage layer shape",
+      "summary": "Defines the initial storage layer shape and boundaries.",
+      "tags": [
+        "storage",
+        "architecture"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bb1315eb6cfff72fcceb4bde45a9ff3f193612346cb85134fd0c3c699a0a230b"
+    },
+    {
+      "id": "CD-0005",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0005-concord-agent-tool-surface.md",
+      "status": "accepted",
+      "date": "2026-07-31T00:00:00Z",
+      "title": "Concord agent tool surface",
+      "summary": "Consolidates the accepted agent-facing tool surface decisions.",
+      "tags": [
+        "agents",
+        "tools"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bb67297f7ecb6e4b4e324de85fdfac3d0ed31f783bc86221a179d885d0eadbcf"
+    },
+    {
+      "id": "CD-0006",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0006-concord-root-product-policy.md",
+      "status": "accepted",
+      "date": "2026-08-01T00:00:00Z",
+      "title": "Concord root Product policy",
+      "summary": "Defines the root Product and fix-forward policy.",
+      "tags": [
+        "product",
+        "governance"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:08d72bd4c11974deb12ec181453fdf68384e181bf7d60bd7bc7d1c49a8d4ec66"
+    },
+    {
+      "id": "CD-0007",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0007-concord-repository-bootstrap.md",
+      "status": "accepted",
+      "date": "2026-08-02T00:00:00Z",
+      "title": "Concord repository bootstrap",
+      "summary": "Defines the public repository, governance, and release boundary.",
+      "tags": [
+        "repository",
+        "governance"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:7571c7cc3f34fb86674746850989cd14765c75e7389298053f3837d6b91c4221"
+    },
+    {
+      "id": "CD-0008",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0008-concord-mechanism-hardening.md",
+      "status": "accepted",
+      "date": "2026-08-05T00:00:00Z",
+      "title": "Concord mechanism hardening",
+      "summary": "Defines unreadable-record isolation and durable evidence hardening.",
+      "tags": [
+        "reliability",
+        "evidence",
+        "isolation"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:24758757586b904377718a5ad7030f6e43e1ff96f1af18dfd3d8aaabb08b69fa"
+    },
+    {
+      "id": "CD-0009",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0009-active-research-context.md",
+      "status": "accepted",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Active research context",
+      "summary": "Defines retention-bounded research context and canonical durable forms.",
+      "tags": [
+        "research",
+        "retention"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:73994d11431cc12a9abf8e9a597423cbcc39db46d17f4b70c9f6d316cd39ca23"
+    },
+    {
+      "id": "CD-0010",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0010-pre-readiness-development-authority.md",
+      "status": "accepted",
+      "date": "2026-08-07T00:00:00Z",
+      "title": "Pre-readiness development authority",
+      "summary": "Defines GitHub-native development authority before replacement readiness.",
+      "tags": [
+        "authority",
+        "github"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730"
+    },
+    {
+      "id": "CD-0011",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+      "status": "accepted",
+      "date": "2026-08-07T00:00:00Z",
+      "title": "Retain SQLite after conformance",
+      "summary": "Records the decision to retain direct local SQLite after conformance review.",
+      "tags": [
+        "sqlite",
+        "conformance"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a7cd543bed9050793bedf041764cad06965658f7f30d77daecbd555f8cb68395"
+    },
+    {
+      "id": "CD-0012",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
+      "status": "accepted",
+      "date": "2026-08-07T00:00:00Z",
+      "title": "Bind stated goals to delivered outcomes",
+      "summary": "Defines the three-part outcome contract and strengthen-only delivery comparison.",
+      "tags": [
+        "goals",
+        "outcomes"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:76a77efc281e49ba0afc8d57a0d1e2bf3321c772d249f46275ff15ddd0a2fbe5"
+    },
+    {
+      "id": "CD-0013",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0013-workflow-engine-mechanism.md",
+      "status": "accepted",
+      "date": "2026-08-08T00:00:00Z",
+      "title": "Workflow engine mechanism",
+      "summary": "Defines the versioned workflow registry, execution evidence, and completion gate.",
+      "tags": [
+        "workflow",
+        "evidence"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:78b56828d0fcbed09ac576564f3bd3f1f6a7639952760563bdc9d25b31d19805"
+    },
+    {
+      "id": "PM1",
+      "kind": "spec",
+      "path": "docs/product-memory-query-contract.md",
+      "status": "accepted",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Product memory query contract",
+      "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
+      "tags": [
+        "pm1",
+        "queries"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:5a5fbb5351bffb4f35080b99ee2320b9a08bb7d721d91dd34da1e1694c93277d"
+    },
+    {
+      "id": "PM3",
+      "kind": "spec",
+      "path": "docs/product-memory-domain-schema.md",
+      "status": "accepted",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Product memory domain schema",
+      "summary": "Defines the authoritative event log and typed Product-memory projections.",
+      "tags": [
+        "pm3",
+        "schema"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:80ddff114b95f4767e8bd6a5b77831846d3ca84eceb8a00105fc59aecf0a096b"
+    },
+    {
+      "id": "PM6",
+      "kind": "spec",
+      "path": "docs/canonical-git-note-placement.md",
+      "status": "accepted",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Canonical Git note placement",
+      "summary": "Defines canonical home placement and git-first proof for durable notes.",
+      "tags": [
+        "pm6",
+        "git",
+        "proof"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a9950e5fb9f2341fefe6e3b51c9c4ef31dc186a556f8cc0483f50368b9bb419c"
+    },
+    {
+      "id": "PM7",
+      "kind": "spec",
+      "path": "docs/compaction-retention-policy.md",
+      "status": "accepted",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Compaction retention policy",
+      "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
+      "tags": [
+        "pm7",
+        "retention",
+        "rebuild"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:063007af2110827e6f3f1816fbd79e39b08f3f3d4d0f7dd5b73344593ac92a8a"
+    },
+    {
+      "id": "workflow-engine-contract",
+      "kind": "spec",
+      "path": "docs/workflow-engine-contract.md",
+      "status": "accepted",
+      "date": "2026-08-08T00:00:00Z",
+      "title": "Workflow engine contract",
+      "summary": "Defines the machine-readable workflow engine implementation contract.",
+      "tags": [
+        "workflow",
+        "contract"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:daf6d0591e0c9b4896af489f2e9d4837608f4d68d3d0c8dca4b57f7dfae56dfd"
+    },
+    {
+      "id": "TS3",
+      "kind": "spec",
+      "path": "docs/agent-read-tool-contract.md",
+      "status": "accepted",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Agent read tool contract",
+      "summary": "Defines bounded read tools including the durable knowledge surface.",
+      "tags": [
+        "ts3",
+        "agents",
+        "queries"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:4710c6252769a87088ceade5ee40c4306b64b81281635c3bd1ec58d9956e86a8"
+    },
+    {
+      "id": "TS7",
+      "kind": "spec",
+      "path": "docs/agent-result-envelope.md",
+      "status": "accepted",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Agent result envelope",
+      "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
+      "tags": [
+        "ts7",
+        "agents",
+        "errors"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:58e3e336f9a1648084d639461fcb2b1ac7963437f96fafd8c2b9b3f91b6dd47c"
+    },
+    {
+      "id": "advance-predecessor-lessons",
+      "kind": "lesson",
+      "path": "docs/advance-predecessor-lessons.md",
+      "status": "published",
+      "date": "2026-08-05T00:00:00Z",
+      "title": "Advance predecessor lessons",
+      "summary": "Records public predecessor lessons that inform Concord without becoming a second authority.",
+      "tags": [
+        "lessons",
+        "predecessor"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:204fc13239ada820a79ab70f93044f6f814917b66ae76065ede0c62a91c3636c"
+    }
+  ]
+}

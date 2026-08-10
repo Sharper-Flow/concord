@@ -69,6 +69,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"agent contract drift: {checked.stderr.strip() or checked.stdout.strip()}")
 
+    knowledge_checker = ROOT / "scripts/check-knowledge-index.py"
+    if knowledge_checker.is_file():
+        checked = subprocess.run([sys.executable, str(knowledge_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"knowledge index drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     for finding in findings[:MAX_FINDINGS]:
         print(finding)
     if len(findings) > MAX_FINDINGS:

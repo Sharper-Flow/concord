@@ -51,8 +51,7 @@ func TestVerifyCommittedNoteRejectsHashMismatchAndSymlink(t *testing.T) {
 	}
 	writeKnowledgeFile(t, repo, "docs/lessons/target.md", content)
 	commit = commitKnowledgeRepo(t, repo, "symlink note")
-	s := openTemp(t)
-	err = s.RebuildKnowledgeIndex(context.Background(), KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: commit})
+	_, err = VerifyCommittedNote(context.Background(), repo, commit, path, "")
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
 
@@ -152,6 +151,11 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z"))
 	writeKnowledgeFile(t, repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-04T12:00:00Z", []string{"state-authority", "sqlite"}))
 	writeKnowledgeFile(t, repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-05T12:00:00Z", []string{"sqlite"}))
+	scopes := KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"prod-alpha"}, ComponentIDs: []string{"state"}, TagIDs: []string{"state-authority", "sqlite"}}
+	writeManifestFixture(t, repo,
+		manifestFixtureFromFile(t, repo, "knowledge-lesson", "lesson", lessonPath, "published", "2026-08-04T12:00:00Z", "Durable lesson", "Durable summary", []string{"state-authority", "sqlite"}, scopes),
+		manifestFixtureFromFile(t, repo, "knowledge-decision", "decision", decisionPath, "accepted", "2026-08-05T12:00:00Z", "Durable decision", "Durable summary", []string{"sqlite"}, scopes),
+	)
 	commit := commitKnowledgeRepo(t, repo, "knowledge")
 
 	s := openTemp(t)
@@ -160,6 +164,7 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedKnowledgeWork(t, s, "work-done", "Auth release")
+	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
 	if err := PublishCompactionLink(ctx, s, CompactionLinkRequest{EventID: "compact-work-done", WorkID: "work-done", ExpectedVersion: 3, Actor: "operator", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: workPath, Reason: "durable outcome"}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +196,7 @@ func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedKnowledgeWork(t, s, "work-orphan", "Orphan")
+	authorizeKnowledgeLocator(t, s, home)
 	result, err := s.QueryQ10(context.Background(), Q10Request{Work: "work-orphan", Home: home})
 	if err != nil || result.Status != "not_compacted" || result.Authority != "authoritative" {
 		t.Fatalf("Q10 orphan = %#v, err %v", result, err)
@@ -203,10 +209,11 @@ func TestKnowledgeWatermarkControlsAuthoritativeEmptyAndDegradedResults(t *testi
 	commitKnowledgeRepo(t, repo, "first")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	empty, err := s.QueryQ9(context.Background(), Q9Request{Product: "prod-beta", Home: home})
+	empty, err := s.QueryQ9(context.Background(), Q9Request{Product: "prod-alpha", Home: home})
 	if err != nil || empty.Authority != "authoritative" || len(empty.Items) != 0 {
 		t.Fatalf("authoritative empty = %#v, err %v", empty, err)
 	}
@@ -225,17 +232,23 @@ func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
 	s := openTemp(t)
 
 	firstRepo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, firstRepo, "docs/lessons/first.md", canonicalKnowledgeNote("first-home", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
+	firstPath := "docs/lessons/first.md"
+	writeKnowledgeFile(t, firstRepo, firstPath, canonicalKnowledgeNote("first-home", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
+	writeManifestFixture(t, firstRepo, manifestFixtureFromFile(t, firstRepo, "first-home", "lesson", firstPath, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
 	commitKnowledgeRepo(t, firstRepo, "first home")
 	firstHome := KnowledgeHome{HomeProjectID: "project-first", HomeLocatorID: "locator-first", RepoPath: firstRepo, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, firstHome)
 	if err := s.RebuildKnowledgeIndex(ctx, firstHome); err != nil {
 		t.Fatal(err)
 	}
 
 	secondRepo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, secondRepo, "docs/lessons/second.md", canonicalKnowledgeNote("second-home", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
+	secondPath := "docs/lessons/second.md"
+	writeKnowledgeFile(t, secondRepo, secondPath, canonicalKnowledgeNote("second-home", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
+	writeManifestFixture(t, secondRepo, manifestFixtureFromFile(t, secondRepo, "second-home", "lesson", secondPath, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
 	commitKnowledgeRepo(t, secondRepo, "second home")
 	secondHome := KnowledgeHome{HomeProjectID: "project-second", HomeLocatorID: "locator-second", RepoPath: secondRepo, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, secondHome)
 	if err := s.RebuildKnowledgeIndex(ctx, secondHome); err != nil {
 		t.Fatal(err)
 	}
@@ -253,6 +266,10 @@ func TestRebuildKnowledgeIndexRejectsDuplicateStableIDs(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "docs/lessons/a.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"one"}))
 	writeKnowledgeFile(t, repo, "docs/lessons/b.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"two"}))
+	writeManifestFixture(t, repo,
+		manifestFixtureFromFile(t, repo, "duplicate-a", "lesson", "docs/lessons/a.md", "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"one"}, KnowledgeRecordScopes{Mode: "home"}),
+		manifestFixtureFromFile(t, repo, "duplicate-a", "lesson", "docs/lessons/b.md", "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"two"}, KnowledgeRecordScopes{Mode: "home"}),
+	)
 	commitKnowledgeRepo(t, repo, "duplicate")
 	s := openTemp(t)
 	err := s.RebuildKnowledgeIndex(context.Background(), KnowledgeHome{HomeProjectID: "proj", HomeLocatorID: "loc", RepoPath: repo, HeadRef: "HEAD"})

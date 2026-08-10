@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 )
@@ -43,6 +44,7 @@ type KnowledgeItem struct {
 	Commit        string   `json:"commit"`
 	CommitOID     string   `json:"commit_oid"`
 	ContentHash   string   `json:"content_hash"`
+	ScopeMode     string   `json:"scope_mode"`
 }
 
 type Q9Result struct {
@@ -86,9 +88,11 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q9", "store is not open", false, "open a store before querying knowledge")
 	}
-	if req.Home.HomeProjectID == "" || req.Home.HomeLocatorID == "" || req.Home.RepoPath == "" || req.Home.HeadRef == "" {
-		return out, newFailure(KindInvalidFilter, "PM1.Q9", "Q9 requires an explicit KnowledgeHome", false, "supply the current git authority context")
+	resolvedHome, err := s.ResolveKnowledgeQueryHome(ctx, req.Product, req.Project, req.Home, "PM1.Q9")
+	if err != nil {
+		return out, err
 	}
+	req.Home = resolvedHome
 	limit, err := knowledgeLimit(req.Limit)
 	if err != nil {
 		return out, err
@@ -118,6 +122,11 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	if watermark == "" {
 		watermark = "unindexed"
 	}
+	if authority == "authoritative" {
+		if err := validateKnowledgeCoverage(ctx, s, req.Home, watermark, kinds); err != nil {
+			return out, err
+		}
+	}
 	if req.Cursor != "" {
 		if _, err := decodeKnowledgeCursor(req.Cursor, req, kinds, tags); err != nil {
 			return out, err
@@ -133,7 +142,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	for rows.Next() {
 		var item KnowledgeItem
 		var lessonTags, productIDs, projectIDs, componentIDs, tagIDs string
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &productIDs, &projectIDs, &componentIDs, &tagIDs); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &componentIDs, &tagIDs); err != nil {
 			return out, wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode a knowledge index row", true, "retry once the database is readable", err)
 		}
 		if json.Unmarshal([]byte(lessonTags), &item.LessonTags) != nil {
@@ -165,6 +174,9 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	}
 	meta := knowledgeWatermarkMeta("PM1.Q9", req.Home, watermark, authority)
 	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, ProjectID: req.Project}
+	if authority == "authoritative" {
+		meta.Omissions = append(meta.Omissions, knowledgeCoverageOmissions(ctx, s.db, req.Home, watermark)...)
+	}
 	if authority != "authoritative" {
 		meta.Omissions = []string{"knowledge_index_lagging_or_unreachable"}
 	}
@@ -181,23 +193,14 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if (req.Work == "") == (req.KnowledgeID == "") {
 		return out, newFailure(KindInvalidFilter, "PM1.Q10", "Q10 requires exactly one stable reference", false, "supply either work or knowledge_id")
 	}
-	watermark, authority, err := validateKnowledgeHomeForQuery(ctx, s, req.Home, req.AllowDegraded, "PM1.Q10")
-	if err != nil {
-		return out, err
-	}
-	if watermark == "" {
-		watermark = "unindexed"
-	}
-	meta := knowledgeWatermarkMeta("PM1.Q10", req.Home, watermark, authority)
-	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, WorkID: req.Work}
-	out.ResultMeta = meta
+	out.ResultMeta = q10EmptyMeta(req)
 	var note CanonicalNote
-	var homeProject, homeLocator, path, commit, hash string
+	var homeProject, homeLocator, path, commit, hash, kind, title, date, status, lessonTagsJSON, summary, successor, scopeMode string
 	lookupID := req.Work
 	if lookupID == "" {
 		lookupID = req.KnowledgeID
 	}
-	err = s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, lookupID).Scan(&homeProject, &homeLocator, &path, &commit, &hash)
+	err := s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode FROM archived_work WHERE id = ?`, lookupID).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode)
 	if err == sql.ErrNoRows {
 		if req.Work != "" {
 			var exists bool
@@ -217,33 +220,118 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	}
 	if req.Product != "" {
 		var inScope bool
-		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=?)`, lookupID, req.Product).Scan(&inScope); err != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
+		if kind == "work_note" || scopeMode == "explicit" {
+			if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=?)`, lookupID, req.Product).Scan(&inScope); err != nil {
+				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
+			}
+		} else if scopeMode == "home" {
+			if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, req.Product, homeProject).Scan(&inScope); err != nil {
+				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
+			}
 		}
 		if !inScope {
-			return out, unknownScope("PM1.Q10", "knowledge note is not in the explicit Product scope")
+			return out, unknownScope("PM1.Q10", "knowledge note is not in the requested Product scope")
 		}
+	}
+	storedHome, locatorErr := s.KnowledgeHomeForLocator(ctx, homeProject, homeLocator, "")
+	if locatorErr != nil {
+		return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical locator is unavailable", locatorErr)
+	}
+	if err := compareQ10HistoricalHome(req.Home, storedHome); err != nil {
+		return out, err
 	}
 	note = CanonicalNote{HomeProjectID: homeProject, HomeLocatorID: homeLocator, NotePath: path, NotePathRef: path, Commit: commit, CommitOID: commit, ContentHash: hash}
-	if homeProject != req.Home.HomeProjectID || homeLocator != req.Home.HomeLocatorID {
-		return out, newFailure(KindKnowledgeMissing, "PM1.Q10", "recorded canonical locator belongs to a different git home", false, "query with the recorded KnowledgeHome or rebuild the index")
-	}
-	verified, err := VerifyCommittedNote(ctx, req.Home.RepoPath, commit, path, hash)
-	if err != nil {
-		if req.AllowDegraded {
-			out.Authority, out.Status = "degraded", "missing"
-			out.Warnings = append(out.Warnings, "recorded canonical locator could not be verified")
-			out.Result = &Q10Payload{Status: "missing"}
+	out.ResultMeta = q10HistoricalMeta(req, commit)
+	if kind == "work_note" {
+		verified, verifyErr := VerifyCommittedNote(ctx, storedHome.RepoPath, commit, path, hash)
+		if verifyErr != nil {
+			return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical note proof is unavailable", verifyErr)
+		}
+		if verified.ID != lookupID || verified.Kind != "work_note" {
+			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
 			return out, nil
 		}
-		return out, wrapFailure(KindKnowledgeMissing, "PM1.Q10", "recorded canonical note proof is unavailable", true, "restore the git object or rebuild the index", err)
-	}
-	if req.Work != "" && verified.ID != req.Work || req.KnowledgeID != "" && verified.ID != req.KnowledgeID {
-		out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
-		return out, nil
+	} else {
+		var tags []string
+		if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
+			return out, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
+		}
+		record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, Successor: successor, SHA256: hash}
+		for table, target := range map[string]*[]string{"archived_work_products": &record.Scopes.ProductIDs, "archived_work_projects": &record.Scopes.ProjectIDs, "archived_work_components": &record.Scopes.ComponentIDs, "archived_work_tags": &record.Scopes.TagIDs} {
+			column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_components": "component_id", "archived_work_tags": "tag_id"}[table]
+			rows, queryErr := s.db.QueryContext(ctx, "SELECT "+column+" FROM "+table+" WHERE work_id=? ORDER BY "+column, lookupID)
+			if queryErr != nil {
+				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read manifest record scope", true, "retry once the database is readable", queryErr)
+			}
+			for rows.Next() {
+				var value string
+				if scanErr := rows.Scan(&value); scanErr != nil {
+					rows.Close()
+					return out, scanErr
+				}
+				*target = append(*target, value)
+			}
+			if closeErr := rows.Close(); closeErr != nil {
+				return out, closeErr
+			}
+		}
+		if err := verifyManifestRecord(ctx, storedHome.RepoPath, commit, record); err != nil {
+			return q10HistoricalFailure(&out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
+		}
 	}
 	out.Status, out.Note, out.Result = "canonical", &note, &Q10Payload{Status: "canonical", Note: &note}
 	return out, nil
+}
+
+func compareQ10HistoricalHome(supplied, stored KnowledgeHome) error {
+	if supplied.HomeProjectID != "" && supplied.HomeProjectID != stored.HomeProjectID || supplied.HomeLocatorID != "" && supplied.HomeLocatorID != stored.HomeLocatorID || supplied.RepoPath != "" && supplied.RepoPath != stored.RepoPath {
+		return newFailure(KindInvalidFilter, "PM1.Q10", "caller KnowledgeHome does not match the recorded historical locator", false, "omit Home or supply the recorded locator evidence")
+	}
+	return nil
+}
+
+func q10HistoricalMeta(req Q10Request, commit string) ResultMeta {
+	now := time.Now().UTC()
+	return ResultMeta{QueryID: "PM1.Q10", ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: req.Product, WorkID: req.Work}, Authority: "authoritative", Freshness: Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false}, OrderingKeys: []string{"canonical_locator"}, Omissions: []string{}, Warnings: []string{"historical_locator_commit:" + commit, "current_head_not_used_for_proof"}}
+}
+
+func q10EmptyMeta(req Q10Request) ResultMeta {
+	now := time.Now().UTC()
+	return ResultMeta{QueryID: "PM1.Q10", ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: req.Product, WorkID: req.Work}, Authority: "authoritative", Freshness: Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false}, OrderingKeys: []string{"canonical_locator"}, Omissions: []string{}, Warnings: []string{"historical_locator_not_required_for_empty_result"}}
+}
+
+func q10HistoricalFailure(out *Q10Result, allowDegraded bool, detail string, err error) (Q10Result, error) {
+	failure := classifyQ10HistoricalFailure(detail, err)
+	if allowDegraded {
+		out.Authority, out.Status = "degraded", "missing"
+		out.Warnings = append(out.Warnings, detail)
+		out.Result = &Q10Payload{Status: "missing"}
+		return *out, nil
+	}
+	return *out, failure
+}
+
+func classifyQ10HistoricalFailure(detail string, err error) error {
+	var failure *Failure
+	if errors.As(err, &failure) {
+		copy := *failure
+		copy.Op = "PM1.Q10"
+		switch copy.Kind {
+		case KindUnknownScope:
+			copy.Kind = KindKnowledgeUnavailable
+		case KindGitUnreachable, KindUnreachable:
+			copy.Kind = KindUnreachable
+		case KindInvalidNoteProof:
+			if copy.Err != nil {
+				copy.Kind = KindUnreachable
+			} else {
+				copy.Kind = KindKnowledgeMissing
+			}
+		}
+		copy.Detail = detail + ": " + copy.Detail
+		return &copy
+	}
+	return wrapFailure(KindKnowledgeUnavailable, "PM1.Q10", detail, true, "restore the recorded locator or git proof and retry", err)
 }
 
 func knowledgeLimit(limit int) (int, error) {
@@ -257,11 +345,11 @@ func knowledgeLimit(limit int) (int, error) {
 }
 
 func knowledgeKinds(values []string) ([]string, error) {
-	allowed := map[string]bool{"work_note": true, "lesson": true, "decision": true, "spec": true}
+	allowed := map[string]bool{"work_note": true, "lesson": true, "decision": true, "spec": true, "research": true}
 	values = orderedStrings(nonEmptyStrings(values))
 	for _, value := range values {
 		if !allowed[value] {
-			return nil, newFailure(KindInvalidFilter, "PM1.Q9", "unknown knowledge kind "+value, false, "use work_note, lesson, decision, or spec")
+			return nil, newFailure(KindInvalidFilter, "PM1.Q9", "unknown knowledge kind "+value, false, "use work_note, lesson, decision, spec, or research")
 		}
 	}
 	return values, nil
@@ -297,11 +385,11 @@ func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string
 	where := []string{"aw.home_project_id = ?", "aw.home_locator_id = ?"}
 	args := []any{req.Home.HomeProjectID, req.Home.HomeLocatorID}
 	if req.Product != "" {
-		where = append(where, "EXISTS (SELECT 1 FROM archived_work_products p WHERE p.work_id = aw.id AND p.product_id = ?)")
+		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_products p WHERE p.work_id = aw.id AND p.product_id = ?))")
 		args = append(args, req.Product)
 	}
 	if req.Project != "" {
-		where = append(where, "EXISTS (SELECT 1 FROM archived_work_projects p WHERE p.work_id = aw.id AND p.project_id = ?)")
+		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_projects p WHERE p.work_id = aw.id AND p.project_id = ?))")
 		args = append(args, req.Project)
 	}
 	if req.Component != "" {
@@ -316,8 +404,8 @@ func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string
 		where = append(where, "aw.type IN ("+strings.Join(placeholders, ",")+")")
 	}
 	for _, tag := range tags {
-		where = append(where, "EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.tag_id = ?)")
-		args = append(args, tag)
+		where = append(where, "(EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.tag_id = ?) OR (aw.type <> 'work_note' AND EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) WHERE value = ?)))")
+		args = append(args, tag, tag)
 	}
 	if req.Text != "" {
 		where = append(where, "(aw.title LIKE ? OR aw.summary LIKE ?)")
@@ -338,7 +426,7 @@ func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string
 		args = append(args, cursor.CompletedAt, cursor.CompletedAt, cursor.ID)
 	}
 	args = append(args, limit)
-	return `SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,` +
+	return `SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
 		`COALESCE((SELECT json_group_array(product_id) FROM (SELECT product_id FROM archived_work_products WHERE work_id=aw.id ORDER BY product_id)), '[]'),` +
 		`COALESCE((SELECT json_group_array(project_id) FROM (SELECT project_id FROM archived_work_projects WHERE work_id=aw.id ORDER BY project_id)), '[]'),` +
 		`COALESCE((SELECT json_group_array(component_id) FROM (SELECT component_id FROM archived_work_components WHERE work_id=aw.id ORDER BY component_id)), '[]'),` +

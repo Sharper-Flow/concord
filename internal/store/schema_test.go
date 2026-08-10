@@ -67,8 +67,8 @@ func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testin
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 14 {
-		t.Fatalf("schema version = %d, want 14", version)
+	if version != CurrentSchemaVersion() {
+		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion())
 	}
 }
 

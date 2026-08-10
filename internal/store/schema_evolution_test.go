@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -187,8 +189,40 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	if err := validateEventKindRegistry(); err != nil {
 		t.Fatal(err)
 	}
-	if len(eventKindRegistry) != 28 {
-		t.Fatalf("registry entries = %d, want 28", len(eventKindRegistry))
+	wantWorkflowKinds := map[string]struct{}{
+		WorkflowDefinitionSelected: {}, WorkflowContractApproved: {}, WorkflowContractSuperseded: {}, WorkflowCandidateSetRevised: {},
+		WorkflowActorRecorded: {}, WorkflowActionStarted: {}, WorkflowActionCheckpointed: {}, WorkflowActionCompleted: {}, WorkflowActionFailed: {},
+		WorkflowEvidenceBound: {}, WorkflowVerdictRecorded: {}, WorkflowPremiseConfirmed: {}, WorkflowSuccessorLinked: {}, WorkflowImpactDeclared: {},
+		WorkflowImpactNoticeRecorded: {}, WorkflowConditionAdded: {}, WorkflowConditionResolved: {}, WorkflowConditionCancelled: {}, WorkflowCompleted: {},
+	}
+	var gotWorkflowKinds []string
+	for kind := range eventKindRegistry {
+		if strings.HasPrefix(kind, "workflow.") {
+			gotWorkflowKinds = append(gotWorkflowKinds, kind)
+		}
+	}
+	sort.Strings(gotWorkflowKinds)
+	wantKinds := make([]string, 0, len(wantWorkflowKinds))
+	for kind := range wantWorkflowKinds {
+		wantKinds = append(wantKinds, kind)
+	}
+	sort.Strings(wantKinds)
+	if !reflect.DeepEqual(gotWorkflowKinds, wantKinds) {
+		t.Fatalf("workflow event set = %v, want %v", gotWorkflowKinds, wantKinds)
+	}
+	for kind := range wantWorkflowKinds {
+		registration := eventKindRegistry[kind]
+		if registration.CurrentVersion != 1 || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
+			t.Fatalf("%s registration lacks v1 fold/upcaster scaffolding: %+v", kind, registration)
+		}
+		event := Event{EventID: "registry-" + kind, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: "work", Actor: "actor:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"work","expected_version":1,"resulting_version":2}`)}
+		if err := event.validate(); err != nil {
+			t.Fatalf("%s subject/payload envelope validation: %v", kind, err)
+		}
+		event.PayloadVersion = 2
+		if err := validateRegisteredEvent(event); err == nil || !strings.Contains(err.Error(), "supported range") {
+			t.Fatalf("%s newer payload version was accepted: %v", kind, err)
+		}
 	}
 }
 

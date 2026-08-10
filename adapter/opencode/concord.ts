@@ -3,8 +3,8 @@ import { tool, type ToolContext } from "@opencode-ai/plugin"
 import { contractOperations, canonicalAssertion, manifestDigest, manifestVersion, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 
-const ADAPTER_VERSION = "1.0.0"
-const SURFACE_RANGE = "1.0.0-1.0.0"
+const ADAPTER_VERSION = "2.0.0"
+const SURFACE_RANGE = "2.0.0-2.0.0"
 const ENVELOPE_VERSIONS = "1.0"
 const MAX_STDERR = 8192
 const GRANT_TTL_MS = 50 * 60 * 1000
@@ -129,7 +129,7 @@ function singleJSON(text: string): any {
   return parsed
 }
 
-const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "stale_requires_review", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
+const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
 
 function validateCoreResponse(response: any, toolName: string, operation: string): boolean {
   if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome) || !validateGeneratedEnvelope(response)) return false
@@ -151,7 +151,7 @@ function privateKeyObject(raw: Uint8Array) {
 function b64(value: Uint8Array) { return Buffer.from(value).toString("base64") }
 export function canonicalHostApproval(assertion: Record<string, any>) {
   const names = ["challenge_ref", "request_digest", "scope", "versions", "session_ref", "agent_ref", "worktree", "client_version", "issued_at", "nonce"]
-  const body = names.map((key) => { const value = assertion[key]; const text = typeof value === "string" ? value : JSON.stringify(value); const bytes = new TextEncoder().encode(text); return `${key}=${bytes.length}:${text}|` }).join("")
+  const body = names.map((key) => { const value = assertion[key]; const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value); const bytes = new TextEncoder().encode(text); return `${key}=${bytes.length}:${text}|` }).join("")
   return new TextEncoder().encode(`host-approval-v1\0${body}`)
 }
 function randomNonce() { return crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "") }
@@ -182,6 +182,11 @@ async function grantFor(context: ToolContext, capability: string): Promise<any> 
 async function invoke(toolName: string, args: any, context: ToolContext): Promise<any> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
+  if (toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise") {
+    if (args.input.selected_choice !== "confirm" || typeof args.input.decision_context_digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(args.input.decision_context_digest)) {
+      return adapterError(toolName, operation, requestID, "invalid_input", "missing_question_selection", "confirm_premise requires the closed confirm choice and a decision context digest", "none", "reread_entities")
+    }
+  }
   let grant: any
   try { grant = await grantFor(context, (contractOperations.find((op: any) => op.tool === toolName && op.id.endsWith(`.${operation}`)) as any)?.capability ?? "product_read") } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "grant_bootstrap_failed") }
   const envelope: any = { schema_version: "1.0", request_id: requestID, grant_ref: grant.token, client_ref: grant.clientRef, client_version: grant.clientVersion, principal_ref: grant.principalRef, session_ref: grant.sessionRef, agent_ref: grant.agentRef, directory: context.directory, worktree: context.worktree, ambient_project_id: grant.projectIDs.length === 1 ? grant.projectIDs[0] : "", selected_product_id: grant.productIDs.length === 1 ? grant.productIDs[0] : "", scope_version: grant.scopeVersion, surface_version: grant.surfaceVersion, envelope_version: grant.envelopeVersion, manifest_digest: grant.manifestDigest }
@@ -194,8 +199,20 @@ async function invoke(toolName: string, args: any, context: ToolContext): Promis
   if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core response failed the generated TS7 contract", "possible", "reconcile_operation")
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
-    try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [], always: [], metadata: { approval_ref: details.approval_ref, operation_digest: details.operation_digest } }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
-    if (!details.approval_ref || !details.operation_digest) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked binding data")
+    const requiredChallengeFields = ["approval_ref", "operation_digest"]
+    if (toolName === "concord_work_transition" && operation === "workflow_action") {
+      requiredChallengeFields.push("work_id", "action_id", "contract_version", "selected_choice", "premise_summary")
+      if (args.input?.action_id === "confirm_premise") requiredChallengeFields.push("decision_context_digest")
+    }
+    if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
+    if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
+    if (!Array.isArray(details.scope) || !Array.isArray(details.versions) || (toolName === "concord_work_transition" && operation === "workflow_action" && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge did not bind the exact workflow selection")
+    const askMetadata = toolName === "concord_work_transition" && operation === "workflow_action"
+      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary }
+      : { approval_ref: details.approval_ref, operation_digest: details.operation_digest }
+    // Built-in question supplies semantic choice; ToolContext.ask authorizes
+    // only this exact core-issued challenge.
+    try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [], always: [], metadata: askMetadata }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
     let privateKey
     try { privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef())) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "grant_bootstrap_failed") }
     const assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: grant.sessionRef, agent_ref: grant.agentRef, worktree: context.worktree, client_version: grant.clientVersion, issued_at: new Date().toISOString(), nonce: randomNonce() }

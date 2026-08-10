@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -185,8 +186,14 @@ func upcastEvent(event Event) (Event, error) {
 }
 
 func validateRegisteredEvent(event Event) error {
-	_, err := upcastEvent(event)
-	return err
+	current, err := upcastEvent(event)
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(current.Kind, "workflow.") {
+		return validateWorkflowPayloadShape(current)
+	}
+	return nil
 }
 
 func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -240,6 +247,24 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 // used when authorization, approval consumption, idempotency, and the domain
 // effect must share one transaction.
 func ApplyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (ApplyOperationResult, error) {
+	return applyOperationTx(ctx, tx, operation, true, false)
+}
+
+// ApplyOperationWithinFoldTx applies one generic operation while the caller
+// already owns the fold guard. Workflow advancement events are rejected here;
+// the dispatcher uses its private workflow append route instead.
+func ApplyOperationWithinFoldTx(ctx context.Context, tx *sql.Tx, operation Operation) (ApplyOperationResult, error) {
+	return applyOperationTx(ctx, tx, operation, false, false)
+}
+
+// applyWorkflowOperationTx is the private append route used by the workflow
+// dispatcher and initialization path. Generic callers cannot acquire this
+// authority through ApplyOperation or ApplyOperationTx.
+func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (ApplyOperationResult, error) {
+	return applyOperationTx(ctx, tx, operation, false, true)
+}
+
+func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownFoldGuard bool, workflowAuthority bool) (ApplyOperationResult, error) {
 	var output ApplyOperationResult
 	if tx == nil {
 		return output, newFailure(KindUnavailable, "apply_operation", "transaction is not open", false, "open a mutation transaction")
@@ -252,8 +277,17 @@ func ApplyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (App
 			return output, newFailure(KindInvalidOperation, "apply_operation", "expected versions must use recognized typed subjects, non-empty IDs, and non-negative versions", false, "supply a typed subject reference")
 		}
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		return output, err
+	if !workflowAuthority {
+		for _, event := range operation.Events {
+			if isWorkflowAdvancementEvent(event.Kind) {
+				return output, workflowDispatcherRequired(event.Kind)
+			}
+		}
+	}
+	if ownFoldGuard {
+		if err := enterFold(ctx, tx); err != nil {
+			return output, err
+		}
 	}
 	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
 	for _, event := range operation.Events {
@@ -274,7 +308,13 @@ func ApplyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (App
 			}
 			checked[ref] = true
 		}
-		seq, err := AppendEvent(ctx, tx, event)
+		var seq Sequence
+		var err error
+		if workflowAuthority {
+			seq, err = appendEvent(ctx, tx, event, true)
+		} else {
+			seq, err = AppendEvent(ctx, tx, event)
+		}
 		if err != nil {
 			return output, err
 		}
@@ -295,8 +335,10 @@ func ApplyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (App
 	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
-	if err := leaveFold(ctx, tx); err != nil {
-		return output, err
+	if ownFoldGuard {
+		if err := leaveFold(ctx, tx); err != nil {
+			return output, err
+		}
 	}
 	return output, nil
 }
@@ -341,6 +383,11 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		return output, rollback(err)
 	}
 
+	for _, event := range operation.Events {
+		if isWorkflowAdvancementEvent(event.Kind) {
+			return output, rollback(workflowDispatcherRequired(event.Kind))
+		}
+	}
 	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
 	for _, event := range operation.Events {
 		if err := event.validate(); err != nil {
@@ -439,7 +486,13 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
-	for _, table := range []string{"epic_entries", "relations", "work_projects", "work_items", "product_projects", "project_locators", "products", "projects"} {
+	for _, table := range []string{
+		"workflow_premise_confirmations", "workflow_impact_notices", "workflow_impact_edges",
+		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",
+		"workflow_contracts", "workflow_decision_records", "workflow_instances", "workflow_actors",
+		"epic_entries", "relations", "work_projects", "work_items", "product_projects",
+		"project_locators", "products", "projects",
+	} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,

@@ -60,6 +60,72 @@ func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
 	}
 }
 
+func TestDurableOperationReplayVectorsMigrateLegacyResultsAndRejectFutureValues(t *testing.T) {
+	for _, vector := range []struct {
+		name string
+		kind ResultKind
+	}{
+		{name: "legacy success", kind: ResultCompleted},
+		{name: "legacy pending", kind: ResultPending},
+		{name: "legacy non-success", kind: ResultFailed},
+	} {
+		t.Run(vector.name, func(t *testing.T) {
+			s := openTemp(t)
+			claim := testClaim("replay-"+vector.name, "replay-"+vector.name)
+			claim.ContractVersion = "1.0.0"
+			if _, err := ClaimStep(context.Background(), s, claim); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := CompleteStep(context.Background(), s, CompleteRequest{
+				OpID: claim.OpID, AttemptEpoch: 1, ResultKind: vector.kind, ResultPayload: `{"legacy":true},`,
+				PrincipalRef: claim.PrincipalRef, Tool: claim.Tool, IdempotencyKey: "complete-" + vector.name,
+				RequestID: "complete-" + vector.name, ObservedAt: time.Unix(2, 0).UTC(),
+			}); err == nil {
+				t.Fatal("malformed legacy result payload unexpectedly completed")
+			}
+			// The durable result is written through the production completion path;
+			// retry with a valid object to exercise the actual replay projection.
+			if _, err := CompleteStep(context.Background(), s, CompleteRequest{
+				OpID: claim.OpID, AttemptEpoch: 1, ResultKind: vector.kind, ResultPayload: `{"legacy":true}`,
+				PrincipalRef: claim.PrincipalRef, Tool: claim.Tool, IdempotencyKey: "complete-valid-" + vector.name,
+				RequestID: "complete-valid-" + vector.name, ObservedAt: time.Unix(3, 0).UTC(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Step(context.Background(), s, claim.OpID)
+			if err != nil || got.ContractVersion != "1.0.0" || got.ResultKind != vector.kind || got.ResultPayload != `{"legacy":true}` {
+				t.Fatalf("legacy replay = %+v, %v", got, err)
+			}
+		})
+	}
+
+	t.Run("future contract version", func(t *testing.T) {
+		s := openTemp(t)
+		claim := testClaim("future-contract", "future-contract")
+		if _, err := ClaimStep(context.Background(), s, claim); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DB().Exec(`UPDATE durable_operations SET contract_version='9.0.0' WHERE op_id=?`, claim.OpID); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Step(context.Background(), s, claim.OpID)
+		assertFailureKind(t, err, KindSchemaUnsupported)
+	})
+
+	t.Run("future result classification", func(t *testing.T) {
+		s := openTemp(t)
+		claim := testClaim("future-result", "future-result")
+		if _, err := ClaimStep(context.Background(), s, claim); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DB().Exec(`PRAGMA ignore_check_constraints=ON; UPDATE durable_operations SET result_kind='succeeded_with_unknown_semantics' WHERE op_id=?`, claim.OpID); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Step(context.Background(), s, claim.OpID)
+		assertFailureKind(t, err, KindSchemaUnsupported)
+	})
+}
+
 func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

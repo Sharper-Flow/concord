@@ -218,12 +218,14 @@ type TimelineEvent struct {
 
 type Q7Result struct {
 	ResultMeta
-	Events []TimelineEvent  `json:"events"`
-	Result *Q7ResultPayload `json:"result"`
+	Events   []TimelineEvent         `json:"events"`
+	Result   *Q7ResultPayload        `json:"result"`
+	Workflow *WorkflowReadProjection `json:"workflow,omitempty"`
 }
 
 type Q7ResultPayload struct {
-	Events []TimelineEvent `json:"events"`
+	Events   []TimelineEvent         `json:"events"`
+	Workflow *WorkflowReadProjection `json:"workflow,omitempty"`
 }
 
 type RelationEdge struct {
@@ -1401,6 +1403,12 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	out.Events = raw
 	out.Result = &Q7ResultPayload{Events: out.Events}
+	if workflow, workflowErr := readWorkflowSummaryTx(ctx, tx, req.Work); workflowErr != nil {
+		return out, workflowErr
+	} else if workflow != nil {
+		out.Workflow = workflow
+		out.Result.Workflow = workflow
+	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"seq"})
 	return out, err
 }

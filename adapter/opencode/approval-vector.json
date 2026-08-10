@@ -1,19 +1,19 @@
 {
+  "agent_ref": "agent-1",
+  "canonical_base64": "aG9zdC1hcHByb3ZhbC12MQBjaGFsbGVuZ2VfcmVmPTExOmNoYWxsZW5nZS0xfHJlcXVlc3RfZGlnZXN0PTcxOnNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhfHNjb3BlPTU1OlsicHJvZHVjdDpwcm9kdWN0LTEiLCJwcm9qZWN0OnByb2plY3QtMSIsIndvcms6d29yay0xIl18dmVyc2lvbnM9MTA6WyJ3b3JrOjIiXXxzZXNzaW9uX3JlZj05OnNlc3Npb24tMXxhZ2VudF9yZWY9NzphZ2VudC0xfHdvcmt0cmVlPTg6L3JlcG8td3R8Y2xpZW50X3ZlcnNpb249NToyLjAuMHxpc3N1ZWRfYXQ9MjQ6MjAyNi0wOC0wOFQxMjowMDowMC4wMDBafG5vbmNlPTI2Om5vbmNlLWFwcHJvdmFsLXZlY3Rvci0wMDAxfA==",
   "challenge_ref": "challenge-1",
+  "client_version": "2.0.0",
+  "issued_at": "2026-08-08T12:00:00.000Z",
+  "nonce": "nonce-approval-vector-0001",
   "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "scope": [
     "product:product-1",
     "project:project-1",
     "work:work-1"
   ],
+  "session_ref": "session-1",
   "versions": [
     "work:2"
   ],
-  "session_ref": "session-1",
-  "agent_ref": "agent-1",
-  "worktree": "/repo-wt",
-  "client_version": "1.0.0",
-  "issued_at": "2026-08-08T12:00:00.000Z",
-  "nonce": "nonce-approval-vector-0001",
-  "canonical_base64": "aG9zdC1hcHByb3ZhbC12MQBjaGFsbGVuZ2VfcmVmPTExOmNoYWxsZW5nZS0xfHJlcXVlc3RfZGlnZXN0PTcxOnNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhfHNjb3BlPTU1OlsicHJvZHVjdDpwcm9kdWN0LTEiLCJwcm9qZWN0OnByb2plY3QtMSIsIndvcms6d29yay0xIl18dmVyc2lvbnM9MTA6WyJ3b3JrOjIiXXxzZXNzaW9uX3JlZj05OnNlc3Npb24tMXxhZ2VudF9yZWY9NzphZ2VudC0xfHdvcmt0cmVlPTg6L3JlcG8td3R8Y2xpZW50X3ZlcnNpb249NToxLjAuMHxpc3N1ZWRfYXQ9MjQ6MjAyNi0wOC0wOFQxMjowMDowMC4wMDBafG5vbmNlPTI2Om5vbmNlLWFwcHJvdmFsLXZlY3Rvci0wMDAxfA=="
+  "worktree": "/repo-wt"
 }

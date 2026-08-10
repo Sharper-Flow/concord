@@ -55,6 +55,9 @@ const (
 	// transition table. Keeping this distinct prevents callers from retrying a
 	// permanently invalid workflow action.
 	KindIllegalLifecycleTransition FailureKind = "illegal_lifecycle_transition"
+	// KindInvalidTransition marks a semantically forbidden workflow mutation
+	// whose subject remains otherwise valid.
+	KindInvalidTransition FailureKind = "invalid_transition"
 	// KindCycleDetected marks an edge that would make a governing relation graph
 	// cyclic. The graph check is performed before the edge is inserted.
 	KindCycleDetected FailureKind = "cycle_detected"
@@ -67,6 +70,9 @@ const (
 	// KindRelationContractViolation marks a relation event that bypasses the
 	// composite operation responsible for preserving lifecycle invariants.
 	KindRelationContractViolation FailureKind = "relation_contract_violation"
+	// KindInvalidRelation marks a typed workflow relation whose family or
+	// composition semantics are not allowed by the pinned definitions.
+	KindInvalidRelation FailureKind = "invalid_relation"
 	// KindRelationConflict marks a relation that violates a database-enforced
 	// structural rule such as uniqueness or the no-self-edge check.
 	KindRelationConflict FailureKind = "relation_conflict"
@@ -107,6 +113,26 @@ const (
 	// architecture spikes. Generic storage cannot yet verify accepted decision
 	// records, so completion fails closed rather than inferring proof from refs.
 	KindDecisionRecordRequired FailureKind = "decision_record_required"
+	// KindWorkflowCompletionRequired marks a completion event attempted outside
+	// the ordered, single-transaction workflow completion entry point.
+	KindWorkflowCompletionRequired FailureKind = "workflow_completion_required"
+	// Completion-gate failures are closed contract values. They intentionally
+	// mirror the public workflow error vocabulary rather than leaking evaluator
+	// implementation details.
+	KindMissingEvidence   FailureKind = "missing_evidence"
+	KindNotTerminal       FailureKind = "not_terminal"
+	KindApprovalRequired  FailureKind = "approval_required"
+	KindOutcomeMismatch   FailureKind = "outcome_mismatch"
+	KindOperationConflict FailureKind = "operation_conflict"
+	// Definition failures are closed registry errors. They are deliberately
+	// distinct from workflow action refusals so callers cannot mistake a binary
+	// definition drift for a retryable action failure.
+	KindInvalidDefinition             FailureKind = "invalid_definition"
+	KindDefinitionVersionConflict     FailureKind = "definition_version_conflict"
+	KindDefinitionVersionNotMonotonic FailureKind = "definition_version_not_monotonic"
+	KindDefinitionDigestMismatch      FailureKind = "definition_digest_mismatch"
+	KindDefinitionActionOrStepUnknown FailureKind = "definition_action_or_step_unknown"
+	KindUnauthorized                  FailureKind = "unauthorized"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's
@@ -124,6 +150,9 @@ type Failure struct {
 	// RecoveryAction states what resolves the failure.
 	RecoveryAction string   `json:"recovery_action"`
 	CandidateIDs   []string `json:"candidate_ids,omitempty"`
+	// Clause identifies the ordered workflow completion clause that refused the
+	// operation. Zero means the failure did not originate in that gate.
+	Clause int `json:"clause,omitempty"`
 	// Event attribution is populated for replay/reconstruction failures. It is
 	// deliberately bounded to the event header and fold stage; payload bytes do
 	// not belong in a durable diagnostic envelope.

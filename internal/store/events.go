@@ -78,8 +78,18 @@ type Sequence = int64
 // projection it affects commit together. There is no variant that commits on
 // its own.
 func AppendEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
+	return appendEvent(ctx, tx, e, false)
+}
+
+// appendEvent is the lower-level append seam. All workflow advancement events
+// are reserved for an owning workflow route; the private authority bit is not
+// exposed through the generic append APIs.
+func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool) (Sequence, error) {
 	if err := e.validate(); err != nil {
 		return 0, err
+	}
+	if isWorkflowAdvancementEvent(e.Kind) && !allowCompletion {
+		return 0, workflowDispatcherRequired(e.Kind)
 	}
 
 	res, err := tx.ExecContext(ctx, `

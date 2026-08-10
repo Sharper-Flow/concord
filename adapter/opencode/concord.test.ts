@@ -1,5 +1,5 @@
 import { test, expect, mock } from "bun:test"
-import { canonicalAssertion, contractOperations, manifestDigest } from "./generated-contracts"
+import { canonicalAssertion, contractOperations, manifestDigest, manifestVersion } from "./generated-contracts"
 import { validateGeneratedEnvelope } from "./generated-contract-tests"
 import approvalVector from "./approval-vector.json"
 import grantAssertionVector from "./grant-assertion-vector.json"
@@ -70,7 +70,7 @@ test("single core response rejects invalid trailing content", async () => {
   }
 })
 
-const grantResponse = () => ({ manifest_digest: manifestDigest, surface_version: "1.0.0", grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", envelope_version: "1.0", scope_version: "1" })
+const grantResponse = () => ({ manifest_digest: manifestDigest, surface_version: manifestVersion, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", envelope_version: "1.0", scope_version: "1" })
 const contextFor = (ask: () => Promise<void> = async () => {}, controller = new AbortController()): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: controller.signal, ask })
 const assertAdapterEnvelope = (value: any) => {
   expect(validateGeneratedEnvelope(value), JSON.stringify(value)).toBe(true)
@@ -139,11 +139,11 @@ test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", a
 })
 
 const approvalChallenge = () => ({
-  schema_version: "1.0", contract_version: "1.0.0", request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+  schema_version: "1.0", contract_version: "2.0.0", request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
   error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: { approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"] } },
 })
 const approvalSuccess = () => ({
-  schema_version: "1.0", contract_version: "1.0.0", request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+  schema_version: "1.0", contract_version: "2.0.0", request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
   result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
 })
 const runTransition = (runner: any, ask?: () => Promise<void>) => {
@@ -152,7 +152,7 @@ const runTransition = (runner: any, ask?: () => Promise<void>) => {
 }
 
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
-  schema_version: "1.0", contract_version: "1.0.0", request_id: "session-1-message-1", origin: "core", tool, operation, ...(tool === "concord_product_view" ? { query_id: "PM1.Q1" } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
+  schema_version: "1.0", contract_version: "2.0.0", request_id: "session-1-message-1", origin: "core", tool, operation, ...(tool === "concord_product_view" ? { query_id: "PM1.Q1" } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
 })
 
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
@@ -213,9 +213,35 @@ test("approval challenge is resubmitted once with the same idempotency key and s
   expect(typeof requests[1].call_envelope.host_approval_assertion.signature).toBe("string")
 })
 
+test("workflow premise approval asks with exact checkpoint metadata and no human identity", async () => {
+  const requests: any[] = []
+  const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+      approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:7", "contract:1"],
+      work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", premise_summary: "Ship the approved workflow premise.", decision_context_digest: "sha256:" + "b".repeat(64),
+    } },
+  })
+  const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
+  let calls = 0
+  const runner = { async run(_argv: string[], input: string) {
+    calls++
+    if (calls > 1) requests.push(JSON.parse(input))
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
+  } }
+  let askMetadata: any
+  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+  const result: any = await adapter.work_transition.execute({ operation: "workflow_action", input: { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" } }, contextFor(async (request: any) => { askMetadata = request.metadata }))
+  expect(result.outcome).toBe("ok")
+  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
+  expect(requests[1].call_envelope.host_approval_assertion.operator_principal_ref).toBeUndefined()
+  expect(requests[1].call_envelope.host_approval_assertion.operator_agent_ref).toBeUndefined()
+  expect(requests[1].call_envelope.host_approval_assertion.operator_session_ref).toBeUndefined()
+})
+
 test("fake seams exercise grant bootstrap and malformed-response handling", async () => {
   const calls: string[][] = []
-  const grant = { manifest_digest: manifestDigest, surface_version: "1.0.0", grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", envelope_version: "1.0", scope_version: "1" }
+  const grant = { manifest_digest: manifestDigest, surface_version: manifestVersion, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", envelope_version: "1.0", scope_version: "1" }
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32) } },
     runner: { async run(argv: string[], _input: string, _signal: AbortSignal) { calls.push(argv); return calls.length === 1 ? { exitCode: 0, stdout: JSON.stringify(grant), stderr: "" } : { exitCode: 0, stdout: "not-json", stderr: "diagnostic" } } },

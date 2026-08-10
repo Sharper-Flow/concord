@@ -15,19 +15,19 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 		make func() Envelope
 	}{
 		{"ok read", func() Envelope {
-			return NewOKRead(NewBase("req-1", "concord_product_view", "resolve", "1.0.0"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+			return NewOKRead(NewBase("req-1", "concord_product_view", "resolve", ManifestVersion), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
 		}},
 		{"ok mutation", func() Envelope {
-			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture", "1.0.0"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}})
+			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture", ManifestVersion), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}})
 		}},
 		{"pending", func() Envelope {
-			return NewPending(NewBase("req-3", "concord_work_compact", "publish", "1.0.0"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"})
+			return NewPending(NewBase("req-3", "concord_work_compact", "publish", ManifestVersion), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"})
 		}},
 		{"partial", func() Envelope {
-			return NewPartial(NewBase("req-4", "concord_work_compact", "publish", "1.0.0"), OperationRef{ID: "op-1", Kind: "publish", Version: "2", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial})
+			return NewPartial(NewBase("req-4", "concord_work_compact", "publish", ManifestVersion), OperationRef{ID: "op-1", Kind: "publish", Version: "2", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial})
 		}},
 		{"core error", func() Envelope {
-			e := NewBase("req-5", "concord_work_browse", "list", "1.0.0")
+			e := NewBase("req-5", "concord_work_browse", "list", ManifestVersion)
 			e.Authority = AuthorityUnreachable
 			return NewCoreError(e, TypedError{Kind: "unreachable", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
 		}},
@@ -53,12 +53,12 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 }
 
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
-	base := NewBase("req", "concord_product_view", "resolve", "1.0.0")
+	base := NewBase("req", "concord_product_view", "resolve", ManifestVersion)
 	base.Outcome = Outcome("surprise")
 	if err := base.Validate(); err == nil {
 		t.Fatal("unknown outcome accepted")
 	}
-	valid := NewOKRead(NewBase("req", "concord_product_view", "resolve", "1.0.0"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+	valid := NewOKRead(NewBase("req", "concord_product_view", "resolve", ManifestVersion), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
 	raw, _ := valid.Encode()
 	raw = append(raw[:len(raw)-1], []byte(`,"unknown":true}`)...)
 	if _, err := DecodeEnvelope(raw); err == nil {
@@ -66,8 +66,20 @@ func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	}
 }
 
+func TestOutcomeMismatchIsClosedAndCannotDowngrade(t *testing.T) {
+	base := NewBase("outcome-mismatch", "concord_work_transition", "workflow_action", ManifestVersion)
+	valid := NewCoreError(base, TypedError{Kind: "outcome_mismatch", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
+	if _, err := valid.Encode(); err != nil {
+		t.Fatalf("closed outcome_mismatch rejected: %v", err)
+	}
+	invalid := NewCoreError(base, TypedError{Kind: "outcome_mismatch", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "retry_same_request"}, EffectState: EffectNone})
+	if _, err := invalid.Encode(); err == nil {
+		t.Fatal("outcome_mismatch was downgraded to retryable recovery")
+	}
+}
+
 func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
-	e := NewBase("req", "concord_work_define", "capture", "1.0.0")
+	e := NewBase("req", "concord_work_define", "capture", ManifestVersion)
 	e.Authority = AuthorityAuthoritative
 	envelope := NewCoreError(e, TypedError{
 		Kind:           "approval_required",
@@ -86,7 +98,7 @@ func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 }
 
 func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
-	e := NewBase("req", "concord_work_define", "capture", "1.0.0")
+	e := NewBase("req", "concord_work_define", "capture", ManifestVersion)
 	e.Authority = AuthorityAuthoritative
 	envelope := NewCoreError(e, TypedError{
 		Kind:           "approval_required",
@@ -101,10 +113,10 @@ func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
 
 func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 	envelopes := []Envelope{
-		NewOKRead(NewBase("ok", "concord_product_view", "resolve", "1.0.0"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false),
-		NewPending(NewBase("pending", "concord_work_compact", "publish", "1.0.0"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"}),
-		NewPartial(NewBase("partial", "concord_work_compact", "publish", "1.0.0"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}),
-		NewCoreError(NewBase("error", "concord_work_transition", "lifecycle", "1.0.0"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone}),
+		NewOKRead(NewBase("ok", "concord_product_view", "resolve", ManifestVersion), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false),
+		NewPending(NewBase("pending", "concord_work_compact", "publish", ManifestVersion), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"}),
+		NewPartial(NewBase("partial", "concord_work_compact", "publish", ManifestVersion), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}),
+		NewCoreError(NewBase("error", "concord_work_transition", "lifecycle", ManifestVersion), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone}),
 	}
 	for _, envelope := range envelopes {
 		raw, err := envelope.Encode()
@@ -134,7 +146,7 @@ func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 
 func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
 	payload := json.RawMessage(fmt.Sprintf(`{"value":%q}`, strings.Repeat("x", MaxEnvelopeBytes)))
-	e := NewOKRead(NewBase("req", "concord_product_view", "resolve", "1.0.0"), "PM1.Q1", payload, false)
+	e := NewOKRead(NewBase("req", "concord_product_view", "resolve", ManifestVersion), "PM1.Q1", payload, false)
 	if _, err := e.Encode(); err == nil {
 		t.Fatal("oversize envelope accepted")
 	}

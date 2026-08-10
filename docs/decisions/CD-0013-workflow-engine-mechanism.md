@@ -366,7 +366,7 @@ structurally (CD-0005 D8 evolution rule). When the engine ships:
 `workflow_action` remains the only surface for advancing a workflow. Free-form
 advancement is not accepted.
 
-Adding the `outcome_mismatch` error discriminant required by D10 is a **MAJOR**
+Adding the `outcome_mismatch` error discriminant required by D10 is the shipped **MAJOR**
 surface change under TS8's evolution rules, because it extends a closed error enum
 that clients match exhaustively. The shipping change carries every TS8 MAJOR
 requirement, without substitution:

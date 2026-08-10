@@ -216,16 +216,19 @@ re-litigate them silently.
   C14 fixes the Product row and explicitly defers terminal interaction, keybindings,
   layout toolkit, and the detail screen; C17 proposes a drill-down and defers the
   container to the launcher.
-- **Candidate (2026-08-09):** four closed screens (portfolio, Product, work,
-  knowledge), stack navigation, ambient context established by Product selection and
-  changed nowhere else, a five-action surface with no editing, and a refresh model
-  with no timer or poll. See
+- **Operator direction (2026-08-09):** the launcher exists to see status and resume
+  work in the OpenCode TUI. It performs no durable write. Durable knowledge belongs to
+  its owning Product, Project, Epic, or change rather than to a global browse surface.
+- **Candidate (2026-08-09):** three closed screens (portfolio, Product, work) with
+  knowledge as a scoped section rather than a screen; stack navigation; ambient context
+  established by Product selection and changed nowhere else; a navigate-and-launch
+  action surface with no writes; a launch handoff carrying identity but never workflow
+  position, so the session resolves state and the launcher holds no second derivation;
+  and a refresh model with no timer or poll, where staleness is displayed and never
+  enforced by the launcher. See
   [`terminal-launcher-contract.md`](./terminal-launcher-contract.md).
-- **Open sub-questions:** the terminal rendering dependency, which conflicts with the
-  current third-party-dependency rule and plausibly needs its own decision record;
-  whether approvals are answered in the launcher; whether an explicit refresh is
-  required before consequential action; and how much the launch action hands to the
-  session bootstrap layer.
+- **Open sub-question:** the terminal rendering dependency, which conflicts with the
+  current third-party-dependency rule and plausibly needs its own decision record.
 - **Direction:** 🟠 candidate recorded, awaiting operator direction.
 
 ---

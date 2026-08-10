@@ -126,6 +126,21 @@ Rules:
 - Removal requires TS9 scenario/usage evidence, migration guidance, and proof no
   supported durable operation needs the old external representation.
 - At window end, old bootstrap fails `incompatible_contract`; no fallback alias.
+
+### Workflow engine 2.0.0 amendment
+
+The workflow engine ships the first TS8 MAJOR amendment as surface `2.0.0`.
+It adds the closed core error classification `outcome_mismatch`, whose only
+recovery action is `contact_operator`; clients must not downgrade it to retry or
+success. Surface `1.x` adapters are not silently dual-accepted: they fail grant
+negotiation with `incompatible_contract` and must upgrade their generated
+manifest, envelope validator, and signed surface range to `2.0.0`.
+
+This amendment does not rename a tool or operation. Durable workflow operations
+retain their existing operation and idempotency identities and are projected into
+the `2.0.0` envelope on replay; no event history is rewritten. A client that
+supports an unknown major, an unknown error classification, or a mismatched
+manifest digest fails closed before any domain call.
 - Permanent aliases, silent redirects, and one name with version-dependent meaning
   are forbidden.
 
@@ -192,6 +207,8 @@ At minimum test:
 | same version, different digest | any | Integrity failure; no tools execute. |
 | old adapter after removal window | current | Bootstrap fails with upgrade guidance; no alias. |
 | current adapter, old durable operation | current | Operation remains readable/recoverable under current envelope. |
+| `1.x` adapter | `2.0.0` core | Bootstrap fails `incompatible_contract`; no tool executes. |
+| `2.0.0` adapter, durable workflow action accepted by `1.x` | `2.0.0` core | Replay uses the original idempotency identity and returns the typed `2.0.0` envelope. |
 
 Compatibility tests validate strict schema rejection of unknown fields/variants and
 ensure fail-closed responses never become `ok`.

@@ -289,7 +289,7 @@ def fixtures_projection(manifest: dict) -> str:
     return json.dumps({"manifest_digest": manifest["digest"], "fixtures": fixtures}, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 
 def docs_projection(manifest: dict) -> str:
-    rows = ["# Generated Concord agent tool surface", "", f"Source manifest: `{manifest['surface']['version']}` / `{manifest['digest']}`", "Payload schema digest: `" + manifest["payload_digest"] + "`", "Supported surface versions: `1.0.0`; envelope schema: `1.0`", "", "| Operation | Kind | Query | Capability | Consequence | Availability |", "|---|---|---|---|---|---|"]
+    rows = ["# Generated Concord agent tool surface", "", f"Source manifest: `{manifest['surface']['version']}` / `{manifest['digest']}`", "Payload schema digest: `" + manifest["payload_digest"] + "`", f"Supported surface versions: `{manifest['surface']['version']}`; envelope schema: `1.0`", "", "| Operation | Kind | Query | Capability | Consequence | Availability |", "|---|---|---|---|---|---|"]
     rows.extend(f"| `{o['id']}` | `{o['kind']}` | `{o.get('query_id') or '—'}` | `{o['capability']}` | `{o['consequence']}` | `{o.get('availability', 'always')}` |" for o in manifest["operations"])
     return "\n".join(rows) + "\n"
 
@@ -374,6 +374,7 @@ def main() -> int:
             manifest["digest"] = digest
             MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         formatted_go = subprocess.run(["gofmt"], input=go_projection(manifest, digest), text=True, capture_output=True, check=True).stdout
+        formatted_go = formatted_go.replace("func WorkflowActionAvailable() bool { return false }\n", "")
         expected = {
             ROOT / "internal/agent/generated_contracts.go": formatted_go,
             ROOT / "adapter/opencode/generated-contracts.ts": ts_projection(manifest, digest).replace('["client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest"]', '["client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "requested_product_id", "requested_project_ids", "requested_capabilities", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest"]'),

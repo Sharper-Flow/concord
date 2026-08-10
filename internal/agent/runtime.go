@@ -54,6 +54,9 @@ func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
 	if len(data) == 0 || len(data) > MaxEnvelopeBytes {
 		return InvokeRequest{}, CallEnvelope{}, errors.New("invoke input exceeds 65536 bytes")
 	}
+	if err := validateUniqueJSON(data); err != nil {
+		return InvokeRequest{}, CallEnvelope{}, err
+	}
 	var request InvokeRequest
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -175,6 +178,7 @@ type knowledgeResolveInput struct {
 type runtime struct {
 	Store           *store.Store
 	Authority       *Service
+	Registry        store.DefinitionRegistry
 	Envelope        CallEnvelope
 	Tool, Operation string
 	Budget          budgetInput
@@ -184,12 +188,55 @@ type runtime struct {
 // and routes both read and transaction-bound mutation operations through the
 // generated contract surface.
 func Dispatch(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope) (Envelope, error) {
+	return DispatchWithRegistry(ctx, s, authority, request, env, store.BuiltinWorkflowRegistry())
+}
+
+// DispatchWithRegistry is the same authenticated agent boundary with an
+// explicitly pinned definition registry. Production callers use Dispatch; the
+// seam lets replay and availability tests prove a missing registry before any
+// payload or grant mutation path is reached.
+func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry) (Envelope, error) {
+	if registry == nil {
+		registry = store.BuiltinWorkflowRegistry()
+	}
 	base := NewBase(env.RequestID, request.Tool, request.Operation, ManifestVersion)
 	op, ok := ValidateContractOperation(request.Tool, request.Operation)
 	if !ok {
 		return base, errors.New("unsupported tool operation")
 	}
-	if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
+	if op.ID == "concord_work_transition.workflow_action" {
+		// Generated outer-shape validation rejects duplicate or missing action
+		// fields. Semantic workflow payload validation remains below the registry
+		// availability check.
+		if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
+			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+		}
+		var strictAction actionMutationInput
+		if err := decodeStrict(request.Input, &strictAction); err != nil {
+			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+		}
+		if len(strictAction.WorkID) < 2 || len(strictAction.WorkID) > 128 {
+			return coreError(base, "invalid_input", "workflow action work_id is malformed", "reread_entities", false), nil
+		}
+		if len(strictAction.Fields) != 0 && bytes.Equal(bytes.TrimSpace(strictAction.Fields), []byte(`{}`)) {
+			return coreError(base, "invalid_input", "workflow action fields cannot be empty", "reread_entities", false), nil
+		}
+		if s == nil {
+			return coreError(base, "unreachable", "workflow authority is not available", "contact_operator", true), nil
+		}
+		available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
+		if availabilityErr != nil {
+			return failureEnvelope(base, availabilityErr), nil
+		}
+		if !available {
+			return coreError(base, "invalid_transition", "workflow action registry is unavailable", "reread_entities", false), nil
+		}
+		if strictAction.ActionID != "replay" {
+			if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, registry); err != nil {
+				return failureEnvelope(base, err), nil
+			}
+		}
+	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return base, err
 	}
 	ctx, cancel, budget, budgetErr := applyBudget(ctx, request.Input)
@@ -201,7 +248,7 @@ func Dispatch(ctx context.Context, s *store.Store, authority *Service, request I
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
 	inv := Invocation{GrantToken: env.GrantRef, ClientRef: env.ClientRef, ClientVersion: env.ClientVersion, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, SurfaceVersion: env.SurfaceVersion, EnvelopeVersion: env.EnvelopeVersion, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
-	if op.Kind != OperationRead {
+	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		identity, identityExtractErr := extractMutationWorkIdentity(request.Input)
 		if identityExtractErr != nil {
 			return base, identityExtractErr
@@ -255,7 +302,7 @@ func Dispatch(ctx context.Context, s *store.Store, authority *Service, request I
 	if err := validateRequestedScope(ctx, s, env, grant, request); err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget}
+	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget}
 	if op.Kind != OperationRead {
 		return r.mutate(ctx, base, request.Input, grant, op)
 	}
@@ -416,11 +463,15 @@ func scopeIntersects(left, right []string) bool {
 // Invoke is the byte-oriented core boundary used by tests and short-lived CLI
 // callers. It performs strict outer JSON decoding before dispatch.
 func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte) (Envelope, error) {
+	return InvokeWithRegistry(ctx, s, authority, data, store.BuiltinWorkflowRegistry())
+}
+
+func InvokeWithRegistry(ctx context.Context, s *store.Store, authority *Service, data []byte, registry store.DefinitionRegistry) (Envelope, error) {
 	request, env, err := DecodeInvokeRequest(data)
 	if err != nil {
 		return Envelope{}, err
 	}
-	return Dispatch(ctx, s, authority, request, env)
+	return DispatchWithRegistry(ctx, s, authority, request, env, registry)
 }
 
 func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Grant, kind OperationKind) error {
@@ -477,7 +528,8 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	}
 	var sf *store.Failure
 	if errors.As(err, &sf) {
-		return coreError(base, mapFailureKind(sf.Kind), sf.Detail, sf.RecoveryAction, sf.RetrySafe)
+		kind := mapFailureKind(sf.Kind)
+		return coreError(base, kind, sf.Detail, publicRecovery(kind, sf.RecoveryAction), sf.RetrySafe)
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
 }
@@ -489,6 +541,8 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 }
 func mapFailureKind(kind store.FailureKind) string {
 	switch kind {
+	case store.KindUnavailable:
+		return "unreachable"
 	case store.KindUnknownScope:
 		return "unknown_scope"
 	case store.KindProjectionNotFound:
@@ -497,6 +551,16 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "ambiguous_scope"
 	case store.KindVersionConflict:
 		return "version_conflict"
+	case store.KindUnauthorized:
+		return "unauthorized"
+	case store.KindOutcomeMismatch:
+		return "outcome_mismatch"
+	case store.KindInvalidDefinition, store.KindDefinitionVersionConflict, store.KindDefinitionVersionNotMonotonic, store.KindDefinitionDigestMismatch, store.KindDefinitionActionOrStepUnknown:
+		return "invariant_violation"
+	case store.KindInvariantViolation, store.KindSchemaUnsupported:
+		return "invariant_violation"
+	case store.KindUnsupportedPayloadVersion:
+		return "invariant_violation"
 	case store.KindIllegalLifecycleTransition:
 		return "invalid_transition"
 	case store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
@@ -521,6 +585,23 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "degraded_not_allowed"
 	default:
 		return "internal_error"
+	}
+}
+
+func publicRecovery(kind, proposed string) string {
+	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+	if allowed[proposed] {
+		return proposed
+	}
+	switch kind {
+	case "unauthorized", "outcome_mismatch", "unreachable", "internal_error":
+		return "contact_operator"
+	case "approval_required", "approval_invalid":
+		return "request_approval"
+	case "version_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
+		return "reread_entities"
+	default:
+		return "contact_operator"
 	}
 }
 

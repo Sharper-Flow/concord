@@ -353,7 +353,7 @@ func (e Envelope) validateOK() error {
 	return nil
 }
 func (e Envelope) validatePending() error {
-	if e.Tool != "concord_work_compact" || e.OperationRef == nil || e.OperationRef.State != OperationPending || e.NextAction == nil || e.Error != nil || len(e.Items) > 0 || len(e.Result) > 0 {
+	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || e.OperationRef.State != OperationPending || e.NextAction == nil || e.Error != nil || len(e.Items) > 0 || len(e.Result) > 0 {
 		return errors.New("invalid pending envelope")
 	}
 	if err := validateOperationRef(*e.OperationRef); err != nil {
@@ -362,7 +362,7 @@ func (e Envelope) validatePending() error {
 	return validateRecoveryAction(*e.NextAction)
 }
 func (e Envelope) validatePartial() error {
-	if e.Tool != "concord_work_compact" || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 1, 64) || (e.FailedStep != "" && !bounded(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
+	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 1, 64) || (e.FailedStep != "" && !bounded(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
 		return errors.New("invalid partial envelope")
 	}
 	if err := validateOperationRef(*e.OperationRef); err != nil {
@@ -547,7 +547,7 @@ func validateRecoveryAction(action RecoveryAction) error {
 	return nil
 }
 func validateError(err TypedError) error {
-	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "stale_requires_review": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
+	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "outcome_mismatch": true, "stale_requires_review": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
 	if !allowed[err.Kind] {
 		return fmt.Errorf("unknown error kind %q", err.Kind)
 	}
@@ -600,6 +600,9 @@ func validateError(err TypedError) error {
 	}
 	if err.Kind == "operation_conflict" && err.RecoveryAction.Kind != "reconcile_operation" {
 		return errors.New("operation recovery coupling violated")
+	}
+	if err.Kind == "outcome_mismatch" && err.RecoveryAction.Kind != "contact_operator" {
+		return errors.New("outcome mismatch recovery coupling violated")
 	}
 	if (err.Kind == "cancelled" || err.Kind == "timeout") && (err.EffectState != EffectNone || err.RecoveryAction.Kind != "retry_same_request") {
 		return errors.New("cancel/timeout coupling violated")

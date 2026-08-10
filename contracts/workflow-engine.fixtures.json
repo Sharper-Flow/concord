@@ -87,5 +87,12 @@
     {"id": "scenario-shipped-pending-amendment", "mutation": "engine_shipped_pending", "expected_error": "pending amendments remain"},
     {"id": "scenario-notice-id-invalid", "mutation": "wrong_notice_id", "expected_error": "notice-ID derivation mismatch"},
     {"id": "scenario-literal-backslash-zero-actor", "mutation": "literal_backslash_zero_actor", "expected_error": "actor-ID derivation mismatch"}
+  ],
+  "structured_scenario_negative_cases": [
+    {"id": "structured-missing-action-payload", "mutation": "missing_payload", "expected_error": "mandatory structured request field"},
+    {"id": "structured-unknown-request-field", "mutation": "unknown_request_field", "expected_error": "unknown structured request field"},
+    {"id": "structured-dangling-fixture-reference", "mutation": "dangling_fixture_ref", "expected_error": "dangling fixture reference"},
+    {"id": "structured-unknown-fault-kind", "mutation": "unknown_fault_kind", "expected_error": "unknown structured fault kind"},
+    {"id": "structured-unknown-observation-op", "mutation": "unknown_observation_op", "expected_error": "unknown structured observation op"}
   ]
 }

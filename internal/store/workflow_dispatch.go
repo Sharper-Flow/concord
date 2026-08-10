@@ -1,0 +1,704 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// WorkflowActionExecutionRequest is the domain portion of one already
+// authenticated workflow_action. The caller-owned transaction is the same
+// transaction used by the action-boundary coordinator.
+type WorkflowActionExecutionRequest struct {
+	WorkID                string
+	ExpectedVersion       int64
+	ActionID              string
+	SelectedChoice        string
+	DecisionContextDigest string
+	Payload               json.RawMessage
+	EvidenceRefs          []string
+	Actor                 WorkflowActor
+	// OperatorActor is populated only after the signed approval for
+	// confirm_premise has been verified and consumed by the agent boundary.
+	// It is never decoded from workflow action payload.
+	OperatorActor        *WorkflowActor
+	AcceptedInputsDigest string
+	IdempotencyIdentity  string
+	OperationID          string
+	PrincipalRef         string
+	Tool                 string
+	IdempotencyKey       string
+	RequestID            string
+	AcceptedScope        string
+	ContractVersion      string
+	Now                  time.Time
+}
+
+type WorkflowActionExecutionResult struct {
+	OperationID      string
+	EventIDs         []string
+	ChangedRefs      []string
+	ResultingVersion int64
+	Result           json.RawMessage
+}
+
+// WorkflowActionDefinitionFor returns the registered action policy after the
+// instance pin has been verified. It is intentionally read-only; authorization
+// and mutation remain owned by AuthorizeWorkflowActionAtBoundaryTx.
+func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry DefinitionRegistry, workID, actionID string) (RegisteredDefinition, WorkflowActionDefinition, error) {
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, registry, workID)
+	if err != nil {
+		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+	}
+	for _, action := range entry.Definition.ActionDefinitions {
+		if action.ID == actionID {
+			return entry, action, nil
+		}
+	}
+	return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared by the pinned definition", false, "reread_entities")
+}
+
+// ApplyWorkflowActionTx records one action's durable operation and event-folded
+// result. The caller must already own fold_guard; no alternate mutation path is
+// exposed. Every declared semantic action is translated to its closed event
+// family here. The dispatcher is deliberately the only place where public
+// action IDs acquire domain meaning.
+func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
+	var result WorkflowActionExecutionResult
+	if tx == nil {
+		return result, newFailure(KindUnavailable, "workflow_action", "transaction is not open", false, "open a mutation transaction")
+	}
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
+	if err != nil {
+		return result, err
+	}
+	var currentStep, state string
+	var version int64
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
+		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow state", true, "retry once the database is readable", err)
+	}
+	if currentStep == "start" {
+		currentStep = entry.Definition.StepGraph.StartStep
+	}
+	if request.ExpectedVersion != version {
+		return result, versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+	}
+	if state == "completed" || state == "cancelled" || state == "superseded" {
+		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
+	}
+	if request.ActionID == "complete" {
+		if err := workflowCompletionBoundaryPreflight(request.Payload); err != nil {
+			return result, err
+		}
+	}
+	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+		return result, err
+	}
+	if request.ActionID == "link_successor" {
+		fields, fieldErr := workflowActionObject(request.Payload)
+		if fieldErr != nil {
+			return result, fieldErr
+		}
+		relationKind := workflowFieldStringDefault(fields, "relation", "forward_link")
+		if relationData := workflowFieldRaw(fields, "relation_data"); len(relationData) != 0 {
+			var relation map[string]json.RawMessage
+			if relationKind != "nested" && json.Unmarshal(relationData, &relation) == nil && workflowFieldStringDefault(relation, "kind", "") == "forward_link" {
+				relationKind = "forward_link"
+			}
+		}
+		if relationKind != "forward_link" {
+			return result, newFailure(KindInvalidRelation, "workflow_action", "nested or non-forward workflow composition is forbidden", false, "use relation=forward_link")
+		}
+		if relationData := workflowFieldRaw(fields, "relation_data"); len(relationData) != 0 {
+			var relation map[string]json.RawMessage
+			if json.Unmarshal(relationData, &relation) != nil || workflowFieldStringDefault(relation, "kind", "") != "forward_link" {
+				return result, newFailure(KindInvalidRelation, "workflow_action", "nested or non-forward workflow composition is forbidden", false, "use relation_data.kind=forward_link")
+			}
+		}
+	}
+	if actionFields, fieldsErr := workflowActionObject(request.Payload); fieldsErr == nil {
+		if nestedRaw := workflowFieldRaw(actionFields, "payload"); len(nestedRaw) != 0 {
+			var nested map[string]json.RawMessage
+			if json.Unmarshal(nestedRaw, &nested) == nil {
+				if declaredStep := workflowFieldStringDefault(nested, "current_step", ""); declaredStep != "" && declaredStep != currentStep {
+					return result, newFailure(KindInvariantViolation, "workflow_action", "workflow action payload step does not match the pinned current step", false, "reread_entities")
+				}
+			}
+		}
+	}
+	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
+	}
+	actorRef, err := WorkflowActorRef(request.Actor)
+	if err != nil {
+		return result, err
+	}
+	actorNeedsRecord := false
+	if request.ActionID == "record_verdict" {
+		var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
+		recordErr := tx.QueryRowContext(ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession)
+		if recordErr == sql.ErrNoRows {
+			actorNeedsRecord = true
+		} else if recordErr != nil {
+			return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow actor", true, "retry once the workflow actor authority is readable", recordErr)
+		} else if recordedPrincipal != request.Actor.PrincipalRef || recordedClient != request.Actor.ClientRef || recordedAgent != request.Actor.AgentRef || recordedSession != request.Actor.SessionRef {
+			return result, newFailure(KindInvariantViolation, "workflow_action", "recorded workflow actor tuple does not match the authenticated actor", false, "reread workflow actor authority")
+		}
+	}
+	eventActor := actorRef
+	operatorRef := ""
+	operatorNeedsRecord := false
+	if request.OperatorActor != nil {
+		if request.ActionID != "confirm_premise" || request.OperatorActor.ActorClass != ActorOperator {
+			return result, newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation", false, "use the verified approval identity")
+		}
+		operatorRef, err = WorkflowActorRef(*request.OperatorActor)
+		if err != nil {
+			return result, err
+		}
+		if operatorRef == actorRef {
+			return result, newFailure(KindUnauthorized, "workflow_action", "operator actor cannot relabel the invoking agent", false, "approve from an independent operator identity")
+		}
+		var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
+		var recordedClass ActorClass
+		recordErr := tx.QueryRowContext(ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, operatorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession, &recordedClass)
+		if recordErr == sql.ErrNoRows {
+			operatorNeedsRecord = true
+		} else if recordErr != nil {
+			return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read operator actor", true, "retry once the database is readable", recordErr)
+		} else if recordedPrincipal != request.OperatorActor.PrincipalRef || recordedClient != request.OperatorActor.ClientRef || recordedAgent != request.OperatorActor.AgentRef || recordedSession != request.OperatorActor.SessionRef || recordedClass != ActorOperator {
+			return result, newFailure(KindInvariantViolation, "workflow_action", "recorded operator actor tuple does not match the signed assertion", false, "reread workflow actor authority")
+		}
+		eventActor = operatorRef
+	}
+	if request.OperationID == "" {
+		return result, newFailure(KindInvalidOperation, "workflow_action", "durable operation ID is required", false, "retry with a stable idempotency identity")
+	}
+	if request.IdempotencyIdentity == "" {
+		request.IdempotencyIdentity = request.IdempotencyKey
+	}
+	if len(request.IdempotencyIdentity) < 2 || len(request.IdempotencyIdentity) > 128 {
+		return result, newFailure(KindInvalidOperation, "workflow_action", "idempotency identity is out of bounds", false, "retry with a bounded idempotency key")
+	}
+	if request.Now.IsZero() {
+		request.Now = time.Now().UTC()
+	}
+	if request.ContractVersion == "" {
+		request.ContractVersion = "2.0.0"
+	}
+	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" {
+		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_version is not supported", false, "upgrade Concord before replaying this operation")
+	}
+	if request.AcceptedInputsDigest == "" {
+		return result, newFailure(KindInvalidOperation, "workflow_action", "accepted input digest is required", false, "retry with the canonical request digest")
+	}
+	if request.Tool == "" {
+		request.Tool = "concord_work_transition"
+	}
+	if request.RequestID == "" {
+		return result, newFailure(KindInvalidOperation, "workflow_action", "request ID is required", false, "retry with the transport request ID")
+	}
+	step := workflowStep(entry.Definition, currentStep)
+	if step == nil {
+		return result, newFailure(KindInvariantViolation, "workflow_action", "current workflow step is not registered", false, "reread_entities")
+	}
+	durableStepKind := string(step.Kind)
+	if step.Kind == WorkflowStepHumanCheckpoint {
+		// durable_operations predates human checkpoints and has a closed
+		// three-value step_kind. The workflow event retains the checkpoint kind;
+		// the durable claim uses its owning SQLite transaction as authority.
+		durableStepKind = string(WorkflowStepInternalSQLite)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Definition.Version, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractVersion); err != nil {
+		return result, wrapFailure(KindIdempotencyConflict, "workflow_action", "durable workflow operation identity is already claimed: "+err.Error(), false, "retry the same request or reconcile the operation", err)
+	}
+	evidenceRefs := append([]string(nil), request.EvidenceRefs...)
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = []string{"evidence:" + request.OperationID}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',evidence_refs=? WHERE op_id=? AND attempt_epoch=?`, workflowJSON(evidenceRefs), request.OperationID, 1); err != nil {
+		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot prepare workflow evidence authority", true, "retry once the database is writable", err)
+	}
+
+	payload := request.Payload
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	actor := eventActor
+	events := []Event{}
+	versionCursor := request.ExpectedVersion
+	if actorNeedsRecord {
+		events = append(events, workflowTypedEvent(request.OperationID+":actor", WorkflowActorRecorded, request.WorkID, actorRef, request.Now, versionCursor, map[string]any{"actor_ref": actorRef, "principal_ref": request.Actor.PrincipalRef, "client_ref": request.Actor.ClientRef, "agent_ref": request.Actor.AgentRef, "session_ref": request.Actor.SessionRef, "actor_class": string(request.Actor.ActorClass)}))
+		versionCursor++
+	}
+	if operatorNeedsRecord {
+		events = append(events, workflowTypedEvent(request.OperationID+":operator", WorkflowActorRecorded, request.WorkID, operatorRef, request.Now, versionCursor, map[string]any{"actor_ref": operatorRef, "principal_ref": request.OperatorActor.PrincipalRef, "client_ref": request.OperatorActor.ClientRef, "agent_ref": request.OperatorActor.AgentRef, "session_ref": request.OperatorActor.SessionRef, "actor_class": string(ActorOperator)}))
+		versionCursor++
+	}
+	if actionIsFenced(request.ActionID) {
+		resultVersion := versionCursor + 1
+		startPayload, _ := json.Marshal(map[string]any{
+			"work_id": request.WorkID, "expected_version": versionCursor, "resulting_version": resultVersion,
+			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": 1,
+			"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity, "actor_ref": actor,
+		})
+		events = append(events, Event{EventID: request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: startPayload})
+		resultVersion++
+	}
+	if actionIsCheckpoint(request.ActionID) {
+		resultVersion := versionCursor + int64(len(events)-int(versionCursor-request.ExpectedVersion)) + 1
+		checkpointPayload, _ := json.Marshal(map[string]any{"action_id": request.ActionID, "fields": json.RawMessage(payload)})
+		checkpoint, _ := json.Marshal(map[string]any{
+			"work_id": request.WorkID, "expected_version": versionCursor + int64(len(events)-int(versionCursor-request.ExpectedVersion)), "resulting_version": resultVersion,
+			"step_id": currentStep, "step_kind": string(step.Kind), "attempt_epoch": 1,
+			"checkpoint_payload": json.RawMessage(checkpointPayload), "resume_cursor": "", "actor_ref": actor,
+			"request_id": request.RequestID, "checkpoint_id": request.OperationID + ":checkpoint",
+			"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity,
+		})
+		events = append(events, Event{EventID: request.OperationID + ":checkpoint", Kind: WorkflowActionCheckpointed, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: checkpoint})
+	} else if request.ActionID != "complete" {
+		semantic, semanticErr := workflowSemanticActionEvents(ctx, tx, entry.Definition, request, currentStep, actor, payload, versionCursor+int64(len(events)-int(versionCursor-request.ExpectedVersion)))
+		if semanticErr != nil {
+			return result, semanticErr
+		}
+		if len(semantic) != 0 {
+			events = append(events, semantic...)
+		}
+	}
+	if request.ActionID == "complete" {
+		// Completion is special: CompleteWorkflowTxWithRegistry performs the
+		// ordered gate and appends workflow.completed in this same transaction.
+		completion, completionErr := workflowCompletionEvent(ctx, tx, request, entry.Definition, currentStep, actor, payload)
+		if completionErr != nil {
+			return result, completionErr
+		}
+		if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion); err != nil {
+			return result, err
+		}
+		result.EventIDs = []string{completion.EventID}
+		result.ChangedRefs = []string{request.WorkID}
+		result.OperationID = request.OperationID
+		_ = tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&result.ResultingVersion)
+		if result.ResultingVersion == 0 {
+			result.ResultingVersion = request.ExpectedVersion + 1
+		}
+		result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": result.ResultingVersion}}, "next_valid_intents": []any{}, "operation_id": request.OperationID})
+		if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{fmt.Sprintf(`{"entity_kind":"work_item","id":%q,"version":%d}`, request.WorkID, result.ResultingVersion)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
+			return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
+		}
+		return result, nil
+	}
+	// The universal completion event is always present for a successful
+	// internal action. Semantic events carry the typed projection effect;
+	// action_completed owns the auditable action boundary and step advance.
+	resultVersion := request.ExpectedVersion + int64(len(events)) + 1
+	completed, _ := json.Marshal(map[string]any{
+		"work_id": request.WorkID, "expected_version": resultVersion - 1, "resulting_version": resultVersion,
+		"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": 1, "result_evidence_refs": evidenceRefs,
+		"changed_refs": []string{request.WorkID}, "actor_ref": actor,
+	})
+	events = append(events, Event{EventID: request.OperationID + ":completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: completed})
+
+	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
+	if err != nil {
+		return result, err
+	}
+	result.EventIDs = operationResult.EventIDs
+	result.ChangedRefs = []string{request.WorkID}
+	result.OperationID = request.OperationID
+	resultVersion = request.ExpectedVersion + int64(len(events))
+	result.ResultingVersion = resultVersion
+	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
+	result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID})
+	durableChangedRef, _ := json.Marshal(changedRef)
+	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
+		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
+	}
+	return result, nil
+}
+
+func workflowCompletionBoundaryPreflight(raw json.RawMessage) error {
+	fields, err := workflowActionObject(raw)
+	if err != nil {
+		return err
+	}
+	if evidenceCommit, ok := workflowFieldString(fields, "evidence_commit"); ok {
+		if currentCommit, currentOK := workflowFieldString(fields, "current_commit"); currentOK && evidenceCommit != currentCommit {
+			return newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
+		}
+	}
+	if nestedRaw := workflowFieldRaw(fields, "payload"); len(nestedRaw) != 0 {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(nestedRaw, &nested) == nil {
+			if evidenceCommit := workflowFieldStringDefault(nested, "evidence_commit", ""); evidenceCommit != "" && evidenceCommit != workflowFieldStringDefault(nested, "current_commit", evidenceCommit) {
+				return newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
+			}
+			staleness := map[string]json.RawMessage{}
+			if stalenessRaw := nested["staleness"]; len(stalenessRaw) != 0 {
+				_ = json.Unmarshal(stalenessRaw, &staleness)
+			}
+			if workflowFieldBool(staleness, "drifted") && workflowFieldStringDefault(staleness, "severity", "") == "block" {
+				return newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness drift requires review", false, "refresh_context")
+			}
+		}
+	}
+	return nil
+}
+
+// workflowSemanticActionEvents constructs only typed, foldable events. Empty
+// return means the action uses the ordinary action_completed event.
+func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64) ([]Event, error) {
+	fields, err := workflowActionObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	eventID := request.OperationID + ":semantic"
+	switch request.ActionID {
+	case "approve_contract":
+		if rawOutcome, present := fields["outcome"]; present && string(rawOutcome) == "null" {
+			return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")
+		}
+		if rawPayload := workflowFieldRaw(fields, "payload"); len(rawPayload) != 0 {
+			var payloadFields map[string]json.RawMessage
+			if json.Unmarshal(rawPayload, &payloadFields) == nil {
+				if nestedOutcome, present := payloadFields["outcome"]; present && string(nestedOutcome) == "null" {
+					return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")
+				}
+			}
+		}
+		if route, ok := workflowFieldString(fields, "route_convention"); ok && route != "workflow_action" {
+			return nil, newFailure(KindInvariantViolation, "workflow_action", "route convention is not declared by the workflow action boundary", false, "use a declared route convention")
+		}
+		declaredRoutes := workflowFieldStrings(fields, "route_conventions")
+		proposedRoutes := workflowFieldStrings(fields, "proposed_route_conventions")
+		for _, proposed := range proposedRoutes {
+			if !contains(declaredRoutes, proposed) {
+				return nil, newFailure(KindInvariantViolation, "workflow_action", "proposed route convention is not declared by the contract", false, "use a declared route convention")
+			}
+		}
+		for _, required := range workflowFieldStrings(fields, "required_route_conventions") {
+			if !contains(declaredRoutes, required) {
+				return nil, newFailure(KindInvariantViolation, "workflow_action", "required route convention is not declared by the contract", false, "declare every required route convention")
+			}
+		}
+		outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
+		if outcome := workflowFieldRaw(fields, "outcome"); len(outcome) != 0 && string(outcome) != "null" {
+			var predicate map[string]any
+			if json.Unmarshal(outcome, &predicate) == nil {
+				outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
+			}
+		}
+		if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
+			var groundTruth map[string]any
+			if json.Unmarshal(payload, &groundTruth) == nil && strings.HasSuffix(workflowFieldStringDefaultMap(groundTruth, "ground_truth", ""), "-present") && outcomeKindForVacuity == "exists" {
+				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
+			}
+		}
+		contractVersion := workflowFieldInt(fields, "contract_version", 1)
+		premise := workflowFieldStringDefault(fields, "premise", "workflow premise")
+		outcomeKind := workflowFieldStringDefault(fields, "outcome_kind", string(definition.OutcomeSchema.DefaultKind))
+		outcome := workflowFieldRaw(fields, "outcome_payload")
+		if len(outcome) == 0 {
+			outcome = defaultWorkflowOutcome(definition, fields)
+		}
+		required := workflowFieldStrings(fields, "required_evidence")
+		if len(required) == 0 {
+			for _, kind := range definition.RequiredEvidenceKinds {
+				required = append(required, string(kind))
+			}
+		}
+		routes := workflowFieldStrings(fields, "route_conventions")
+		if routes == nil {
+			routes = []string{}
+		}
+		spec := workflowFieldStrings(fields, "spec_mandate")
+		if spec == nil {
+			spec = []string{}
+		}
+		rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
+		return []Event{workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": json.RawMessage(outcome), "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)})}, nil
+	case "revise_candidates":
+		added := workflowFieldStrings(fields, "added")
+		if len(added) == 0 {
+			added = workflowFieldStrings(fields, "candidate_ids")
+		}
+		removed := workflowFieldStrings(fields, "removed")
+		if len(added) == 0 && len(removed) == 0 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "candidate revision requires an addition or removal", false, "supply disjoint candidate IDs")
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
+	case "supersede_contract":
+		previous := workflowFieldInt(fields, "previous_contract_version", 0)
+		if previous == 0 {
+			_ = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=?`, request.WorkID).Scan(&previous)
+		}
+		if previous == 0 {
+			return nil, newFailure(KindProjectionNotFound, "workflow_action", "no active workflow contract can be superseded", false, "reread the current contract")
+		}
+		audit := workflowFieldStrings(fields, "audit_evidence")
+		if len(audit) == 0 {
+			audit = []string{"audit:" + request.OperationID}
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": previous + 1, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit})}, nil
+	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
+		evidenceRef := "evidence:" + request.OperationID
+		if len(request.EvidenceRefs) != 0 {
+			evidenceRef = request.EvidenceRefs[0]
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected, map[string]any{"evidence_kind": workflowFieldStringDefault(fields, "evidence_kind", "verification"), "immutable_subject_ref": workflowFieldStringDefault(fields, "immutable_subject_ref", evidenceRef), "producer_id": workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef), "producer_run_ref": workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID), "producer_watermark": workflowFieldStringDefault(fields, "producer_watermark", request.RequestID), "observed_at": request.Now.UTC().Format(time.RFC3339Nano)})}, nil
+	case "record_verdict":
+		verdictActor, actorErr := workflowAuthenticatedActorField(fields, "verdict_actor_ref", actor)
+		if actorErr != nil {
+			return nil, actorErr
+		}
+		var executingActor string
+		if err := tx.QueryRowContext(ctx, `SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&executingActor); err == nil && executingActor != "" && executingActor == verdictActor {
+			return nil, newFailure(KindUnauthorized, "workflow_action", "executing actor cannot evaluate its own delivery", false, "contact_operator")
+		}
+		evidence := workflowFieldStrings(fields, "evaluation_evidence")
+		if len(evidence) == 0 {
+			evidence = []string{"evidence:" + request.OperationID}
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "predicate_id": workflowFieldStringDefault(fields, "predicate_id", "predicate:"+request.OperationID), "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")})}, nil
+	case "confirm_premise":
+		if request.OperatorActor == nil || request.OperatorActor.ActorClass != ActorOperator {
+			return nil, newFailure(KindApprovalRequired, "workflow_action", "premise confirmation requires the verified operator approval identity", false, "request_approval")
+		}
+		operatorRef, actorErr := WorkflowActorRef(*request.OperatorActor)
+		if actorErr != nil {
+			return nil, actorErr
+		}
+		contractVersion := workflowFieldInt(fields, "contract_version", 0)
+		if contractVersion == 0 {
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(contract_version),1) FROM workflow_contracts WHERE work_id=?`, request.WorkID).Scan(&contractVersion); err != nil {
+				return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the approved workflow contract", true, "retry once the workflow contract is readable", err)
+			}
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": operatorRef})}, nil
+	case "link_successor":
+		relation := workflowFieldStringDefault(fields, "relation", "forward_link")
+		relationData := map[string]json.RawMessage{}
+		if rawRelation := workflowFieldRaw(fields, "relation_data"); len(rawRelation) != 0 {
+			if err := json.Unmarshal(rawRelation, &relationData); err != nil {
+				return nil, newFailure(KindInvalidRelation, "workflow_action", "relation_data is not a JSON object", false, "supply the typed forward-link relation")
+			}
+		}
+		if len(relationData) != 0 && workflowFieldStringDefault(relationData, "kind", "") == "forward_link" {
+			relation = "forward_link"
+		}
+		if relation == "nested" || relation != "forward_link" {
+			return nil, newFailure(KindInvalidRelation, "workflow_action", "nested or non-forward workflow composition is forbidden", false, "use relation=forward_link")
+		}
+		successorID := workflowFieldStringDefault(fields, "successor_work_id", "")
+		if successorID == "" {
+			return nil, newFailure(KindInvalidRelation, "workflow_action", "successor_work_id is required for a forward link", false, "supply the typed successor work item")
+		}
+		var successorKind, definitionRef string
+		if err := tx.QueryRowContext(ctx, `SELECT w.kind,COALESCE(i.definition_ref,'') FROM work_items w LEFT JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, successorID).Scan(&successorKind, &definitionRef); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, newFailure(KindInvalidRelation, "workflow_action", "successor work item is not recorded", false, "create the typed successor before linking it")
+			}
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read successor work item", true, "retry once the database is readable", err)
+		}
+		var sourceDefinitionRef string
+		if err := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&sourceDefinitionRef); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read source workflow definition", true, "retry once the database is readable", err)
+		}
+		source, sourceErr := BuiltinWorkflowDefinitionForRef(sourceDefinitionRef)
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
+		if !containsWorkKind(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, WorkKind(successorKind)) {
+			return nil, newFailure(KindInvalidRelation, "workflow_action", "successor family is not allowed by the source workflow composition", false, "use an allowed forward-linked successor family")
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind, "definition_ref": definitionRef})}, nil
+	case "declare_impact":
+		return []Event{workflowTypedEvent(eventID, WorkflowImpactDeclared, request.WorkID, actor, request.Now, expected, map[string]any{"edge_id": workflowFieldStringDefault(fields, "edge_id", "edge:"+request.OperationID), "edge_kind": workflowFieldStringDefault(fields, "edge_kind", "modifies"), "edge_class": workflowFieldStringDefault(fields, "edge_class", "hard"), "target_work_id": workflowFieldStringDefault(fields, "target_work_id", request.WorkID+"-target"), "target_kind": "work_item", "severity": workflowFieldStringDefault(fields, "severity", "non-breaking")})}, nil
+	case "add_condition":
+		return []Event{workflowTypedEvent(eventID, WorkflowConditionAdded, request.WorkID, actor, request.Now, expected, map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "await_type": workflowFieldStringDefault(fields, "await_type", "timer"), "await_ref": workflowFieldStringDefault(fields, "await_ref", "await:"+request.OperationID), "resolution_authority": workflowFieldStringDefault(fields, "resolution_authority", "durable_operation:"+request.OperationID)})}, nil
+	case "resolve_condition":
+		return []Event{workflowTypedEvent(eventID, WorkflowConditionResolved, request.WorkID, actor, request.Now, expected, map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "resolution_evidence": workflowFieldStringsDefault(fields, "resolution_evidence", []string{"evidence:" + request.OperationID}), "resolved_by_event": workflowFieldStringDefault(fields, "resolved_by_event", eventID)})}, nil
+	case "cancel_condition":
+		return []Event{workflowTypedEvent(eventID, WorkflowConditionCancelled, request.WorkID, actor, request.Now, expected, map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "cancellation_authority": workflowFieldStringDefault(fields, "cancellation_authority", actor), "cancellation_evidence": workflowFieldStringsDefault(fields, "cancellation_evidence", []string{"evidence:" + request.OperationID}), "cancelled_by_event": workflowFieldStringDefault(fields, "cancelled_by_event", eventID)})}, nil
+	default:
+		return nil, nil
+	}
+}
+
+func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, definition WorkflowDefinition, stepID, actor string, raw json.RawMessage) (Event, error) {
+	fields, err := workflowActionObject(raw)
+	if err != nil {
+		return Event{}, err
+	}
+	if evidenceCommit, ok := workflowFieldString(fields, "evidence_commit"); ok {
+		if currentCommit, currentOK := workflowFieldString(fields, "current_commit"); currentOK && evidenceCommit != currentCommit {
+			return Event{}, newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
+		}
+	}
+	if payloadRaw := workflowFieldRaw(fields, "payload"); len(payloadRaw) != 0 {
+		var payloadFields map[string]json.RawMessage
+		if json.Unmarshal(payloadRaw, &payloadFields) == nil {
+			if evidenceCommit := workflowFieldStringDefault(payloadFields, "evidence_commit", ""); evidenceCommit != "" && evidenceCommit != workflowFieldStringDefault(payloadFields, "current_commit", evidenceCommit) {
+				return Event{}, newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
+			}
+			severity := workflowFieldStringDefault(payloadFields, "staleness_severity", "")
+			drifted := workflowFieldBool(payloadFields, "staleness_drifted")
+			if nested, present := payloadFields["staleness"]; present {
+				var staleness map[string]json.RawMessage
+				if json.Unmarshal(nested, &staleness) == nil {
+					severity = workflowFieldStringDefault(staleness, "severity", severity)
+					drifted = workflowFieldBool(staleness, "drifted")
+				}
+			}
+			if drifted && severity == "block" {
+				return Event{}, newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness drift requires review", false, "refresh_context")
+			}
+		}
+	}
+	verdictActor := actor
+	if verdict, verdictErr := latestWorkflowVerdict(ctx, tx, request.WorkID); verdictErr != nil {
+		return Event{}, verdictErr
+	} else if verdict != nil {
+		verdictActor = verdict.VerdictActorRef
+	}
+	verdictActor, err = workflowAuthenticatedActorField(fields, "verdict_actor_ref", verdictActor)
+	if err != nil {
+		return Event{}, err
+	}
+	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": workflowFieldStringDefault(fields, "final_verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "premise_confirmed": workflowFieldBool(fields, "premise_confirmed"), "evidence_count": int64(0), "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID})}
+	if payloadFields, ok := fields["payload"]; ok {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(payloadFields, &nested) == nil {
+			if severity := workflowFieldStringDefault(nested, "staleness_severity", ""); severity == "warning" && workflowFieldBool(nested, "staleness_drifted") {
+				payload["warnings"] = []string{"rule:workflow-staleness"}
+			}
+			if stalenessRaw := nested["staleness"]; len(stalenessRaw) != 0 {
+				var staleness map[string]json.RawMessage
+				if json.Unmarshal(stalenessRaw, &staleness) == nil && workflowFieldStringDefault(staleness, "severity", "") == "warning" && workflowFieldBool(staleness, "drifted") {
+					payload["warnings"] = []string{"rule:workflow-staleness"}
+				}
+			}
+		}
+	}
+	return workflowTypedEvent(request.OperationID+":completed", WorkflowCompleted, request.WorkID, actor, request.Now, request.ExpectedVersion, payload), nil
+}
+
+func workflowTypedEvent(id, kind, workID, actor string, now time.Time, expected int64, values map[string]any) Event {
+	values["work_id"] = workID
+	values["expected_version"] = expected
+	values["resulting_version"] = expected + 1
+	raw, _ := json.Marshal(values)
+	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now.UTC(), PayloadVersion: 1, Payload: raw}
+}
+
+func workflowActionObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]json.RawMessage{}, nil
+	}
+	var fields map[string]json.RawMessage
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&fields); err != nil || fields == nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "workflow action payload must be a JSON object", false, "supply the registered action payload")
+	}
+	return fields, nil
+}
+
+func workflowFieldRaw(fields map[string]json.RawMessage, name string) json.RawMessage {
+	return fields[name]
+}
+func workflowFieldString(fields map[string]json.RawMessage, name string) (string, bool) {
+	var value string
+	ok := fields[name] != nil && json.Unmarshal(fields[name], &value) == nil
+	return value, ok
+}
+
+func workflowAuthenticatedActorField(fields map[string]json.RawMessage, name, actor string) (string, error) {
+	if raw := fields[name]; len(raw) != 0 {
+		value, ok := workflowFieldString(fields, name)
+		if !ok || strings.TrimSpace(value) != actor {
+			return "", newFailure(KindUnauthorized, "workflow_action", name+" must match the authenticated invocation actor", false, "use the authenticated workflow actor")
+		}
+	}
+	return actor, nil
+}
+func workflowFieldStringDefault(fields map[string]json.RawMessage, name, fallback string) string {
+	if value, ok := workflowFieldString(fields, name); ok && value != "" {
+		return value
+	}
+	return fallback
+}
+func workflowFieldInt(fields map[string]json.RawMessage, name string, fallback int64) int64 {
+	var value int64
+	if fields[name] != nil && json.Unmarshal(fields[name], &value) == nil && value > 0 {
+		return value
+	}
+	return fallback
+}
+func workflowFieldBool(fields map[string]json.RawMessage, name string) bool {
+	var value bool
+	_ = json.Unmarshal(fields[name], &value)
+	return value
+}
+func workflowFieldStrings(fields map[string]json.RawMessage, name string) []string {
+	var values []string
+	if fields[name] != nil {
+		_ = json.Unmarshal(fields[name], &values)
+	}
+	return values
+}
+func workflowFieldStringsDefault(fields map[string]json.RawMessage, name string, fallback []string) []string {
+	if values := workflowFieldStrings(fields, name); len(values) != 0 {
+		return values
+	}
+	return fallback
+}
+
+func workflowFieldStringDefaultMap(fields map[string]any, name, fallback string) string {
+	if value, ok := fields[name].(string); ok && value != "" {
+		return value
+	}
+	return fallback
+}
+func defaultWorkflowOutcome(definition WorkflowDefinition, fields map[string]json.RawMessage) json.RawMessage {
+	if raw := workflowFieldRaw(fields, "outcome"); len(raw) != 0 && string(raw) != "null" {
+		return raw
+	}
+	if definition.OutcomeSchema.DefaultKind == PredicateOutcome {
+		return json.RawMessage(`{"kind":"outcome","allowed":["completed"]}`)
+	}
+	return json.RawMessage(`{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_result":"pass"}`)
+}
+
+func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {
+	for i := range definition.StepGraph.Steps {
+		if definition.StepGraph.Steps[i].ID == id {
+			return &definition.StepGraph.Steps[i]
+		}
+	}
+	return nil
+}
+
+func actionIsFenced(action string) bool {
+	return strings.HasPrefix(action, "start_") || strings.HasPrefix(action, "run_") || strings.HasPrefix(action, "rollback_")
+}
+
+func actionIsCheckpoint(action string) bool {
+	return strings.HasPrefix(action, "checkpoint_") || action == "record_decision"
+}
+
+func nullableWorkflowText(value string) any {
+	if value == "" {
+		return "{}"
+	}
+	return value
+}

@@ -57,6 +57,7 @@ type ClaimRequest struct {
 	RequestID             string    `json:"request_id"`
 	ObservedAt            time.Time `json:"observed_at"`
 	ApprovalRef           string    `json:"approval_ref,omitempty"`
+	ContractVersion       string    `json:"contract_version"`
 }
 
 // CompleteRequest records the result of one attempt. ResultEventIDs are
@@ -84,6 +85,7 @@ type FenceResult struct {
 	OpID                  string     `json:"op_id"`
 	WorkID                string     `json:"work_id,omitempty"`
 	AttemptEpoch          int64      `json:"attempt_epoch"`
+	StepID                string     `json:"step_id,omitempty"`
 	ResultKind            ResultKind `json:"result_kind,omitempty"`
 	ResultPayload         string     `json:"result_payload,omitempty"`
 	EvidenceRefs          []string   `json:"evidence_refs,omitempty"`
@@ -93,6 +95,7 @@ type FenceResult struct {
 	ResultEventIDs        []string   `json:"result_event_ids,omitempty"`
 	Replayed              bool       `json:"replayed"`
 	ApprovalRef           string     `json:"approval_ref,omitempty"`
+	ContractVersion       string     `json:"contract_version,omitempty"`
 }
 
 // Step returns the newest durable attempt without changing its epoch. Reads
@@ -103,6 +106,9 @@ func Step(ctx context.Context, s *Store, opID string) (FenceResult, error) {
 	}
 	if opID == "" {
 		return FenceResult{}, newFailure(KindInvalidOperation, "step", "operation ID is empty", false, "supply a durable operation ID")
+	}
+	if err := preflightWorkflowOperation(ctx, s, opID); err != nil {
+		return FenceResult{}, err
 	}
 	return readStep(ctx, s.db, opID, false)
 }
@@ -125,6 +131,9 @@ func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer
 }
 
 func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
+	if req.ContractVersion == "" {
+		req.ContractVersion = "1.0.0"
+	}
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
 	}
@@ -136,6 +145,9 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot begin claim", true, "retry once the database is writable", err)
 	}
 	rollback := func(cause error) (FenceResult, error) { _ = tx.Rollback(); return FenceResult{}, cause }
+	if err := preflightWorkflowClaimTx(ctx, tx, req); err != nil {
+		return rollback(err)
+	}
 	digest := claimDigest(req)
 	if prior, found, err := findIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey); err != nil {
 		return rollback(err)
@@ -167,11 +179,11 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 	}
 	observed := req.ObservedAt.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
-        (op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
-         accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, req.OpID, epoch, req.WorkID, req.WorkflowTypeRef,
+		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_version)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.OpID, epoch, req.WorkID, req.WorkflowTypeRef,
 		req.WorkflowTypeVersion, req.StepID, req.StepKind, req.AcceptedInputsDigest,
-		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed); err != nil {
+		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed, req.ContractVersion); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err))
 	}
 	if err := insertIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey, digest, req.OpID, nil, req.ObservedAt); err != nil {
@@ -203,6 +215,9 @@ func completeStepObserved(ctx context.Context, s *Store, req CompleteRequest, ob
 		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot begin completion", true, "retry once the database is writable", err)
 	}
 	rollback := func(cause error) (FenceResult, error) { _ = tx.Rollback(); return FenceResult{}, cause }
+	if err := preflightWorkflowOperationTx(ctx, tx, req.OpID); err != nil {
+		return rollback(err)
+	}
 	digest := completeDigest(req)
 	prior, found, err := findIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey)
 	if err != nil {
@@ -276,7 +291,7 @@ func AbortStep(ctx context.Context, s *Store, req CompleteRequest) (FenceResult,
 // prior claim. No expiry, heartbeat, hostname, or liveness inference exists.
 func OperatorTakeover(ctx context.Context, s *Store, req ClaimRequest, approvalRef string) (FenceResult, error) {
 	if strings.TrimSpace(approvalRef) == "" {
-		return FenceResult{}, newFailure(KindTakeoverRequired, "operator_takeover", "explicit approval reference is required", false, "supply a non-empty operator approval reference")
+		return FenceResult{}, newFailure(KindApprovalRequired, "operator_takeover", "explicit approval reference is required", false, "supply a non-empty operator approval reference")
 	}
 	if strings.TrimSpace(req.PrincipalRef) == "" || strings.TrimSpace(req.RequestID) == "" {
 		return FenceResult{}, newFailure(KindTakeoverRequired, "operator_takeover", "explicit principal and request ID are required", false, "supply both operator identity fields")
@@ -301,6 +316,9 @@ type idempotencyRow struct {
 const staleMarker = "__stale_attempt__"
 
 func validateClaim(req ClaimRequest) error {
+	if req.ContractVersion != "1.0.0" && req.ContractVersion != "2.0.0" {
+		return newFailure(KindSchemaUnsupported, "claim_step", "contract_version is not supported", false, "upgrade Concord before claiming this operation")
+	}
 	for name, value := range map[string]string{"op_id": req.OpID, "work_id": req.WorkID, "workflow_type_ref": req.WorkflowTypeRef, "step_id": req.StepID, "principal_ref": req.PrincipalRef, "tool": req.Tool, "idempotency_key": req.IdempotencyKey, "request_id": req.RequestID} {
 		if strings.TrimSpace(value) == "" {
 			return newFailure(KindInvalidOperation, "claim_step", name+" is empty", false, "supply all durable identity fields")
@@ -445,15 +463,25 @@ func readStep(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, opID string, txRead bool) (FenceResult, error) {
 	var result FenceResult
-	var kind, payload, evidence, changed, cursor, scope sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT op_id,work_id,attempt_epoch,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.WorkID, &result.AttemptEpoch, &kind, &payload, &evidence, &changed, &cursor, &scope)
+	var kind, payload, evidence, changed, cursor, scope, contractVersion sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT op_id,work_id,attempt_epoch,step_id,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot,contract_version FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.WorkID, &result.AttemptEpoch, &result.StepID, &kind, &payload, &evidence, &changed, &cursor, &scope, &contractVersion)
 	if err == sql.ErrNoRows {
 		return result, newFailure(KindProjectionNotFound, "step", "operation does not exist", false, "claim the operation before reading it")
 	}
 	if err != nil {
 		return result, wrapFailure(KindUnavailable, "step", "cannot read durable operation", true, "retry once the database is readable", err)
 	}
+	result.ContractVersion = contractVersion.String
+	if result.ContractVersion == "" {
+		result.ContractVersion = "1.0.0"
+	}
+	if result.ContractVersion != "1.0.0" && result.ContractVersion != "2.0.0" {
+		return result, newFailure(KindSchemaUnsupported, "step", "durable operation uses an unsupported contract version", false, "upgrade Concord before replaying this operation")
+	}
 	result.ResultKind, result.ResultPayload, result.ResumeCursor = ResultKind(kind.String), payload.String, cursor.String
+	if result.ResultKind != "" && !validResultKind(result.ResultKind) {
+		return result, newFailure(KindSchemaUnsupported, "step", "durable operation uses an unsupported result classification", false, "upgrade Concord before replaying this operation")
+	}
 	result.AcceptedScopeSnapshot = scope.String
 	if err := json.Unmarshal([]byte(evidence.String), &result.EvidenceRefs); err != nil {
 		return result, wrapFailure(KindUnavailable, "step", "durable evidence references are corrupt", false, "repair or restore the database", err)

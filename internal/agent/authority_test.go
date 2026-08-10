@@ -114,7 +114,7 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 	if persistedRef == grant.Token {
 		t.Fatal("bearer token persisted as grant record id")
 	}
-	invocation := Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: "1.0.0", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: "1.0.0", EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"}
+	invocation := Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"}
 	if _, err := service.ValidateInvocation(context.Background(), invocation); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestGrantUseLimitIsAtomicInsideCallerTransaction(t *testing.T) {
 				results <- e
 				return
 			}
-			_, e = service.ValidateAndConsumeGrantTx(context.Background(), tx, Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: "1.0.0", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: "1.0.0", EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"})
+			_, e = service.ValidateAndConsumeGrantTx(context.Background(), tx, Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"})
 			if e == nil {
 				e = tx.Commit()
 			} else {
@@ -334,9 +334,9 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 }
 
 func grantRequest(privateKey ed25519.PrivateKey, nonce string) GrantRequest {
-	assertion := SignedAssertion{ClientRef: "client-1", ClientVersion: "1.0.0", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []Capability{"product_read"}, IssuedAt: fixedTime(), Nonce: nonce, SurfaceRange: "1.0.0-1.0.0", EnvelopeVersions: "1.0", ManifestDigest: ManifestDigest}
+	assertion := SignedAssertion{ClientRef: "client-1", ClientVersion: ManifestVersion, SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []Capability{"product_read"}, IssuedAt: fixedTime(), Nonce: nonce, SurfaceRange: ManifestVersion + "-" + ManifestVersion, EnvelopeVersions: "1.0", ManifestDigest: ManifestDigest}
 	assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(assertion))
-	return GrantRequest{Assertion: assertion, SurfaceVersion: "1.0.0", EnvelopeVersion: "1.0", ExpiresAt: fixedTime().Add(time.Hour)}
+	return GrantRequest{Assertion: assertion, SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ExpiresAt: fixedTime().Add(time.Hour)}
 }
 
 func openAgentDB(t *testing.T) *sql.DB {

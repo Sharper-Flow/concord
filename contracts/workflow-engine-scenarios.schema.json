@@ -4,86 +4,2263 @@
   "title": "Concord CD-0013 workflow-engine scenario corpus v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "schema_version", "contract", "contract_status", "surface_version", "engine_status", "pending_amendments", "fixtures", "assertion_contract", "runner_requirements", "scenarios"],
+  "required": [
+    "$schema",
+    "schema_version",
+    "contract",
+    "contract_status",
+    "surface_version",
+    "engine_status",
+    "pending_amendments",
+    "fixtures",
+    "assertion_contract",
+    "runner_requirements",
+    "scenarios"
+  ],
   "properties": {
-    "$schema": {"type": "string", "minLength": 1, "maxLength": 256},
-    "schema_version": {"const": "1.0"},
-    "contract": {"const": "CD-0013"},
-    "contract_status": {"const": "accepted"},
-    "surface_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "minLength": 5, "maxLength": 16},
-    "engine_status": {"enum": ["specification_only", "engine_shipped"]},
-    "pending_amendments": {"type": "array", "minItems": 0, "maxItems": 8, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["error_kind", "surface_version", "ships_with", "status"], "properties": {"error_kind": {"$ref": "#/$defs/id"}, "surface_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "minLength": 5, "maxLength": 16}, "ships_with": {"enum": ["workflow_engine"]}, "status": {"const": "pending"}}}},
-    "fixtures": {"$ref": "#/$defs/fixtures"},
-    "assertion_contract": {"$ref": "#/$defs/assertionContract"},
-    "runner_requirements": {"$ref": "#/$defs/runnerRequirements"},
-    "scenarios": {"type": "array", "minItems": 47, "maxItems": 47, "items": {"$ref": "#/$defs/scenario"}}
-  },
-  "$defs": {
-    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$", "minLength": 2, "maxLength": 128},
-    "short": {"type": "string", "minLength": 1, "maxLength": 4096},
-    "jsonValue": {"oneOf": [{"type": "null"}, {"type": "boolean"}, {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}, {"type": "string", "minLength": 0, "maxLength": 4096}, {"type": "array", "minItems": 0, "maxItems": 100, "items": {"$ref": "#/$defs/jsonValue"}}, {"type": "object", "minProperties": 0, "maxProperties": 64, "additionalProperties": {"$ref": "#/$defs/jsonValue"}}]},
-    "workItem": {
-      "type": "object", "additionalProperties": false, "required": ["id", "kind", "state", "definition_ref", "definition_version"],
-      "properties": {"id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}, "state": {"enum": ["planned", "ready", "running", "blocked", "awaiting_condition", "verifying", "completed", "cancelled", "superseded"]}, "definition_ref": {"$ref": "#/$defs/id"}, "definition_version": {"type": "integer", "minimum": 1, "maximum": 2147483647}}
+    "$schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
     },
-    "actor": {
-      "type": "object", "additionalProperties": false, "required": ["actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class"],
-      "properties": {"actor_ref": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70}, "principal_ref": {"$ref": "#/$defs/id"}, "client_ref": {"$ref": "#/$defs/id"}, "agent_ref": {"$ref": "#/$defs/id"}, "session_ref": {"$ref": "#/$defs/id"}, "actor_class": {"enum": ["agent", "operator"]}}
+    "schema_version": {
+      "const": "1.0"
     },
-    "definitionRef": {
-      "type": "object", "additionalProperties": false, "required": ["ref", "version", "digest"],
-      "properties": {"ref": {"$ref": "#/$defs/id"}, "version": {"type": "integer", "minimum": 1, "maximum": 2147483647}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71}}
+    "contract": {
+      "const": "CD-0013"
     },
-    "evidence": {
-      "type": "object", "additionalProperties": false, "required": ["kind", "subject", "producer", "run"],
-      "properties": {"kind": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}, "subject": {"$ref": "#/$defs/short"}, "producer": {"$ref": "#/$defs/id"}, "run": {"$ref": "#/$defs/id"}}
+    "contract_status": {
+      "const": "accepted"
     },
-    "relation": {
-      "type": "object", "additionalProperties": false, "required": ["source", "target", "kind", "class", "severity"],
-      "properties": {"source": {"$ref": "#/$defs/id"}, "target": {"$ref": "#/$defs/id"}, "kind": {"enum": ["modifies", "depends_on", "forward_link"]}, "class": {"enum": ["hard", "soft", "none"]}, "severity": {"enum": ["breaking", "non-breaking", "informational"]}}
+    "surface_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "minLength": 5,
+      "maxLength": 16
+    },
+    "engine_status": {
+      "enum": [
+        "specification_only",
+        "engine_shipped"
+      ]
+    },
+    "pending_amendments": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error_kind",
+          "surface_version",
+          "ships_with",
+          "status"
+        ],
+        "properties": {
+          "error_kind": {
+            "$ref": "#/$defs/id"
+          },
+          "surface_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "minLength": 5,
+            "maxLength": 16
+          },
+          "ships_with": {
+            "enum": [
+              "workflow_engine"
+            ]
+          },
+          "status": {
+            "const": "pending"
+          }
+        }
+      }
     },
     "fixtures": {
-      "type": "object", "additionalProperties": false, "required": ["work_items", "actors", "definitions", "evidence", "relations"],
+      "$ref": "#/$defs/fixtures"
+    },
+    "assertion_contract": {
+      "$ref": "#/$defs/assertionContract"
+    },
+    "runner_requirements": {
+      "$ref": "#/$defs/runnerRequirements"
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 47,
+      "maxItems": 47,
+      "items": {
+        "$ref": "#/$defs/scenario"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$",
+      "minLength": 2,
+      "maxLength": 128
+    },
+    "short": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 20,
+      "maxLength": 40
+    },
+    "jsonObject": {
+      "type": "object",
+      "minProperties": 0,
+      "maxProperties": 64,
+      "additionalProperties": false,
       "properties": {
-        "work_items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/workItem"}},
-        "actors": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/actor"}},
-        "definitions": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/definitionRef"}},
-        "evidence": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/evidence"}},
-        "relations": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"$ref": "#/$defs/relation"}}
+        "work": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "work_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "outcome": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "ground_truth": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "approved": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "delivered": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "candidate_ids": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "premise_hash": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "outcome_hash": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "premise": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "state": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "approved_outcome": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "discovery": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "approved_contract": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "executor": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "requested_check_author": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "verdict_actor": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "verdict_tuple": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "route_convention": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "maturity": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "audience": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "kind": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "verdict": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "decision_record": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "predicate": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "premise_confirmed": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "fault": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "step_kind": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "epochs": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "current_epoch": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "uncommitted_step": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "idempotency_identity": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "supplied_epoch": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "stuck": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "approval_ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "await_types": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "cancellable_condition": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "cancellation_authority": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "condition": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "condition_readable": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "clock": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "resolver_calls": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "source_contract_version": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "edge": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "entity_kind": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "entity_ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "target_work_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "severity": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "source": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "target": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "successor": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "successor_kinds": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "relation": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "successor_kind": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "live_projection_hash": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "event_log": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "events": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "as_of": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "registry": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "current_step": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "action": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "payload": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "worktree_count": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "database_count": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "possible_blocker_readable": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "unreadable_record": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "faults": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "supported_version": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "evidence_commit": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "current_commit": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "attempt_epoch": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "current_claim": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "resolved_at": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "source_work_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "dependent_work_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "consumed_contract_version": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "edge_class": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "edge_kind": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "resolution_evidence": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "resolver_authority": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "staleness_rule_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "observed_drift": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "complete_gate_prerequisites": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "next_read_expectations": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "transaction": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "check_ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "immutable_subject_ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "expected_result": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "subjects": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "allowed": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "distinguish_from": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "question": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "options_considered": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "decision": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "rationale": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "consequences": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "inputs": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "poc_findings": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "supersedes": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "superseded_by": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "unknowns": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "required_to_decide": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "reviewer_actor_ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "operator_approval_ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "class": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "actor_ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "approval_binding": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "atomic": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "contract_approval": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "op_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "resolved": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "removed": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "condition_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "dependent_consumed_prior_contract": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "ref": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "staleness": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "drifted": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "contract": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "evidence": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "premise_confirmation": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "warnings": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "scenario": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "field": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      }
+    },
+    "jsonValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 0,
+          "maxProperties": 64,
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      ]
+    },
+    "workItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "definition_ref",
+        "definition_version"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "implementation",
+            "break_fix",
+            "research",
+            "architecture_spike",
+            "ops_runbook",
+            "static_analysis",
+            "generic_one_off"
+          ]
+        },
+        "state": {
+          "enum": [
+            "planned",
+            "ready",
+            "running",
+            "blocked",
+            "awaiting_condition",
+            "verifying",
+            "completed",
+            "cancelled",
+            "superseded"
+          ]
+        },
+        "definition_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "definition_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_ref",
+        "principal_ref",
+        "client_ref",
+        "agent_ref",
+        "session_ref",
+        "actor_class"
+      ],
+      "properties": {
+        "actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "principal_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "actor_class": {
+          "enum": [
+            "agent",
+            "operator"
+          ]
+        }
+      }
+    },
+    "definitionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "version",
+        "digest"
+      ],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "subject",
+        "producer",
+        "run"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "verification",
+            "review",
+            "approval",
+            "commit",
+            "durable_note",
+            "native_run",
+            "artifact"
+          ]
+        },
+        "subject": {
+          "$ref": "#/$defs/short"
+        },
+        "producer": {
+          "$ref": "#/$defs/id"
+        },
+        "run": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source",
+        "target",
+        "kind",
+        "class",
+        "severity"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "source": {
+          "$ref": "#/$defs/id"
+        },
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "modifies",
+            "depends_on",
+            "forward_link"
+          ]
+        },
+        "class": {
+          "enum": [
+            "hard",
+            "soft",
+            "none"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "breaking",
+            "non-breaking",
+            "informational"
+          ]
+        }
+      }
+    },
+    "fixtureRefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_item",
+        "actors",
+        "definitions",
+        "evidence",
+        "relations"
+      ],
+      "properties": {
+        "work_item": {
+          "$ref": "#/$defs/id"
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^actor:[0-9a-f]{64}$",
+            "minLength": 70,
+            "maxLength": 70
+          }
+        },
+        "definitions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "eventPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work_kind": {
+          "enum": [
+            "implementation",
+            "break_fix",
+            "research",
+            "architecture_spike",
+            "ops_runbook",
+            "static_analysis",
+            "generic_one_off",
+            "task"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "implementation",
+            "break_fix",
+            "research",
+            "architecture_spike",
+            "ops_runbook",
+            "static_analysis",
+            "generic_one_off",
+            "task"
+          ]
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resulting_version": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "from": {
+          "$ref": "#/$defs/id"
+        },
+        "to": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "ref": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "premise": {
+          "$ref": "#/$defs/short"
+        },
+        "premise_hash": {
+          "$ref": "#/$defs/short"
+        },
+        "outcome_hash": {
+          "$ref": "#/$defs/short"
+        },
+        "outcome_kind": {
+          "enum": [
+            "exists",
+            "absent",
+            "check",
+            "outcome"
+          ]
+        },
+        "outcome_payload": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "required_evidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "route_conventions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "spec_mandate": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "rigor_class": {
+          "$ref": "#/$defs/short"
+        },
+        "consequence_class": {
+          "enum": [
+            "internal_sqlite",
+            "cross_authority",
+            "external_effect"
+          ]
+        },
+        "previous_contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new_contract_version": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "supersede_reason": {
+          "$ref": "#/$defs/short"
+        },
+        "audit_evidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "candidate_kind": {
+          "enum": [
+            "work_item",
+            "product",
+            "project"
+          ]
+        },
+        "candidate_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "added": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "principal_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "actor_class": {
+          "enum": [
+            "agent",
+            "operator"
+          ]
+        },
+        "predicate_id": {
+          "$ref": "#/$defs/id"
+        },
+        "verdict_kind": {
+          "enum": [
+            "ok",
+            "outcome_mismatch",
+            "insufficient_evidence"
+          ]
+        },
+        "verdict_actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "evaluation_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "incomparable_with_approved": {
+          "type": "boolean"
+        },
+        "confirming_actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "result_evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "changed_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "attempt_epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "accepted_inputs_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "idempotency_identity": {
+          "$ref": "#/$defs/id"
+        },
+        "step_kind": {
+          "enum": [
+            "internal_sqlite",
+            "cross_authority",
+            "external_effect",
+            "human_checkpoint"
+          ]
+        },
+        "checkpoint_payload": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "resume_cursor": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2048
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "checkpoint_id": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence_kind": {
+          "enum": [
+            "verification",
+            "review",
+            "approval",
+            "commit",
+            "durable_note",
+            "native_run",
+            "artifact"
+          ]
+        },
+        "immutable_subject_ref": {
+          "$ref": "#/$defs/short"
+        },
+        "producer_id": {
+          "$ref": "#/$defs/id"
+        },
+        "producer_run_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "producer_watermark": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "successor_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "relation_kind": {
+          "const": "forward_link"
+        },
+        "edge_id": {
+          "$ref": "#/$defs/id"
+        },
+        "edge_kind": {
+          "enum": [
+            "modifies",
+            "depends_on",
+            "forward_link"
+          ]
+        },
+        "edge_class": {
+          "enum": [
+            "hard",
+            "soft",
+            "none"
+          ]
+        },
+        "target_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "target_kind": {
+          "const": "work_item"
+        },
+        "severity": {
+          "enum": [
+            "breaking",
+            "non-breaking",
+            "informational"
+          ]
+        },
+        "notice_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "entity_kind": {
+          "$ref": "#/$defs/id"
+        },
+        "entity_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "old_hash": {
+          "type": ["string", "null"]
+        },
+        "new_hash": {
+          "type": ["string", "null"]
+        },
+        "condition_id": {
+          "$ref": "#/$defs/id"
+        },
+        "await_type": {
+          "enum": [
+            "pr_merge",
+            "ci_result",
+            "timer",
+            "human_approval",
+            "remote_work_state"
+          ]
+        },
+        "await_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "resolution_authority": {
+          "type": "string",
+          "pattern": "^durable_operation:[A-Za-z][A-Za-z0-9_.:-]{1,127}$",
+          "minLength": 20,
+          "maxLength": 150
+        },
+        "resolution_evidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "resolved_by_event": {
+          "$ref": "#/$defs/id"
+        },
+        "cancellation_authority": {
+          "const": "operator"
+        },
+        "cancellation_evidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "cancelled_by_event": {
+          "$ref": "#/$defs/id"
+        },
+        "terminal_state": {
+          "enum": [
+            "completed",
+            "cancelled",
+            "superseded"
+          ]
+        },
+        "final_verdict_kind": {
+          "enum": [
+            "ok",
+            "outcome_mismatch",
+            "insufficient_evidence"
+          ]
+        },
+        "verdict_actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "premise_confirmed": {
+          "type": "boolean"
+        },
+        "evidence_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed_refs_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "warnings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "initialEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "kind",
+        "work_id",
+        "actor_ref",
+        "occurred_at",
+        "payload_version",
+        "payload"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "work.created",
+            "work.transitioned",
+            "work.memberships_replaced",
+            "workflow.actor_recorded",
+            "workflow.definition_selected",
+            "workflow.contract_approved",
+            "workflow.contract_superseded",
+            "workflow.candidate_set_revised",
+            "workflow.action_started",
+            "workflow.action_checkpointed",
+            "workflow.action_completed",
+            "workflow.action_failed",
+            "workflow.evidence_bound",
+            "workflow.verdict_recorded",
+            "workflow.premise_confirmed",
+            "workflow.successor_linked",
+            "workflow.impact_declared",
+            "workflow.impact_notice_recorded",
+            "workflow.condition_added",
+            "workflow.condition_resolved",
+            "workflow.condition_cancelled",
+            "workflow.completed"
+          ]
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "payload_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "payload": {
+          "$ref": "#/$defs/eventPayload"
+        }
+      }
+    },
+    "projectionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "state"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "planned",
+            "ready",
+            "running",
+            "blocked",
+            "awaiting_condition",
+            "verifying",
+            "completed",
+            "cancelled",
+            "superseded"
+          ]
+        },
+        "current_step": {
+          "$ref": "#/$defs/id"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/id"
+        },
+        "condition_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "projection_bytes": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        }
+      }
+    },
+    "fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "input"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "commit_after_verdict_fails",
+            "unreadable_authority",
+            "removed_authority",
+            "projection_corruption",
+            "event_poison",
+            "newer_event_version",
+            "missing_registry",
+            "stale_attempt",
+            "mismatched_commit"
+          ]
+        },
+        "input": {
+          "$ref": "#/$defs/jsonObject"
+        }
+      }
+    },
+    "scenarioSetup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture_refs",
+        "event_history",
+        "projection",
+        "faults"
+      ],
+      "properties": {
+        "fixture_refs": {
+          "$ref": "#/$defs/fixtureRefs"
+        },
+        "event_history": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/initialEvent"
+          }
+        },
+        "projection": {
+          "$ref": "#/$defs/projectionInput"
+        },
+        "faults": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/fault"
+          }
+        }
+      }
+    },
+    "definitionPinInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "version",
+        "digest"
+      ],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        }
+      }
+    },
+    "idempotencyInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "request_id",
+        "operation_id",
+        "accepted_inputs_digest"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/id"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "accepted_inputs_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        }
+      }
+    },
+    "grantInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "principal_ref",
+        "client_ref",
+        "agent_ref",
+        "session_ref",
+        "capability",
+        "scope"
+      ],
+      "properties": {
+        "principal_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "capability": {
+          "enum": [
+            "work_transition",
+            "workflow_action",
+            "workflow_read"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "approvalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "approval_ref"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "approval_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/id"
+            }
+          ]
+        },
+        "operation_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "consequence": {
+          "enum": [
+            "internal_sqlite",
+            "cross_authority",
+            "external_effect"
+          ]
+        },
+        "approving_actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "operationInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op_id",
+        "attempt_epoch",
+        "step_id",
+        "step_kind",
+        "state"
+      ],
+      "properties": {
+        "op_id": {
+          "$ref": "#/$defs/id"
+        },
+        "attempt_epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "step_kind": {
+          "enum": [
+            "internal_sqlite",
+            "cross_authority",
+            "external_effect"
+          ]
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "completed",
+            "failed",
+            "stale"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "result_payload": {
+          "$ref": "#/$defs/jsonObject"
+        }
+      }
+    },
+    "requestFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "payload"
+      ],
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "value_statement": {
+          "$ref": "#/$defs/short"
+        },
+        "project_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new_contract_version": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "premise": {
+          "$ref": "#/$defs/short"
+        },
+        "outcome": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/jsonObject"
+            }
+          ]
+        },
+        "route_conventions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "supersede_reason": {
+          "$ref": "#/$defs/short"
+        },
+        "audit_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "candidate_kind": {
+          "enum": [
+            "work_item",
+            "product",
+            "project"
+          ]
+        },
+        "candidate_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "added": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "successor_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "relation": {
+          "$ref": "#/$defs/id"
+        },
+        "relation_data": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "condition_id": {
+          "$ref": "#/$defs/id"
+        },
+        "resolver_authority": {
+          "$ref": "#/$defs/id"
+        },
+        "resolver_result": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "resolution_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "attempt_epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "current_claim": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "staleness_rule_id": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_drift": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "fault_input": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "event_stream": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/initialEvent"
+          }
+        },
+        "complete_gate_prerequisites": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "next_read_expectations": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "source_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dependent_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "consumed_contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "edge_class": {
+          "enum": [
+            "hard",
+            "soft",
+            "none"
+          ]
+        },
+        "edge_kind": {
+          "enum": [
+            "modifies",
+            "depends_on",
+            "forward_link"
+          ]
+        },
+        "entity_kind": {
+          "$ref": "#/$defs/id"
+        },
+        "entity_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "severity": {
+          "enum": [
+            "breaking",
+            "non-breaking",
+            "informational"
+          ]
+        },
+        "notice_id": {
+          "$ref": "#/$defs/id"
+        },
+        "transaction": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "target_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "proposed_route_conventions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "required_route_conventions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "scenarioRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_ref",
+        "definition_pin",
+        "expected_version",
+        "action_id",
+        "fields",
+        "idempotency",
+        "grant",
+        "approval",
+        "operation"
+      ],
+      "properties": {
+        "actor_ref": {
+          "type": "string",
+          "pattern": "^actor:[0-9a-f]{64}$",
+          "minLength": 70,
+          "maxLength": 70
+        },
+        "definition_pin": {
+          "$ref": "#/$defs/definitionPinInput"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "fields": {
+          "$ref": "#/$defs/requestFields"
+        },
+        "idempotency": {
+          "$ref": "#/$defs/idempotencyInput"
+        },
+        "grant": {
+          "$ref": "#/$defs/grantInput"
+        },
+        "approval": {
+          "$ref": "#/$defs/approvalInput"
+        },
+        "operation": {
+          "$ref": "#/$defs/operationInput"
+        }
+      }
+    },
+    "readObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "path",
+        "op"
+      ],
+      "properties": {
+        "target": {
+          "enum": [
+            "state",
+            "result",
+            "communication",
+            "effects",
+            "authority"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/short"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "not_eq",
+            "contains",
+            "absent",
+            "nonempty"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      }
+    },
+    "scenarioObservations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_reads"
+      ],
+      "properties": {
+        "expected_reads": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/readObservation"
+          }
+        },
+        "next_read": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/readObservation"
+          }
+        }
+      }
+    },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_items",
+        "actors",
+        "definitions",
+        "evidence",
+        "relations"
+      ],
+      "properties": {
+        "work_items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/workItem"
+          }
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/actor"
+          }
+        },
+        "definitions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/definitionRef"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/relation"
+          }
+        }
       }
     },
     "assertionContract": {
-      "type": "object", "additionalProperties": false, "required": ["required_fields", "targets", "ops"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_fields",
+        "targets",
+        "ops"
+      ],
       "properties": {
-        "required_fields": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["target", "path", "op"]}},
-        "targets": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"enum": ["state", "result", "communication", "effects", "authority"]}},
-        "ops": {"type": "array", "minItems": 8, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["eq", "not_eq", "contains", "not_contains", "set_eq", "unique", "nonempty", "absent"]}}
+        "required_fields": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "target",
+              "path",
+              "op"
+            ]
+          }
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "state",
+              "result",
+              "communication",
+              "effects",
+              "authority"
+            ]
+          }
+        },
+        "ops": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "eq",
+              "not_eq",
+              "contains",
+              "not_contains",
+              "set_eq",
+              "unique",
+              "nonempty",
+              "absent"
+            ]
+          }
+        }
       }
     },
     "runnerRequirements": {
-      "type": "object", "additionalProperties": false, "required": ["passing_rule", "mutation_oracle", "stub_resistance", "required_measurements", "evaluation_order"],
-      "properties": {"passing_rule": {"$ref": "#/$defs/short"}, "mutation_oracle": {"$ref": "#/$defs/short"}, "stub_resistance": {"$ref": "#/$defs/short"}, "required_measurements": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "evaluation_order": {"$ref": "#/$defs/short"}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passing_rule",
+        "mutation_oracle",
+        "stub_resistance",
+        "required_measurements",
+        "evaluation_order"
+      ],
+      "properties": {
+        "passing_rule": {
+          "$ref": "#/$defs/short"
+        },
+        "mutation_oracle": {
+          "$ref": "#/$defs/short"
+        },
+        "stub_resistance": {
+          "$ref": "#/$defs/short"
+        },
+        "required_measurements": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "evaluation_order": {
+          "$ref": "#/$defs/short"
+        }
+      }
     },
     "assertion": {
-      "type": "object", "additionalProperties": false, "required": ["target", "path", "op"],
-      "properties": {"target": {"enum": ["state", "result", "communication", "effects", "authority"]}, "path": {"type": "string", "minLength": 1, "maxLength": 256}, "op": {"enum": ["eq", "not_eq", "contains", "not_contains", "set_eq", "unique", "nonempty", "absent"]}, "value": {"$ref": "#/$defs/jsonValue"}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "path",
+        "op"
+      ],
+      "properties": {
+        "target": {
+          "enum": [
+            "state",
+            "result",
+            "communication",
+            "effects",
+            "authority"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "not_eq",
+            "contains",
+            "not_contains",
+            "set_eq",
+            "unique",
+            "nonempty",
+            "absent"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      }
     },
     "expected": {
-      "type": "object", "additionalProperties": false, "required": ["assertions"],
-      "properties": {"assertions": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/assertion"}}, "invariants": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assertions"
+      ],
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/assertion"
+          }
+        },
+        "invariants": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
     },
     "case": {
-      "type": "object", "additionalProperties": false, "required": ["id", "initial_state", "action", "expected"],
-      "properties": {"id": {"$ref": "#/$defs/id"}, "initial_state": {"type": "object", "minProperties": 1, "maxProperties": 64, "additionalProperties": {"$ref": "#/$defs/jsonValue"}}, "action": {"$ref": "#/$defs/id"}, "expected": {"$ref": "#/$defs/expected"}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "initial_state",
+        "action",
+        "setup",
+        "request",
+        "observations",
+        "expected"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "initial_state": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 64,
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        "action": {
+          "$ref": "#/$defs/id"
+        },
+        "setup": {
+          "$ref": "#/$defs/scenarioSetup"
+        },
+        "request": {
+          "$ref": "#/$defs/scenarioRequest"
+        },
+        "observations": {
+          "$ref": "#/$defs/scenarioObservations"
+        },
+        "expected": {
+          "$ref": "#/$defs/expected"
+        }
+      }
     },
     "scenario": {
-      "type": "object", "additionalProperties": false, "required": ["id", "scenario_number", "mechanism", "initial_state", "action"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scenario_number",
+        "mechanism",
+        "initial_state",
+        "action",
+        "setup",
+        "request",
+        "observations"
+      ],
       "properties": {
-        "id": {"$ref": "#/$defs/id"}, "scenario_number": {"type": "integer", "minimum": 1, "maximum": 47}, "mechanism": {"$ref": "#/$defs/short"},
-        "initial_state": {"type": "object", "minProperties": 1, "maxProperties": 64, "additionalProperties": {"$ref": "#/$defs/jsonValue"}}, "action": {"$ref": "#/$defs/id"},
-        "expected": {"$ref": "#/$defs/expected"}, "cases": {"type": "array", "minItems": 2, "maxItems": 8, "items": {"$ref": "#/$defs/case"}}
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "scenario_number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 47
+        },
+        "mechanism": {
+          "$ref": "#/$defs/short"
+        },
+        "initial_state": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 64,
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        "action": {
+          "$ref": "#/$defs/id"
+        },
+        "setup": {
+          "$ref": "#/$defs/scenarioSetup"
+        },
+        "request": {
+          "$ref": "#/$defs/scenarioRequest"
+        },
+        "observations": {
+          "$ref": "#/$defs/scenarioObservations"
+        },
+        "expected": {
+          "$ref": "#/$defs/expected"
+        },
+        "cases": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/case"
+          }
+        }
       },
-      "anyOf": [{"required": ["expected"]}, {"required": ["cases"]}]
+      "anyOf": [
+        {
+          "required": [
+            "expected"
+          ]
+        },
+        {
+          "required": [
+            "cases"
+          ]
+        }
+      ]
     }
   }
 }

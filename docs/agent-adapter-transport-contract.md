@@ -118,23 +118,33 @@ artifacts, or tool output. Correctness never depends on restoring adapter state.
 
 Consequential mutation flow:
 
-1. Adapter sends canonical request with stable idempotency key.
-2. Core returns `approval_required` with challenge ID, canonical digest, pinned
-   scope/versions, consequence summary, and approval policy.
-3. Adapter calls current tool-context
-   `ask({ permission, patterns, always, metadata })`, placing challenge correlation
-   in `metadata`.
-4. Current `ask` returns `void` on approval and throws on rejection. It provides no
+1. A workflow read may expose a closed `operator_question`. The model calls the
+   built-in question UI and supplies the selected semantic choice and its exact
+   context digest to the public action. The Concord custom tool does not call the
+   question service.
+2. Adapter sends the canonical request with stable idempotency key. Core strictly
+   validates the selection and digest before creating any approval challenge.
+3. Core returns `approval_required` with challenge ID, canonical digest, pinned
+   scope/versions, consequence summary, and approval policy. Workflow checkpoints
+   also include work/action/contract version, selected choice, and bounded premise
+   summary.
+4. Only then does the adapter call current tool-context
+   `ask({ permission, patterns, always, metadata })`, placing the exact checkpoint
+   metadata in `metadata`.
+5. Current `ask` returns `void` on approval and throws on rejection. It provides no
    typed user reply.
-5. On rejection, adapter returns denied; no core mutation occurs.
-6. On approval, adapter resubmits the identical request/challenge under its validated
+6. On rejection, adapter returns denied; no core mutation occurs.
+7. On approval, adapter resubmits the identical request/challenge under its validated
    grant, asserting only that the host request resolved.
-7. Core revalidates digest/scope/versions, creates and consumes TS5's durable
-   approval record, then executes or returns durable-operation state.
+8. Core revalidates digest/scope/versions, derives approval-authority attribution
+   from the trusted-client policy and exact consumed challenge/approval record,
+   creates and consumes TS5's durable approval record, then executes or returns
+   durable-operation state.
 
 The adapter passes `always: []` for consequential calls; OpenCode cannot turn one
-prompt into an unbounded Concord approval. `ask`, metadata, and the adapter are not
-approval authority. The core is.
+prompt into an unbounded Concord approval. The question is semantic input; `ask` is
+authorization. `ask`, metadata, and the adapter are not approval authority. The
+core is. A recorded operator means approval authority, not an identified human.
 
 `ToolContext.ask` exists in current source but is not documented on OpenCode's
 custom-tool/plugin pages. Release must pin OpenCode and verify its exact input shape,

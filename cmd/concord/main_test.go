@@ -408,13 +408,13 @@ func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
 	if err := json.Unmarshal(grantRaw, &grant); err != nil {
 		t.Fatal(err)
 	}
-	if grant.ClientVersion != "1.0.0" {
-		t.Fatalf("grant client_version = %q, want 1.0.0", grant.ClientVersion)
+	if grant.ClientVersion != agent.ManifestVersion {
+		t.Fatalf("grant client_version = %q, want %s", grant.ClientVersion, agent.ManifestVersion)
 	}
 	invokeRaw := runCLIJSON(t, []string{"invoke"}, map[string]any{
 		"call_envelope": map[string]any{
 			"schema_version": "1.0", "request_id": "request-e2e", "grant_ref": grant.GrantToken,
-			"client_ref": grant.ClientRef, "client_version": "1.0.0", "principal_ref": grant.PrincipalRef,
+			"client_ref": grant.ClientRef, "client_version": agent.ManifestVersion, "principal_ref": grant.PrincipalRef,
 			"session_ref": grant.SessionRef, "agent_ref": grant.AgentRef, "directory": repo, "worktree": repo,
 			"ambient_project_id": "project-1", "selected_product_id": "product-1", "scope_version": grant.ScopeVersion,
 			"surface_version": grant.SurfaceVersion, "envelope_version": grant.EnvelopeVersion, "manifest_digest": grant.ManifestDigest,
@@ -532,7 +532,7 @@ func seedCLIAuthority(t *testing.T, client, productID, projectID string) (string
 }
 
 func cliAssertion(privateKey ed25519.PrivateKey, repo, nonce string) map[string]any {
-	a := agent.SignedAssertion{ClientRef: "client-1", ClientVersion: "1.0.0", SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, SurfaceRange: "1.0.0-1.0.0", EnvelopeVersions: "1.0", ManifestDigest: agent.ManifestDigest}
+	a := agent.SignedAssertion{ClientRef: "client-1", ClientVersion: agent.ManifestVersion, SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, SurfaceRange: agent.ManifestVersion + "-" + agent.ManifestVersion, EnvelopeVersions: "1.0", ManifestDigest: agent.ManifestDigest}
 	a.Signature = ed25519.Sign(privateKey, agent.CanonicalAssertion(a))
 	return map[string]any{
 		"client_ref": a.ClientRef, "client_version": a.ClientVersion, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,
@@ -544,7 +544,7 @@ func cliAssertion(privateKey ed25519.PrivateKey, repo, nonce string) map[string]
 }
 
 func adapterShapedAssertion(privateKey ed25519.PrivateKey, repo, nonce string) map[string]any {
-	a := agent.SignedAssertion{ClientRef: "client-1", ClientVersion: "1.0.0", SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProjectIDs: []string{}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, SurfaceRange: "1.0.0-1.0.0", EnvelopeVersions: "1.0", ManifestDigest: agent.ManifestDigest}
+	a := agent.SignedAssertion{ClientRef: "client-1", ClientVersion: agent.ManifestVersion, SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProjectIDs: []string{}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, SurfaceRange: agent.ManifestVersion + "-" + agent.ManifestVersion, EnvelopeVersions: "1.0", ManifestDigest: agent.ManifestDigest}
 	a.Signature = ed25519.Sign(privateKey, agent.CanonicalAssertion(a))
 	return map[string]any{
 		"client_ref": a.ClientRef, "client_version": a.ClientVersion, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,

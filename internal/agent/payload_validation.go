@@ -23,6 +23,9 @@ var operationInputSchemas = map[string]string{
 }
 
 func ValidateOperationPayload(tool, operation string, data []byte, result bool) error {
+	if err := validateUniqueJSON(data); err != nil {
+		return err
+	}
 	key := tool + "." + operation
 	name := operationPayloadSchemas[key]
 	if !result {
@@ -38,6 +41,59 @@ func ValidateOperationPayload(tool, operation string, data []byte, result bool) 
 		return err
 	}
 	return nil
+}
+
+// validateUniqueJSON rejects duplicate object members before any operation can
+// reach grant or approval evaluation. encoding/json otherwise keeps only the
+// last member, which would make the signed request ambiguous.
+func validateUniqueJSON(data []byte) error {
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.UseNumber()
+	if err := consumeUniqueJSON(decoder); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("trailing JSON")
+	}
+	return nil
+}
+
+func consumeUniqueJSON(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	switch token {
+	case json.Delim('{'):
+		seen := map[string]bool{}
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok || seen[key] {
+				return fmt.Errorf("duplicate JSON object field %q", key)
+			}
+			seen[key] = true
+			if err := consumeUniqueJSON(decoder); err != nil {
+				return err
+			}
+		}
+		_, err = decoder.Token()
+		return err
+	case json.Delim('['):
+		for decoder.More() {
+			if err := consumeUniqueJSON(decoder); err != nil {
+				return err
+			}
+		}
+		_, err = decoder.Token()
+		return err
+	default:
+		return nil
+	}
 }
 
 func ValidatePayloadSchema(name string, data []byte) error {
@@ -208,6 +264,17 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 					return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches), "; "))
 				}
 				return fmt.Errorf("%s mismatch at %s", keyword, path)
+			}
+		}
+	}
+	if condition, ok := schema["if"].(map[string]any); ok {
+		branch, _ := schema["else"].(map[string]any)
+		if validateSchemaValue(value, condition, root, path) == nil {
+			branch, _ = schema["then"].(map[string]any)
+		}
+		if branch != nil {
+			if err := validateSchemaValue(value, branch, root, path); err != nil {
+				return err
 			}
 		}
 	}

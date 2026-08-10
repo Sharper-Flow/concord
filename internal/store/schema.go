@@ -820,6 +820,291 @@ CREATE TABLE product_knowledge_homes (
 );
 `,
 	},
+	{
+		Version: 15,
+		Name:    "workflow_engine_projections",
+		SQL: `
+-- Forward-linked successors are still ordinary relation edges. Rebuild the
+-- small relation table once so the accepted closed kind is represented in the
+-- same projection and remains governed by the existing fold guard.
+DROP TRIGGER relations_guard_insert;
+DROP TRIGGER relations_guard_update;
+DROP TRIGGER relations_guard_delete;
+DROP INDEX idx_relations_from_kind;
+DROP INDEX idx_relations_to_kind;
+DROP INDEX relations_supersedes_target;
+ALTER TABLE relations RENAME TO relations_v14;
+CREATE TABLE relations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id_from TEXT NOT NULL REFERENCES work_items(id),
+    work_id_to   TEXT NOT NULL REFERENCES work_items(id),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'blocks', 'supersedes', 'implements', 'forward_link')),
+    created_at   TEXT NOT NULL,
+    CHECK(work_id_from <> work_id_to),
+    UNIQUE(work_id_from, work_id_to, kind)
+);
+INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at)
+    SELECT id,work_id_from,work_id_to,kind,created_at FROM relations_v14;
+DROP TABLE relations_v14;
+CREATE INDEX idx_relations_from_kind ON relations(work_id_from, kind, work_id_to);
+CREATE INDEX idx_relations_to_kind ON relations(work_id_to, kind, work_id_from);
+CREATE UNIQUE INDEX relations_supersedes_target ON relations(work_id_to) WHERE kind = 'supersedes';
+CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+
+CREATE TABLE workflow_actors (
+    actor_ref    TEXT PRIMARY KEY,
+    principal_ref TEXT NOT NULL,
+    client_ref   TEXT NOT NULL,
+    agent_ref    TEXT NOT NULL,
+    session_ref  TEXT NOT NULL,
+    actor_class  TEXT NOT NULL CHECK(actor_class IN ('agent','operator')),
+    first_seen_at TEXT NOT NULL,
+    UNIQUE(principal_ref, client_ref, agent_ref, session_ref),
+    CHECK(length(actor_ref) = 70 AND substr(actor_ref,1,6) = 'actor:'),
+    CHECK(length(principal_ref) BETWEEN 2 AND 128),
+    CHECK(length(client_ref) BETWEEN 2 AND 128),
+    CHECK(length(agent_ref) BETWEEN 2 AND 128),
+    CHECK(length(session_ref) BETWEEN 2 AND 128),
+    CHECK(length(first_seen_at) > 0)
+);
+
+CREATE TABLE workflow_instances (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    definition_ref TEXT NOT NULL,
+    definition_version INTEGER NOT NULL,
+    definition_digest TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','awaiting_condition','verifying','completed','cancelled','superseded')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    CHECK(definition_version > 0 AND definition_version <= 2147483647),
+    CHECK(length(definition_ref) BETWEEN 2 AND 128),
+    CHECK(length(definition_digest) = 71 AND substr(definition_digest,1,7) = 'sha256:'),
+    CHECK(length(current_step) BETWEEN 2 AND 128)
+);
+
+CREATE TABLE workflow_contracts (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    contract_version INTEGER NOT NULL,
+    premise TEXT NOT NULL,
+    outcome_kind TEXT NOT NULL CHECK(outcome_kind IN ('exists','absent','outcome','check')),
+    outcome_payload TEXT NOT NULL CHECK(json_valid(outcome_payload) AND json_type(outcome_payload)='object'),
+    consequence_class TEXT NOT NULL CHECK(consequence_class IN ('internal_sqlite','cross_authority','external_effect')),
+    required_evidence TEXT NOT NULL CHECK(json_valid(required_evidence) AND json_type(required_evidence)='array'),
+    route_conventions TEXT NOT NULL CHECK(json_valid(route_conventions) AND json_type(route_conventions)='array'),
+    approved_at TEXT NOT NULL,
+    approved_by TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    superseded_by INTEGER,
+    spec_mandate TEXT NOT NULL CHECK(json_valid(spec_mandate) AND json_type(spec_mandate)='array'),
+    PRIMARY KEY(work_id, contract_version),
+    FOREIGN KEY(work_id, superseded_by) REFERENCES workflow_contracts(work_id, contract_version) ON DELETE RESTRICT,
+    CHECK(contract_version > 0 AND contract_version <= 2147483647),
+    CHECK(length(premise) BETWEEN 1 AND 4096),
+    CHECK(json_array_length(required_evidence) BETWEEN 0 AND 7),
+    CHECK(json_array_length(route_conventions) BETWEEN 0 AND 16),
+    CHECK(json_array_length(spec_mandate) BETWEEN 0 AND 32)
+);
+
+CREATE TABLE workflow_candidate_sets (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    candidate_kind TEXT NOT NULL CHECK(candidate_kind IN ('work_item','product','project')),
+    candidate_ref TEXT NOT NULL,
+    candidate_role TEXT NOT NULL CHECK(candidate_role IN ('include')),
+    candidate_scope TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    recorded_by TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    PRIMARY KEY(work_id, contract_version, candidate_kind, candidate_ref),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_contracts(work_id, contract_version) ON DELETE RESTRICT,
+    CHECK(length(candidate_ref) BETWEEN 2 AND 128),
+    CHECK(length(candidate_scope) BETWEEN 1 AND 4096)
+);
+
+CREATE TABLE workflow_checkpoints (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    checkpoint_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    step_kind TEXT NOT NULL CHECK(step_kind IN ('internal_sqlite','cross_authority','external_effect','human_checkpoint')),
+    attempt_epoch INTEGER NOT NULL,
+    accepted_inputs_digest TEXT NOT NULL,
+    result_evidence_refs TEXT NOT NULL CHECK(json_valid(result_evidence_refs) AND json_type(result_evidence_refs)='array'),
+    resume_cursor TEXT NOT NULL,
+    idempotency_identity TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, checkpoint_id),
+    UNIQUE(work_id, step_id, attempt_epoch),
+    UNIQUE(work_id, idempotency_identity),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(length(step_id) BETWEEN 2 AND 128),
+    CHECK(attempt_epoch > 0 AND attempt_epoch <= 2147483647),
+    CHECK(length(accepted_inputs_digest) > 0),
+    CHECK(json_array_length(result_evidence_refs) BETWEEN 0 AND 32),
+    CHECK(length(resume_cursor) <= 2048),
+    CHECK(length(idempotency_identity) BETWEEN 2 AND 128),
+    CHECK(length(request_id) > 0)
+);
+
+CREATE TABLE workflow_external_conditions (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    condition_id TEXT NOT NULL,
+    await_type TEXT NOT NULL CHECK(await_type IN ('pr_merge','ci_result','timer','human_approval','remote_work_state')),
+    await_ref TEXT NOT NULL,
+    resolution_authority TEXT NOT NULL,
+    condition_state TEXT NOT NULL CHECK(condition_state IN ('open','resolved','cancelled')),
+    resolution_evidence TEXT,
+    resolved_by_event TEXT,
+    cancellation_authority TEXT,
+    cancellation_evidence TEXT,
+    cancelled_by_event TEXT,
+    recorded_at TEXT NOT NULL,
+    resolved_at TEXT,
+    cancelled_at TEXT,
+    PRIMARY KEY(work_id, condition_id),
+    CHECK(length(condition_id) BETWEEN 2 AND 128),
+    CHECK(length(await_ref) BETWEEN 2 AND 128),
+    CHECK(length(resolution_authority) BETWEEN 2 AND 128),
+    CHECK((condition_state='open' AND resolution_evidence IS NULL AND resolved_by_event IS NULL AND cancellation_authority IS NULL AND cancellation_evidence IS NULL AND cancelled_by_event IS NULL AND resolved_at IS NULL AND cancelled_at IS NULL)
+       OR (condition_state='resolved' AND resolution_evidence IS NOT NULL AND resolved_by_event IS NOT NULL AND cancellation_authority IS NULL AND cancellation_evidence IS NULL AND cancelled_by_event IS NULL AND resolved_at IS NOT NULL AND cancelled_at IS NULL)
+       OR (condition_state='cancelled' AND resolution_evidence IS NULL AND resolved_by_event IS NULL AND cancellation_authority='operator' AND cancellation_evidence IS NOT NULL AND cancelled_by_event IS NOT NULL AND resolved_at IS NULL AND cancelled_at IS NOT NULL))
+);
+
+CREATE TABLE workflow_impact_edges (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    edge_id TEXT NOT NULL,
+    edge_kind TEXT NOT NULL CHECK(edge_kind IN ('modifies','depends_on','forward_link')),
+    edge_class TEXT NOT NULL CHECK(edge_class IN ('hard','soft','none')),
+    target_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    target_kind TEXT NOT NULL CHECK(target_kind IN ('work_item')),
+    severity TEXT NOT NULL CHECK(severity IN ('breaking','non-breaking','informational')),
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, edge_id),
+    CHECK(length(edge_id) BETWEEN 2 AND 128),
+    CHECK(work_id <> target_work_id OR edge_kind = 'modifies')
+);
+
+CREATE TABLE workflow_impact_notices (
+    notice_id TEXT PRIMARY KEY,
+    source_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    source_contract_version INTEGER NOT NULL,
+    entity_kind TEXT NOT NULL,
+    entity_ref TEXT NOT NULL,
+    target_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    edge_id TEXT NOT NULL,
+    old_hash TEXT,
+    new_hash TEXT,
+    severity TEXT NOT NULL CHECK(severity IN ('breaking','non-breaking','informational')),
+    recorded_at TEXT NOT NULL,
+    UNIQUE(source_work_id, source_contract_version, entity_kind, entity_ref, target_work_id, severity),
+    FOREIGN KEY(source_work_id, edge_id) REFERENCES workflow_impact_edges(work_id, edge_id) ON DELETE RESTRICT,
+    CHECK(length(notice_id) = 71 AND substr(notice_id,1,7) = 'notice:'),
+    CHECK(source_contract_version > 0),
+    CHECK(length(entity_kind) BETWEEN 2 AND 128),
+    CHECK(length(entity_ref) BETWEEN 2 AND 128),
+    CHECK(length(edge_id) BETWEEN 2 AND 128)
+);
+
+CREATE TABLE workflow_decision_records (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    question TEXT NOT NULL,
+    options_considered TEXT NOT NULL CHECK(json_valid(options_considered) AND json_type(options_considered)='array'),
+    decision TEXT NOT NULL CHECK(decision IN ('accepted_decision','insufficient_evidence')),
+    rationale TEXT NOT NULL,
+    consequences TEXT NOT NULL CHECK(json_valid(consequences) AND json_type(consequences)='array'),
+    inputs TEXT NOT NULL CHECK(json_valid(inputs) AND json_type(inputs)='array'),
+    poc_findings TEXT NOT NULL,
+    supersedes TEXT,
+    superseded_by TEXT,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, question),
+    CHECK(length(question) BETWEEN 1 AND 4096),
+    CHECK(json_array_length(options_considered) BETWEEN 1 AND 16),
+    CHECK(length(rationale) BETWEEN 1 AND 4096),
+    CHECK(json_array_length(consequences) BETWEEN 1 AND 16),
+    CHECK(json_array_length(inputs) BETWEEN 1 AND 32),
+    CHECK(length(poc_findings) BETWEEN 1 AND 4096)
+);
+
+CREATE TABLE workflow_premise_confirmations (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    confirmed_by TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    confirmed_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, contract_version),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_contracts(work_id, contract_version) ON DELETE RESTRICT,
+    CHECK(contract_version > 0)
+);
+
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
+CREATE INDEX workflow_conditions_state ON workflow_external_conditions(work_id, condition_state);
+CREATE INDEX workflow_impact_edges_target ON workflow_impact_edges(target_work_id, edge_kind, edge_class);
+CREATE INDEX workflow_notices_target ON workflow_impact_notices(target_work_id, severity);
+
+CREATE TRIGGER workflow_actors_guard_insert BEFORE INSERT ON workflow_actors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_actors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_actors_guard_update BEFORE UPDATE ON workflow_actors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_actors is immutable') ; END;
+CREATE TRIGGER workflow_actors_guard_delete BEFORE DELETE ON workflow_actors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_actors is immutable') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_guard_insert BEFORE INSERT ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_guard_update BEFORE UPDATE ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_guard_delete BEFORE DELETE ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_candidate_sets_guard_insert BEFORE INSERT ON workflow_candidate_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_candidate_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_candidate_sets_guard_update BEFORE UPDATE ON workflow_candidate_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_candidate_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_candidate_sets_guard_delete BEFORE DELETE ON workflow_candidate_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_candidate_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_checkpoints_guard_insert BEFORE INSERT ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_checkpoints_guard_update BEFORE UPDATE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_checkpoints_guard_delete BEFORE DELETE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_external_conditions_guard_insert BEFORE INSERT ON workflow_external_conditions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_external_conditions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_external_conditions_guard_update BEFORE UPDATE ON workflow_external_conditions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_external_conditions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_external_conditions_guard_delete BEFORE DELETE ON workflow_external_conditions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_external_conditions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_edges_guard_insert BEFORE INSERT ON workflow_impact_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_edges_guard_update BEFORE UPDATE ON workflow_impact_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_edges_guard_delete BEFORE DELETE ON workflow_impact_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_notices_guard_insert BEFORE INSERT ON workflow_impact_notices FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_notices is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_notices_guard_update BEFORE UPDATE ON workflow_impact_notices FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_notices is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_notices_guard_delete BEFORE DELETE ON workflow_impact_notices FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_notices is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_decision_records_guard_insert BEFORE INSERT ON workflow_decision_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_decision_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_decision_records_guard_update BEFORE UPDATE ON workflow_decision_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_decision_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_decision_records_guard_delete BEFORE DELETE ON workflow_decision_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_decision_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_premise_confirmations_guard_insert BEFORE INSERT ON workflow_premise_confirmations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_premise_confirmations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_premise_confirmations_guard_update BEFORE UPDATE ON workflow_premise_confirmations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_premise_confirmations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_premise_confirmations_guard_delete BEFORE DELETE ON workflow_premise_confirmations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_premise_confirmations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
+	},
+	{
+		Version: 16,
+		Name:    "durable_operation_contract_versions",
+		SQL: `
+ALTER TABLE durable_operations ADD COLUMN contract_version TEXT NOT NULL DEFAULT '1.0.0';
+`,
+	},
+	{
+		Version: 17,
+		Name:    "workflow_staleness_warnings",
+		SQL: `
+CREATE TABLE workflow_staleness_warnings (
+    work_id     TEXT NOT NULL,
+    rule_id     TEXT NOT NULL,
+    severity    TEXT NOT NULL CHECK (severity IN ('warning','block')),
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (work_id, rule_id)
+);
+CREATE INDEX workflow_staleness_warnings_work ON workflow_staleness_warnings(work_id, observed_at);
+		`,
+	},
+	{
+		Version: 18,
+		Name:    "workflow_contract_rigor_class",
+		SQL: `
+ALTER TABLE workflow_contracts ADD COLUMN rigor_class TEXT NOT NULL DEFAULT 'prototype_internal';
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

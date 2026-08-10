@@ -236,7 +236,7 @@
             "approval_required", "approval_invalid", "version_conflict",
             "idempotency_conflict", "operation_conflict", "invalid_transition",
             "invalid_relation", "invariant_violation", "missing_evidence",
-            "not_terminal", "stale_requires_review", "degraded_not_allowed",
+             "not_terminal", "outcome_mismatch", "stale_requires_review", "degraded_not_allowed",
             "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused",
             "invalid_input", "cancelled", "timeout", "transport_failure",
             "malformed_response", "internal_error"
@@ -294,6 +294,10 @@
         {
           "if": { "properties": { "kind": { "enum": ["invalid_transition", "invalid_relation", "invariant_violation", "not_terminal"] } }, "required": ["kind"] },
           "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "reread_entities" } } } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "outcome_mismatch" } }, "required": ["kind"] },
+          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "contact_operator" } } } } }
         },
         {
           "if": { "properties": { "kind": { "enum": ["approval_required", "approval_invalid"] } }, "required": ["kind"] },

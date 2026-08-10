@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "1.0.0"
-const ManifestDigest = "sha256:ff0c8d047ab5565c168072eb6ca5daa6e4d664c482064abb920d583bb3bec6a5"
+const ManifestVersion = "2.0.0"
+const ManifestDigest = "sha256:6d7994b5481557df2ee066967b61c9eeacc99d22eac9d3c4af3336ed857533e9"
 
 type OperationKind string
 
@@ -66,7 +66,6 @@ func ValidateContractOperation(tool, operation string) (ContractOperation, bool)
 	}
 	return ContractOperation{}, false
 }
-func WorkflowActionAvailable() bool { return false }
 
 type GeneratedPayloadRule struct {
 	Required   []string
@@ -84,6 +83,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"knowledge_resolve_input":         {Required: []string{}, Properties: []string{"work_id", "knowledge_id"}},
 	"knowledge_search_input":          {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "page", "budget"}},
 	"mutation_result":                 {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id"}},
+	"operator_choice":                 {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
+	"operator_question":               {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
 	"page":                            {Required: []string{"cursor", "limit"}, Properties: []string{"cursor", "limit"}},
 	"product_context":                 {Required: []string{"product_id", "projects"}, Properties: []string{"product_id", "stage", "projects", "candidates", "next_cursor"}},
 	"product_snapshot":                {Required: []string{"counts", "previews"}, Properties: []string{"counts", "previews"}},
@@ -98,7 +99,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_compact_reconcile_input":    {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence"}},
 	"work_define_capture_input":       {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "approval"}},
 	"work_define_revise_input":        {Required: []string{"work_id", "expected_version", "title", "value_statement", "kind", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "title", "value_statement", "kind", "priority", "tags", "component_id", "workflow_type_ref", "reason", "idempotency_key", "evidence"}},
-	"work_event_page":                 {Required: []string{"events"}, Properties: []string{"events", "next_cursor"}},
+	"work_event_page":                 {Required: []string{"events"}, Properties: []string{"events", "next_cursor", "workflow"}},
 	"work_page":                       {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
 	"work_relate_link_input":          {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key", "approval"}},
 	"work_relate_memberships_input":   {Required: []string{"work_id", "expected_version", "memberships", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "memberships", "idempotency_key", "approval"}},
@@ -110,8 +111,10 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_summary":                    {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "project_ids", "ready", "terminal_at"}},
 	"work_trace_history_input":        {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "direction", "event_kinds", "page", "budget"}},
 	"work_trace_relations_input":      {Required: []string{"work_id"}, Properties: []string{"work_id", "relation_kinds", "direction", "depth", "budget"}},
-	"work_transition_action_input":    {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "fields", "idempotency_key", "evidence", "approval"}},
+	"work_transition_action_input":    {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "selected_choice", "decision_context_digest", "fields", "idempotency_key", "evidence", "approval"}},
 	"work_transition_lifecycle_input": {Required: []string{"work_id", "expected_version", "target", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "target", "reason", "idempotency_key", "evidence", "approval"}},
+	"workflow_contract":               {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}},
+	"workflow_read":                   {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}},
 }
 
 func ValidateGeneratedPayload(schemaName string, data []byte) error {

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -58,12 +59,15 @@ type lifecycleMutationInput struct {
 	Approval        *approvalInput `json:"approval"`
 }
 type actionMutationInput struct {
-	WorkID          string         `json:"work_id"`
-	ExpectedVersion int64          `json:"expected_version"`
-	ActionID        string         `json:"action_id"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Evidence        []EvidenceRef  `json:"evidence"`
-	Approval        *approvalInput `json:"approval"`
+	WorkID                string          `json:"work_id"`
+	ExpectedVersion       int64           `json:"expected_version"`
+	ActionID              string          `json:"action_id"`
+	SelectedChoice        string          `json:"selected_choice"`
+	DecisionContextDigest string          `json:"decision_context_digest"`
+	Fields                json.RawMessage `json:"fields"`
+	IdempotencyKey        string          `json:"idempotency_key"`
+	Evidence              []EvidenceRef   `json:"evidence"`
+	Approval              *approvalInput  `json:"approval"`
 }
 type membershipsMutationInput struct {
 	WorkID          string               `json:"work_id"`
@@ -175,6 +179,22 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if !scopeWithinGrant(authorizedScope, grant) {
 		return coreError(base, "unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false), true, nil
 	}
+	if op.ID == "concord_work_transition.workflow_action" {
+		step, stepErr := store.Step(ctx, r.Store, opID)
+		if stepErr != nil {
+			return Envelope{}, false, stepErr
+		}
+		if _, err := r.Store.DB().ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, operationKind, key); err != nil {
+			return Envelope{}, false, err
+		}
+		base.Replayed = true
+		base.ResolvedScope = scopeFromMap(authorizedScope)
+		replay, replayErr := replayWorkflowAction(base, step, changed)
+		if replayErr != nil {
+			return Envelope{}, false, replayErr
+		}
+		return replay, true, nil
+	}
 	if _, err := r.Store.DB().ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, operationKind, key); err != nil {
 		return Envelope{}, false, err
 	}
@@ -195,6 +215,88 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	}
 	ref := operationRefFromFence(step, "pending", "git_proof")
 	return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), true, nil
+}
+
+func replayWorkflowAction(base Envelope, step store.FenceResult, legacyChanged string) (Envelope, error) {
+	state := OperationState(step.ResultKind)
+	if step.ResultKind == store.ResultFailedStale {
+		// failed_stale is a durable store classification, not a TS7 state.
+		state = OperationFailed
+	}
+	ref := OperationRef{ID: step.OpID, Kind: "workflow_action", Version: strconv.FormatInt(step.AttemptEpoch, 10), State: state, CurrentStep: step.StepID, UpdatedAt: time.Now().UTC()}
+	switch step.ResultKind {
+	case store.ResultCompleted:
+		payload := json.RawMessage(step.ResultPayload)
+		if err := ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
+			if step.ContractVersion != "1.0.0" {
+				return Envelope{}, newRuntimeFailure("invariant_violation", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "reread_entities", false)
+			}
+			migrated, migrateErr := migrateLegacyWorkflowResult(payload, legacyChanged)
+			if migrateErr != nil {
+				return Envelope{}, migrateErr
+			}
+			payload = migrated
+		}
+		return NewOKMutation(base, payload, decodeWorkflowChangedRefs(step.ChangedRefs), nil), nil
+	case store.ResultPending:
+		return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), nil
+	case store.ResultPartial:
+		return NewPartial(base, ref, []string{step.StepID}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}), nil
+	case store.ResultFailed, store.ResultFailedStale:
+		return NewPartial(base, ref, []string{step.StepID}, TypedError{Kind: "operation_conflict", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}), nil
+	default:
+		return Envelope{}, newRuntimeFailure("invariant_violation", "durable workflow result classification is unsupported", "reread_entities", false)
+	}
+}
+
+func migrateLegacyWorkflowResult(payload json.RawMessage, changed string) (json.RawMessage, error) {
+	var legacy struct {
+		ChangedRefs      []string     `json:"changed_refs"`
+		NextValidIntents []NextIntent `json:"next_valid_intents"`
+		OperationID      string       `json:"operation_id,omitempty"`
+	}
+	if err := json.Unmarshal(payload, &legacy); err != nil || len(legacy.ChangedRefs) == 0 {
+		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result cannot be migrated", "reread_entities", false)
+	}
+	var refs []ChangedRef
+	if err := json.Unmarshal([]byte(changed), &refs); err != nil {
+		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result is missing typed changed references", "reread_entities", false)
+	}
+	if len(refs) != len(legacy.ChangedRefs) {
+		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result is missing typed changed references", "reread_entities", false)
+	}
+	currentRefs := make([]map[string]any, 0, len(refs))
+	for _, ref := range refs {
+		version, err := strconv.ParseInt(ref.Version, 10, 64)
+		if err != nil || version < 1 {
+			return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result has an invalid changed-reference version", "reread_entities", false)
+		}
+		currentRefs = append(currentRefs, map[string]any{"entity_kind": ref.EntityKind, "id": ref.ID, "version": version})
+	}
+	migrated, err := json.Marshal(map[string]any{"changed_refs": currentRefs, "next_valid_intents": legacy.NextValidIntents, "operation_id": legacy.OperationID})
+	if err != nil {
+		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result cannot be migrated", "reread_entities", false)
+	}
+	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", migrated, true); err != nil {
+		return nil, newRuntimeFailure("invariant_violation", fmt.Sprintf("migrated durable workflow result is invalid: %v", err), "reread_entities", false)
+	}
+	return migrated, nil
+}
+
+func decodeWorkflowChangedRefs(values []string) []ChangedRef {
+	type durableRef struct {
+		EntityKind string `json:"entity_kind"`
+		ID         string `json:"id"`
+		Version    int64  `json:"version"`
+	}
+	out := make([]ChangedRef, 0, len(values))
+	for _, value := range values {
+		var ref durableRef
+		if json.Unmarshal([]byte(value), &ref) == nil && ref.EntityKind != "" && ref.ID != "" && ref.Version > 0 {
+			out = append(out, ChangedRef{EntityKind: ref.EntityKind, ID: ref.ID, Version: strconv.FormatInt(ref.Version, 10)})
+		}
+	}
+	return out
 }
 
 func scopeFromMap(scope map[string]any) *Scope {
@@ -241,9 +343,346 @@ func scopeFromMap(scope map[string]any) *Scope {
 	return result
 }
 
-func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, _ Grant, op ContractOperation) (Envelope, error) {
+func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant Grant) error {
+	var in actionMutationInput
+	if err := decodeStrict(raw, &in); err != nil {
+		return err
+	}
+	payload, err := workflowActionFields(in.Fields)
+	if err != nil {
+		return err
+	}
+	return store.AuthorizeWorkflowAction(ctx, r.Store, nil, store.WorkflowActionPreflightRequest{
+		WorkID:                in.WorkID,
+		ExpectedVersion:       in.ExpectedVersion,
+		ActionID:              in.ActionID,
+		SelectedChoice:        in.SelectedChoice,
+		DecisionContextDigest: in.DecisionContextDigest,
+		Payload:               payload,
+		Actor: store.WorkflowActor{
+			PrincipalRef: grant.PrincipalRef,
+			ClientRef:    grant.ClientRef,
+			AgentRef:     grant.AgentRef,
+			SessionRef:   grant.SessionRef,
+			ActorClass:   store.ActorAgent,
+		},
+	}, nil)
+}
+
+func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant Grant, authorize func() error) error {
+	var in actionMutationInput
+	if err := decodeStrict(raw, &in); err != nil {
+		return err
+	}
+	payload, err := workflowActionFields(in.Fields)
+	if err != nil {
+		return err
+	}
+	return store.AuthorizeWorkflowAction(ctx, r.Store, nil, store.WorkflowActionPreflightRequest{
+		WorkID:                in.WorkID,
+		ExpectedVersion:       in.ExpectedVersion,
+		ActionID:              in.ActionID,
+		SelectedChoice:        in.SelectedChoice,
+		DecisionContextDigest: in.DecisionContextDigest,
+		Payload:               payload,
+		Actor: store.WorkflowActor{
+			PrincipalRef: grant.PrincipalRef,
+			ClientRef:    grant.ClientRef,
+			AgentRef:     grant.AgentRef,
+			SessionRef:   grant.SessionRef,
+			ActorClass:   store.ActorAgent,
+		},
+	}, authorize)
+}
+
+func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope) error {
+	return preflightWorkflowActionRequestWithRegistry(ctx, s, raw, env, store.BuiltinWorkflowRegistry())
+}
+
+func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, registry store.DefinitionRegistry) error {
+	var in actionMutationInput
+	if err := decodeStrict(raw, &in); err != nil {
+		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
+	}
+	payload, err := workflowActionFields(in.Fields)
+	if err != nil {
+		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
+	}
+	// An exact durable replay is allowed to bypass the now-advanced expected
+	// version. The digest comparison remains strict; no authorization callback
+	// or mutation is reached until the normal replay path validates the grant.
+	var priorDigest string
+	key := in.IdempotencyKey
+	if err := s.DB().QueryRowContext(ctx, `SELECT canonical_digest FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind='workflow_action' AND idempotency_key=?`, env.PrincipalRef, "concord_work_transition", key).Scan(&priorDigest); err == nil {
+		if priorDigest != mutationDigest("concord_work_transition", "workflow_action", env, raw) {
+			return store.IdempotencyConflict("workflow_action", key)
+		}
+		return nil
+	} else if err != sql.ErrNoRows {
+		return err
+	}
+	if err := store.ValidateWorkflowOperatorSelection(ctx, s, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
+		return err
+	}
+	return store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
+		WorkID:                in.WorkID,
+		ExpectedVersion:       in.ExpectedVersion,
+		ActionID:              in.ActionID,
+		SelectedChoice:        in.SelectedChoice,
+		DecisionContextDigest: in.DecisionContextDigest,
+		Payload:               payload,
+		Actor:                 store.WorkflowActor{PrincipalRef: env.PrincipalRef, ClientRef: env.ClientRef, AgentRef: env.AgentRef, SessionRef: env.SessionRef, ActorClass: store.ActorAgent},
+	})
+}
+
+func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return json.RawMessage(`{}`), nil
+	}
+	if err := validateUniqueJSON(raw); err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := decodeStrict(raw, &object); err == nil && object != nil {
+		return raw, nil
+	}
+	var fields []struct {
+		Name  string          `json:"name"`
+		Value json.RawMessage `json:"value"`
+	}
+	if err := decodeStrict(raw, &fields); err != nil {
+		return nil, fmt.Errorf("workflow action fields must be a strict object or field list: %w", err)
+	}
+	object = make(map[string]json.RawMessage, len(fields))
+	for _, field := range fields {
+		if field.Name == "" {
+			return nil, errors.New("workflow action field name is required")
+		}
+		if _, exists := object[field.Name]; exists {
+			return nil, fmt.Errorf("workflow action field %q is duplicated", field.Name)
+		}
+		if field.Name == "payload" {
+			var encoded string
+			var payloadObject map[string]json.RawMessage
+			if json.Unmarshal(field.Value, &encoded) == nil && json.Unmarshal([]byte(encoded), &payloadObject) == nil {
+				field.Value, _ = json.Marshal(payloadObject)
+			}
+		}
+		object[field.Name] = field.Value
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
+func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Grant) (Envelope, error) {
+	if r.Store == nil {
+		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
+	}
+	var in actionMutationInput
+	if err := decodeStrict(raw, &in); err != nil {
+		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	payload, err := workflowActionFields(in.Fields)
+	if err != nil {
+		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	if in.ActionID == "replay" {
+		return r.mutateWorkflowReplay(ctx, base, in, payload)
+	}
+	registry := r.Registry
+	if registry == nil {
+		registry = store.BuiltinWorkflowRegistry()
+	}
+	_, action, err := store.WorkflowActionDefinitionFor(ctx, r.Store, registry, in.WorkID, in.ActionID)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
+	operationID := "workflow-" + digest[7:31]
+	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{in.WorkID}, "scope_version": r.Envelope.ScopeVersion}
+	versions := map[string]any{"work": in.ExpectedVersion}
+	approvalConsequence := "workflow_action"
+	contractVersion := int64(0)
+	if in.ActionID == "confirm_premise" {
+		if err := r.Store.DB().QueryRowContext(ctx, `SELECT COALESCE((SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1),0)`, in.WorkID).Scan(&contractVersion); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		if contractVersion == 0 {
+			return coreError(base, "invalid_input", "confirm_premise requires an approved workflow contract", "reread_entities", false), nil
+		}
+		versions["contract"] = contractVersion
+	}
+	approval := ""
+	if in.Approval != nil {
+		approval = in.Approval.ApprovalRef
+	}
+	requiresApproval := action.Approval == store.ActionApprovalRequired
+	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, ContractOperation{ID: "concord_work_transition.workflow_action"}); replayErr != nil || handled {
+		if replayErr != nil {
+			return failureEnvelope(base, replayErr), nil
+		}
+		return replay, nil
+	}
+	if err := store.ValidateWorkflowOperatorSelection(ctx, r.Store, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
+		return failureEnvelope(base, err), nil
+	}
+
+	inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: Capability("work_transition"), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+	if inv.HostAssertionDigest == "" {
+		inv.HostAssertionDigest = digest
+	}
+	if requiresApproval && approval == "" {
+		tx, txErr := r.Store.DB().BeginTx(ctx, nil)
+		if txErr != nil {
+			return failureEnvelope(base, txErr), nil
+		}
+		challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+		if challengeErr != nil {
+			_ = tx.Rollback()
+			return failureEnvelope(base, challengeErr), nil
+		}
+		if err := tx.Commit(); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		response := coreError(base, "approval_required", "core approval is required for this workflow action", "request_approval", false)
+		premiseSummary := ""
+		if in.ActionID == "confirm_premise" {
+			_ = r.Store.DB().QueryRowContext(ctx, `SELECT premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, in.WorkID).Scan(&premiseSummary)
+		}
+		if len([]rune(premiseSummary)) > 256 {
+			premiseSummary = string([]rune(premiseSummary)[:256])
+		}
+		if premiseSummary == "" {
+			premiseSummary = "Workflow action " + in.ActionID
+		}
+		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(scope), "versions": approvalVersionBindings(versions), "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
+		return response, nil
+	}
+
+	var execution store.WorkflowActionExecutionResult
+	var operatorActor *store.WorkflowActor
+	scopeJSON, _ := json.Marshal(scope)
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractVersion: ManifestVersion, Now: r.Authority.now()}
+	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor}, nil, time.Time{}, func(tx *sql.Tx) error {
+		if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
+			return err
+		}
+		if requiresApproval {
+			verifiedOperator, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise"})
+			if err != nil {
+				return err
+			}
+			if in.ActionID == "confirm_premise" {
+				operatorActor = &verifiedOperator
+			}
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, grant.PrincipalRef, r.Tool, "workflow_action", in.IdempotencyKey, digest, operationID, "[]", "{}", "[]", string(scopeJSON), r.Authority.now().Format(time.RFC3339Nano), r.Authority.now().Format(time.RFC3339Nano))
+		return err
+	}, func(tx *sql.Tx) error {
+		actionRequest.OperatorActor = operatorActor
+		var err error
+		execution, err = store.ApplyWorkflowActionTx(ctx, tx, registry, actionRequest)
+		if err != nil {
+			return err
+		}
+		changedVersion := execution.ResultingVersion
+		if changedVersion == 0 {
+			changedVersion = in.ExpectedVersion + 1
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
+		changedJSON, _ := json.Marshal(changed)
+		_, err = tx.ExecContext(ctx, `UPDATE idempotency_records SET result_event_ids=?,result_payload=?,changed_refs=?,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind='workflow_action' AND idempotency_key=?`, marshalEventIDs(execution.EventIDs), string(execution.Result), string(changedJSON), r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, in.IdempotencyKey)
+		return err
+	})
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	changedVersion := execution.ResultingVersion
+	if changedVersion == 0 {
+		changedVersion = in.ExpectedVersion + 1
+	}
+	base.ResolvedScope = scopeFromMap(scope)
+	return NewOKMutation(base, execution.Result, []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}, nil), nil
+}
+
+func (r runtime) mutateWorkflowReplay(ctx context.Context, base Envelope, in actionMutationInput, payload []byte) (Envelope, error) {
+	events, err := decodeWorkflowReplayEvents(payload, in.WorkID)
+	if err != nil {
+		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	imported, err := store.ImportWorkflowEventStream(ctx, r.Store, events)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	evidence, err := store.ReadWorkflowReplayEvidence(ctx, r.Store, in.WorkID, "work.created")
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	result, _ := json.Marshal(map[string]any{
+		"old_event": map[string]any{
+			"upcasted":           evidence.StoredPayloadVersion < evidence.ReplayPayloadVersion,
+			"stored_version":     evidence.StoredPayloadVersion,
+			"replay_version":     evidence.ReplayPayloadVersion,
+			"projection_version": evidence.ProjectionVersion,
+		},
+		"processed_event_count": len(imported.ProcessedEventIDs),
+	})
+	base.Authority = AuthorityAuthoritative
+	base.Outcome = OutcomeOK
+	base.Result = result
+	return base, nil
+}
+
+type workflowReplayEventInput struct {
+	EventID        string          `json:"event_id"`
+	Kind           string          `json:"kind"`
+	WorkID         string          `json:"work_id"`
+	ActorRef       string          `json:"actor_ref"`
+	OccurredAt     string          `json:"occurred_at"`
+	PayloadVersion int             `json:"payload_version"`
+	Payload        json.RawMessage `json:"payload"`
+}
+
+func decodeWorkflowReplayEvents(raw []byte, workID string) ([]store.Event, error) {
+	var fields map[string]json.RawMessage
+	if err := decodeStrict(raw, &fields); err != nil {
+		return nil, fmt.Errorf("workflow replay fields must be a strict object: %w", err)
+	}
+	stream, ok := fields["event_stream"]
+	if !ok {
+		return nil, errors.New("workflow replay requires the structured event_stream")
+	}
+	var entries []workflowReplayEventInput
+	if err := decodeStrict(stream, &entries); err != nil {
+		return nil, fmt.Errorf("workflow replay event_stream is invalid: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, errors.New("workflow replay event_stream is empty")
+	}
+	events := make([]store.Event, 0, len(entries))
+	for _, entry := range entries {
+		if entry.WorkID != workID || entry.EventID == "" || entry.Kind == "" || entry.ActorRef == "" || entry.PayloadVersion < 1 || len(entry.Payload) == 0 {
+			return nil, errors.New("workflow replay event_stream entry has incomplete typed identity")
+		}
+		occurredAt, err := time.Parse(time.RFC3339Nano, entry.OccurredAt)
+		if err != nil {
+			return nil, errors.New("workflow replay event_stream entry has an invalid occurred_at timestamp")
+		}
+		var payloadObject map[string]any
+		if err := json.Unmarshal(entry.Payload, &payloadObject); err != nil || payloadObject == nil {
+			return nil, errors.New("workflow replay event_stream payload must be an object")
+		}
+		events = append(events, store.Event{EventID: entry.EventID, Kind: entry.Kind, SubjectType: store.SubjectWorkItem, SubjectID: entry.WorkID, Actor: entry.ActorRef, OccurredAt: occurredAt.UTC(), PayloadVersion: entry.PayloadVersion, Payload: append(json.RawMessage(nil), entry.Payload...)})
+	}
+	return events, nil
+}
+
+func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_transition.workflow_action" {
-		return coreError(base, "invalid_input", "workflow actions are unavailable until a workflow definition exposes the action", "contact_operator", false), nil
+		return r.mutateWorkflowAction(ctx, base, raw, grant)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	if r.Tool == "concord_work_compact" {
@@ -267,6 +706,14 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, _ Grant,
 			return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil
 		}
 		workID := "work-" + digest[7:31]
+		var registeredDefinition store.RegisteredDefinition
+		if in.WorkflowTypeRef != "" {
+			var definitionErr error
+			registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
+			if definitionErr != nil {
+				return failureEnvelope(base, definitionErr), nil
+			}
+		}
 		if in.Approval != nil {
 			approval = in.Approval.ApprovalRef
 		}
@@ -303,7 +750,18 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, _ Grant,
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			return mutationPayload([]ChangedRef{{EntityKind: "work_item", ID: workID, Version: "2"}}, intents), result.EventIDs, []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "2"}}, nil
+			if in.WorkflowTypeRef != "" {
+				actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+				if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
+					return nil, nil, nil, err
+				}
+			}
+			changedVersion := int64(2)
+			if in.WorkflowTypeRef != "" {
+				changedVersion = 4
+			}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(changedVersion, 10)}}
+			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
 	case "concord_work_define.revise_intent":
 		var in reviseMutationInput
@@ -312,14 +770,40 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, _ Grant,
 		}
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
+		var registeredDefinition store.RegisteredDefinition
+		if in.WorkflowTypeRef != "" {
+			var definitionErr error
+			registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
+			if definitionErr != nil {
+				return failureEnvelope(base, definitionErr), nil
+			}
+		}
 		intents = []NextIntent{{Tool: "concord_work_transition", Operation: "lifecycle", ReasonCode: "continue_work", RequiredFields: []string{"work_id", "expected_version"}}}
 		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			var existingDefinitionRef string
+			existingErr := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, in.WorkID).Scan(&existingDefinitionRef)
+			if existingErr != nil && existingErr != sql.ErrNoRows {
+				return nil, nil, nil, existingErr
+			}
+			if existingErr == nil && in.WorkflowTypeRef != "" && existingDefinitionRef != in.WorkflowTypeRef {
+				return nil, nil, nil, fmt.Errorf("workflow definition cannot be changed after initialization")
+			}
 			payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "tags": in.Tags, "component_id": in.ComponentID, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			if in.WorkflowTypeRef != "" && existingErr == sql.ErrNoRows {
+				actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+				if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
+					return nil, nil, nil, err
+				}
+			}
+			changedVersion := in.ExpectedVersion + 1
+			if in.WorkflowTypeRef != "" && existingErr == sql.ErrNoRows {
+				changedVersion += 2
+			}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
 	case "concord_work_transition.lifecycle":
@@ -617,13 +1101,14 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		return coreError(base, "unauthorized", err.Error(), "contact_operator", false), nil
 	}
 	if op.ID == "concord_work_compact.publish" {
-		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef}
+		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractVersion: ManifestVersion}
 		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *sql.Tx) error {
 			if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 				return err
 			}
-			return r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: "publication", ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+			_, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: "publication", ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+			return err
 		})
 		if claimErr != nil {
 			return failureEnvelope(base, claimErr), nil
@@ -816,6 +1301,10 @@ func mutationConsequence(id string) string {
 	}
 }
 
+func actionIsFenced(action string) bool {
+	return strings.HasPrefix(action, "start_") || strings.HasPrefix(action, "run_") || strings.HasPrefix(action, "rollback_")
+}
+
 func mutationPayload(changed []ChangedRef, intents []NextIntent) json.RawMessage {
 	b, _ := json.Marshal(map[string]any{"changed_refs": changed, "next_valid_intents": intents})
 	return b
@@ -919,7 +1408,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	}
 	if requiresApproval {
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
-		if err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
+		if _, err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
 			_ = tx.Rollback()
 			return coreError(base, "approval_invalid", err.Error(), "request_approval", false), nil
 		}
@@ -944,22 +1433,33 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	return NewOKMutation(base, payload, changed, intents), nil
 }
 
-func (r runtime) consumeApprovalTx(ctx context.Context, tx *sql.Tx, inv Invocation, grant Grant, check ApprovalCheck) error {
+func (r runtime) consumeApprovalTx(ctx context.Context, tx *sql.Tx, inv Invocation, grant Grant, check ApprovalCheck) (store.WorkflowActor, error) {
+	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
-		return fmt.Errorf("signed host approval assertion is required")
+		return operator, fmt.Errorf("signed host approval assertion is required")
 	}
+	var err error
 	challenge, err := r.Authority.ValidateHostApprovalAssertionTx(ctx, tx, inv, *r.Envelope.HostApproval, check)
 	if err != nil {
-		return err
+		return operator, err
 	}
 	approvalRef := check.ApprovalRef
 	if challenge {
 		approvalRef, err = r.Authority.CreateApprovalFromChallengeTx(ctx, tx, inv, check.ApprovalRef)
 		if err != nil {
-			return err
+			return operator, err
 		}
 	}
-	return r.Authority.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check)
+	if err := r.Authority.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check); err != nil {
+		return operator, err
+	}
+	if check.RequireOperatorIdentity {
+		operator, err = r.Authority.ApprovalAuthorityActorTx(ctx, tx, inv, approvalRef)
+		if err != nil {
+			return store.WorkflowActor{}, err
+		}
+	}
+	return operator, nil
 }
 
 func boundedApprovalScope(scope map[string]any) map[string]any {

@@ -658,13 +658,14 @@ type ApprovalChallengeSpec struct {
 	ExpiresAt           time.Time
 }
 type ApprovalCheck struct {
-	ApprovalRef     string
-	OperationDigest string
-	Scope           map[string]any
-	Versions        map[string]any
-	Consequence     string
-	ClientRef       string
-	SessionRef      string
+	ApprovalRef             string
+	OperationDigest         string
+	Scope                   map[string]any
+	Versions                map[string]any
+	Consequence             string
+	ClientRef               string
+	SessionRef              string
+	RequireOperatorIdentity bool
 }
 
 type HostApprovalAssertion struct {
@@ -678,7 +679,13 @@ type HostApprovalAssertion struct {
 	ClientVersion string   `json:"client_version"`
 	IssuedAt      string   `json:"issued_at"`
 	Nonce         string   `json:"nonce"`
-	Signature     []byte   `json:"signature"`
+	// Deprecated compatibility fields are intentionally ignored and excluded
+	// from signed bytes. Operator attribution comes from durable approval
+	// authority, never from adapter-selected identity.
+	OperatorPrincipalRef string `json:"-"`
+	OperatorAgentRef     string `json:"-"`
+	OperatorSessionRef   string `json:"-"`
+	Signature            []byte `json:"signature"`
 }
 
 func CanonicalHostApprovalAssertion(a HostApprovalAssertion) []byte {
@@ -749,27 +756,43 @@ func approvalVersionBindings(versions map[string]any) []string {
 // exact approved intent. It also consumes the nonce in the same transaction as
 // the resulting approval/domain effect.
 func (s *Service) ValidateHostApprovalAssertionTx(ctx context.Context, tx *sql.Tx, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (bool, error) {
+	_, err := s.validateHostApprovalAssertionIdentityTx(ctx, tx, in, assertion, check)
+	if err != nil {
+		return false, err
+	}
+	var challengeCount int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM agent_approval_challenges WHERE challenge_ref=?`, assertion.ChallengeRef).Scan(&challengeCount); err != nil {
+		return false, err
+	}
+	return challengeCount == 1, nil
+}
+
+// validateHostApprovalAssertionIdentityTx is the shared signed-approval path.
+// The assertion authenticates the invoking trusted client and exact challenge;
+// it carries no human identity. Operator attribution is derived later from
+// the durable consumed approval record.
+func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, tx *sql.Tx, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (store.WorkflowActor, error) {
 	if tx == nil || len(assertion.Signature) != ed25519.SignatureSize || assertion.ChallengeRef != check.ApprovalRef || assertion.RequestDigest != check.OperationDigest || assertion.SessionRef != in.SessionRef || assertion.AgentRef != in.AgentRef || assertion.Worktree != in.Worktree || assertion.ClientVersion != in.ClientVersion || len(assertion.Nonce) < 16 || len(assertion.Nonce) > 256 {
-		return false, errors.New("host approval assertion binding invalid")
+		return store.WorkflowActor{}, errors.New("host approval assertion binding invalid")
 	}
 	issued, err := time.Parse(time.RFC3339Nano, assertion.IssuedAt)
 	if err != nil || issued.Before(s.now().Add(-s.skew())) || issued.After(s.now().Add(s.skew())) {
-		return false, errors.New("host approval assertion timestamp invalid")
+		return store.WorkflowActor{}, errors.New("host approval assertion timestamp invalid")
 	}
 	wantScope, _ := json.Marshal(approvalScopeBindings(check.Scope))
 	wantVersions, _ := json.Marshal(approvalVersionBindings(check.Versions))
 	assertedScope, _ := json.Marshal(assertion.Scope)
 	assertedVersions, _ := json.Marshal(assertion.Versions)
 	if string(assertedScope) != string(wantScope) || string(assertedVersions) != string(wantVersions) {
-		return false, errors.New("host approval assertion scope or versions invalid")
+		return store.WorkflowActor{}, errors.New("host approval assertion scope or versions invalid")
 	}
 	var status, keyStatus, keyID string
 	var publicKey []byte
 	if err := tx.QueryRowContext(ctx, `SELECT c.status,k.status,k.key_id,k.public_key FROM agent_clients c JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=? AND c.principal_ref=?`, in.ClientRef, in.PrincipalRef).Scan(&status, &keyStatus, &keyID, &publicKey); err != nil || status != "active" || keyStatus != "active" || keyID == "" {
-		return false, errors.New("trusted client key unavailable")
+		return store.WorkflowActor{}, errors.New("trusted client key unavailable")
 	}
 	if !ed25519.Verify(ed25519.PublicKey(publicKey), CanonicalHostApprovalAssertion(assertion), assertion.Signature) {
-		return false, errors.New("host approval assertion signature invalid")
+		return store.WorkflowActor{}, errors.New("host approval assertion signature invalid")
 	}
 	var challengeDigest, challengeScope, challengeVersions, challengeConsequence, challengeHost, challengeExpires, challengeStatus string
 	challengeErr := tx.QueryRowContext(ctx, `SELECT operation_digest,scope_json,version_json,consequence,host_assertion_digest,expires_at,status FROM agent_approval_challenges WHERE challenge_ref=?`, assertion.ChallengeRef).Scan(&challengeDigest, &challengeScope, &challengeVersions, &challengeConsequence, &challengeHost, &challengeExpires, &challengeStatus)
@@ -778,18 +801,18 @@ func (s *Service) ValidateHostApprovalAssertionTx(ctx context.Context, tx *sql.T
 		storedScope, _ := json.Marshal(check.Scope)
 		storedVersions, _ := json.Marshal(check.Versions)
 		if challengeStatus != "active" || challengeExpires <= s.now().Format(time.RFC3339Nano) || challengeDigest != check.OperationDigest || challengeScope != string(storedScope) || challengeVersions != string(storedVersions) || challengeConsequence != check.Consequence || challengeHost != in.HostAssertionDigest {
-			return false, errors.New("approval challenge binding invalid")
+			return store.WorkflowActor{}, errors.New("approval challenge binding invalid")
 		}
 	} else if challengeErr != sql.ErrNoRows {
-		return false, challengeErr
+		return store.WorkflowActor{}, challengeErr
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_nonce_replay WHERE expires_at < ?`, s.now().Add(-s.skew()).Format(time.RFC3339Nano)); err != nil {
-		return false, err
+		return store.WorkflowActor{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_nonce_replay(client_ref,nonce,observed_at,expires_at) VALUES(?,?,?,?)`, in.ClientRef, assertion.Nonce, s.now().Format(time.RFC3339Nano), s.now().Add(s.skew()).Format(time.RFC3339Nano)); err != nil {
-		return false, errors.New("host approval assertion nonce replayed")
+		return store.WorkflowActor{}, errors.New("host approval assertion nonce replayed")
 	}
-	return isChallenge, nil
+	return store.WorkflowActor{}, nil
 }
 
 // CreateApprovalChallengeTx is the only challenge creation path. Principal,
@@ -945,7 +968,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false
@@ -1001,6 +1024,55 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *sql.Tx, 
 		return errors.New("approval was already consumed")
 	}
 	return nil
+}
+
+// ApprovalAuthorityActorTx derives the operator actor from durable core-owned
+// authority only. The trusted-client policy, consumed challenge, and consumed
+// approval are the identity inputs; no host assertion or model payload can name
+// a human.
+func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *sql.Tx, in Invocation, approvalRef string) (store.WorkflowActor, error) {
+	var actor store.WorkflowActor
+	if tx == nil || len(approvalRef) != 64 {
+		return actor, errors.New("invalid consumed approval reference")
+	}
+	var clientRef, protectedEvidence, principal, capabilities, products, projects string
+	var used, maxUses int
+	if err := tx.QueryRowContext(ctx, `SELECT a.client_ref,a.protected_evidence_ref,a.used_count,a.max_uses,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json FROM agent_approvals a JOIN agent_clients c ON c.client_ref=a.client_ref WHERE a.approval_ref=? AND c.status='active'`, approvalRef).Scan(&clientRef, &protectedEvidence, &used, &maxUses, &principal, &capabilities, &products, &projects); err != nil {
+		return actor, errors.New("consumed approval authority is unavailable")
+	}
+	if clientRef != in.ClientRef || used < maxUses || maxUses != 1 || !strings.HasPrefix(protectedEvidence, "approval-challenge:") {
+		return actor, errors.New("approval authority was not exactly consumed")
+	}
+	challengeRef := strings.TrimPrefix(protectedEvidence, "approval-challenge:")
+	var challengeGrant, challengeStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT grant_ref,status FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&challengeGrant, &challengeStatus); err != nil || challengeStatus != "consumed" {
+		return actor, errors.New("approval challenge was not exactly consumed")
+	}
+	var currentGrant string
+	if err := tx.QueryRowContext(ctx, `SELECT grant_ref FROM agent_grants WHERE grant_hash=? AND client_ref=?`, sha256Bytes([]byte(in.GrantToken)), in.ClientRef).Scan(&currentGrant); err != nil || currentGrant != challengeGrant {
+		return actor, errors.New("approval challenge is not bound to the invoking grant")
+	}
+	policyDigest := sha256Hex([]byte("approval-policy-v1\x00" + clientRef + "|" + principal + "|" + capabilities + "|" + products + "|" + projects))
+	actor = store.WorkflowActor{
+		PrincipalRef: "approval-authority:" + strings.TrimPrefix(policyDigest, "sha256:"),
+		ClientRef:    clientRef,
+		AgentRef:     "approval:" + approvalRef,
+		SessionRef:   "challenge:" + challengeRef,
+		ActorClass:   store.ActorOperator,
+	}
+	if err := store.ValidateWorkflowActor(actor); err != nil {
+		return store.WorkflowActor{}, err
+	}
+	actorRef, err := store.WorkflowActorRef(actor)
+	if err != nil {
+		return store.WorkflowActor{}, err
+	}
+	executing := store.WorkflowActor{PrincipalRef: in.PrincipalRef, ClientRef: in.ClientRef, AgentRef: in.AgentRef, SessionRef: in.SessionRef, ActorClass: store.ActorAgent}
+	executingRef, err := store.WorkflowActorRef(executing)
+	if err != nil || actorRef == executingRef {
+		return store.WorkflowActor{}, errors.New("approval authority actor relabels the invoking agent")
+	}
+	return actor, nil
 }
 
 func (s *Service) RevokeApproval(ctx context.Context, ref string) error {

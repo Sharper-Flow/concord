@@ -743,7 +743,10 @@ func mutationEnvelope(grant Grant, scopeVersion string) CallEnvelope {
 }
 
 func signedHostApproval(privateKey ed25519.PrivateKey, challenge, digest string, scope, versions map[string]any, session, agent, worktree, clientVersion string, issued time.Time, nonce string) *HostApprovalAssertion {
-	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, ClientVersion: clientVersion, IssuedAt: issued.Format(time.RFC3339Nano), Nonce: nonce}
+	if clientVersion == "1.0.0" {
+		clientVersion = ManifestVersion
+	}
+	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, ClientVersion: clientVersion, IssuedAt: issued.Format(time.RFC3339Nano), Nonce: nonce, OperatorPrincipalRef: "human-1", OperatorAgentRef: "operator:" + agent, OperatorSessionRef: "operator:" + session}
 	assertion.Signature = ed25519.Sign(privateKey, CanonicalHostApprovalAssertion(*assertion))
 	return assertion
 }

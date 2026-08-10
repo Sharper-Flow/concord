@@ -146,8 +146,13 @@ fence event. Cross-authority and external-effect actions claim an epoch in
 
 ## 4. Event families
 
-Every row has `payload_version=1`, `work_id`, and the common envelope. The following
-are the complete v1 family payloads; omitted keys are rejected.
+Every row has `payload_version=1`, `work_id`, and the common envelope. Every
+mutating workflow payload also carries the existing subject-version convention
+`expected_version` and `resulting_version`; they are consecutive positive
+integers and are validated in the fold. This common pair is not repeated in each
+row below. The following are the complete v1 family payloads; omitted keys are
+rejected. `workflow.completed` may only be appended by `CompleteWorkflowTx` after
+the ordered gate in §7; the generic event append path rejects it structurally.
 
 `workflow.condition_cancelled` is the typed representation required by CD-0013 D10's
 “resolved or canceled” completion clause. It adds no await type or authority:
@@ -157,24 +162,24 @@ states.
 | Event | Exact payload fields and bounds |
 |---|---|
 | `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
-| `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `rigor_class` (1–64) |
+| `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `rigor_class` (1–64), `consequence_class` (`internal_sqlite`, `cross_authority`, or `external_effect`) |
 | `workflow.contract_superseded` | `work_id`, `previous_contract_version`, `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs) |
-| `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (closed subject enum), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
+| `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
-| `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind`, `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
-| `workflow.action_completed` | `work_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref` |
+| `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind` (`internal_sqlite`, `cross_authority`, `external_effect`, or the existing definition-schema `human_checkpoint`), `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
+| `workflow.action_completed` | `work_id`, optional `action_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref`; when present, `action_id` advances the declared internal action to its next graph step |
 | `workflow.action_failed` | `work_id`, `step_id`, `attempt_epoch`, `failure_kind` (closed TS7 error kind), `recoverable` (boolean), `actor_ref` |
 | `workflow.evidence_bound` | `work_id`, `evidence_kind` (verification/review/approval/commit/durable_note/native_run/artifact), `immutable_subject_ref`, `producer_id`, `producer_run_ref`, `producer_watermark`, `observed_at` |
 | `workflow.verdict_recorded` | `work_id`, `contract_version`, `predicate_id`, `verdict_kind` (`ok`, `outcome_mismatch`, `insufficient_evidence`), `verdict_actor_ref`, `evaluation_evidence` (1–32), `incomparable_with_approved` (boolean) |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
-| `workflow.impact_declared` | `work_id`, `edge_id`, `edge_kind` (`modifies`, `depends_on`, `forward_link`), `edge_class` (`hard`, `soft`, `none`), `target_work_id`, `target_kind`, `severity` (`breaking`, `non-breaking`, `informational`) |
+| `workflow.impact_declared` | `work_id`, `edge_id`, `edge_kind` (`modifies`, `depends_on`, `forward_link`), `edge_class` (`hard`, `soft`, `none`), `target_work_id`, `target_kind` (exactly `work_item`, matching the target-work foreign key), `severity` (`breaking`, `non-breaking`, `informational`) |
 | `workflow.impact_notice_recorded` | `work_id`, `notice_id`, `source_contract_version`, `entity_kind`, `entity_ref`, `target_work_id`, `edge_id`, `old_hash` (nullable digest), `new_hash` (nullable digest), `severity` |
 | `workflow.condition_added` | `work_id`, `condition_id`, `await_type` (`pr_merge`, `ci_result`, `timer`, `human_approval`, `remote_work_state`), `await_ref`, `resolution_authority` |
-| `workflow.condition_resolved` | `work_id`, `condition_id`, `resolution_evidence` (1–32 evidence refs), `resolved_by_event` |
-| `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event` |
-| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (0–32), `changed_refs_digest` (digest) |
+| `workflow.condition_resolved` | `work_id`, `condition_id`, `resolution_evidence` (1–32 evidence refs), `resolved_by_event`; the stored `resolution_authority` is exactly `durable_operation:<op_id>`, and every evidence ref must be present in that completed operation's authoritative `evidence_refs` for this work item |
+| `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event`; the event-envelope actor must resolve to an `operator` actor tuple, and every cancellation evidence ref must be present in the stored durable authority operation |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (0–32), `changed_refs_digest` (digest), `warnings` (0–16 staleness-rule IDs) |
 
 Upcasters are registered by `(kind, payload_version)`, ordered, deterministic,
 side-effect-free, and run before folding. A newer-than-supported version fails
@@ -184,7 +189,7 @@ closed and does not mutate any projection.
 
 V15 creates the ten D2 projections below. Every table has `fold_guard=workflow`
 semantics: direct writes are refused; only event application inside
-`ApplyOperationTx` or `RebuildFromLog` may mutate it. `work_id` references the
+`ApplyOperationTx`, `CompleteWorkflowTx`, or `RebuildFromLog` may mutate it. `work_id` references the
 existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 ### 5.1 Tables
@@ -202,10 +207,27 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 | `workflow_decision_records` | `work_id TEXT`, `question TEXT`, `options_considered TEXT`, `decision TEXT`, `rationale TEXT`, `consequences TEXT`, `inputs TEXT`, `poc_findings TEXT`, `supersedes TEXT NULL`, `superseded_by TEXT NULL`, `recorded_at TEXT` | PK `(work_id,question)`; FK work; checks decision enum and required nonempty fields |
 | `workflow_premise_confirmations` | `work_id TEXT`, `contract_version INTEGER`, `confirmed_by TEXT`, `confirmed_at TEXT` | PK `(work_id,contract_version)`; composite FK contract; FK actor; actor class must be `operator` |
 
+Phase A does not invent a second candidate-role or scope authority. The
+`candidate_role` projection column is closed to the single value `include`, and
+`candidate_scope` is the canonical empty JSON object `{}`. Both are derived
+projection values because the accepted `candidate_set_revised` event carries no
+role or scope fields. `consequence_class` is not defaulted: it is an explicit
+closed field on `workflow.contract_approved`. `target_kind` is closed to
+`work_item`, matching the `target_work_id` foreign key; product/project targets
+are not silently represented by a work foreign key.
+
 JSON-encoded columns above are typed arrays or the referenced strict schema, not
 arbitrary JSON objects. SQLite `CHECK` constraints validate the closed scalar
 values; application validation validates the bounded array payload before the
 transaction. No projection stores workflow definition authority.
+
+`workflow.evidence_bound` does not create a second evidence authority. Its
+`producer_run_ref` must identify an existing `durable_operations` row with
+`work_id` equal to the event subject, `principal_ref` equal to `producer_id`,
+`request_id` equal to `producer_watermark`, and a completed result whose
+authoritative `evidence_refs` contains the same immutable subject. Completion
+reads these bindings from the retained event log and therefore cannot pass on
+workflow-only metadata or an operation from another work item.
 
 ### 5.2 Fold rules and rebuild
 
@@ -222,8 +244,8 @@ transaction. No projection stores workflow definition authority.
 | successor linked | fold the existing `forward_link` relation; workflow state remains independent |
 | impact declared/notice recorded | insert or deduplicate typed edge/notice rows |
 | condition added | insert an `open` condition with its owning `resolution_authority` |
-| condition resolved | transition `open → resolved`; verify evidence belongs to the stored authority and fill resolution fields |
-| condition cancelled | transition `open → cancelled`; require operator authority and cancellation evidence; fill cancellation fields; a resolved or cancelled condition cannot transition again |
+| condition resolved | transition `open → resolved`; require a work-item-bound durable operation authority and verify every evidence ref belongs to its completed authoritative result before filling resolution fields |
+| condition cancelled | transition `open → cancelled`; require the event-envelope actor to resolve to an operator actor tuple, not merely a payload string, and verify every cancellation evidence ref against the stored durable authority operation; a resolved or cancelled condition cannot transition again |
 | completed | set terminal state and completed timestamp only after the completion transaction's prior clauses pass |
 
 `RebuildFromLog` clears, in one transaction, all ten tables in dependency order:
@@ -307,6 +329,10 @@ The same transaction performs the reverse-edge impact scan and notice deduplicat
 before appending `workflow.completed`. A response is not terminal until the commit
 returns success. A failed commit produces no terminal projection mutation.
 
+The shipped engine evaluates clause 6 from the pinned definition and folded
+verdict authority. It never appends `workflow.completed` on a weaker,
+incomparable, stale, or otherwise refused outcome.
+
 ## 8. Actor tuple and evaluator distinctness
 
 The authenticated mutation context supplies `(principal_ref, client_ref, agent_ref,
@@ -322,6 +348,44 @@ event stores the tuple once in `workflow.actor_recorded`; later events carry onl
 verdict is distinct from an agent executor but must still carry a complete tuple.
 Any empty or partial tuple is refused. Actor rows and tuple fields cannot be
 updated or deleted; a changed tuple receives a new actor reference.
+
+For `confirm_premise`, the invoking agent tuple is never converted to an
+operator by changing `actor_class`, and `confirming_actor_ref` is not accepted
+from the workflow payload. The exact signed approval assertion must carry the
+no operator identity fields. The core authenticates the invoking client against
+the trusted-client key and policy, binds the assertion to the exact challenge,
+request digest, scope, work version, contract version, and `workflow_action`
+consequence, then consumes the assertion and approval record. The operator actor
+is deterministic core output derived from the consumed approval ref, consumed
+challenge ref, authenticated client, and canonical trusted-client policy digest;
+it is an approval-authority tuple, not a named-human identity. If its actor row
+is absent, `workflow.actor_recorded` is appended before the semantic and action
+events in the same transaction; an existing row must match exactly. Unsigned,
+replayed, mismatched, grant-only, skipped-question, or payload-selected
+identities cannot create or use an operator actor. Idempotent replay returns the
+stored result without asking again, consuming approval again, or recording the
+actor again.
+
+### 8.1 Operator question before approval
+
+The bounded workflow read projection exposes `operator_question` only for the
+next declared human-checkpoint action. It contains the stable `prompt` and
+`header`, a closed `choices` array (`id`, label, description, and action mapping),
+`allow_multiple=false`, `allow_custom=false`, bounded premise and contract
+summaries, and `decision_context_digest`. The digest is SHA-256 over the exact
+work ID and version, pinned definition ref/version/digest, contract version,
+action ID, premise bytes, outcome kind, and stored outcome-payload bytes.
+
+The model calls the built-in question UI using that projection. The question is
+semantic input only; the custom Concord tool never calls the question service.
+`confirm_premise` requires `selected_choice=confirm` and the matching digest.
+`revise` and `stop` are closed choices that route to the declared revision or
+cancellation action and are rejected if smuggled through `confirm_premise`.
+Only after core validates this selection and returns the exact approval challenge
+does the adapter call `ToolContext.ask`. `ask` is authorization, not semantic
+input. Its metadata includes work, action, contract version, selected choice, and
+bounded premise summary. A recorded operator therefore means approval authority,
+not an identified individual human.
 
 ## 9. Impact edges and notices
 
@@ -378,10 +442,13 @@ Heuristics may locate candidate PRs or runs but cannot resolve a condition. Fail
 ambiguous, stale, or unreadable authority leaves the condition open and returns a
 typed problem. Conditions participate in ordinary `blocks` relations and inherit
 CD-0008 unreadable-record semantics. `resolution_authority` is immutable from
-`workflow.condition_added` and identifies the sole authority permitted to emit
-`workflow.condition_resolved`; cancellation is not provider resolution and can
-only be emitted by the operator with `cancellation_authority=operator` and its
-own approval/evidence binding.
+`workflow.condition_added`, has the exact form `durable_operation:<op_id>`, and
+must point to a completed durable operation for the same work item. Every
+resolution or cancellation evidence ref must be present in that operation's
+authoritative `evidence_refs`; actor class alone never establishes evidence
+authority. Cancellation is not provider resolution and can only be emitted by
+the operator with `cancellation_authority=operator` plus evidence from the
+stored durable authority operation.
 
 ## 11. `workflow_action` dispatch
 
@@ -418,18 +485,25 @@ dispatcher performs this order:
 Registry-specific availability/drift names and action-payload-specific names are
 not envelope kinds and must never escape the core.
 CD-0013 D10 adds exactly one new closed kind, `outcome_mismatch`, with recovery
-action `contact_operator`. The current TS8 surface remains `1.0.0`; shipping this
-engine requires the explicit TS8 MAJOR amendment as surface `2.0.0`, with the
+action `contact_operator`. The TS8 MAJOR amendment ships this engine as surface
+`2.0.0`, with the
 manifest, envelope schema, compatibility matrix, migration guidance, and operator
 acceptance required by CD-0005 D11. No other error kind is added or renamed here.
 
-The corpus records this boundary explicitly: `surface_version=1.0.0`,
-`engine_status=specification_only`, and `outcome_mismatch` appears only in the
-pending-amendment list for `2.0.0`. The checker compares every scenario's expected
-error kind with the current envelope enum plus that explicit list. It fails on an
-undeclared kind, and it fails if `engine_status` becomes `engine_shipped` while any
-pending amendment remains. The pending list is therefore a bounded pre-shipping
-declaration, not a permanent exemption.
+The corpus records the shipped boundary as `surface_version=2.0.0` and
+`engine_status=engine_shipped`. The checker compares every scenario's expected
+error kind with the current closed envelope enum; unknown classifications fail
+validation rather than being downgraded to prose or generic success.
+
+### Corpus clarification note (issue #31)
+
+WF09 previously asserted `unauthorized` for an undeclared `replace_outcome`
+request. That request fails the workflow graph's declared-action transition
+check before actor authorization, so the accepted assertion is corrected to
+`invalid_transition`. The correction is recorded here rather than hidden in the
+harness; the structured corpus request retains the action ID, pinned definition,
+actor, expected version, and request identity that make the classification
+reproducible.
 
 ## 12. Built-in family graphs and actions
 

@@ -453,6 +453,80 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "operator_choice": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "description": {
+          "$ref": "#/$defs/short"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "description",
+        "action_id"
+      ],
+      "type": "object"
+    },
+    "operator_question": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "allow_custom": {
+          "const": false
+        },
+        "allow_multiple": {
+          "const": false
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/operator_choice"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "contract_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "header": {
+          "$ref": "#/$defs/short"
+        },
+        "premise_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "prompt": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "action_id",
+        "prompt",
+        "header",
+        "choices",
+        "allow_multiple",
+        "allow_custom",
+        "premise_summary",
+        "contract_summary",
+        "decision_context_digest"
+      ],
+      "type": "object"
+    },
     "page": {
       "additionalProperties": false,
       "properties": {
@@ -1162,6 +1236,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "next_cursor": {
           "$ref": "#/$defs/cursor"
+        },
+        "workflow": {
+          "$ref": "#/$defs/workflow_read"
         }
       },
       "required": [
@@ -1657,12 +1734,38 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_input": {
       "additionalProperties": false,
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "selected_choice"
+              ]
+            },
+            {
+              "required": [
+                "decision_context_digest"
+              ]
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "action_id": {
+            "const": "confirm_premise"
+          }
+        }
+      },
       "properties": {
         "action_id": {
           "$ref": "#/$defs/id"
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
         },
         "evidence": {
           "items": {
@@ -1675,15 +1778,79 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "items": {
-            "$ref": "#/$defs/field"
-          },
-          "maxItems": 16,
-          "type": "array",
-          "uniqueItems": true
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/field"
+              },
+              "maxItems": 16,
+              "type": "array",
+              "uniqueItems": true
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 64,
+              "properties": {
+                "added": {},
+                "attempt_epoch": {},
+                "audit_evidence": {},
+                "candidate_kind": {},
+                "candidate_refs": {},
+                "complete_gate_prerequisites": {},
+                "condition_id": {},
+                "consumed_contract_version": {},
+                "contract_version": {},
+                "current_claim": {},
+                "dependent_work_id": {},
+                "edge_class": {},
+                "edge_kind": {},
+                "entity_kind": {},
+                "entity_ref": {},
+                "event_stream": {},
+                "evidence_refs": {},
+                "new_contract_version": {},
+                "next_read_expectations": {},
+                "notice_id": {},
+                "observed_drift": {},
+                "operation_id": {},
+                "outcome": {},
+                "payload": {},
+                "premise": {},
+                "project_ids": {},
+                "proposed_route_conventions": {},
+                "relation": {},
+                "relation_data": {},
+                "removed": {},
+                "required_route_conventions": {},
+                "resolution_evidence": {},
+                "resolver_authority": {},
+                "resolver_result": {},
+                "route_conventions": {},
+                "severity": {},
+                "source_contract_version": {},
+                "source_work_id": {},
+                "staleness_rule_id": {},
+                "successor_work_id": {},
+                "supersede_reason": {},
+                "target_work_id": {},
+                "title": {},
+                "transaction": {},
+                "value_statement": {}
+              },
+              "type": "object"
+            }
+          ]
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "selected_choice": {
+          "enum": [
+            "confirm",
+            "revise",
+            "stop"
+          ],
+          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -1695,6 +1862,17 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id",
         "idempotency_key"
       ],
+      "then": {
+        "not": {
+          "required": [
+            "fields"
+          ]
+        },
+        "required": [
+          "selected_choice",
+          "decision_context_digest"
+        ]
+      },
       "type": "object"
     },
     "work_transition_lifecycle_input": {
@@ -1732,6 +1910,227 @@ const GeneratedPayloadSchemaDocument = `{
         "target",
         "reason",
         "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "workflow_contract": {
+      "additionalProperties": false,
+      "properties": {
+        "outcome_kind": {
+          "$ref": "#/$defs/short"
+        },
+        "outcome_payload": {
+          "maxLength": 16384,
+          "type": "string"
+        },
+        "premise": {
+          "$ref": "#/$defs/short"
+        },
+        "required_evidence": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 7,
+          "type": "array"
+        },
+        "route_conventions": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "spec_mandate": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "version",
+        "premise",
+        "outcome_kind",
+        "outcome_payload",
+        "required_evidence",
+        "route_conventions",
+        "spec_mandate"
+      ],
+      "type": "object"
+    },
+    "workflow_read": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking_conditions": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "candidate_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "completion_warnings": {
+          "items": {
+            "$ref": "#/$defs/short"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "await_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "await_type": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "resolution_authority": {
+                "$ref": "#/$defs/id"
+              },
+              "state": {
+                "$ref": "#/$defs/short"
+              }
+            },
+            "required": [
+              "id",
+              "await_type",
+              "await_ref",
+              "resolution_authority",
+              "state"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "contract": {
+          "$ref": "#/$defs/workflow_contract"
+        },
+        "current_step": {
+          "$ref": "#/$defs/id"
+        },
+        "definition": {
+          "additionalProperties": false,
+          "properties": {
+            "digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "ref": {
+              "$ref": "#/$defs/id"
+            },
+            "version": {
+              "$ref": "#/$defs/version"
+            }
+          },
+          "required": [
+            "ref",
+            "version",
+            "digest"
+          ],
+          "type": "object"
+        },
+        "impact_notices": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "edge_id": {
+                "$ref": "#/$defs/id"
+              },
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "entity_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "notice_id": {
+                "$ref": "#/$defs/id"
+              },
+              "severity": {
+                "$ref": "#/$defs/short"
+              },
+              "source_contract_version": {
+                "$ref": "#/$defs/version"
+              },
+              "source_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "target_work_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "notice_id",
+              "source_work_id",
+              "source_contract_version",
+              "entity_kind",
+              "entity_ref",
+              "target_work_id",
+              "edge_id",
+              "severity"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "operator_question": {
+          "$ref": "#/$defs/operator_question",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "state": {
+          "$ref": "#/$defs/short"
+        },
+        "unreadable_conditions": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "unresolved_conditions": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "state",
+        "current_step",
+        "definition",
+        "conditions",
+        "unresolved_conditions",
+        "unreadable_conditions",
+        "ready",
+        "blocking_conditions",
+        "impact_notices",
+        "completion_warnings"
       ],
       "type": "object"
     }

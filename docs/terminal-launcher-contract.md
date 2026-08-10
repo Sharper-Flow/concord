@@ -103,10 +103,9 @@ re-aggregated into a global list that would need its own ordering rule.
 Epics need no special handling. CD-0009 keeps Epics an ordinary work-item kind, so an
 Epic renders on S3 and carries its knowledge section like any other work item.
 
-Cross-entity knowledge search (Q9) is deliberately excluded from the launcher. It is
-an agent read tool under TS3, available inside the session, where its results can be
-acted on. Putting it in a read-only launcher would produce a list the operator cannot
-use without leaving the screen.
+Knowledge search (Q9) and note resolution (Q10) belong in the launcher and are
+covered by §5's query mode. They arrive with the resolver in round two, because a
+search over sources that are not yet resolved has nothing to return.
 
 ### Knowledge ships as a reserved stub first
 
@@ -211,21 +210,55 @@ closing the session.
 | `g` / `G` | First / last row | All |
 | `Ctrl-d` / `Ctrl-u` | Half-page down / up | All |
 | `n` / `p` | Next / previous page | S1, S2 |
-| `/` | Filter within the current screen's already-fetched result set | S1, S2 |
+| `/` | Filter the current screen's already-fetched result set | S1, S2 |
+| `s` | Query — submit a bounded search and render its results | All |
 | `Tab` | Cycle sections within a screen — C17 relation tree, ranked table, knowledge | S2, S3 |
 | `l` | Launch a session for the current scope (§6) | S2, S3 |
 | `r` | Explicit refresh (§7) | All |
 | `?` | Help overlay listing the active keymap | All |
 | `q` | Quit; on S1 exits, elsewhere behaves as back | All |
 
-`/` filters; it does not re-query. Filtering a bounded page is a display operation
-over data already fetched under §9's bounds, so it cannot silently widen a read or
-change ordering. When a filter hides rows, the count of hidden rows is shown — a
-filtered view never presents itself as a whole result, matching C17's no-silent-
-truncation rule.
-
 The help overlay is generated from the active keymap rather than maintained as prose,
 so a keymap change cannot drift from its documentation.
+
+### Filter and query are two different things
+
+The launcher accepts typed input for two purposes, and conflating them would hide a
+read behind what looks like a display control.
+
+| | Filter (`/`) | Query (`s`) |
+|---|---|---|
+| Effect | Narrows rows already on screen | Issues a bounded read |
+| Scope | The current page | The ambient Product, or the portfolio on S1 |
+| Ordering | Unchanged from the underlying contract | Set by the query contract it dispatches to |
+| Cost | None | One bounded read, counted in §9 |
+| Result | A subset, with the hidden-row count shown | A result set, paged, with typed coverage |
+
+`/` cannot silently widen a read or change ordering, because it never re-queries.
+When it hides rows, it shows how many — a filtered view never presents itself as a
+whole result, matching C17's no-silent-truncation rule.
+
+`s` is a read, so it obeys every read rule in this document: bounded and paged per §9,
+dispatched through the accepted TS3 surface, carrying the same watermark and reliance
+state as any other screen, and rendering `unavailable` with a typed reason rather than
+a short list presented as complete. Query results are a view, not a new screen; `Esc`
+returns to the unfiltered screen with prior selection intact.
+
+What is queryable follows what the screen owns: Products on S1, work within the
+ambient Product on S2 and S3, and durable knowledge once the resolver lands (§3).
+Knowledge query is round-two, for the same reason the section is.
+
+### Text entry is a first-class requirement
+
+Both modes need a real text input: cursor movement, mid-string editing, deletion,
+paste, and clear. This is the launcher's only input widget, and it is not optional —
+it raises the floor for the rendering-dependency choice in §11 above what a
+navigate-only surface would need.
+
+Two constraints keep it honest. Text entry never mutates durable state; it selects
+what to read and what to show, never what to write. And a query in flight renders as
+in flight — a stale result set never sits under a newer query string as though it
+answered it.
 
 ## 6. Action surface
 
@@ -235,6 +268,8 @@ The launcher navigates and launches. That is the whole surface.
 |---|---|---|---|
 | Open | S1, S2 | Navigate one screen down | None |
 | Back | S2, S3 | Navigate one screen up | None |
+| Filter | S1, S2 | Narrow the rows already on screen | None |
+| Query | All | Issue one bounded search and render its results | None |
 | Refresh | All | Re-run the current screen's read | None |
 | Launch | S2, S3 | Start or attach an OpenCode session carrying resolved scope | None by the launcher |
 
@@ -294,8 +329,13 @@ no background thread, and no interval.
 | Trigger | Behaviour |
 |---|---|
 | Screen entry | One bounded read for that screen |
-| Explicit `r` | Re-run that screen's read |
+| Query submitted | One bounded read for that query |
+| Explicit `r` | Re-run that screen's read, or the active query if one is displayed |
 | Everything else | No read |
+
+A query reads on submit, never per keystroke. Incremental search would turn one
+operator intent into an unbounded read stream, which §9's bounds and the no-polling
+discipline both exclude; typing is free, submitting costs one read.
 
 Between reads the screen is a snapshot, and it says so. Every screen renders the
 authority watermark and the observed-at age of its data, so a stale screen can never
@@ -335,6 +375,7 @@ The launcher inherits C14 §4 wholesale and adds container-level rules.
 | S1 | One Product-row projection query, per C14 §8 | Page default 20, maximum 100 |
 | S2 | One bounded query per mode, per C17 §6, plus one Product-scoped knowledge read | Q8 depth ≤ 3; Q5 paged by limit and cursor; knowledge list paged |
 | S3 | One work-detail read, plus one work-scoped knowledge read | Single work item plus bounded workflow state; knowledge list paged |
+| Query | One bounded read per submitted query, scoped to what the screen owns | Paged by limit and cursor; typed coverage; never unbounded |
 
 - The knowledge reads above are round-two behaviour. In round one the section is a
   stub and issues no read at all, so the round-one launcher is strictly cheaper than
@@ -394,11 +435,14 @@ addition is implementation burden rather than supply-chain surface. The third op
 component list maps closely onto §3's screens and §5's keymap, which is why it is the
 cheapest path to a prototype.
 
-The read-only narrowing in §2 lowers the stakes of this choice. A launcher with no
-forms, no text entry, no modals, and no confirmation dialogs needs tables, a scrollable
-pane, and a key map — the narrowest slice of any of the three options. It does not
-weaken the argument that the choice is durable and hard to reverse once screens are
-written against a framework's model.
+The read-only narrowing in §2 removes forms, modals, and confirmation dialogs, but it
+does not make this a display-only surface. §5 requires a real text input for filter and
+query, with cursor movement, mid-string editing, paste, and clear. The widget floor is
+therefore tables, a scrollable pane, a key map, and one text input — modest, but past
+the point where hand-rolled input parsing is incidental work. Input handling is also
+where terminal compatibility gets awkward: key encodings, bracketed paste, and resize
+during editing are exactly the cases the standard-library option would take on
+permanently.
 
 This candidate takes no position. The choice is a decision-record question because it
 is durable, hard to reverse, and governed by an existing rule. It is the only open
@@ -431,9 +475,14 @@ authoritative while being non-derivable, unstable, or a second authority.
 9. **No mouse dependency.** Every action is reachable by keyboard.
 10. **No hidden meaning.** Nothing meaningful is conveyed by colour alone, by a mode
     the operator must discover, or by a field only visible at wide terminal widths.
-11. **No cross-Product action surface, and no global knowledge browse.** The launcher
-    views one ambient Product, and knowledge is reached through its owning entity.
-12. **No stub that reads as data.** A deferred capability renders its own typed state.
+11. **No cross-Product action surface.** The launcher views one ambient Product.
+    Query is scoped to what the current screen owns, and no result set spans Products
+    while cross-Product scope remains an open question (§14).
+12. **No incremental query.** A query reads on submit. Keystrokes never issue reads.
+13. **No filter that queries, and no query that pretends to be a filter.** The two
+    modes are distinguishable on screen, and a result set is never presented as though
+    it were the unfiltered whole.
+14. **No stub that reads as data.** A deferred capability renders its own typed state.
     An unbuilt resolver never renders as an empty result, a zero count, or a blank
     pane.
 
@@ -464,6 +513,17 @@ A prototype would need to satisfy at minimum:
 - The knowledge section is not read when the operator never focuses it.
 - Every action in §6 is reachable by keyboard alone, and the help overlay matches the
   active keymap exactly.
+- Typing a query string issues no read; submitting it issues exactly one.
+- A query result set renders its own coverage and reliance state, and incomplete
+  coverage renders `unavailable` rather than a short list.
+- `Esc` from a query result returns to the unfiltered screen with prior selection and
+  scroll position intact.
+- A filtered view shows the count of hidden rows and is distinguishable on screen from
+  a query result set.
+- The text input supports cursor movement, mid-string editing, deletion, paste, and
+  clear, and no input path mutates durable state.
+- A query submitted while an older result is displayed never leaves the stale result
+  under the new query string without an in-flight indication.
 - Blocking reliance state renders visibly on S1, S2, and S3 without the launcher
   refusing to launch.
 - With the authority unreachable, no screen renders cached rows as current.
@@ -487,9 +547,15 @@ mutation surface.
 
 **Open.**
 
-1. **Rendering dependency (§11).** Standard library, `tcell`, or `bubbletea`. This is
-   the one remaining item, and it plausibly needs its own decision record: it is
-   durable, costly to reverse, and gated by an existing dependency rule.
+1. **Rendering dependency (§11).** Standard library, `tcell`, or `bubbletea`. It
+   plausibly needs its own decision record: it is durable, costly to reverse, and
+   gated by an existing dependency rule. §5's text-input requirement raises the floor
+   for this choice.
+2. **Query scope (§5).** Query is scoped to the ambient Product by default, matching
+   the query contract's deferral of cross-Product prioritization. Whether the operator
+   also needs to search across Products from S1 — for work, or for knowledge once the
+   resolver lands — is genuinely open. Search is not prioritization, so the deferral
+   does not settle it either way.
 
 **Resolved 2026-08-09.**
 
@@ -531,6 +597,7 @@ before S2 exists. It is not a replacement-ready slice, and
 | A framework's model leaks into domain code, making the rendering choice hard to reverse | Screens consume the accepted read contracts only; no domain type is defined in terms of a rendering library |
 | The no-polling rule makes the launcher feel stale in practice | Watermark and age are always visible, and explicit refresh is one keystroke; if this proves insufficient, the correct fix is a push notice mechanism under CD-0006 R3, never a poll |
 | Knowledge sections turn the work screen into a document reader | Sections are bounded, lazily read, and scoped to the entity on screen; full reading happens in the session |
+| Query results accrete columns and ordering rules until they become a fourth screen | Results are a view over the contract the screen already owns, with that contract's ordering; a distinct result schema would reopen §3 |
 | The knowledge stub is mistaken for "this entity has no knowledge" | `not_implemented` is a distinct typed state with a stable textual marker, and its distinctness from authoritative-empty is an acceptance test |
 | The stub becomes permanent and quietly normalizes a dead pane | Step 5 in §15 carries its own issue, and a stub still unresolved when the rest of the launcher is delivered is a §17 falsifier |
 | Latency degrades as screens gain content | The per-screen bound in §9 is an acceptance test, not an aspiration |

@@ -229,8 +229,9 @@ re-litigate them silently.
   and a refresh model with no timer or poll, where staleness is displayed and never
   enforced by the launcher. See
   [`terminal-launcher-contract.md`](./terminal-launcher-contract.md).
-- **Open sub-question:** the terminal rendering dependency, which conflicts with the
-  current third-party-dependency rule and plausibly needs its own decision record.
+- **Open sub-questions:** the terminal rendering dependency, which conflicts with the
+  current third-party-dependency rule and plausibly needs its own decision record; and
+  whether query scope stays within the ambient Product or extends across Products.
 - **Direction:** 🟠 candidate recorded, awaiting operator direction.
 
 ---

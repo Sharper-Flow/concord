@@ -268,6 +268,29 @@
       "sha256": "sha256:5a5fbb5351bffb4f35080b99ee2320b9a08bb7d721d91dd34da1e1694c93277d"
     },
     {
+      "id": "CD-0014",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0014-terminal-launcher-rendering.md",
+      "status": "accepted",
+      "date": "2026-08-10T00:00:00Z",
+      "title": "Terminal launcher rendering stack",
+      "summary": "Chooses Bubble Tea v2 behind an isolated adapter and fixes Product-only launcher query scope.",
+      "tags": [
+        "launcher",
+        "bubbletea",
+        "rendering",
+        "product-scope"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:f69f6ae8a74926d6531da46380494fadc8c0dd7325b8753bb9c12bd463b43e60"
+    },
+    {
       "id": "PM3",
       "kind": "spec",
       "path": "docs/product-memory-domain-schema.md",

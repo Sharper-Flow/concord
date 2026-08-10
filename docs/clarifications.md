@@ -207,6 +207,27 @@ re-litigate them silently.
   authority. No copied `shared_with` records, credentials, live status, or automatic
   agent-surface expansion.
 
+### C18. What is the terminal launcher itself?
+- **Question:** What screens exist, how does the operator move between them, what
+  establishes ambient Product context, what actions may the launcher take, and when
+  does it re-read state?
+- **Why:** the launcher is the primary operator surface and part of the
+  replacement-ready floor, but no accepted document specifies the container. Accepted
+  C14 fixes the Product row and explicitly defers terminal interaction, keybindings,
+  layout toolkit, and the detail screen; C17 proposes a drill-down and defers the
+  container to the launcher.
+- **Candidate (2026-08-09):** four closed screens (portfolio, Product, work,
+  knowledge), stack navigation, ambient context established by Product selection and
+  changed nowhere else, a five-action surface with no editing, and a refresh model
+  with no timer or poll. See
+  [`terminal-launcher-contract.md`](./terminal-launcher-contract.md).
+- **Open sub-questions:** the terminal rendering dependency, which conflicts with the
+  current third-party-dependency rule and plausibly needs its own decision record;
+  whether approvals are answered in the launcher; whether an explicit refresh is
+  required before consequential action; and how much the launch action hands to the
+  session bootstrap layer.
+- **Direction:** 🟠 candidate recorded, awaiting operator direction.
+
 ---
 
 ## 🟡 Medium — resolve as they come up

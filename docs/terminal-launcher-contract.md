@@ -24,8 +24,8 @@ Two accepted or candidate contracts describe things the launcher renders:
 
 - accepted C14 ([`product-row-contract.md`](./product-row-contract.md)) fixes the
   Product row;
-- candidate C17 proposes the Product coordination drill-down. It is not yet merged;
-  this document links it once C17 lands.
+- candidate C17 proposes the Product coordination drill-down in
+  [`product-coordination-view.md`](./product-coordination-view.md).
 
 Neither describes the launcher. C14 §Status is explicit that it "does not decide"
 terminal interaction, keybindings, layout toolkit, the Product detail screen, or the

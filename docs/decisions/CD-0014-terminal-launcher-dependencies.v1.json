@@ -124,27 +124,27 @@
       "version": "v0.4.1",
       "role": "module graph only",
       "license": [
-        {"file": "LICENSE-BSD", "family": "BSD-3-Clause", "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"},
-        {"file": "LICENSE-MIT", "family": "MIT", "sha256": "aa3df2110cf0f39305936b72071c4e894ffb6849970b8e6e2c9c583bd9be9adb"}
+        {"file": "docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD", "family": "BSD-3-Clause", "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067", "source": "repository"},
+        {"file": "docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT", "family": "MIT", "sha256": "aa3df2110cf0f39305936b72071c4e894ffb6849970b8e6e2c9c583bd9be9adb", "source": "repository"}
       ]
     },
     {
       "module": "github.com/charmbracelet/x/exp/golden",
       "version": "v0.0.0-20250806222409-83e3a29d542f",
       "role": "module graph only",
-      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b"}]
+      "license": [{"file": "docs/decisions/license-evidence/github.com/charmbracelet/x/exp/golden/v0.0.0-20250806222409-83e3a29d542f/LICENSE", "family": "MIT", "sha256": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b", "source": "repository"}]
     },
     {
       "module": "github.com/dustin/go-humanize",
       "version": "v1.0.1",
       "role": "module graph only",
-      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71"}]
+      "license": [{"file": "docs/decisions/license-evidence/github.com/dustin/go-humanize/v1.0.1/LICENSE", "family": "MIT", "sha256": "a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71", "source": "repository"}]
     },
     {
       "module": "golang.org/x/exp",
       "version": "v0.0.0-20231006140011-7918f672742d",
       "role": "module graph only",
-      "license": [{"file": "LICENSE", "family": "BSD-3-Clause", "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"}]
+      "license": [{"file": "docs/decisions/license-evidence/golang.org/x/exp/v0.0.0-20231006140011-7918f672742d/LICENSE", "family": "BSD-3-Clause", "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067", "source": "repository"}]
     }
   ]
 }

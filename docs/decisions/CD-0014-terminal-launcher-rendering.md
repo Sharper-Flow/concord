@@ -64,12 +64,15 @@ The Bubble Tea spike passed all hard proofs on Linux amd64:
    reports `No vulnerabilities found.`
 10. The inventory test derives production modules from `go list -deps -json` on the
     adapter, test-only modules from `go list -deps -test -json` minus that
-    production closure, and module-graph-only modules by traversing `go mod graph`
-    from the exact direct Charm roots and intersecting the selected module versions.
-    Offline module metadata locates every cached module's accepted license file,
-    verifies actual license text and SHA-256 against the reviewed evidence, and
-    compares all three exact sets with the strict machine-readable inventory
-    artifact below.
+    production closure, and module-graph-only modules by traversing an offline
+    `go mod graph` loaded from a temporary module containing the exact direct Charm
+    roots. It selects the highest graph version per path, then requires exact module
+    and `/go.mod` entries in `go.sum`; it does not depend on selected-module cache
+    metadata. Runtime/test module-cache evidence verifies
+    actual cached license bytes; graph-only license evidence verifies checked-in
+    bytes, so a clean module cache needs no graph-only module content. The test
+    compares all three exact sets and all evidence links with the strict
+    machine-readable inventory artifact below.
 
 Commands used:
 
@@ -83,7 +86,7 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./internal/launcher/...
 go mod tidy
 GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go list -deps -json ./internal/launcher/render/bubbletea
 GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go list -deps -test -json ./internal/launcher/render/bubbletea
-GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go mod graph
+GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go mod graph -modfile=<temporary direct-Charm go.mod>
 ```
 
 ## Dependency and license inventory
@@ -94,17 +97,21 @@ It records 19 runtime modules, zero test-only modules, and 4 module-graph-only
 modules. The runtime and test-only groups come from the two offline adapter
 closures. The module-graph-only group contains selected module versions reachable
 by traversing `go mod graph` from the exact direct Charm roots but absent from both
-closures. These are fetched/checksummed module metadata not linked into the
-launcher binary or test closure. Graph nodes that expose only go.mod metadata
-without fetched content/checksums are not inventory entries. Every group records exact versions, roles,
-accepted license families, license-file paths, and SHA-256 hashes. Its artifact
-SHA-256 is `28458e7bf509cc5bd4e6de0896489c1f9569514036387259ad2447d5e2e3adf1`.
+closures. They are graph evidence only: they are not linked into the launcher
+binary or test closure and no module-cache directory is required for them. Graph
+nodes without exact module and `/go.mod` checksums in `go.sum` are not inventory
+entries. Every group records exact versions, roles, accepted license families,
+license-file paths, and SHA-256 hashes; graph-only license files are checked-in
+bounded evidence while runtime/test files remain verified against the actual
+module cache. Its artifact SHA-256 is `82be3ff6cd74533d468031fca8501bebcc04a1c9c8e9d25057b70f3e9514d51f`.
 
 The inventory test compares the artifact with both derived closures, validates
-each module's `go.sum` checksum and module-cache directory, and re-reads each
-reviewed license file to verify its family and hash. The repository-wide module
-file is not an inventory authority: modules such as `modernc.org/sqlite` remain
-outside this record when they are absent from the adapter closure.
+each module's exact `go.sum` module and `/go.mod` checksums, and re-reads each
+reviewed license file to verify its family and hash. Runtime/test entries also
+require their module-cache directory; graph-only entries require their checked-in
+evidence file instead. The repository-wide module file is not an inventory
+authority: modules such as `modernc.org/sqlite` remain outside this record when
+they are absent from the adapter closure.
 
 This is an accepted supply-chain cost: three direct modules, sixteen runtime
 transitive modules, and four module-graph-only modules, with no test-only adapter

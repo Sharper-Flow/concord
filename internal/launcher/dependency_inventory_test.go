@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -20,6 +22,7 @@ type inventoryLicense struct {
 	File   string `json:"file"`
 	Family string `json:"family"`
 	SHA256 string `json:"sha256"`
+	Source string `json:"source"`
 }
 
 type inventoryEntry struct {
@@ -55,9 +58,21 @@ type moduleFile struct {
 	Require []moduleRequirement
 }
 
+const (
+	moduleCacheLicenseSource = "module-cache"
+	repositoryLicenseSource  = "repository"
+)
+
 func offlineGoCommand(args ...string) *exec.Cmd {
 	command := exec.Command("go", args...)
 	command.Dir = filepath.Join("..", "..")
+	command.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off")
+	return command
+}
+
+func offlineGoCommandInDir(dir string, args ...string) *exec.Cmd {
+	command := exec.Command("go", args...)
+	command.Dir = dir
 	command.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off")
 	return command
 }
@@ -152,34 +167,32 @@ func inventoryMap(t *testing.T, inventory reviewedInventory) map[string]inventor
 	return entries
 }
 
-func selectedModules(t *testing.T) map[string]moduleMetadata {
+func moduleGraph(t *testing.T, roots map[string]string) map[string]string {
 	t.Helper()
-	out, err := offlineGoCommand("list", "-m", "-json", "all").Output()
-	if err != nil {
-		t.Fatalf("go list -m -json all: %v", err)
+	graphModuleDir := t.TempDir()
+	graphModPath := filepath.Join(graphModuleDir, "go.mod")
+	rootPaths := make([]string, 0, len(roots))
+	for path := range roots {
+		rootPaths = append(rootPaths, path)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(out))
-	modules := map[string]moduleMetadata{}
-	for {
-		var module moduleMetadata
-		err := decoder.Decode(&module)
-		if err == io.EOF {
-			return modules
-		}
-		if err != nil {
-			t.Fatalf("decode go list -m -json all: %v", err)
-		}
-		if module.Path != "" && module.Version != "" {
-			modules[module.Path] = module
-		}
+	sort.Strings(rootPaths)
+	var graphMod strings.Builder
+	graphMod.WriteString("module example.com/concord-dependency-graph\n\ngo 1.26\n\nrequire (\n")
+	for _, path := range rootPaths {
+		graphMod.WriteString("\t")
+		graphMod.WriteString(path)
+		graphMod.WriteString(" ")
+		graphMod.WriteString(roots[path])
+		graphMod.WriteByte('\n')
 	}
-}
-
-func moduleGraph(t *testing.T, roots map[string]bool) map[string]bool {
-	t.Helper()
-	out, err := offlineGoCommand("mod", "graph").Output()
+	graphMod.WriteString(")\n")
+	if err := os.WriteFile(graphModPath, []byte(graphMod.String()), 0o644); err != nil {
+		t.Fatalf("write temporary graph go.mod: %v", err)
+	}
+	command := offlineGoCommandInDir(filepath.Join("..", ".."), "mod", "graph", "-modfile", graphModPath)
+	out, err := command.Output()
 	if err != nil {
-		t.Fatalf("go mod graph: %v", err)
+		t.Fatalf("offline go mod graph from direct Charm roots: %v", err)
 	}
 	edges := map[string][]string{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -190,7 +203,8 @@ func moduleGraph(t *testing.T, roots map[string]bool) map[string]bool {
 	}
 	seen := make(map[string]bool, len(roots))
 	queue := make([]string, 0, len(roots))
-	for root := range roots {
+	for _, path := range rootPaths {
+		root := path + "@" + roots[path]
 		seen[root] = true
 		queue = append(queue, root)
 	}
@@ -204,23 +218,87 @@ func moduleGraph(t *testing.T, roots map[string]bool) map[string]bool {
 			}
 		}
 	}
-	return seen
+	selected := map[string]string{}
+	for node := range seen {
+		path, version, ok := splitModuleNode(node)
+		if !ok || path == "go" || path == "toolchain" {
+			continue
+		}
+		if current, exists := selected[path]; !exists || moduleVersionLess(current, version) {
+			selected[path] = version
+		}
+	}
+	return selected
 }
 
-func downloadedModule(t *testing.T, path, version string) moduleMetadata {
+func splitModuleNode(node string) (string, string, bool) {
+	separator := strings.LastIndexByte(node, '@')
+	if separator <= 0 || separator == len(node)-1 {
+		return "", "", false
+	}
+	return node[:separator], node[separator+1:], true
+}
+
+func moduleVersionLess(left, right string) bool {
+	leftCore, leftPre := moduleVersionParts(left)
+	rightCore, rightPre := moduleVersionParts(right)
+	for index := range leftCore {
+		if leftCore[index] != rightCore[index] {
+			return leftCore[index] < rightCore[index]
+		}
+	}
+	if len(leftPre) == 0 || len(rightPre) == 0 {
+		return len(leftPre) > 0 && len(rightPre) == 0
+	}
+	for index := 0; index < len(leftPre) && index < len(rightPre); index++ {
+		leftNumber, leftIsNumber := versionIdentifier(leftPre[index])
+		rightNumber, rightIsNumber := versionIdentifier(rightPre[index])
+		if leftIsNumber && rightIsNumber && leftNumber != rightNumber {
+			return leftNumber < rightNumber
+		}
+		if leftIsNumber != rightIsNumber {
+			return leftIsNumber
+		}
+		if leftPre[index] != rightPre[index] {
+			return leftPre[index] < rightPre[index]
+		}
+	}
+	return len(leftPre) < len(rightPre)
+}
+
+func moduleVersionParts(version string) ([3]int, []string) {
+	var core [3]int
+	version = strings.TrimPrefix(version, "v")
+	parts := strings.SplitN(version, "-", 2)
+	for index, part := range strings.Split(parts[0], ".") {
+		if index == len(core) {
+			break
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			return core, []string{version}
+		}
+		core[index] = value
+	}
+	if len(parts) == 1 {
+		return core, nil
+	}
+	return core, strings.Split(parts[1], ".")
+}
+
+func versionIdentifier(value string) (int, bool) {
+	parsed, err := strconv.Atoi(value)
+	return parsed, err == nil
+}
+
+func graphModuleMetadata(t *testing.T, path, version string, hashes map[string]string) moduleMetadata {
 	t.Helper()
-	out, err := offlineGoCommand("mod", "download", "-json", path+"@"+version).Output()
-	if err != nil {
-		t.Fatalf("go mod download -json %s@%s: %v", path, version, err)
+	moduleHash := hashes[path+"@"+version]
+	goModHash := hashes[path+"@"+version+"/go.mod"]
+	if moduleHash == "" || goModHash == "" {
+		t.Fatalf("go.sum checksum entries missing for graph-only module %s %s: module=%q go.mod=%q", path, version, moduleHash, goModHash)
 	}
-	var module moduleMetadata
-	if err := json.Unmarshal(out, &module); err != nil {
-		t.Fatalf("decode go mod download %s@%s: %v", path, version, err)
-	}
-	if module.Path != path || module.Version != version || module.Dir == "" || module.Sum == "" {
-		t.Fatalf("incomplete downloaded module metadata: %#v", module)
-	}
-	return module
+	return moduleMetadata{Path: path, Version: version, Sum: moduleHash, GoModSum: goModHash}
 }
 
 func directModules(t *testing.T) map[string]string {
@@ -251,7 +329,7 @@ func goSumHashes(t *testing.T) map[string]string {
 	hashes := map[string]string{}
 	for _, line := range strings.Split(string(content), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) == 3 && !strings.HasSuffix(fields[1], "/go.mod") {
+		if len(fields) == 3 {
 			hashes[fields[0]+"@"+fields[1]] = fields[2]
 		}
 	}
@@ -272,7 +350,7 @@ func licenseFamily(text string) string {
 	}
 }
 
-func verifyInventoryEvidence(t *testing.T, inventory map[string]inventoryEntry, modules map[string]moduleMetadata, roles map[string]string) {
+func verifyInventoryEvidence(t *testing.T, inventory map[string]inventoryEntry, modules map[string]moduleMetadata, roles map[string]string, expectedSource string) {
 	t.Helper()
 	hashes := goSumHashes(t)
 	for path, metadata := range modules {
@@ -287,18 +365,32 @@ func verifyInventoryEvidence(t *testing.T, inventory map[string]inventoryEntry, 
 		if roles[path] != entry.Role {
 			t.Errorf("reviewed role for %s=%q, derived=%q", path, entry.Role, roles[path])
 		}
-		if metadata.Dir == "" {
-			t.Errorf("module cache directory missing for %s %s", path, metadata.Version)
-		}
-		if _, err := os.Stat(metadata.Dir); err != nil {
-			t.Errorf("module cache entry missing for %s %s: %v", path, metadata.Version, err)
-		}
 		if got := hashes[path+"@"+metadata.Version]; got == "" || got != metadata.Sum {
-			t.Errorf("go.sum checksum missing or mismatched for %s %s: go list=%q go.sum=%q", path, metadata.Version, metadata.Sum, got)
+			t.Errorf("go.sum module checksum missing or mismatched for %s %s: derived=%q go.sum=%q", path, metadata.Version, metadata.Sum, got)
+		}
+		if metadata.GoModSum == "" || hashes[path+"@"+metadata.Version+"/go.mod"] != metadata.GoModSum {
+			t.Errorf("go.sum go.mod checksum missing or mismatched for %s %s: derived=%q go.sum=%q", path, metadata.Version, metadata.GoModSum, hashes[path+"@"+metadata.Version+"/go.mod"])
+		}
+		if expectedSource == moduleCacheLicenseSource {
+			if metadata.Dir == "" {
+				t.Errorf("module cache directory missing for %s %s", path, metadata.Version)
+			}
+			if _, err := os.Stat(metadata.Dir); err != nil {
+				t.Errorf("module cache entry missing for %s %s: %v", path, metadata.Version, err)
+			}
 		}
 		for _, evidence := range entry.License {
-			if evidence.File == "" || evidence.Family == "" || len(evidence.SHA256) != sha256.Size*2 {
+			evidenceSource := evidence.Source
+			if evidenceSource == "" && expectedSource == moduleCacheLicenseSource {
+				evidenceSource = moduleCacheLicenseSource
+			}
+			if evidence.File == "" || evidence.Family == "" || evidenceSource != expectedSource || len(evidence.SHA256) != sha256.Size*2 {
 				t.Errorf("invalid license evidence for %s: %#v", path, evidence)
+				continue
+			}
+			cleanEvidenceFile := filepath.Clean(evidence.File)
+			if filepath.IsAbs(evidence.File) || cleanEvidenceFile == ".." || strings.HasPrefix(cleanEvidenceFile, ".."+string(os.PathSeparator)) {
+				t.Errorf("license evidence path escapes its source for %s/%s", path, evidence.File)
 				continue
 			}
 			if _, err := hex.DecodeString(evidence.SHA256); err != nil {
@@ -306,6 +398,19 @@ func verifyInventoryEvidence(t *testing.T, inventory map[string]inventoryEntry, 
 				continue
 			}
 			licensePath := filepath.Join(metadata.Dir, evidence.File)
+			if evidenceSource == repositoryLicenseSource {
+				licensePath = filepath.Join("..", "..", evidence.File)
+			}
+			cleanPath, err := filepath.Abs(licensePath)
+			if err != nil {
+				t.Errorf("invalid license evidence path for %s/%s: %v", path, evidence.File, err)
+				continue
+			}
+			basePath, err := filepath.Abs(filepath.Join("..", ".."))
+			if err != nil || (evidence.Source == repositoryLicenseSource && (cleanPath == basePath || !strings.HasPrefix(cleanPath, basePath+string(os.PathSeparator)))) {
+				t.Errorf("license evidence path escapes repository for %s/%s", path, evidence.File)
+				continue
+			}
 			content, err := os.ReadFile(licensePath)
 			if err != nil {
 				t.Errorf("reviewed license file missing for %s: %s: %v", path, evidence.File, err)
@@ -335,10 +440,10 @@ func TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures(t *testing.T) {
 		}
 	}
 	direct := directModules(t)
-	roots := map[string]bool{}
+	roots := map[string]string{}
 	for path, version := range direct {
 		if strings.HasPrefix(path, "charm.land/") {
-			roots[path+"@"+version] = true
+			roots[path] = version
 		}
 	}
 	if len(roots) == 0 {
@@ -350,7 +455,7 @@ func TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures(t *testing.T) {
 			continue
 		}
 		runtimeDirectRoots++
-		if !roots[entry.Module+"@"+entry.Version] {
+		if roots[entry.Module] != entry.Version {
 			t.Errorf("reviewed runtime direct module is not an exact direct Charm root: %s %s", entry.Module, entry.Version)
 		}
 	}
@@ -358,14 +463,10 @@ func TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures(t *testing.T) {
 		t.Errorf("direct Charm root count=%d, reviewed runtime direct count=%d", len(roots), runtimeDirectRoots)
 	}
 	graph := moduleGraph(t, roots)
-	selected := selectedModules(t)
+	hashes := goSumHashes(t)
 	graphOnly := map[string]moduleMetadata{}
-	for path, selectedModule := range selected {
-		if selectedModule.Sum == "" || selectedModule.Dir == "" {
-			continue
-		}
-		version := selectedModule.Version
-		if !graph[path+"@"+version] {
+	for path, version := range graph {
+		if hashes[path+"@"+version] == "" || hashes[path+"@"+version+"/go.mod"] == "" {
 			continue
 		}
 		if _, inRuntime := runtime[path]; inRuntime {
@@ -374,7 +475,7 @@ func TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures(t *testing.T) {
 		if _, inTestOnly := testOnly[path]; inTestOnly {
 			continue
 		}
-		graphOnly[path] = downloadedModule(t, path, version)
+		graphOnly[path] = graphModuleMetadata(t, path, version, hashes)
 	}
 	if len(inventory) != len(runtime)+len(testOnly)+len(graphOnly) {
 		t.Fatalf("reviewed module count=%d derived runtime=%d test-only=%d graph-only=%d", len(inventory), len(runtime), len(testOnly), len(graphOnly))
@@ -425,9 +526,9 @@ func TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures(t *testing.T) {
 		}
 		roles[path] = entry.Role
 	}
-	verifyInventoryEvidence(t, inventory, runtime, roles)
-	verifyInventoryEvidence(t, inventory, testOnly, roles)
-	verifyInventoryEvidence(t, inventory, graphOnly, roles)
+	verifyInventoryEvidence(t, inventory, runtime, roles, moduleCacheLicenseSource)
+	verifyInventoryEvidence(t, inventory, testOnly, roles, moduleCacheLicenseSource)
+	verifyInventoryEvidence(t, inventory, graphOnly, roles, repositoryLicenseSource)
 
 	for path, entry := range inventory {
 		if entry.Role == "runtime direct" {
@@ -462,7 +563,7 @@ func TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures(t *testing.T) {
 	if !strings.Contains(decisionText, "19 runtime modules, zero test-only modules, and 4 module-graph-only") {
 		t.Error("CD-0014 does not state the three-way closure/graph inventory counts")
 	}
-	if !strings.Contains(decisionText, "fetched/checksummed module metadata not linked into the") {
+	if !strings.Contains(decisionText, "graph evidence only") || !strings.Contains(decisionText, "checked-in") || !strings.Contains(decisionText, "bounded evidence") {
 		t.Error("CD-0014 does not explain the module-graph-only inventory role")
 	}
 	for _, entry := range inventoryDocument.Runtime {
@@ -517,6 +618,22 @@ func copyCheckout(t *testing.T, source, destination string) {
 	}
 }
 
+func makeTreeWritable(root string) {
+	_ = filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		mode := info.Mode().Perm()
+		if info.IsDir() {
+			mode |= 0o700
+		} else {
+			mode |= 0o600
+		}
+		_ = os.Chmod(path, mode)
+		return nil
+	})
+}
+
 func TestDependencyEvidenceWorksWithoutGitCheckoutState(t *testing.T) {
 	if os.Getenv("CONCORD_DEPENDENCY_INVENTORY_CLEAN_CHECKOUT") == "1" {
 		t.Skip("clean-checkout child process")
@@ -534,11 +651,33 @@ func TestDependencyEvidenceWorksWithoutGitCheckoutState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fakeBin, "git"), []byte("#!/bin/sh\nexit 97\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	freshModuleCache := t.TempDir()
+	defer makeTreeWritable(freshModuleCache)
+	compile := exec.Command("go", "test", "./internal/launcher/render/bubbletea")
+	compile.Dir = clean
+	compile.Env = append(os.Environ(),
+		"GOTOOLCHAIN=local",
+		"GOMODCACHE="+freshModuleCache,
+	)
+	if output, err := compile.CombinedOutput(); err != nil {
+		t.Fatalf("launcher runtime compile failed with fresh module cache: %v\n%s", err, output)
+	}
+	for _, module := range []string{
+		"github.com/aymanbagabas/go-udiff@v0.4.1",
+		"github.com/charmbracelet/x/exp/golden@v0.0.0-20250806222409-83e3a29d542f",
+		"github.com/dustin/go-humanize@v1.0.1",
+		"golang.org/x/exp@v0.0.0-20231006140011-7918f672742d",
+	} {
+		if _, err := os.Stat(filepath.Join(freshModuleCache, module)); !os.IsNotExist(err) {
+			t.Fatalf("runtime-only launcher compile populated graph-only module cache entry %s: %v", module, err)
+		}
+	}
 	command := exec.Command("go", "test", "./internal/launcher", "-run", "^TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures$", "-count=1")
 	command.Dir = clean
 	command.Env = append(os.Environ(),
 		"CONCORD_DEPENDENCY_INVENTORY_CLEAN_CHECKOUT=1",
 		"GOTOOLCHAIN=local",
+		"GOMODCACHE="+freshModuleCache,
 		"GOPROXY=off",
 		"GOSUMDB=off",
 		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),

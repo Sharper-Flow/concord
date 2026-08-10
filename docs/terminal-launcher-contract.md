@@ -1,0 +1,652 @@
+# Terminal launcher — candidate
+
+**Status:** Non-authorizing candidate answer to open clarification C18.
+
+This document proposes a shape. It binds nothing, authorizes no implementation, and
+does not narrow any accepted contract. It becomes authority only if the operator
+accepts it, at which point it takes the accepted-contract form used by
+[`product-row-contract.md`](./product-row-contract.md).
+
+One question inside it — the terminal rendering dependency — cannot be settled by a
+candidate at this layer and is surfaced in §11 as a conflict with the current
+no-third-party-dependency rule rather than silently decided.
+
+## 1. The gap
+
+[`priorities.md`](./priorities.md) makes the Product-first terminal launcher the
+primary operator surface, and [`rollout-plan.md`](./rollout-plan.md) §3 makes
+Product-first visibility part of the replacement-ready floor. R1 in
+[`clarifications.md`](./clarifications.md) confirms the launcher is the daily
+operating surface and that the predecessor session-bootstrap layer is not a candidate
+for it.
+
+Two accepted or candidate contracts describe things the launcher renders:
+
+- accepted C14 ([`product-row-contract.md`](./product-row-contract.md)) fixes the
+  Product row;
+- candidate C17 proposes the Product coordination drill-down. It is not yet merged;
+  this document links it once C17 lands.
+
+Neither describes the launcher. C14 §Status is explicit that it "does not decide"
+terminal interaction, keybindings, layout toolkit, the Product detail screen, or the
+component tree. C17 §4 defers to the launcher as an already-accepted container. No
+accepted document specifies the container itself.
+
+The concrete consequence: there is today no accepted answer to what screens exist,
+how the operator moves between them, what the launcher may do, when it re-reads
+state, or what establishes the ambient Product context that
+[`design-constraints.md`](./design-constraints.md) §13 requires agents to inherit
+structurally. This candidate proposes that container.
+
+## 2. The launcher's job
+
+**Operator direction, 2026-08-09:** the launcher exists to see status and to resume
+work in the OpenCode TUI. Nothing else.
+
+That direction is narrower than it may appear, and the narrowness is the design. It
+makes the launcher **read-only by construction**: it performs no durable write, holds
+no mutation path, and therefore cannot become a second write authority over state the
+core owns. Approvals, edits, workflow transitions, and every other consequential
+action happen inside the session the launcher starts, through the accepted CD-0005
+mutation surface — not in the launcher.
+
+Three consequences follow, and they shape the rest of this document:
+
+1. §6's action surface collapses to navigation plus session launch.
+2. §7's staleness handling becomes purely a display concern. A read-only surface has
+   no consequential boundary to gate, so the launcher never blocks execution; it
+   reports reliance state and lets the core enforce it where the action actually
+   occurs.
+3. §12 can prohibit durable writes outright rather than bounding them.
+
+| Decides | Does not decide |
+|---|---|
+| The screen set and the navigation graph between them | Field sets inside C14 rows or C17 modes |
+| Where durable knowledge renders | What durable knowledge contains, which PM6/PM7 and self-documentation own |
+| What establishes and changes ambient Product context | The TS5 invocation-envelope mechanics that carry it |
+| The interaction model and default keymap | Visual theme, colour palette, or box-drawing style |
+| That the launcher hands identity, not intent, to the session | Workflow semantics, which CD-0013 owns |
+| The refresh model and its no-polling discipline | The bounded-check mechanics CD-0006 R3 already fixes |
+| Read bounds and latency budget per screen | Query contracts, which PM1 owns |
+| Failure, degradation, and first-run states | Recovery procedure, which PM10 owns |
+
+## 3. Screen model
+
+Three screens. The set is closed: a fourth screen requires a named operator job and
+prototype evidence, on the same rule C14 §11 applies to row fields.
+
+| # | Screen | Job | Body |
+|---|---|---|---|
+| S1 | Portfolio | Choose which Product becomes ambient context | C14 rows, paged |
+| S2 | Product | Coordinate within one Product — what is blocked, what blocks it, what is next | C17 modes, if accepted, plus the Product/Project knowledge section |
+| S3 | Work | Understand one work item and resume it in a session | Work detail, workflow position, evidence, plus the work-scoped knowledge section |
+
+### Durable knowledge is a section, not a screen
+
+**Operator direction, 2026-08-09:** knowledge belongs to the thing that owns it —
+Product, Project, Epic, change — rather than to a global browse surface.
+
+So there is no knowledge screen. Each screen renders the knowledge scoped to the
+entity it is already showing:
+
+| Screen | Knowledge shown | Owner |
+|---|---|---|
+| S2 | Specs, decisions, and notes owned by the Product and its Projects | Product / Project |
+| S3 | Specs, decisions, notes, and evidence attached to this work item | Work item, including Epic and change kinds |
+
+This is R4's Product → component navigation applied without a second path: knowledge
+is reached by navigating to its owner, and workflows and changes appear as linked
+history from that owner rather than as a top-level browse. It also holds locality —
+a component's specs, changes, and runbooks stay near each other rather than being
+re-aggregated into a global list that would need its own ordering rule.
+
+Epics need no special handling. CD-0009 keeps Epics an ordinary work-item kind, so an
+Epic renders on S3 and carries its knowledge section like any other work item.
+
+Knowledge search (Q9) and note resolution (Q10) belong in the launcher and are
+covered by §5's query mode. They arrive with the resolver in round two, because a
+search over sources that are not yet resolved has nothing to return.
+
+### Knowledge ships as a reserved stub first
+
+**Operator direction, 2026-08-09:** the knowledge section is written into the UI from
+the first round, but its contents are not delivered in that round.
+
+The reason is scope honesty. Durable Product knowledge is spread across decision
+records, specifications, runbooks, PM6 canonical git notes, and ordinary repository
+files of several types. Resolving "what knowledge belongs to this entity" across those
+sources is a subsystem with its own placement, indexing, and retention rules — PM6 and
+PM7 already govern parts of it — not a panel. The panel is cheap; the resolver is not.
+
+So the section is delivered in two rounds:
+
+| Round | The section is | Behaviour |
+|---|---|---|
+| 1 | A reserved, typed stub | Occupies its layout slot, renders `not_implemented` with a stable textual marker, and issues no read |
+| 2 | Live | Renders resolved knowledge for the entity on screen through the accepted read surface |
+
+Three rules make the stub safe.
+
+1. **The stub never renders as empty.** `not_implemented` is a distinct typed state
+   from authoritative-empty and from unread. An operator must never be able to
+   conclude from the launcher that an entity has no specs when the truth is that the
+   resolver does not exist yet. This is the discipline C14 §4 already applies to
+   degraded data: unknown never renders as zero.
+2. **The slot is reserved, not improvised.** The section occupies its final position
+   and obeys §8's rendering constraints in round one, so round two changes what the
+   section contains and never where the screen puts it.
+3. **The read contract is fixed in round one.** The stub stands in for one bounded,
+   entity-scoped read through the accepted TS3 surface. Round two supplies that read.
+   It does not introduce a new read path, a launcher-side resolver, or a second
+   knowledge authority.
+
+What is deferred is resolution, not placement. The decision that knowledge belongs to
+its owning Product, Project, Epic, or change is made now and does not reopen in round
+two.
+
+### Navigation graph
+
+```text
+S1 Portfolio ──select──> S2 Product ──select──> S3 Work ──launch──> OpenCode session
+     ^                        │                    │
+     └────────back────────────┘   └─────back───────┘
+                                  │
+                          (knowledge renders in place on S2 and S3)
+```
+
+Rules:
+
+- S1 is the entry screen and the only screen reachable without an ambient Product.
+- Navigation is a stack. Back returns to the previous screen with its prior selection
+  and scroll position restored; it never silently re-enters at the top.
+- S3 is reachable only through S2. A work item is never addressed outside its Product,
+  which keeps ambient context structural rather than a parameter (§4).
+- Launch is a leaf, not a screen transition. It hands off to a session (§6) and the
+  launcher remains on S3.
+
+R5 applies to every screen: active gates and active problems render first, and
+completed history is reachable only by explicit drill-down.
+
+## 4. Ambient Product context
+
+[`design-constraints.md`](./design-constraints.md) §13 requires that Product context
+is ambient rather than a parameter threaded through calls, and that spawned workers
+inherit it structurally. The launcher is where the operator sets it.
+
+| Aspect | Proposed rule |
+|---|---|
+| What establishes it | Selecting a Product row on S1 and entering S2 |
+| What changes it | Returning to S1 and selecting a different Product; nothing else |
+| Scope | Exactly one ambient Product at a time per launcher instance |
+| Visibility | The ambient Product is displayed persistently on S2 and S3 |
+| Propagation | Handed to a launched session as resolved scope, re-resolved by the core on every call per TS5 |
+| Inheritance | Workers spawned inside that session inherit it structurally, never by prompt convention |
+| Absence | On S1 there is no ambient Product, and no action requiring one is offered |
+
+Two independent launcher instances may hold two different ambient Products; each is
+a view over the same single global SQLite authority per PM2, and neither caches
+authority. There is no ambient-context file, environment variable, or shell state
+that a second process could read as a second authority.
+
+The predecessor's explicit path-confirmation plumbing is the recorded anti-pattern
+here. Ambient context is never re-confirmed by asking the operator to restate a path.
+
+## 5. Interaction model
+
+**Principles.** Keyboard is sufficient for every action. Mouse may be supported but
+is never required. Navigation keys are uniform across all screens.
+
+The launcher performs no durable write (§2), so there is no destructive keystroke to
+guard. Launch is the only key with an external effect, and it is recoverable by
+closing the session.
+
+**Proposed default keymap.**
+
+| Key | Action | Scope |
+|---|---|---|
+| `j` / `k`, `↓` / `↑` | Move selection | All |
+| `Enter` | Open selection, descending one screen | S1, S2 |
+| `Esc`, `h`, `←` | Back one screen | S2, S3 |
+| `g` / `G` | First / last row | All |
+| `Ctrl-d` / `Ctrl-u` | Half-page down / up | All |
+| `n` / `p` | Next / previous page | S1, S2 |
+| `/` | Filter the current screen's already-fetched result set | S1, S2 |
+| `s` | Query — submit a bounded search and render its results | All |
+| `Tab` | Cycle sections within a screen — C17 relation tree, ranked table, knowledge | S2, S3 |
+| `l` | Launch a session for the current scope (§6) | S2, S3 |
+| `r` | Explicit refresh (§7) | All |
+| `?` | Help overlay listing the active keymap | All |
+| `q` | Quit; on S1 exits, elsewhere behaves as back | All |
+
+The help overlay is generated from the active keymap rather than maintained as prose,
+so a keymap change cannot drift from its documentation.
+
+### Filter and query are two different things
+
+The launcher accepts typed input for two purposes, and conflating them would hide a
+read behind what looks like a display control.
+
+| | Filter (`/`) | Query (`s`) |
+|---|---|---|
+| Effect | Narrows rows already on screen | Issues a bounded read |
+| Scope | The current page | The ambient Product, or the portfolio on S1 |
+| Ordering | Unchanged from the underlying contract | Set by the query contract it dispatches to |
+| Cost | None | One bounded read, counted in §9 |
+| Result | A subset, with the hidden-row count shown | A result set, paged, with typed coverage |
+
+`/` cannot silently widen a read or change ordering, because it never re-queries.
+When it hides rows, it shows how many — a filtered view never presents itself as a
+whole result, matching C17's no-silent-truncation rule.
+
+`s` is a read, so it obeys every read rule in this document: bounded and paged per §9,
+dispatched through the accepted TS3 surface, carrying the same watermark and reliance
+state as any other screen, and rendering `unavailable` with a typed reason rather than
+a short list presented as complete. Query results are a view, not a new screen; `Esc`
+returns to the unfiltered screen with prior selection intact.
+
+What is queryable follows what the screen owns: Products on S1, work within the
+ambient Product on S2 and S3, and durable knowledge once the resolver lands (§3).
+Knowledge query is round-two, for the same reason the section is.
+
+### Text entry is a first-class requirement
+
+Both modes need a real text input: cursor movement, mid-string editing, deletion,
+paste, and clear. This is the launcher's only input widget, and it is not optional —
+it raises the floor for the rendering-dependency choice in §11 above what a
+navigate-only surface would need.
+
+Two constraints keep it honest. Text entry never mutates durable state; it selects
+what to read and what to show, never what to write. And a query in flight renders as
+in flight — a stale result set never sits under a newer query string as though it
+answered it.
+
+## 6. Action surface
+
+The launcher navigates and launches. That is the whole surface.
+
+| Action | Screen | Effect | Durable write |
+|---|---|---|---|
+| Open | S1, S2 | Navigate one screen down | None |
+| Back | S2, S3 | Navigate one screen up | None |
+| Filter | S1, S2 | Narrow the rows already on screen | None |
+| Query | All | Issue one bounded search and render its results | None |
+| Refresh | All | Re-run the current screen's read | None |
+| Launch | S2, S3 | Start or attach an OpenCode session carrying resolved scope | None by the launcher |
+
+**Excluded from every screen.** Creating, editing, retitling, reprioritizing, or
+deleting work; starting, transitioning, or completing a workflow; answering approval
+challenges; editing specs, decisions, notes, or any durable knowledge; editing
+relations, membership, or resource records; any git, build, deploy, or external-system
+execution; and bulk or multi-select operations of any kind.
+
+**Approvals are surfaced, not answered.** C14 counts `approval_required` on the
+Product row and S3 shows the pending challenge, so the operator learns in the launcher
+that a decision is waiting. Answering it happens in the session, through the accepted
+CD-0005 mutation surface. The launcher is the place you find out; the session is the
+place you decide.
+
+### The launcher hands identity, not intent
+
+**Operator direction, 2026-08-09:** what launch does depends on the current state of
+the change or workflow, resolved by whichever side is cleaner.
+
+The clean side is the session, and the reason is constitutional rather than
+ergonomic. If the launcher inspected workflow state and handed the session a specific
+intent — start fresh, resume at step N — it would hold its own derivation of where the
+workflow is. [`design-constraints.md`](./design-constraints.md) §14 requires a single
+derivation with no parallel authority, and R3 in
+[`clarifications.md`](./clarifications.md) gives each workflow's durable orchestrator
+sole ownership of its lifecycle record. A launcher-computed intent is exactly the
+split-authority shape the predecessor postmortem identifies as the recurring root
+cause.
+
+So the handoff carries identity only:
+
+| Launched from | Handoff |
+|---|---|
+| S2 | Resolved Product scope |
+| S3 | Resolved Product scope plus the work item's stable ID |
+
+The session then reads durable state and resumes at whatever step the workflow is
+actually on. State-dependent behaviour is preserved — it is simply resolved once, by
+the authority that owns it, at the moment of use rather than at the moment of display.
+
+This also makes the launcher's snapshot harmless. A stale screen can hand off a work
+ID; it cannot hand off a stale opinion about workflow position, because it never forms
+one.
+
+The launcher offers one launch action whose availability does not vary with workflow
+state. Labelling may reflect state for orientation — "resume" against in-progress
+work, "open" otherwise — but the label is display text derived from the same read that
+populates the screen, never a second decision.
+
+## 7. Refresh model
+
+CD-0006 R3 and [`design-constraints.md`](./design-constraints.md) §2 forbid polling,
+timers, and heuristic blocking authority. The launcher therefore has no refresh loop,
+no background thread, and no interval.
+
+| Trigger | Behaviour |
+|---|---|
+| Screen entry | One bounded read for that screen |
+| Query submitted | One bounded read for that query |
+| Explicit `r` | Re-run that screen's read, or the active query if one is displayed |
+| Everything else | No read |
+
+A query reads on submit, never per keystroke. Incremental search would turn one
+operator intent into an unbounded read stream, which §9's bounds and the no-polling
+discipline both exclude; typing is free, submitting costs one read.
+
+Between reads the screen is a snapshot, and it says so. Every screen renders the
+authority watermark and the observed-at age of its data, so a stale screen can never
+look current — this is C14 §4's reliance discipline applied to the container rather
+than the row.
+
+**Staleness is displayed, never enforced here.** C14's `blocks_execution` remains
+meaningful, but the launcher is not where it bites: a read-only surface has no
+consequential boundary. The launcher renders the blocking reliance state so the
+operator sees it, and the core enforces it at the action boundary inside the session,
+under the bounded check CD-0006 R3 already requires. The launcher adds no freshness
+judgement of its own and holds no second gate.
+
+Launching against a stale screen is therefore safe by construction. The session
+re-resolves scope and state on every call per TS5; nothing the launcher displayed is
+carried into the session as authority.
+
+## 8. Rendering constraints
+
+The launcher inherits C14 §4 wholesale and adds container-level rules.
+
+- No horizontal scrolling is required on any screen at 80 columns.
+- Narrow terminals may reflow to a second line but may not drop fields or hide
+  meaning behind a mode.
+- `degraded`, `unreachable`, `stale`, and `approval_required` never depend on colour
+  alone; each carries a stable textual symbol.
+- The screen is legible with colour disabled and via screen reader.
+- Every screen shows, in fixed positions: the ambient Product, the authority
+  watermark and data age, and the active-key hint line.
+- Redraw is idempotent — two renders over unchanged state produce identical output,
+  which makes both prototype acceptance and screenshot diffing meaningful.
+
+## 9. Read path and bounds
+
+| Screen | Read | Bound |
+|---|---|---|
+| S1 | One Product-row projection query, per C14 §8 | Page default 20, maximum 100 |
+| S2 | One bounded query per mode, per C17 §6, plus one Product-scoped knowledge read | Q8 depth ≤ 3; Q5 paged by limit and cursor; knowledge list paged |
+| S3 | One work-detail read, plus one work-scoped knowledge read | Single work item plus bounded workflow state; knowledge list paged |
+| Query | One bounded read per submitted query, scoped to what the screen owns | Paged by limit and cursor; typed coverage; never unbounded |
+
+- The knowledge reads above are round-two behaviour. In round one the section is a
+  stub and issues no read at all, so the round-one launcher is strictly cheaper than
+  this table and cannot regress against it.
+- No screen issues per-row or per-work fan-out. The knowledge section is one bounded
+  read for the entity already on screen, not a read per row.
+- The knowledge section renders lazily: it is read when the section is first focused
+  on that screen entry, not on every screen entry, so the common status-checking path
+  pays for one query.
+- P99 ≤ 100 ms locally at 10× measured dataset, matching the PM1 implementation
+  target carried by C14 §8.
+- All reads go through the accepted CD-0005 read tools or their in-process Go
+  equivalent against the same typed projections and watermark. The launcher does not
+  hold a second read path with different semantics.
+
+## 10. Failure, degradation, and first run
+
+| State | Proposed rendering |
+|---|---|
+| Authority unreachable | Typed unreachable screen; no cached rows presented as current; navigation into S2/S3 refused with the reason |
+| Partial coverage | The affected group renders `unavailable` with a typed reason and bounded omissions; never zero, never a shorter list presented as whole |
+| Authoritative empty portfolio | Explicit authoritative-empty state distinguishable from unreachable |
+| No Product has any actionable work | Authoritative-empty per C14's `focus_absent_reason`, not an error |
+| Knowledge section not yet delivered | Typed `not_implemented` with a stable textual marker; structurally distinct from authoritative-empty and from unread, and never presented as "no knowledge exists" |
+| Entity has no durable knowledge | Authoritative-empty knowledge section, distinguishable from an unread one |
+| First run, no database | Typed first-run state naming the initialization step; the launcher does not silently create authority as a side effect of being opened |
+| Invariant violation, such as a relation cycle | Surfaced as `invariant_violation` per C17; never hidden and never auto-repaired |
+
+Nothing in this table permits a repair action. Non-destructive recovery is PM10's,
+and [`design-constraints.md`](./design-constraints.md) §19 forbids the launcher from
+hand-repairing state it merely displays. A read-only launcher cannot repair anything
+by construction, which is the point.
+
+## 11. Implementation boundary — unresolved dependency conflict
+
+The launcher is Go, in the Concord core, per R6 and
+[`core-architecture.md`](./core-architecture.md) §1. The adapter boundary is
+unaffected: TS6 keeps `concord.ts` a transport-only module, and the launcher is not
+part of it.
+
+The rendering dependency is a genuine conflict that this candidate surfaces rather
+than resolves. `AGENTS.md` states that third-party Go dependencies require applicable
+accepted issue or decision scope. The repository already carries one direct
+dependency, `modernc.org/sqlite`, accepted under CD-0002 for the pure-Go binding, so
+the rule is a decision gate rather than a prohibition. A full-screen interactive TUI
+needs raw-mode terminal control, which the Go standard library does not provide; the
+options differ in how much is taken on.
+
+| Option | Shape | Cost | Risk |
+|---|---|---|---|
+| Standard library plus `golang.org/x/sys` | Hand-rolled raw mode, ANSI output, input parsing, resize handling | Highest implementation cost | Terminal-compatibility burden becomes Concord's, permanently |
+| `gdamore/tcell` v3 | Cell-based rendering primitive, pure Go, no cgo | Moderate — rendering solved, widgets are not | v3 is recent and breaking relative to v2; `rivo/tview` has not adopted it |
+| `charmbracelet/bubbletea` v2 plus `bubbles` | Framework with table, viewport, list, help, and key components | Lowest implementation cost | Largest dependency surface; v2 moved to a new module path |
+
+`golang.org/x/sys` is already an indirect dependency, so the first option's true
+addition is implementation burden rather than supply-chain surface. The third option's
+component list maps closely onto §3's screens and §5's keymap, which is why it is the
+cheapest path to a prototype.
+
+The read-only narrowing in §2 removes forms, modals, and confirmation dialogs, but it
+does not make this a display-only surface. §5 requires a real text input for filter and
+query, with cursor movement, mid-string editing, paste, and clear. The widget floor is
+therefore tables, a scrollable pane, a key map, and one text input — modest, but past
+the point where hand-rolled input parsing is incidental work. Input handling is also
+where terminal compatibility gets awkward: key encodings, bracketed paste, and resize
+during editing are exactly the cases the standard-library option would take on
+permanently.
+
+This candidate takes no position. The choice is a decision-record question because it
+is durable, hard to reverse, and governed by an existing rule. It is the only open
+item in §14.
+
+## 12. Anti-requirements
+
+Each is proposed as a prohibition because the pattern produces output that looks
+authoritative while being non-derivable, unstable, or a second authority.
+
+1. **No durable writes.** The launcher never mutates state. It holds no mutation
+   path, no direct store access, and no local workflow logic.
+2. **No background refresh.** No timer, no poll, no watcher, no interval. Reads
+   happen on the triggers in §7 and nowhere else.
+3. **No cached authority.** The launcher holds no durable state of its own. Screen
+   state is a render snapshot, discarded on exit.
+4. **No second read path.** Every read goes through the accepted tool surface against
+   the same projections and watermark.
+5. **No derived workflow position.** The launcher never computes where a workflow is
+   or what should happen next; it hands identity and lets the owning authority
+   resolve state (§6).
+6. **No computed or inferred ordering.** Ordering comes from the stored explicit
+   priority rank and the accepted query contracts, never from a model-assigned score,
+   activity recency, or a heuristic.
+7. **No repair actions.** Nothing in the launcher mutates state to fix what it
+   displays.
+8. **No dashboard drift.** Terminal counts, repository paths, velocity, percent
+   complete, estimates, owners, and assignments stay excluded, consistent with C14 §5
+   and C17 §5.
+9. **No mouse dependency.** Every action is reachable by keyboard.
+10. **No hidden meaning.** Nothing meaningful is conveyed by colour alone, by a mode
+    the operator must discover, or by a field only visible at wide terminal widths.
+11. **No cross-Product action surface.** The launcher views one ambient Product.
+    Query is scoped to what the current screen owns, and no result set spans Products
+    while cross-Product scope remains an open question (§14).
+12. **No incremental query.** A query reads on submit. Keystrokes never issue reads.
+13. **No filter that queries, and no query that pretends to be a filter.** The two
+    modes are distinguishable on screen, and a result set is never presented as though
+    it were the unfiltered whole.
+14. **No stub that reads as data.** A deferred capability renders its own typed state.
+    An unbuilt resolver never renders as an empty result, a zero count, or a blank
+    pane.
+
+## 13. Proposed acceptance tests
+
+A prototype would need to satisfy at minimum:
+
+- Selecting a Product on S1 establishes ambient context, and a session launched from
+  S2 resolves the same Product without any path being restated.
+- Two launcher instances hold two different ambient Products without either observing
+  the other's selection.
+- Back from S3 returns to S2 with the prior selection and scroll position intact.
+- A work item cannot be reached without an ambient Product.
+- Launching from S3 hands the work item's stable ID and nothing about workflow
+  position; the session resumes at the step durable state says it is on.
+- Launching from a deliberately stale S3 snapshot resumes at the *current* step, not
+  the displayed one.
+- No durable write is observable in the event log across a full launcher session that
+  navigates every screen and launches from both S2 and S3.
+- Knowledge renders in place on S2 and S3 for the entity on screen, and no screen
+  offers a cross-entity knowledge browse.
+- In round one, the knowledge section renders `not_implemented`, is textually
+  distinguishable from an authoritative-empty section, and issues no read.
+- Promoting the section from stub to live changes no other element's position on S2 or
+  S3, and adds no read path beyond the one the stub reserved.
+- An Epic work item renders on S3 with its knowledge section, with no Epic-specific
+  screen or code path.
+- The knowledge section is not read when the operator never focuses it.
+- Every action in §6 is reachable by keyboard alone, and the help overlay matches the
+  active keymap exactly.
+- Typing a query string issues no read; submitting it issues exactly one.
+- A query result set renders its own coverage and reliance state, and incomplete
+  coverage renders `unavailable` rather than a short list.
+- `Esc` from a query result returns to the unfiltered screen with prior selection and
+  scroll position intact.
+- A filtered view shows the count of hidden rows and is distinguishable on screen from
+  a query result set.
+- The text input supports cursor movement, mid-string editing, deletion, paste, and
+  clear, and no input path mutates durable state.
+- A query submitted while an older result is displayed never leaves the stale result
+  under the new query string without an in-flight indication.
+- Blocking reliance state renders visibly on S1, S2, and S3 without the launcher
+  refusing to launch.
+- With the authority unreachable, no screen renders cached rows as current.
+- Partial coverage renders `unavailable` with a typed reason, never zero.
+- An authoritative-empty portfolio is visually distinguishable from an unreachable one.
+- An entity with no knowledge is distinguishable from an unread knowledge section.
+- First run with no database renders the typed first-run state and creates nothing.
+- No read is issued between two consecutive `r` presses with no navigation in between.
+- Two renders over unchanged state are byte-identical.
+- Every screen renders without horizontal scroll at 80 columns, and preserves reliance
+  meaning with colour disabled and via screen reader.
+- S1 at 100 Products and S2 at maximum relation depth stay within §9's latency bound.
+
+Operator test: from a cold start, identify the Product needing attention, enter it,
+name what is blocked and what blocks it, and resume the next work item in a session —
+without leaving the launcher and without restating any path. Failure reopens the
+screen set or the handoff rule; it does not authorize adding a dashboard or a
+mutation surface.
+
+## 14. Questions for operator direction
+
+**Open.**
+
+1. **Rendering dependency (§11).** Standard library, `tcell`, or `bubbletea`. It
+   plausibly needs its own decision record: it is durable, costly to reverse, and
+   gated by an existing dependency rule. §5's text-input requirement raises the floor
+   for this choice.
+2. **Query scope (§5).** Query is scoped to the ambient Product by default, matching
+   the query contract's deferral of cross-Product prioritization. Whether the operator
+   also needs to search across Products from S1 — for work, or for knowledge once the
+   resolver lands — is genuinely open. Search is not prioritization, so the deferral
+   does not settle it either way.
+
+**Resolved 2026-08-09.**
+
+| Question | Direction | Effect |
+|---|---|---|
+| Are approvals answered in the launcher? | No. The launcher shows status and resumes work in the OpenCode TUI | §2, §6 — launcher is read-only; approvals are surfaced and answered in the session |
+| Is an explicit refresh required before consequential action? | Moot. A read-only launcher has no consequential boundary | §7 — staleness is displayed, never enforced by the launcher |
+| Does a knowledge screen belong? | Knowledge belongs to its owning Product, Project, Epic, or change | §3 — no knowledge screen; a scoped section on S2 and S3 |
+| Who resolves what launch does? | Whichever is cleaner | §6 — the session, because launcher-side resolution would be a second derivation of workflow position |
+
+## 15. Sequencing
+
+This candidate depends only on accepted contracts plus candidate C17, so it does not
+block on new law beyond §14. It does depend on runtime that does not exist yet. A
+practical order:
+
+1. The workflow engine ships, so S3 has workflow position to render.
+2. The rendering-dependency question is decided.
+3. S1 renders C14 rows against real storage.
+4. S2 renders C17 modes; S3 renders work detail and the launch handoff. Knowledge
+   sections appear on both as reserved `not_implemented` stubs.
+5. Knowledge resolution across decision records, specifications, runbooks, PM6 notes,
+   and repository files is specified and delivered, promoting both stubs to live.
+
+Steps 1–4 are the launcher's first round. Step 5 is a separate body of work with its
+own placement and indexing questions, and it should carry its own issue rather than
+arriving as an implication of this candidate.
+
+S1 alone is a useful prototype for the §13 reliance, latency, and accessibility tests
+before S2 exists. It is not a replacement-ready slice, and
+[`priorities.md`](./priorities.md) §First-usable floor forbids calling it one.
+
+## 16. Risks
+
+| Risk | Proposed mitigation |
+|---|---|
+| The screen set accretes until the launcher becomes the dashboard C14 rejected | The set is closed in §3; a fourth screen requires a named operator job plus prototype evidence |
+| Read-only proves too narrow and the operator wants to act without opening a session | Reopen §2 deliberately, with the named action and evidence; do not add writes incrementally |
+| A framework's model leaks into domain code, making the rendering choice hard to reverse | Screens consume the accepted read contracts only; no domain type is defined in terms of a rendering library |
+| The no-polling rule makes the launcher feel stale in practice | Watermark and age are always visible, and explicit refresh is one keystroke; if this proves insufficient, the correct fix is a push notice mechanism under CD-0006 R3, never a poll |
+| Knowledge sections turn the work screen into a document reader | Sections are bounded, lazily read, and scoped to the entity on screen; full reading happens in the session |
+| Query results accrete columns and ordering rules until they become a fourth screen | Results are a view over the contract the screen already owns, with that contract's ordering; a distinct result schema would reopen §3 |
+| The knowledge stub is mistaken for "this entity has no knowledge" | `not_implemented` is a distinct typed state with a stable textual marker, and its distinctness from authoritative-empty is an acceptance test |
+| The stub becomes permanent and quietly normalizes a dead pane | Step 5 in §15 carries its own issue, and a stub still unresolved when the rest of the launcher is delivered is a §17 falsifier |
+| Latency degrades as screens gain content | The per-screen bound in §9 is an acceptance test, not an aspiration |
+
+## 17. Falsifiers
+
+This candidate should be revised or withdrawn when:
+
+- the operator cannot complete the §13 operator test without leaving the launcher;
+- three screens prove to be the wrong cut, in either direction;
+- the read-only boundary forces the operator to open a session for something that
+  carries no consequence and no authority;
+- knowledge-in-context proves insufficient and a genuine cross-entity browse job is
+  named, which would reopen §3 rather than add a screen quietly;
+- the knowledge stub is still unresolved when every other part of the launcher is
+  delivered, which would mean the two-round split has become permanent deferral rather
+  than sequencing;
+- ambient context proves insufficient and callers genuinely need to pass explicit
+  scope, which would reopen `design-constraints.md` §13 rather than this document;
+- the no-polling refresh model proves unusable in daily operation and a push notice
+  mechanism is required; or
+- the chosen rendering dependency cannot meet the accessibility or latency clauses.
+
+## 18. Evidence basis
+
+- Product-first terminal launcher is the primary operator surface, and Priority 3
+  requires bounded, fast, Product-scoped reads with reviewed staleness
+  ([`priorities.md`](./priorities.md) §§Operating envelope, 3–4).
+- R1, R3, R4, R5, and R6 fix the launcher's role, factored lifecycle truth, the
+  Product → component navigation path, active-work-first defaults, and Go ownership
+  ([`clarifications.md`](./clarifications.md)).
+- C14 fixes the row and explicitly defers interaction, keybindings, layout toolkit,
+  and the detail screen ([`product-row-contract.md`](./product-row-contract.md)).
+- C17 proposes the Product drill-down and defers the container to the launcher
+  (candidate, not yet merged).
+- Ambient Product context, typed degradation, no-polling impact propagation, bounded
+  reads, single derivation, and non-destructive recovery are constraints §13, §2, §5,
+  §14, and §19 ([`design-constraints.md`](./design-constraints.md)).
+- Split state authority between an orchestrator and a projection is the recurring
+  predecessor root cause, which is why §6 refuses to derive workflow position
+  ([`advance-postmortem.md`](./advance-postmortem.md)).
+- Epics are an ordinary work-item kind rather than a distinct trackable
+  ([`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md)).
+- The read surface the launcher dispatches into is accepted TS3 under CD-0005, and the
+  mutation surface it deliberately does not touch is TS4
+  ([`agent-read-tool-contract.md`](./agent-read-tool-contract.md),
+  [`agent-mutation-tool-contract.md`](./agent-mutation-tool-contract.md)).
+- Go TUI dependency options, current as of 2026-08: `gdamore/tcell` v3 is released and
+  breaking relative to v2, with `rivo/tview` not yet adopted
+  (<https://github.com/gdamore/tcell>, <https://github.com/rivo/tview/issues/1145>);
+  `charmbracelet/bubbletea` v2 publishes a component set covering tables, viewports,
+  lists, help, and key maps (<https://github.com/charmbracelet/bubbletea>).

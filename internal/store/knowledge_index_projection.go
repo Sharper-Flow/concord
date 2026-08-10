@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -220,19 +223,38 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	}
 	notes := make([]VerifiedNote, 0, len(paths))
 	seen := map[string]bool{}
+	seenPaths := map[string]bool{}
 	for _, notePath := range paths {
 		note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, notePath, "")
 		if err != nil {
 			return err
 		}
-		if note.Kind == "work_note" && !linked[note.ID] {
-			continue
-		}
 		if seen[note.ID] {
 			return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "two valid canonical notes claim the same stable ID", false, "resolve duplicate canonical note identities")
 		}
-		seen[note.ID] = true
-		notes = append(notes, note)
+		seen[note.ID], seenPaths[note.NotePath] = true, true
+		if linked[note.ID] {
+			notes = append(notes, note)
+		}
+	}
+	manifest, manifestMissing, err := readKnowledgeManifest(ctx, home.RepoPath, commit)
+	if err != nil {
+		return err
+	}
+	if !manifestMissing {
+		for _, record := range manifest.Records {
+			if seen[record.ID] {
+				return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "manifest and work-note populations claim the same stable ID", false, "assign distinct stable IDs across knowledge populations")
+			}
+			if seenPaths[record.Path] {
+				return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "manifest and work-note populations claim the same canonical path", false, "assign distinct canonical paths across knowledge populations")
+			}
+			if err := verifyManifestBlob(ctx, home.RepoPath, commit, record); err != nil {
+				return err
+			}
+			seen[record.ID], seenPaths[record.Path] = true, true
+			notes = append(notes, manifestRecordNote(record, commit))
+		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -260,7 +282,38 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			return rollback(err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES (?,?,?,?,?,1)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
+		return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear knowledge kind coverage", true, "retry once the database is writable", err))
+	}
+	coverage := map[string]string{
+		"work_note": "indexed",
+		"lesson":    "supported_not_indexed",
+		"decision":  "supported_not_indexed",
+		"spec":      "supported_not_indexed",
+		"research":  "supported_not_indexed",
+	}
+	if !manifestMissing {
+		for _, kind := range manifest.IndexedKinds {
+			coverage[kind] = "indexed"
+		}
+	}
+	for _, kind := range []string{"work_note", "lesson", "decision", "spec", "research"} {
+		reason := "manifest absent at scanned commit"
+		if kind == "work_note" {
+			reason = "canonical docs/work directory scanned"
+		} else if !manifestMissing && coverage[kind] == "indexed" {
+			reason = "manifest indexed kind at scanned commit"
+		} else if kind == "research" {
+			reason = "research has no accepted canonical manifest form"
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage (home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES (?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, kind, coverage[kind], reason, commit); err != nil {
+			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write knowledge kind coverage", true, "retry once the database is writable", err))
+		}
+	}
+	// The commit identity is the deterministic observation value. It avoids
+	// rebuild-only wall-clock churn while the query result still exposes the
+	// current observation time in its transient envelope.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES (?,?,?,?,?,1)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, commit); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err))
 	}
 	if err := leaveFold(ctx, tx); err != nil {
@@ -299,7 +352,7 @@ func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, 
 }
 
 func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, note VerifiedNote) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullString(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullString(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash, note.ScopeMode); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert an indexed note", true, "retry once the database is writable", err)
 	}
 	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, "archived_work_components": note.ComponentIDs, "archived_work_tags": note.TagIDs} {
@@ -309,6 +362,37 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert indexed note scope", true, "retry once the database is writable", err)
 			}
 		}
+	}
+	return nil
+}
+
+func manifestRecordNote(record KnowledgeRecord, commit string) VerifiedNote {
+	terminal := "completed"
+	if record.Status == "superseded" {
+		terminal = "superseded"
+	}
+	return VerifiedNote{
+		ID: record.ID, Kind: record.Kind, Title: record.Title, CompletedAt: record.Date,
+		OutcomeTag: record.Status, LessonTags: append([]string(nil), record.Tags...),
+		TerminalState: terminal, Summary: record.Summary, SuccessorID: record.Successor,
+		ProductIDs: append([]string(nil), record.Scopes.ProductIDs...), ProjectIDs: append([]string(nil), record.Scopes.ProjectIDs...),
+		ComponentIDs: append([]string(nil), record.Scopes.ComponentIDs...), TagIDs: append([]string(nil), record.Scopes.TagIDs...),
+		ScopeMode: record.Scopes.Mode, NotePath: record.Path, CommitOID: commit, ContentHash: record.SHA256,
+	}
+}
+
+func verifyManifestBlob(ctx context.Context, repo, commit string, record KnowledgeRecord) error {
+	entry, err := gitTreeEntry(ctx, repo, commit, record.Path)
+	if err != nil || entry.kind != "blob" || entry.mode != "100644" {
+		return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "manifest record blob is missing or not regular: "+record.Path, false, "restore the referenced regular markdown blob")
+	}
+	content, err := runGit(ctx, repo, "cat-file", "blob", commit+":"+record.Path)
+	if err != nil {
+		return wrapFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cannot read manifest record blob: "+record.Path, true, "restore the git object and retry", err)
+	}
+	sum := sha256.Sum256(content)
+	if got := "sha256:" + hex.EncodeToString(sum[:]); got != record.SHA256 {
+		return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "manifest record hash does not match blob: "+record.Path, false, "recompute the authored sha256 proof")
 	}
 	return nil
 }
@@ -345,6 +429,59 @@ func validateKnowledgeHomeForQuery(ctx context.Context, s *Store, home Knowledge
 		return "", "", newFailure(KindIndexDegraded, op, "knowledge index watermark is stale or incomplete", true, "rebuild the git-derived knowledge index")
 	}
 	return watermark, "authoritative", nil
+}
+
+func validateKnowledgeCoverage(ctx context.Context, s *Store, home KnowledgeHome, commit string, kinds []string) error {
+	if len(kinds) == 0 {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT kind,coverage,scanned_commit_oid FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q9", "cannot read knowledge kind coverage", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	available := map[string]bool{}
+	for rows.Next() {
+		var kind, coverage, scanned string
+		if err := rows.Scan(&kind, &coverage, &scanned); err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode knowledge kind coverage", true, "retry once the database is readable", err)
+		}
+		if coverage == "indexed" && scanned == commit {
+			available[kind] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q9", "cannot finish reading knowledge kind coverage", true, "retry once the database is readable", err)
+	}
+	missing := make([]string, 0)
+	for _, kind := range kinds {
+		if !available[kind] {
+			missing = append(missing, kind)
+		}
+	}
+	if len(missing) > 0 {
+		failure := newFailure(KindKnowledgeUnavailable, "PM1.Q9", "explicitly requested knowledge kinds are unavailable: "+strings.Join(missing, ","), false, "publish and rebuild the canonical kind, or remove it from the filter")
+		failure.UnavailableKinds = missing
+		failure.CandidateIDs = append([]string(nil), missing...)
+		return failure
+	}
+	return nil
+}
+
+func knowledgeCoverageOmissions(ctx context.Context, db *sql.DB, home KnowledgeHome, commit string) []string {
+	rows, err := db.QueryContext(ctx, `SELECT kind FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=? AND scanned_commit_oid=? AND coverage='supported_not_indexed' ORDER BY kind`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit)
+	if err != nil {
+		return []string{"knowledge_kind_coverage_unavailable"}
+	}
+	defer rows.Close()
+	omissions := make([]string, 0)
+	for rows.Next() {
+		var kind string
+		if rows.Scan(&kind) == nil {
+			omissions = append(omissions, "knowledge_kind_not_indexed:"+kind)
+		}
+	}
+	return omissions
 }
 
 func orderedStrings(values []string) []string {

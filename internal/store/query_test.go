@@ -126,6 +126,7 @@ func TestQueryQ6ValidatesExplicitProductForWork(t *testing.T) {
 func TestQueryQ10AcceptsExactlyOneStableReferenceAndReturnsTypedStates(t *testing.T) {
 	s := seedQueryFixture(t)
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: t.TempDir(), HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, home)
 	result, err := s.QueryQ10(context.Background(), Q10Request{Work: "blocked", AllowDegraded: true, Home: home})
 	if err != nil || result.Status != "not_compacted" {
 		t.Fatalf("work-only result=%#v, err=%v", result, err)
@@ -155,16 +156,18 @@ func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	path := "docs/lessons/different.md"
 	writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("different-id", "lesson", "2026-08-07T00:00:00Z", []string{"test"}))
-	commit := commitKnowledgeRepo(t, repo, "ambiguous knowledge")
-	note, err := VerifyCommittedNote(context.Background(), repo, commit, path, "")
-	if err != nil {
+	writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "knowledge-id", "lesson", path, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"test"}, KnowledgeRecordScopes{Mode: "explicit"}))
+	commitKnowledgeRepo(t, repo, "ambiguous knowledge")
+	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, home)
+	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	insertArchivedKnowledge(t, s, "knowledge-id", "home", "locator", path, commit, note.ContentHash, nil)
-	result, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-id", AllowDegraded: true, Home: KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}})
-	if err != nil || result.Status != "ambiguous" || result.Result == nil || result.Result.Status != "ambiguous" {
-		t.Fatalf("ambiguous result=%#v, err=%v", result, err)
+	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='tampered' WHERE id='knowledge-id'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
 	}
+	_, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-id", Home: home})
+	assertFailureKind(t, err, KindKnowledgeMissing)
 }
 
 func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocator, path, commit, hash string, products []string) {

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/concord-knowledge-index.v1.schema.json",
+  "title": "Concord durable knowledge index v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "supported_kinds", "indexed_kinds", "records"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "supported_kinds": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec", "research"]}},
+    "indexed_kinds": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec"]}},
+    "records": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/record"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S(?:.*\\S)?$"},
+    "ids": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["lesson", "decision", "spec"]},
+        "path": {"type": "string", "pattern": "^docs/(?!work/|research/|.*generated|product-coordination-view\\.md$|terminal-launcher-contract\\.md$).*\\.md$", "maxLength": 512},
+        "status": {"enum": ["accepted", "published", "superseded"]},
+        "date": {"type": "string", "format": "date-time"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 256},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "tags": {"$ref": "#/$defs/ids"},
+        "scopes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "product_ids", "project_ids", "component_ids", "tag_ids"],
+          "properties": {
+            "mode": {"enum": ["home", "explicit"]},
+            "product_ids": {"$ref": "#/$defs/ids"},
+            "project_ids": {"$ref": "#/$defs/ids"},
+            "component_ids": {"$ref": "#/$defs/ids"},
+            "tag_ids": {"$ref": "#/$defs/ids"}
+          },
+          "allOf": [
+            {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"product_ids": {"maxItems": 0}, "project_ids": {"maxItems": 0}, "component_ids": {"maxItems": 0}, "tag_ids": {"maxItems": 0}}}}
+          ]
+        },
+        "successor": {"$ref": "#/$defs/id"},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "lesson"}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["published", "superseded"]}}}},
+        {"if": {"properties": {"kind": {"enum": ["decision", "spec"]}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["accepted", "superseded"]}}}},
+        {"if": {"properties": {"kind": {"const": "decision"}}, "required": ["kind"]}, "then": {"properties": {"path": {"pattern": "^docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"}}}},
+        {"if": {"properties": {"status": {"const": "superseded"}}, "required": ["status"]}, "then": {"required": ["successor"]}},
+        {"if": {"properties": {"status": {"enum": ["accepted", "published"]}}, "required": ["status"]}, "then": {"not": {"required": ["successor"]}}}
+      ]
+    }
+  }
+}

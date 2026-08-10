@@ -203,6 +203,15 @@ operation; PM10 governs recovery, not silent copy-on-move behavior.
 
 ### Q10 outcomes
 
+Product visibility is population-aware after the archived row is read: `work_note`
+and `scope_mode=explicit` records validate the frozen `archived_work_products`
+population, while manifest `scope_mode=home` records validate current
+`product_projects` membership of the stored `home_project_id`. An unscoped Q10
+lookup skips this visibility filter. This membership check does not select or
+rewrite the canonical locator: the stored Project/locator IDs still resolve the
+current path, while the recorded commit OID and content hash prove the historical
+note.
+
 | Outcome | Meaning |
 |---|---|
 | canonical locator | one verified note proof exists and index watermark is complete |

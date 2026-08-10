@@ -345,6 +345,13 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 	if err := json.Unmarshal(request.Input, &fields); err != nil {
 		return err
 	}
+	// Q10 owns archived-row lookup, Product visibility, and historical locator
+	// proof. Do not apply live/frozen scope joins here: home-scoped manifest rows
+	// intentionally have no archived Product rows, and compacted work may no
+	// longer have a live work membership.
+	if request.Tool == "concord_knowledge" && request.Operation == "resolve_note" {
+		return nil
+	}
 	identity, err := extractMutationWorkIdentity(request.Input)
 	if err != nil {
 		return err
@@ -790,14 +797,20 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if in.ProductID == "" {
 			in.ProductID = r.Envelope.SelectedProductID
 		}
-		home, homeErr := r.knowledgeHome(ctx)
+		var home store.KnowledgeHome
+		var homeErr error
+		if in.ProductID != "" || in.ProjectID != "" {
+			home, homeErr = r.Store.ResolveKnowledgeQueryHome(ctx, in.ProductID, in.ProjectID, store.KnowledgeHome{}, "PM1.Q9")
+		} else {
+			home, homeErr = r.knowledgeHome(ctx)
+		}
 		if homeErr != nil {
 			return failureEnvelope(base, homeErr), nil
 		}
 		bindingInput := in
 		bindingInput.Page.Cursor = nil
 		binding, _ := json.Marshal(bindingInput)
-		inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary")
+		inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary", home)
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
@@ -815,11 +828,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err := decodeStrict(input, &in); err != nil {
 			return base, err
 		}
-		home, homeErr := r.knowledgeHome(ctx)
-		if homeErr != nil {
-			return failureEnvelope(base, homeErr), nil
-		}
-		q, err := r.Store.QueryQ10(ctx, store.Q10Request{Work: in.WorkID, KnowledgeID: in.KnowledgeID, Product: r.Envelope.SelectedProductID, Home: home})
+		q, err := r.Store.QueryQ10(ctx, store.Q10Request{Work: in.WorkID, KnowledgeID: in.KnowledgeID, Product: r.Envelope.SelectedProductID, Home: store.KnowledgeHome{}})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
@@ -884,7 +893,7 @@ func (r runtime) knowledgeHome(ctx context.Context) (store.KnowledgeHome, error)
 	return store.KnowledgeHome{HomeProjectID: resolved.ProjectID, HomeLocatorID: resolved.Locators[0].ID, RepoPath: resolved.Repository.CanonicalPath, HeadRef: "HEAD"}, nil
 }
 
-func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string) (string, error) {
+func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string, knowledgeHomes ...store.KnowledgeHome) (string, error) {
 	if token == "" {
 		return "", nil
 	}
@@ -897,7 +906,21 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 		expected.Source = strconv.FormatInt(watermark, 10)
 	} else {
 		var watermark string
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT COALESCE(max(scanned_commit_oid),'') FROM knowledge_index_watermark WHERE home_project_id=?`, r.Envelope.AmbientProjectID).Scan(&watermark); err != nil {
+		projectID := r.Envelope.AmbientProjectID
+		locatorID := ""
+		headRef := ""
+		if len(knowledgeHomes) > 0 {
+			projectID = knowledgeHomes[0].HomeProjectID
+			locatorID = knowledgeHomes[0].HomeLocatorID
+			headRef = knowledgeHomes[0].HeadRef
+		}
+		query := `SELECT COALESCE(max(scanned_commit_oid),'') FROM knowledge_index_watermark WHERE home_project_id=?`
+		args := []any{projectID}
+		if locatorID != "" {
+			query += ` AND home_locator_id=? AND head_ref=?`
+			args = append(args, locatorID, headRef)
+		}
+		if err := r.Store.DB().QueryRowContext(ctx, query, args...).Scan(&watermark); err != nil {
 			return "", err
 		}
 		expected.Source = watermark

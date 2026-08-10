@@ -53,6 +53,7 @@ type VerifiedNote struct {
 	ProjectIDs    []string
 	ComponentIDs  []string
 	TagIDs        []string
+	ScopeMode     string
 	NotePath      string
 	CommitOID     string
 	ContentHash   string
@@ -172,7 +173,7 @@ func VerifyCommittedNote(ctx context.Context, repo, commitOID, notePath, expecte
 	return note, nil
 }
 
-// FindVerifiedWorkNote scans only the bounded canonical note directories at a
+// FindVerifiedWorkNote scans only the bounded canonical work-note directory at a
 // recorded home head, verifies every candidate from the committed tree, and
 // returns the unique note claiming workID. It never reads the working tree and
 // never chooses between competing locators.
@@ -236,9 +237,9 @@ func gitTreeEntry(ctx context.Context, repo, commitOID, notePath string) (treeEn
 }
 
 func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string) ([]string, error) {
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-r", "-z", commitOID, "--", "docs/work/", "docs/lessons/", "docs/decisions/")
+	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-r", "-z", commitOID, "--", "docs/work/")
 	if err != nil {
-		return nil, wrapFailure(KindGitUnreachable, "rebuild_knowledge_index", "cannot scan the canonical note directories", true, "restore access to the git home and retry", err)
+		return nil, wrapFailure(KindGitUnreachable, "rebuild_knowledge_index", "cannot scan the canonical work-note directory", true, "restore access to the git home and retry", err)
 	}
 	entries, err := parseTreeEntries(out)
 	if err != nil {
@@ -247,7 +248,7 @@ func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.mode != "100644" && entry.mode != "100755" || entry.kind != "blob" {
-			return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "canonical note tree contains a non-blob entry", false, "remove symlink, gitlink, tree, or other non-regular entries from the note directories")
+			return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "canonical work-note tree contains a non-blob entry", false, "remove symlink, gitlink, tree, or other non-regular entries from docs/work")
 		}
 		if !strings.HasSuffix(entry.path, ".md") {
 			continue
@@ -358,7 +359,7 @@ func validateContentHash(hash string) error {
 		return newFailure(KindInvalidNoteProof, "verify_note", "content hash must be a SHA-256 digest", false, "supply sha256 followed by 64 hexadecimal characters")
 	}
 	for _, r := range hash[len("sha256:"):] {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
 			return newFailure(KindInvalidNoteProof, "verify_note", "content hash contains a non-hexadecimal character", false, "supply a SHA-256 digest")
 		}
 	}
@@ -422,7 +423,7 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter declares two note type keys", false, "use work_type for work notes or type for other knowledge notes")
 	}
 
-	note := VerifiedNote{Title: values["title"], CompletedAt: values["completed_at"], OutcomeTag: values["outcome_tag"], TerminalState: values["terminal_state"], Summary: values["summary"], SuccessorID: values["successor_work_id"]}
+	note := VerifiedNote{Title: values["title"], CompletedAt: values["completed_at"], OutcomeTag: values["outcome_tag"], TerminalState: values["terminal_state"], Summary: values["summary"], SuccessorID: values["successor_work_id"], ScopeMode: "explicit"}
 	note.ID = values["concord_work_id"]
 	if note.ID == "" {
 		note.ID = values["id"]

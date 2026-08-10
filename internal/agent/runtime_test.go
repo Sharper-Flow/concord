@@ -4,8 +4,13 @@ import (
 	"context"
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -228,4 +233,170 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 	if !errors.As(err, &failure) || failure.kind != "unauthorized" {
 		t.Fatalf("knowledge outside selected Product accepted: %v", err)
 	}
+}
+
+func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
+	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
+	defer s.Close()
+	request := InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"knowledge_id":"home-knowledge"}`)}
+	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Grant{ProductScope: []string{"product-a"}}, request); err != nil {
+		t.Fatalf("Q10 runtime pre-scope validation rejected home record: %v", err)
+	}
+	response := runtimeResolveNote(t, s, "product-a", request.Input)
+	assertRuntimeKnowledgeState(t, response, "canonical")
+}
+
+func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
+	s := runtimeKnowledgeStore(t, "unscoped-knowledge", "lesson", "home", nil, nil)
+	defer s.Close()
+	response := runtimeResolveNote(t, s, "", json.RawMessage(`{"knowledge_id":"unscoped-knowledge"}`))
+	assertRuntimeKnowledgeState(t, response, "canonical")
+}
+
+func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
+	s := runtimeKnowledgeStore(t, "frozen-work", "work_note", "home", []string{"product-a"}, map[string]string{"product-b": "member"})
+	defer s.Close()
+	request := json.RawMessage(`{"work_id":"frozen-work"}`)
+	assertRuntimeKnowledgeState(t, runtimeResolveNote(t, s, "product-a", request), "canonical")
+	response := runtimeResolveNote(t, s, "product-b", request)
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
+		t.Fatalf("frozen work note followed current membership: %+v", response)
+	}
+}
+
+func TestKnowledgeResolveNoteRejectsUnrelatedSelectedProduct(t *testing.T) {
+	s := runtimeKnowledgeStore(t, "scoped-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
+	defer s.Close()
+	response := runtimeResolveNote(t, s, "product-b", json.RawMessage(`{"knowledge_id":"scoped-knowledge"}`))
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
+		t.Fatalf("unrelated Product was not typed unknown_scope: %+v", response)
+	}
+}
+
+func runtimeResolveNote(t *testing.T, s *store.Store, product string, input json.RawMessage) Envelope {
+	t.Helper()
+	r := runtime{Store: s, Tool: "concord_knowledge", Operation: "resolve_note", Envelope: CallEnvelope{SelectedProductID: product}}
+	response, err := r.read(context.Background(), NewBase("runtime-q10", r.Tool, r.Operation, ManifestVersion), input, "PM1.Q10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func assertRuntimeKnowledgeState(t *testing.T, response Envelope, want string) {
+	t.Helper()
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("Q10 response=%+v error=%#v", response, response.Error)
+	}
+	var result struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(response.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.State != want {
+		t.Fatalf("Q10 state=%q want %q response=%+v", result.State, want, response)
+	}
+}
+
+func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProducts []string, memberships map[string]string) *store.Store {
+	t.Helper()
+	repo := t.TempDir()
+	notePath := "docs/lessons/" + id + ".md"
+	content := "Durable knowledge.\n"
+	if kind == "work_note" {
+		notePath = "docs/work/" + id + ".md"
+		content = "---\n" +
+			"concord_work_id: " + id + "\n" +
+			"work_type: implementation\n" +
+			"title: Auth release\n" +
+			"completed_at: 2026-08-10T00:00:00Z\n" +
+			"outcome_tag: shipped\n" +
+			"lesson_tags: [sqlite, state-authority]\n" +
+			"terminal_state: completed\n" +
+			"priority: 2\n" +
+			"summary: Bounded summary\n" +
+			"product_ids: [product-a]\n" +
+			"project_ids: [stored-project]\n" +
+			"component_ids: [auth]\n" +
+			"tag_ids: [auth, release]\n" +
+			"---\n\nDurable note.\n"
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, filepath.FromSlash(notePath))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, filepath.FromSlash(notePath)), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256([]byte(content))
+	contentHash := "sha256:" + hex.EncodeToString(hash[:])
+	if kind != "work_note" {
+		manifest := map[string]any{
+			"schema_version":  "1.0",
+			"supported_kinds": []string{"work_note", "decision", "spec", "lesson", "research"},
+			"indexed_kinds":   []string{"work_note", "decision", "spec", "lesson"},
+			"records": []any{map[string]any{
+				"id": id, "kind": kind, "path": notePath, "status": "published", "date": "2026-08-10T00:00:00Z",
+				"title": "Durable lesson", "summary": "Durable summary", "tags": []string{},
+				"scopes": map[string]any{"mode": scopeMode, "product_ids": []string{}, "project_ids": []string{}, "component_ids": []string{}, "tag_ids": []string{}},
+				"sha256": contentHash,
+			}},
+		}
+		manifestBytes, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "docs/concord-knowledge-index.v1.json"), append(manifestBytes, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runRuntimeGit(t, repo, "init", "-q")
+	runRuntimeGit(t, repo, "config", "user.email", "test@example.com")
+	runRuntimeGit(t, repo, "config", "user.name", "Concord Test")
+	runRuntimeGit(t, repo, "add", ".")
+	runRuntimeGit(t, repo, "commit", "-q", "-m", "knowledge")
+	commit := strings.TrimSpace(runRuntimeGit(t, repo, "rev-parse", "HEAD"))
+
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if _, err := s.DB().Exec(`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('stored-project','Stored project',1,'now','now'); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('stored-locator','stored-project','canonical_path',?,?, 'now','now')`, repo, repo); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	for product := range memberships {
+		if _, err := s.DB().Exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now'); INSERT INTO product_projects(product_id,project_id,role) VALUES(?, 'stored-project', 'secondary')`, product, product); err != nil {
+			s.Close()
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.DB().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Durable lesson", "2026-08-10T00:00:00Z", "published", "[]", "completed", 1, "Durable summary", "stored-project", "stored-locator", notePath, commit, contentHash, scopeMode); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	for _, product := range frozenProducts {
+		if _, err := s.DB().Exec(`INSERT INTO archived_work_products(work_id,product_id) VALUES(?,?)`, id, product); err != nil {
+			s.Close()
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.DB().Exec(`DELETE FROM fold_guard`); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	return s
+}
+
+func runRuntimeGit(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
 }

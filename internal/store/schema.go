@@ -1103,7 +1103,44 @@ CREATE INDEX workflow_staleness_warnings_work ON workflow_staleness_warnings(wor
 		Name:    "workflow_contract_rigor_class",
 		SQL: `
 ALTER TABLE workflow_contracts ADD COLUMN rigor_class TEXT NOT NULL DEFAULT 'prototype_internal';
-`,
+		`,
+	},
+	{
+		Version: 19,
+		Name:    "durable_knowledge_kind_coverage",
+		SQL: `
+ALTER TABLE archived_work ADD COLUMN scope_mode TEXT NOT NULL DEFAULT 'explicit' CHECK(scope_mode IN ('home','explicit'));
+
+CREATE TABLE knowledge_kind_coverage (
+    home_project_id     TEXT NOT NULL,
+    home_locator_id     TEXT NOT NULL,
+    head_ref            TEXT NOT NULL,
+    kind                TEXT NOT NULL CHECK(kind IN ('work_note','lesson','decision','spec','research')),
+    coverage            TEXT NOT NULL CHECK(coverage IN ('indexed','supported_not_indexed')),
+    reason              TEXT NOT NULL,
+    scanned_commit_oid  TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, head_ref, kind)
+);
+CREATE INDEX knowledge_kind_coverage_lookup ON knowledge_kind_coverage(home_project_id, home_locator_id, head_ref, kind);
+CREATE TRIGGER knowledge_kind_coverage_guard_insert
+BEFORE INSERT ON knowledge_kind_coverage FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1);
+END;
+CREATE TRIGGER knowledge_kind_coverage_guard_update
+BEFORE UPDATE ON knowledge_kind_coverage FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1);
+END;
+CREATE TRIGGER knowledge_kind_coverage_guard_delete
+BEFORE DELETE ON knowledge_kind_coverage FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1);
+END;
+		`,
 	},
 }
 

@@ -218,7 +218,9 @@ re-litigate them silently.
   container to the launcher.
 - **Operator direction (2026-08-09):** the launcher exists to see status and resume
   work in the OpenCode TUI. It performs no durable write. Durable knowledge belongs to
-  its owning Product, Project, Epic, or change rather than to a global browse surface.
+  its owning Product, Project, Epic, or change rather than to a global browse surface,
+  and its section is written into the UI in the first round as a reserved stub while
+  knowledge resolution across docs and file types is delivered later.
 - **Candidate (2026-08-09):** three closed screens (portfolio, Product, work) with
   knowledge as a scoped section rather than a screen; stack navigation; ambient context
   established by Product selection and changed nowhere else; a navigate-and-launch

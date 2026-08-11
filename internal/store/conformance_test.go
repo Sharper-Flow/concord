@@ -25,6 +25,29 @@ const (
 	conformanceAttemptsEnv = "CONCORD_CONFORMANCE_ATTEMPTS"
 )
 
+type conformanceRunnerProfile string
+
+const (
+	runnerProfileDiagnostic         conformanceRunnerProfile = "diagnostic"
+	runnerProfileIsolatedAcceptance conformanceRunnerProfile = "isolated_acceptance"
+)
+
+type sustainedThresholdStatus string
+
+const (
+	thresholdInconclusive sustainedThresholdStatus = "inconclusive"
+	thresholdMet          sustainedThresholdStatus = "met"
+	thresholdExceeded     sustainedThresholdStatus = "exceeded"
+)
+
+type falsifierStatus string
+
+const (
+	falsifierInconclusive falsifierStatus = "inconclusive"
+	falsifierPassed       falsifierStatus = "passed"
+	falsifierFired        falsifierStatus = "fired"
+)
+
 type WorkerOutcome string
 
 const (
@@ -91,26 +114,29 @@ type conformancePopulations struct {
 // ConformanceReport keeps correctness ahead of latency and names every timing
 // population explicitly. Paths are intentionally excluded from public output.
 type ConformanceReport struct {
-	Workers                int                    `json:"workers"`
-	Attempts               int                    `json:"attempts"`
-	Counts                 map[WorkerOutcome]int  `json:"counts"`
-	Lost                   int                    `json:"lost"`
-	UnexpectedDupes        int                    `json:"unexpected_duplicates"`
-	InvariantViolations    int                    `json:"invariant_violations"`
-	BusyEscaped            int                    `json:"busy_escaped"`
-	CorrectnessPassed      bool                   `json:"correctness_passed"`
-	P99TargetMS            int64                  `json:"p99_target_ms"`
-	ProductionLike         bool                   `json:"production_like"`
-	ProductionLikeAttempts int                    `json:"production_like_attempts"`
-	ProductionLikeP99MS    int64                  `json:"production_like_p99_ms"`
-	FalsifierStatus        string                 `json:"falsifier_status"`
-	Populations            conformancePopulations `json:"populations"`
-	WallLatency            latencySummary         `json:"wall_latency"`
-	BeginWaitLatency       latencySummary         `json:"begin_wait_latency"`
-	CommitLatency          latencySummary         `json:"commit_latency"`
-	AcceptedWallLatency    latencySummary         `json:"accepted_wall_latency"`
-	AcceptedBeginLatency   latencySummary         `json:"accepted_begin_latency"`
-	AcceptedCommitLatency  latencySummary         `json:"accepted_commit_latency"`
+	Workers                int                      `json:"workers"`
+	Attempts               int                      `json:"attempts"`
+	Counts                 map[WorkerOutcome]int    `json:"counts"`
+	Lost                   int                      `json:"lost"`
+	UnexpectedDupes        int                      `json:"unexpected_duplicates"`
+	InvariantViolations    int                      `json:"invariant_violations"`
+	BusyEscaped            int                      `json:"busy_escaped"`
+	CorrectnessPassed      bool                     `json:"correctness_passed"`
+	P99TargetMS            int64                    `json:"p99_target_ms"`
+	ProductionLike         bool                     `json:"production_like"`
+	ProductionLikeAttempts int                      `json:"production_like_attempts"`
+	ProductionLikeP99MS    int64                    `json:"production_like_p99_ms"`
+	RunnerProfile          conformanceRunnerProfile `json:"runner_profile"`
+	AcceptancePopulation   bool                     `json:"acceptance_population"`
+	ThresholdStatus        sustainedThresholdStatus `json:"threshold_status"`
+	FalsifierStatus        falsifierStatus          `json:"falsifier_status"`
+	Populations            conformancePopulations   `json:"populations"`
+	WallLatency            latencySummary           `json:"wall_latency"`
+	BeginWaitLatency       latencySummary           `json:"begin_wait_latency"`
+	CommitLatency          latencySummary           `json:"commit_latency"`
+	AcceptedWallLatency    latencySummary           `json:"accepted_wall_latency"`
+	AcceptedBeginLatency   latencySummary           `json:"accepted_begin_latency"`
+	AcceptedCommitLatency  latencySummary           `json:"accepted_commit_latency"`
 	// Latency fields are retained as a concise compatibility view of wall time.
 	Latency         latencySummary                   `json:"latency"`
 	AcceptedLatency latencySummary                   `json:"accepted_latency"`
@@ -147,7 +173,23 @@ func TestTenProcessConformance(t *testing.T) {
 	if os.Getenv(conformanceWorkerEnv) == "1" {
 		return
 	}
-	long := os.Getenv(conformanceLongEnv) == "1"
+	runTenProcessConformance(t, runnerProfileDiagnostic, os.Getenv(conformanceLongEnv) == "1")
+}
+
+// TestTenProcessAcceptanceConformance is the isolated acceptance-workflow entry
+// point. The generic test above cannot elevate itself through environment input.
+func TestTenProcessAcceptanceConformance(t *testing.T) {
+	if os.Getenv(conformanceWorkerEnv) == "1" {
+		return
+	}
+	if os.Getenv(conformanceLongEnv) != "1" {
+		t.Skip("acceptance conformance runs only in long mode")
+	}
+	runTenProcessConformance(t, runnerProfileIsolatedAcceptance, true)
+}
+
+func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfile, long bool) {
+	t.Helper()
 	timeout := 180 * time.Second
 	if long {
 		timeout = 8 * time.Minute
@@ -161,7 +203,7 @@ func TestTenProcessConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	report := newConformanceReport()
+	report := newConformanceReport(runnerProfile)
 	all := make([]WorkerResult, 0, 200)
 
 	run := func(name string) []WorkerResult {
@@ -314,15 +356,49 @@ func TestTenProcessConformance(t *testing.T) {
 	t.Log("ConformanceReport " + mustJSON(report))
 
 	if long {
-		runLongProfiles(t, ctx, root)
+		runLongProfiles(t, ctx, root, runnerProfile)
 	}
 }
 
-func newConformanceReport() ConformanceReport {
-	return ConformanceReport{Workers: 10, Counts: map[WorkerOutcome]int{}, Scenarios: map[string]map[WorkerOutcome]int{}, P99TargetMS: 100, FalsifierStatus: "inconclusive", Populations: conformancePopulations{RaceInstrumented: conformanceRaceInstrumented}}
+func newConformanceReport(profile conformanceRunnerProfile) ConformanceReport {
+	return ConformanceReport{
+		Workers:              10,
+		Counts:               map[WorkerOutcome]int{},
+		Scenarios:            map[string]map[WorkerOutcome]int{},
+		P99TargetMS:          100,
+		RunnerProfile:        profile,
+		AcceptancePopulation: profile == runnerProfileIsolatedAcceptance,
+		ThresholdStatus:      thresholdInconclusive,
+		FalsifierStatus:      falsifierInconclusive,
+		Populations:          conformancePopulations{RaceInstrumented: conformanceRaceInstrumented},
+	}
 }
 
-func runLongProfiles(t *testing.T, ctx context.Context, root string) {
+func classifySustainedFalsifier(profile conformanceRunnerProfile, aboveTarget, rounds int, correctnessPassed bool) (sustainedThresholdStatus, falsifierStatus) {
+	if rounds < 1 || aboveTarget < 0 || aboveTarget > rounds {
+		return thresholdInconclusive, falsifierInconclusive
+	}
+	required := rounds/2 + 1
+	threshold := thresholdInconclusive
+	if aboveTarget >= required {
+		threshold = thresholdExceeded
+	} else if rounds-aboveTarget >= required {
+		threshold = thresholdMet
+	}
+	if !correctnessPassed || profile != runnerProfileIsolatedAcceptance {
+		return threshold, falsifierInconclusive
+	}
+	switch threshold {
+	case thresholdExceeded:
+		return threshold, falsifierFired
+	case thresholdMet:
+		return threshold, falsifierPassed
+	default:
+		return threshold, falsifierInconclusive
+	}
+}
+
+func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfile conformanceRunnerProfile) {
 	t.Helper()
 	const rounds = 3
 	reports := make([]ConformanceReport, 0, rounds)
@@ -338,7 +414,7 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string) {
 			t.Fatalf("long round %d: %v", round+1, err)
 		}
 		assertTenWorkers(t, path, results)
-		report := newConformanceReport()
+		report := newConformanceReport(runnerProfile)
 		report.ProductionLike = true
 		report.Populations.ProductionLike = true
 		report.Scenarios["production_like_writes"] = map[WorkerOutcome]int{}
@@ -358,18 +434,18 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string) {
 		reports = append(reports, report)
 	}
 	above := 0
+	correctnessPassed := true
 	for _, report := range reports {
 		if report.ProductionLikeP99MS > report.P99TargetMS {
 			above++
 		}
+		if !report.CorrectnessPassed {
+			correctnessPassed = false
+		}
 	}
-	status := "inconclusive"
-	if above >= 2 {
-		status = "fired"
-	} else if len(reports)-above >= 2 {
-		status = "passed"
-	}
+	threshold, status := classifySustainedFalsifier(runnerProfile, above, len(reports), correctnessPassed)
 	for round, report := range reports {
+		report.ThresholdStatus = threshold
 		report.FalsifierStatus = status
 		t.Logf("ConformanceReport long_round=%d %s", round+1, mustJSON(report))
 	}
@@ -378,8 +454,10 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string) {
 			t.Fatalf("long production-like round %d correctness gate failed: attempts=%d accepted=%d counts=%+v populations=%+v", round+1, report.Attempts, report.Counts[outcomeAccepted], report.Counts, report.Populations)
 		}
 	}
-	if status == "fired" {
-		t.Log("falsifier_status=fired: sustained production-like P99 exceeded target")
+	if status == falsifierFired {
+		t.Fatal("falsifier_status=fired: sustained production-like P99 exceeded target on the isolated acceptance population")
+	} else if threshold == thresholdExceeded {
+		t.Logf("threshold_status=exceeded: runner_profile=%s is diagnostic; accepted falsifier remains inconclusive", runnerProfile)
 	}
 }
 

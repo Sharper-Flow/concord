@@ -1,7 +1,8 @@
 # Concord Agent Result, Error, Evidence, and Pagination Envelope (TS7)
 
-> **Status:** **Accepted — binding until superseded.**
+> **Status:** **Accepted — binding until superseded; producer-bounded result law amended by issue #43.**
 > **Accepted by operator:** 2026-08-06.
+> **Amendment approved by operator:** 2026-08-11 under issue #43.
 > **Decision:** TS7; binding input to CD-0005 §7 and TS8–TS9.
 > **Canonical schema:** [`agent-tool-envelope.schema.json`](../contracts/agent-tool-envelope.schema.json).
 > **Binding inputs:** PM1 universal query envelope/corpus and accepted TS1–TS6
@@ -211,6 +212,27 @@ The opaque authenticated cursor binds tool, operation, resolved scope, filters,
 detail, ordering, source watermark, and last emitted key. Cursor tampering, wrong
 operation/scope/filter reuse, or invalidated source version returns `invalid_cursor`.
 No server session is required.
+
+### 8.1 Producer-side completeness obligation
+
+Every delegated or mutation-result producer validates the exact tool/operation
+payload against its closed generated output schema before exchange. It also
+checks the 65,536-byte serialized envelope cap, caller `max_bytes` and
+`max_items` budgets, and the envelope's completeness markers before returning
+`ok`. A producer refuses an over-budget result; it does not silently cut an
+item, array, cursor, omission, or evidence reference.
+
+One repair attempt is permitted only for a stored result carrying a recognized,
+durable legacy contract version with an existing migration path. Fresh current
+schema defects fail closed. Repair never re-executes an effect and never falls
+back to generic or guessed output. Persistent producer failure uses the existing
+closed `malformed_response`/`invalid_input`, `limit_exceeded`, or
+`budget_refused` kinds and their typed recovery actions.
+
+Consumers reject malformed or oversized structured output. They never replace a
+rejected result with a head, tail, middle, or other excerpt; legitimate partial
+coverage uses only the existing `partial`, `omissions`, pagination, and
+`evidence_refs` mechanisms.
 
 ## 9. Adapter transport failures
 

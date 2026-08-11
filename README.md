@@ -7,10 +7,10 @@ release-ready Linux amd64 distribution path.
 
 ## Status and support
 
-This is a public pre-runtime scaffold. Linux amd64 is the only planned
-v1 platform. Concord must not self-host Concord development before the accepted
-replacement-readiness floor is proven; use GitHub Issues, pull requests, and
-worktrees in the meantime.
+Linux amd64 is the only planned v1 platform. Concord is
+pre-replacement-readiness: it must not self-host its own development before the
+accepted replacement-readiness floor is proven, so development stays
+GitHub-native (issues, pull requests, worktrees) in the meantime.
 
 Start with:
 
@@ -30,15 +30,15 @@ go vet ./...
 python3 scripts/check-doc-links.py
 python3 scripts/check-public-content.py
 python3 scripts/check-json.py
+python3 scripts/check-agent-contracts.py
 python3 scripts/test-release.py
 python3 scripts/test-installer.py
 ```
 
-Before pushing, run the complete ordered gate in [AGENTS.md](AGENTS.md). The scaffold
-CLI has no dependencies beyond the Go toolchain; repository validation also requires
-Python 3.
+Before pushing, run the complete ordered gate in [AGENTS.md](AGENTS.md). The CLI
+is built with the Go toolchain; repository validation also requires Python 3.
 
-`bin/oc-test` groups those checks into three tiers and applies host admission
+`bin/oc-test` groups those checks into four tiers and applies host admission
 control when a compatible throttle is installed, so several agents running local
 suites at once cannot saturate one machine:
 
@@ -46,22 +46,25 @@ suites at once cannot saturate one machine:
 bin/oc-test targeted -- -run TestRunVersion ./cmd/concord
 bin/oc-test smoke
 bin/oc-test full
+bin/oc-test conformance   # long ten-process SQLite harness
 ```
 
-`targeted` is unthrottled, `smoke` runs the Go sweep, and `full` reproduces the
-ordered gate with bounded workers and a wall-clock bound. The wrapper is
-optional: continuous integration calls the same commands natively, and the tiers
-still run, unthrottled and with a warning, when no throttle is installed.
+`targeted` is unthrottled, `smoke` runs the Go sweep, `full` reproduces the
+ordered gate with bounded workers and a wall-clock bound, and `conformance`
+runs the long ten-process SQLite acceptance harness. The wrapper is optional:
+continuous integration calls the same commands natively, and the tiers still
+run, unthrottled and with a warning, when no throttle is installed.
 
 ## Repository map
 
 | Path | Purpose |
 |---|---|
-| `cmd/concord/` | Minimal Go CLI boundary. |
-| `contracts/` | Public machine-readable contracts. |
+| `cmd/concord/` | Go CLI boundary (launcher + JSON commands). |
+| `internal/` | Storage, workflow engine, launcher, and agent tool surface. |
+| `contracts/` | Public machine-readable contracts and schemas. |
 | `scenarios/` | Synthetic conformance scenarios. |
 | `docs/` | Accepted Product law and design evidence. |
-| `adapter/opencode/` | OpenCode custom-tool adapter boundary. |
+| `adapter/opencode/` | OpenCode custom-tool adapter (TypeScript). |
 | `workflows/` | Reserved workflow-definition boundary. |
 | `skills/` | Conditional/deferred skill boundary. |
 

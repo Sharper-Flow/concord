@@ -43,6 +43,7 @@ func TestSelectingProductReadsS2OnceAndBackDoesNotRead(t *testing.T) {
 	if err := model.Enter(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	port.snapshot = Snapshot{Screen: ScreenProduct, Coverage: "authoritative"}
 	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
 		t.Fatal(err)
 	}

@@ -259,9 +259,9 @@ re-litigate them silently.
 - **Direction:** ✅ accepted. The workflow engine and durable knowledge resolver have
    shipped; stale sequencing statements that treated them as C18 prerequisites are
    retired.
-- **Implementation status:** The S1 portfolio screen and production read-port wiring
-   are implemented by issue #45 and become shipped only after merge. S2/S3 and session
-   launch remain unbuilt, so Concord is not replacement-ready.
+- **Implementation status:** S1 shipped through issue #45 and PR #48. S2 Product
+  coordination, S3 Work detail, scoped search/knowledge, and identity-only OpenCode
+  handoff shipped through issue #51 and PR #52. Concord remains not replacement-ready.
 
 ### C19. Agent context continuity
 - **Question:** What law governs an agent's working context across the point where it

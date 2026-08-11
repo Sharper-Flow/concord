@@ -388,12 +388,6 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if snapshot.Screen == "" {
 		snapshot.Screen = m.snapshot.Screen
 	}
-	if request.Kind == ReadProduct && snapshot.Screen == ScreenPortfolio {
-		snapshot.Screen = ScreenProduct
-		if snapshot.StatusMessage == "" {
-			snapshot.StatusMessage = "not_implemented"
-		}
-	}
 	if request.Kind == ReadWork && snapshot.Screen == ScreenPortfolio {
 		snapshot.Screen = ScreenWork
 	}

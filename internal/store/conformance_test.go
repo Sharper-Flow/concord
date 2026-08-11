@@ -23,7 +23,17 @@ const (
 	conformanceWorkerEnv   = "CONCORD_CONFORMANCE_WORKER"
 	conformanceLongEnv     = "CONCORD_CONFORMANCE_LONG"
 	conformanceAttemptsEnv = "CONCORD_CONFORMANCE_ATTEMPTS"
+	conformanceUnpacedEnv  = "CONCORD_CONFORMANCE_UNPACED"
 )
+
+// productionLikePaceInterval paces each long-profile worker at a constant rate
+// calibrated to the measured production envelope in docs/research/R4 (below 0.1
+// writes/second system-wide). 100 ms per worker is 10 writes/second per worker
+// and 100 writes/second system-wide: 1000x the measured envelope with the
+// interval equal to the P99 target, so lock-hold regressions still trip the
+// accepted gate. CONCORD_CONFORMANCE_UNPACED=1 restores max-rate spin as
+// diagnostic-only stress evidence; the acceptance profile refuses it.
+const productionLikePaceInterval = 100 * time.Millisecond
 
 type conformanceRunnerProfile string
 
@@ -126,6 +136,7 @@ type ConformanceReport struct {
 	ProductionLike         bool                     `json:"production_like"`
 	ProductionLikeAttempts int                      `json:"production_like_attempts"`
 	ProductionLikeP99MS    int64                    `json:"production_like_p99_ms"`
+	PaceIntervalMS         int64                    `json:"pace_interval_ms"`
 	RunnerProfile          conformanceRunnerProfile `json:"runner_profile"`
 	AcceptancePopulation   bool                     `json:"acceptance_population"`
 	ThresholdStatus        sustainedThresholdStatus `json:"threshold_status"`
@@ -374,6 +385,20 @@ func newConformanceReport(profile conformanceRunnerProfile) ConformanceReport {
 	}
 }
 
+func validateLoadPacing(profile conformanceRunnerProfile, unpaced bool) error {
+	if unpaced && profile == runnerProfileIsolatedAcceptance {
+		return fmt.Errorf("%s max-rate spin is diagnostic-only and cannot produce an accepted falsifier verdict", conformanceUnpacedEnv)
+	}
+	return nil
+}
+
+func loadPaceInterval() time.Duration {
+	if os.Getenv(conformanceUnpacedEnv) == "1" {
+		return 0
+	}
+	return productionLikePaceInterval
+}
+
 func classifySustainedFalsifier(profile conformanceRunnerProfile, aboveTarget, rounds int, correctnessPassed bool) (sustainedThresholdStatus, falsifierStatus) {
 	if rounds < 1 || aboveTarget < 0 || aboveTarget > rounds {
 		return thresholdInconclusive, falsifierInconclusive
@@ -400,6 +425,9 @@ func classifySustainedFalsifier(profile conformanceRunnerProfile, aboveTarget, r
 
 func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfile conformanceRunnerProfile) {
 	t.Helper()
+	if err := validateLoadPacing(runnerProfile, os.Getenv(conformanceUnpacedEnv) == "1"); err != nil {
+		t.Fatal(err)
+	}
 	const rounds = 3
 	reports := make([]ConformanceReport, 0, rounds)
 	for round := 0; round < rounds; round++ {
@@ -425,6 +453,7 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 			report.Attempts++
 		}
 		report.ProductionLikeAttempts = len(samples)
+		report.PaceIntervalMS = durationMS(loadPaceInterval())
 		populateTiming(&report, samples, true)
 		report.Lost = report.Counts[outcomeLost]
 		report.UnexpectedDupes = report.Counts[outcomeDuplicate]
@@ -566,6 +595,10 @@ func runLoadScenario(ctx context.Context, s *Store, worker int, scenario string)
 	}
 	result := WorkerResult{Worker: worker, Outcome: outcomeAccepted, Attempts: attempts, Profile: "production_like"}
 	result.Samples = make([]WorkerSample, 0, attempts)
+	pace := time.Duration(0)
+	if scenario == "load" {
+		pace = loadPaceInterval()
+	}
 	for attempt := 0; attempt < attempts; attempt++ {
 		if err := contextErr(ctx); err != nil {
 			result.Outcome = outcomeError
@@ -580,6 +613,19 @@ func runLoadScenario(ctx context.Context, s *Store, worker int, scenario string)
 		result.Samples = append(result.Samples, sample)
 		if scenario == "backup_load" {
 			time.Sleep(time.Millisecond)
+		}
+		if pace > 0 {
+			if remaining := pace - time.Since(started); remaining > 0 {
+				timer := time.NewTimer(remaining)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					result.Outcome = outcomeError
+					result.FailureKind = failureKind(ctx.Err())
+					return result
+				case <-timer.C:
+				}
+			}
 		}
 	}
 	return result

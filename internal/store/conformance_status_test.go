@@ -80,3 +80,27 @@ func TestClassifySustainedFalsifierRequiresAcceptancePopulation(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateLoadPacingFailsAcceptanceUnpaced(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		profile conformanceRunnerProfile
+		unpaced bool
+		wantErr bool
+	}{
+		{name: "acceptance paced", profile: runnerProfileIsolatedAcceptance, unpaced: false, wantErr: false},
+		{name: "acceptance unpaced fails closed", profile: runnerProfileIsolatedAcceptance, unpaced: true, wantErr: true},
+		{name: "diagnostic unpaced stays diagnostic", profile: runnerProfileDiagnostic, unpaced: true, wantErr: false},
+		{name: "unknown profile unpaced", profile: conformanceRunnerProfile("unknown"), unpaced: true, wantErr: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateLoadPacing(tt.profile, tt.unpaced)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateLoadPacing(%q, %t) error = %v, wantErr %v", tt.profile, tt.unpaced, err, tt.wantErr)
+			}
+		})
+	}
+}

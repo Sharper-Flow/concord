@@ -9,7 +9,7 @@
 
 ## Purpose
 
-Concord is a product-development coordination system for **one operator and many local AI agents working on one machine**. It is vision-led, not Advance-led. Its priorities, user boundary, interface direction, and quality governance are recorded here so that later design, inventory, and rollout documents can reference one authoritative statement.
+Concord is a product-development coordination system for **one operator and many local AI agents working on one machine**. Its priorities, user boundary, interface direction, and quality governance are recorded here so that later design, inventory, and rollout documents can reference one authoritative statement.
 
 Use this document when:
 

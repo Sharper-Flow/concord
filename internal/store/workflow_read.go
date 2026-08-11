@@ -30,6 +30,7 @@ type WorkflowReadContract struct {
 	RequiredEvidence []string `json:"required_evidence"`
 	RouteConventions []string `json:"route_conventions"`
 	SpecMandate      []string `json:"spec_mandate"`
+	LawModifies      []string `json:"law_modifies"`
 	RigorClass       string   `json:"rigor_class"`
 }
 
@@ -107,10 +108,10 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.CompletionWarnings = []string{}
 
 	var contract WorkflowReadContract
-	var required, routes, mandates string
-	err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &contract.RigorClass)
+	var required, routes, mandates, modifies string
+	err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies, &contract.RigorClass)
 	if err == nil {
-		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil {
+		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
 		out.Contract = &contract
@@ -321,8 +322,9 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 	out.CompletionWarnings = []string{}
 	var contract WorkflowReadContract
 	var required, routes, mandates string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates); err == nil {
-		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil {
+	var modifies string
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies); err == nil {
+		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return nil, newFailure(KindInvariantViolation, "workflow_read", "workflow history contract arrays are malformed", false, "rebuild projections from the event log")
 		}
 		out.Contract = &contract

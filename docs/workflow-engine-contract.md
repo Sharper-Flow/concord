@@ -15,6 +15,16 @@ not add a workflow family, predicate kind, authority, or agent tool. V15 creates
 the ten projections enumerated by CD-0013 D2, matching the accepted correction in
 the decision's cost section.
 
+CD-0015 adds the law boundary without adding a workflow tool or event family.
+Only contracts approved through surface `2.2.0` carry the internal persisted
+law-boundary marker: for those contracts, `spec_mandate` is the bounded
+referenced-law set and `law_modifies` is an optional bounded subset. Planning
+checks the accepted Git-derived `law_subjects` and `law_relations` projection;
+an explicit conflict may pass planning only when a conflicting endpoint is in
+`law_modifies`. Completion reruns the check without that exception, so only a
+Git-authorized law delta can resolve the conflict. Earlier contracts retain
+their prior evidence-reference interpretation of `spec_mandate`.
+
 ## 1. Common representation and bounds
 
 All identifiers are UTF-8 strings with 2–128 characters unless a narrower pattern

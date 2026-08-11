@@ -10,7 +10,7 @@ import (
 // openTemp opens a store backed by a throwaway database file.
 func openTemp(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	s, err := Open(context.Background(), copyTestDatabase(t))
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

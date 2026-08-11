@@ -143,6 +143,13 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := verifyCompletionScopeAndMandates(ctx, tx, event.SubjectID, contract); err != nil {
 		return workflowClauseError(err, 3)
 	}
+	// Completion never treats an amendment declaration as permission to leave a
+	// conflict unresolved. The Git-derived projection must actually be clear.
+	if contract.LawBoundaryVersion == 1 {
+		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, contract.SpecMandate, contract.LawModifies, false); err != nil {
+			return workflowClauseError(err, 3)
+		}
+	}
 
 	// Clause 4: verdict presence and the complete pinned actor tuple.
 	verdict, err := latestWorkflowVerdict(ctx, tx, event.SubjectID)
@@ -232,11 +239,13 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 }
 
 type workflowCompletionContractData struct {
-	Version          int64
-	RequiredEvidence []string
-	SpecMandate      []string
-	OutcomeKind      string
-	OutcomePayload   string
+	Version            int64
+	RequiredEvidence   []string
+	SpecMandate        []string
+	LawModifies        []string
+	LawBoundaryVersion int
+	OutcomeKind        string
+	OutcomePayload     string
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {
@@ -255,8 +264,8 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 
 func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
 	var result workflowCompletionContractData
-	var required, mandates string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,required_evidence,spec_mandate,outcome_kind,outcome_payload FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&result.Version, &required, &mandates, &result.OutcomeKind, &result.OutcomePayload); err != nil {
+	var required, mandates, modifies string
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,required_evidence,spec_mandate,law_modifies,law_boundary_version,outcome_kind,outcome_payload FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&result.Version, &required, &mandates, &modifies, &result.LawBoundaryVersion, &result.OutcomeKind, &result.OutcomePayload); err != nil {
 		if err == sql.ErrNoRows {
 			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
@@ -265,7 +274,7 @@ func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry Defini
 	if err := json.Unmarshal([]byte(required), &result.RequiredEvidence); err != nil {
 		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
 	}
-	if err := json.Unmarshal([]byte(mandates), &result.SpecMandate); err != nil {
+	if err := json.Unmarshal([]byte(mandates), &result.SpecMandate); err != nil || json.Unmarshal([]byte(modifies), &result.LawModifies) != nil {
 		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
 	}
 	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)

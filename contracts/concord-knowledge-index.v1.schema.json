@@ -6,11 +6,14 @@
   "additionalProperties": false,
   "required": ["schema_version", "supported_kinds", "indexed_kinds", "records"],
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"enum": ["1.0", "1.1"]},
     "supported_kinds": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec", "research"]}},
     "indexed_kinds": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec"]}},
     "records": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/record"}}
   },
+  "allOf": [
+    {"if": {"properties": {"schema_version": {"const": "1.0"}}, "required": ["schema_version"]}, "then": {"properties": {"records": {"items": {"not": {"required": ["law_relations"]}}}}}}
+  ],
   "$defs": {
     "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S(?:.*\\S)?$"},
     "ids": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
@@ -43,15 +46,26 @@
           ]
         },
         "successor": {"$ref": "#/$defs/id"},
-        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "law_relations": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/lawRelation"}}
       },
       "allOf": [
         {"if": {"properties": {"kind": {"const": "lesson"}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["published", "superseded"]}}}},
         {"if": {"properties": {"kind": {"enum": ["decision", "spec"]}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["accepted", "superseded"]}}}},
         {"if": {"properties": {"kind": {"const": "decision"}}, "required": ["kind"]}, "then": {"properties": {"path": {"pattern": "^docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"}}}},
         {"if": {"properties": {"status": {"const": "superseded"}}, "required": ["status"]}, "then": {"required": ["successor"]}},
-        {"if": {"properties": {"status": {"enum": ["accepted", "published"]}}, "required": ["status"]}, "then": {"not": {"required": ["successor"]}}}
+        {"if": {"properties": {"status": {"enum": ["accepted", "published"]}}, "required": ["status"]}, "then": {"not": {"required": ["successor"]}}},
+        {"if": {"properties": {"law_relations": {}}, "required": ["law_relations"]}, "then": {"properties": {"kind": {"enum": ["decision", "spec"]}}}}
       ]
+    },
+    "lawRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target_id"],
+      "properties": {
+        "kind": {"enum": ["supersedes", "refines", "subordinate_to", "conflicts_with"]},
+        "target_id": {"$ref": "#/$defs/id"}
+      }
     }
   }
 }

@@ -1166,7 +1166,57 @@ END;
 
 CREATE INDEX products_display_name_order
     ON products(display_name, id);
-        `,
+		`,
+	},
+	{
+		Version: 21,
+		Name:    "typed_law_relations_and_workflow_amendments",
+		SQL: `
+ALTER TABLE workflow_contracts ADD COLUMN law_modifies TEXT NOT NULL DEFAULT '[]'
+    CHECK(json_valid(law_modifies) AND json_type(law_modifies)='array' AND json_array_length(law_modifies) BETWEEN 0 AND 32);
+ALTER TABLE workflow_contracts ADD COLUMN law_boundary_version INTEGER NOT NULL DEFAULT 0
+    CHECK(law_boundary_version IN (0,1));
+
+CREATE TABLE law_subjects (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('decision','spec')),
+    status             TEXT NOT NULL CHECK(status IN ('accepted','superseded')),
+    path               TEXT NOT NULL,
+    title              TEXT NOT NULL,
+    content_hash       TEXT NOT NULL CHECK(length(content_hash)=71 AND substr(content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id)
+);
+
+CREATE TABLE law_relations (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    source_law_id      TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('supersedes','refines','subordinate_to','conflicts_with')),
+    target_law_id      TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, source_law_id, kind, target_law_id),
+    CHECK(source_law_id <> target_law_id),
+    FOREIGN KEY(home_project_id, home_locator_id, source_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT,
+    FOREIGN KEY(home_project_id, home_locator_id, target_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT
+);
+CREATE INDEX law_subjects_lookup ON law_subjects(home_project_id, home_locator_id, status, law_id);
+CREATE INDEX law_relations_target ON law_relations(home_project_id, home_locator_id, kind, target_law_id);
+CREATE UNIQUE INDEX law_relations_conflict_pair ON law_relations(
+    home_project_id, home_locator_id, kind,
+    CASE WHEN kind='conflicts_with' THEN min(source_law_id,target_law_id) ELSE source_law_id END,
+    CASE WHEN kind='conflicts_with' THEN max(source_law_id,target_law_id) ELSE target_law_id END
+);
+
+CREATE TRIGGER law_subjects_guard_insert BEFORE INSERT ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_update BEFORE UPDATE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_delete BEFORE DELETE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_guard_insert BEFORE INSERT ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_guard_update BEFORE UPDATE ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_guard_delete BEFORE DELETE ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
 	},
 }
 

@@ -887,6 +887,7 @@
           "type": "array",
           "minItems": 0,
           "maxItems": 32,
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
           }
@@ -895,6 +896,7 @@
           "type": "array",
           "minItems": 0,
           "maxItems": 32,
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
           }
@@ -903,6 +905,16 @@
           "type": "array",
           "minItems": 0,
           "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "law_modifies": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
           }

@@ -222,6 +222,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 		return err
 	}
 	notes := make([]VerifiedNote, 0, len(paths))
+	laws := make([]KnowledgeRecord, 0)
 	seen := map[string]bool{}
 	seenPaths := map[string]bool{}
 	for _, notePath := range paths {
@@ -254,6 +255,9 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			}
 			seen[record.ID], seenPaths[record.Path] = true, true
 			notes = append(notes, manifestRecordNote(record, commit))
+			if record.Kind == "decision" || record.Kind == "spec" {
+				laws = append(laws, record)
+			}
 		}
 	}
 
@@ -274,12 +278,33 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err))
 		}
 	}
+	for _, table := range []string{"law_relations", "law_subjects"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil {
+			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err))
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear the git knowledge watermark", true, "retry once the database is writable", err))
 	}
 	for _, note := range notes {
 		if err := insertKnowledgeNote(ctx, tx, home, note); err != nil {
 			return rollback(err)
+		}
+	}
+	for _, law := range laws {
+		if err := insertLawSubject(ctx, tx, home, law, commit); err != nil {
+			return rollback(err)
+		}
+	}
+	for _, law := range laws {
+		for _, relation := range law.LawRelations {
+			source, target := law.ID, relation.TargetID
+			if relation.Kind == "conflicts_with" && source > target {
+				source, target = target, source
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, source, relation.Kind, target, commit); err != nil {
+				return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law relation", true, "retry once the database is writable", err))
+			}
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
@@ -321,6 +346,13 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot commit the knowledge index rebuild", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+func insertLawSubject(ctx context.Context, tx *sql.Tx, home KnowledgeHome, record KnowledgeRecord, commit string) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, record.ID, record.Kind, record.Status, record.Path, record.Title, record.SHA256, commit); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law subject", true, "retry once the database is writable", err)
 	}
 	return nil
 }

@@ -55,7 +55,7 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 20 {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 21 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','lesson','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
@@ -100,7 +100,7 @@ func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testin
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 20 {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 21 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
@@ -121,6 +121,51 @@ func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testin
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?`, index).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("index %s count=%d err=%v", index, count, err)
 		}
+	}
+}
+
+func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v20.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:20] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 21 {
+		t.Fatalf("version=%d err=%v", version, err)
+	}
+	for _, table := range []string{"law_subjects", "law_relations"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("table %s count=%d err=%v", table, count, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`); err == nil {
+		t.Fatal("law subject write bypassed fold guard")
+	}
+	var lawModifies, lawBoundaryVersion int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='law_modifies'`).Scan(&lawModifies); err != nil || lawModifies != 1 {
+		t.Fatalf("law_modifies column count=%d err=%v", lawModifies, err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='law_boundary_version'`).Scan(&lawBoundaryVersion); err != nil || lawBoundaryVersion != 1 {
+		t.Fatalf("law_boundary_version column count=%d err=%v", lawBoundaryVersion, err)
 	}
 }
 

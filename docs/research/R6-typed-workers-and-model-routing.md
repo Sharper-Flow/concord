@@ -1,6 +1,7 @@
 # R6: Typed Workers and Model Routing — Research Findings
 
-> **Status:** Research complete; awaiting decision record and operator acceptance.
+> **Status:** Research complete; recommendations accepted by CD-0017 on 2026-08-11.
+> **Decision:** [`CD-0017-typed-workers-and-model-routing.md`](../decisions/CD-0017-typed-workers-and-model-routing.md).
 > **Question:** How should Concord execute and model-route typed worker lanes —
 > research, implementation, review, verification, ops — without recreating nested
 > workflow authority or delegating to unregistered generic host agents?

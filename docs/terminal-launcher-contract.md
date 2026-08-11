@@ -1,8 +1,9 @@
 # Terminal launcher — accepted contract
 
 **Status:** Accepted under [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md), 2026-08-10.
-**Implementation status:** Contract and renderer spike accepted; launcher screens and
-read-port wiring remain unbuilt.
+**Implementation status:** S1 portfolio wiring is implemented in issue #45 and is
+shipped only after its pull request merges. S2/S3, session launch, and the
+replacement-ready floor remain unbuilt; this slice is not replacement-ready.
 
 This document is the accepted C18 launcher contract. CD-0014 records the rendering
 spike, exact dependency inventory, evidence gate, and Product-only query scope.
@@ -201,7 +202,7 @@ closing the session.
 | `Ctrl-d` / `Ctrl-u` | Half-page down / up | All |
 | `n` / `p` | Next / previous page | S1, S2 |
 | `/` | Filter the current screen's already-fetched result set | S1, S2 |
-| `s` | Query — submit a bounded search and render its results | All |
+| `s` | Query — submit a bounded semantic search and render its results | S2, S3 only; requires ambient Product |
 | `Tab` | Cycle sections within a screen — C17 relation tree, ranked table, knowledge | S2, S3 |
 | `l` | Launch a session for the current scope (§6) | S2, S3 |
 | `r` | Explicit refresh (§7) | All |
@@ -219,7 +220,7 @@ read behind what looks like a display control.
 | | Filter (`/`) | Query (`s`) |
 |---|---|---|
 | Effect | Narrows rows already on screen | Issues a bounded read |
-| Scope | The current page | The ambient Product, or the portfolio on S1 |
+| Scope | The already-fetched Product rows on S1, or the current page on S2/S3 | The ambient Product on S2/S3; unavailable on S1 |
 | Ordering | Unchanged from the underlying contract | Set by the query contract it dispatches to |
 | Cost | None | One bounded read, counted in §9 |
 | Result | A subset, with the hidden-row count shown | A result set, paged, with typed coverage |
@@ -228,27 +229,30 @@ read behind what looks like a display control.
 When it hides rows, it shows how many — a filtered view never presents itself as a
 whole result, matching C17's no-silent-truncation rule.
 
-`s` is a read, so it obeys every read rule in this document: bounded and paged per §9,
-dispatched through the accepted TS3 surface, carrying the same watermark and reliance
-state as any other screen, and rendering `unavailable` with a typed reason rather than
-a short list presented as complete. Query results are a view, not a new screen; `Esc`
-returns to the unfiltered screen with prior selection intact.
+`s` is a read only after an ambient Product exists. On S2/S3 it obeys every read rule
+in this document: bounded and paged per §9, dispatched through the accepted TS3
+surface, carrying the same watermark and reliance state as any other screen, and
+rendering `unavailable` with a typed reason rather than a short list presented as
+complete. Query results are a view, not a new screen; `Esc` returns to the unfiltered
+screen with prior selection intact. S1 has no `s` binding: its Product portfolio is
+already fetched by the S1 entry/refresh read, and `/` only narrows those rows locally.
 
-What is queryable follows what the screen owns: Products on S1, work within the
-ambient Product on S2 and S3, and durable knowledge through the shipped resolver (§3).
-Query remains Product-only and never spans Products.
+What is queryable follows what the screen owns: S1 filters fetched Products locally;
+semantic query applies only to work within the ambient Product on S2/S3 and durable
+knowledge through the shipped resolver (§3). Query remains Product-only and never
+spans Products.
 
 ### Text entry is a first-class requirement
 
-Both modes need a real text input: cursor movement, mid-string editing, deletion,
-paste, and clear. This is the launcher's only input widget, and it is not optional —
+Filter and semantic query use a real text input: cursor movement, mid-string editing,
+deletion, paste, and clear. This is the launcher's only input widget, and it is not optional —
 it raises the floor for the rendering-dependency choice in §11 above what a
 navigate-only surface would need.
 
-Two constraints keep it honest. Text entry never mutates durable state; it selects
-what to read and what to show, never what to write. And a query in flight renders as
-in flight — a stale result set never sits under a newer query string as though it
-answered it.
+Two constraints keep it honest. Text entry never mutates durable state; S1 filter input
+selects only what to show, while S2/S3 query input selects what to read. Neither selects
+what to write. A semantic query in flight renders as in flight — a stale result set
+never sits under a newer query string as though it answered it.
 
 ## 6. Action surface
 
@@ -259,7 +263,7 @@ The launcher navigates and launches. That is the whole surface.
 | Open | S1, S2 | Navigate one screen down | None |
 | Back | S2, S3 | Navigate one screen up | None |
 | Filter | S1, S2 | Narrow the rows already on screen | None |
-| Query | All | Issue one bounded search and render its results | None |
+| Query | S2, S3 | Issue one bounded Product-scoped search and render its results | None |
 | Refresh | All | Re-run the current screen's read | None |
 | Launch | S2, S3 | Start or attach an OpenCode session carrying resolved scope | None by the launcher |
 
@@ -319,13 +323,16 @@ no background thread, and no interval.
 | Trigger | Behaviour |
 |---|---|
 | Screen entry | One bounded read for that screen |
-| Query submitted | One bounded read for that query |
-| Explicit `r` | Re-run that screen's read, or the active query if one is displayed |
+| S1 entry | One bounded Product-row read for the portfolio |
+| S2/S3 query submitted | One bounded Product-scoped read for that query |
+| S1 filter submitted | No read; narrow the fetched Product rows locally |
+| Explicit `r` | Re-run the current screen's read; on S1 this is the Product-row read |
 | Everything else | No read |
 
-A query reads on submit, never per keystroke. Incremental search would turn one
-operator intent into an unbounded read stream, which §9's bounds and the no-polling
-discipline both exclude; typing is free, submitting costs one read.
+S2/S3 semantic query reads on submit, never per keystroke. Incremental search would
+turn one operator intent into an unbounded read stream, which §9's bounds and the
+no-polling discipline both exclude; typing is free, submitting costs one read. S1
+filter submission is always read-free because it never leaves the fetched portfolio.
 
 Between reads the screen is a snapshot, and it says so. Every screen renders the
 authority watermark and the observed-at age of its data, so a stale screen can never
@@ -367,7 +374,7 @@ The launcher inherits C14 §4 wholesale and adds container-level rules.
 | S1 | One Product-row projection query, per C14 §8 | Page default 20, maximum 100 |
 | S2 | One bounded query per mode, per C17 §6, plus one Product-scoped knowledge read | Q8 depth ≤ 3; Q5 paged by limit and cursor; knowledge list paged |
 | S3 | One work-detail read, plus one work-scoped knowledge read | Single work item plus bounded workflow state; knowledge list paged |
-| Query | One bounded read per submitted query, scoped to what the screen owns | Paged by limit and cursor; typed coverage; never unbounded |
+| Query (S2/S3 only) | One bounded read per submitted query, scoped to the ambient Product | Paged by limit and cursor; typed coverage; never unbounded |
 
 - The knowledge reads above use the shipped resolver. They remain one bounded read
   for the entity already on screen, with typed coverage and no per-row fan-out.
@@ -466,10 +473,12 @@ authoritative while being non-derivable, unstable, or a second authority.
     the operator must discover, or by a field only visible at wide terminal widths.
 11. **No cross-Product action surface.** The launcher views one ambient Product.
      Query is Product-only and no result set spans Products (§14).
-12. **No incremental query.** A query reads on submit. Keystrokes never issue reads.
-13. **No filter that queries, and no query that pretends to be a filter.** The two
-    modes are distinguishable on screen, and a result set is never presented as though
-    it were the unfiltered whole.
+12. **No incremental query.** An S2/S3 semantic query reads on submit. Keystrokes
+    never issue reads; S1 has no semantic-query binding.
+13. **No filter that queries, and no query that pretends to be a filter.** S1 `/`
+    narrows fetched Product rows with zero reads; S2/S3 `s` is a distinct
+    Product-scoped semantic read. The two modes are distinguishable on screen, and a
+    result set is never presented as though it were the unfiltered whole.
 14. **No unavailable coverage that reads as data.** Incomplete knowledge coverage
      renders its typed reason and omissions; it never becomes an empty result, zero
      count, or blank pane.
@@ -499,7 +508,9 @@ A prototype would need to satisfy at minimum:
 - The knowledge section is not read when the operator never focuses it.
 - Every action in §6 is reachable by keyboard alone, and the help overlay matches the
   active keymap exactly.
-- Typing a query string issues no read; submitting it issues exactly one.
+- Typing an S2/S3 semantic query issues no read; submitting it issues exactly one.
+- S1 has no `s` key binding; submitting `/` after editing the local Product filter
+  issues zero reads and only narrows the fetched rows.
 - A query result set renders its own coverage and reliance state, and incomplete
   coverage renders `unavailable` rather than a short list.
 - `Esc` from a query result returns to the unfiltered screen with prior selection and

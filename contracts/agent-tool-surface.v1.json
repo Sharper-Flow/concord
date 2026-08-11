@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "2.0.0",
+    "version": "2.1.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 8
   },
@@ -27,7 +27,8 @@
       "description": "Resolve Product context and bounded Product snapshots.",
       "operations": [
         "concord_product_view.resolve",
-        "concord_product_view.snapshot"
+        "concord_product_view.snapshot",
+        "concord_product_view.portfolio"
       ]
     },
     {
@@ -125,6 +126,26 @@
       "approval": "none",
       "metadata": {
         "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_product_view.portfolio",
+      "tool": "concord_product_view",
+      "kind": "read",
+      "query_id": "C14.ProductRows",
+      "input_schema": "#/schemas/product_row_portfolio_input",
+      "result_schema": "#/schemas/product_row_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "portfolio",
         "idempotency": "request_id",
         "pagination": "cursor",
         "output_bytes": 65536,
@@ -532,6 +553,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_snapshot_input",
       "closed": true
     },
+    "product_row_portfolio_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_row_portfolio_input",
+      "closed": true
+    },
     "work_browse_list_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_list_input",
       "closed": true
@@ -570,6 +595,10 @@
     },
     "product_snapshot": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_snapshot",
+      "closed": true
+    },
+    "product_row_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_row_page",
       "closed": true
     },
     "work_page": {
@@ -690,6 +719,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:d06c6d6cdd66af933101b41a081b2b5bb8e571a878eb3cc03f8434c2c827c917",
-  "digest": "sha256:6d7994b5481557df2ee066967b61c9eeacc99d22eac9d3c4af3336ed857533e9"
+  "payload_digest": "sha256:79f934d7d40c46dd9ce6e3eeb3d98eb73b2fb030613f09c2e2c7e45d4236a61b",
+  "digest": "sha256:d8d11335874981ab85d7f2c0e2ef4ed5caa3114bf7d799394e97bd7a86795dee"
 }

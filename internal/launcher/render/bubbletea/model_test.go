@@ -219,11 +219,11 @@ func TestBubblesUICommandsAreReadFreeAndOnlyExplicitPathsRead(t *testing.T) {
 		t.Fatalf("UI-only commands read=%d", p.reads)
 	}
 	m.Update(keyPress(tea.KeyEnter, "", 0))
-	if p.reads != 1 {
-		t.Fatalf("submitted query reads=%d", p.reads)
+	if p.reads != 0 {
+		t.Fatalf("filter submit reads=%d", p.reads)
 	}
 	m.Update(keyPress('r', "r", 0))
-	if p.reads != 2 {
+	if p.reads != 1 {
 		t.Fatalf("explicit refresh reads=%d", p.reads)
 	}
 }
@@ -233,7 +233,80 @@ func TestSubmitCallsReadOnceAndNoTimerOrPolling(t *testing.T) {
 	m := New(launcher.New(p), context.Background(), Profile{})
 	m.OpenQuery()
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if p.reads != 1 {
-		t.Fatalf("submit reads=%d", p.reads)
+	if p.reads != 0 {
+		t.Fatalf("filter submit reads=%d", p.reads)
+	}
+}
+
+func TestS1NavigationFilterHelpRefreshAndS2BackAreReadBounded(t *testing.T) {
+	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: []launcher.ProductRow{
+		{ID: "p-1", Name: "Alpha", Stage: "production"},
+		{ID: "p-2", Name: "Beta", Stage: "alpha"},
+		{ID: "p-3", Name: "Gamma", Stage: "beta"},
+	}}}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	if cmd := m.UpdateKey("j"); cmd != nil {
+		t.Fatal("navigation issued command")
+	}
+	if m.Cursor() != 1 || p.reads != 1 {
+		t.Fatalf("navigation cursor=%d reads=%d", m.Cursor(), p.reads)
+	}
+	m.UpdateKey("/")
+	for _, key := range []string{"b", "e"} {
+		m.Update(keyPress(rune(key[0]), key, 0))
+	}
+	if got := m.FilterValue(); got != "be" || p.reads != 1 {
+		t.Fatalf("local filter=%q reads=%d", got, p.reads)
+	}
+	m.UpdateKey("ctrl+l")
+	if m.FilterValue() != "" || p.reads != 1 {
+		t.Fatalf("clear filter=%q reads=%d", m.FilterValue(), p.reads)
+	}
+	m.UpdateKey("enter")
+	m.UpdateKey("?")
+	if !m.HelpVisible() || p.reads != 1 || !strings.Contains(m.Render(), "HELP:") {
+		t.Fatalf("help visible=%v reads=%d", m.HelpVisible(), p.reads)
+	}
+	m.UpdateKey("r")
+	if p.reads != 2 {
+		t.Fatalf("refresh reads=%d, want 2", p.reads)
+	}
+	m.UpdateKey("enter")
+	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.StatusMessage != "not_implemented" {
+		t.Fatalf("S2=%#v", got)
+	}
+	if p.reads != 2 {
+		t.Fatalf("selection reads=%d", p.reads)
+	}
+	m.UpdateKey("esc")
+	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 2 {
+		t.Fatalf("back screen=%s reads=%d", core.Snapshot().Screen, p.reads)
+	}
+}
+
+func TestS1HelpHasNoSemanticQueryBinding(t *testing.T) {
+	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	m := New(launcher.New(p), context.Background(), Profile{})
+	m.UpdateKey("?")
+	rendered := m.Render()
+	if strings.Contains(strings.ToLower(rendered), "query") || strings.Contains(rendered, " s ") {
+		t.Fatalf("S1 help exposes semantic query: %q", rendered)
+	}
+	m.UpdateKey("s")
+	if p.reads != 0 {
+		t.Fatalf("S1 semantic-query key read=%d", p.reads)
+	}
+}
+
+func TestS1QuitReturnsTeaQuitAndNoRead(t *testing.T) {
+	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	m := New(launcher.New(p), context.Background(), Profile{})
+	_, cmd := m.Update(keyPress('q', "q", 0))
+	if cmd == nil || p.reads != 0 {
+		t.Fatalf("quit cmd=%v reads=%d", cmd != nil, p.reads)
 	}
 }

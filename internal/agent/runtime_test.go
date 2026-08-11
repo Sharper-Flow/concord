@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
@@ -8,15 +9,197 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/launcher"
+	"github.com/sharper-flow/concord/internal/launcher/storeport"
+	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "portfolio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedPortfolioParityFixture(t, s)
+
+	result, err := portfolio.Read(context.Background(), s, store.ProductRowRequest{Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 3 || result.NextCursor == nil {
+		t.Fatalf("seeded page=%#v", result)
+	}
+	response, err := (runtime{}).productRows(NewBase("parity", "concord_product_view", "portfolio", ManifestVersion), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertProductPortfolioEnvelopeMeta(t, response, result)
+	wantPayload, err := portfolio.Payload(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(response.Result, wantPayload) {
+		t.Fatalf("authoritative payload bytes drifted:\n got %s\nwant %s", response.Result, wantPayload)
+	}
+	var envelopeBody struct {
+		ObservedAt string             `json:"observed_at"`
+		Rows       []store.ProductRow `json:"rows"`
+	}
+	if err := json.Unmarshal(response.Result, &envelopeBody); err != nil {
+		t.Fatal(err)
+	}
+	if envelopeBody.ObservedAt != result.ObservedAt || !reflect.DeepEqual(envelopeBody.Rows, result.Rows) {
+		t.Fatalf("envelope changed the production result: body=%#v result=%#v", envelopeBody, result)
+	}
+
+	snapshot := storeport.FromProductRows(result)
+	assertLauncherSnapshotMeta(t, snapshot, result)
+	for i, source := range result.Rows {
+		got := snapshot.Rows[i]
+		if got.ID != source.ProductID || got.Name != source.DisplayName || got.NameSuffix != source.DisplayNameSuffix ||
+			got.StageMaturity != source.Stage.Maturity || got.StageAudienceCommitment != source.Stage.AudienceCommitment || got.Stage != source.Stage.Maturity+"/"+source.Stage.AudienceCommitment ||
+			got.Reliance != source.Reliance.Authority || got.RelianceReason != source.Reliance.Reason || got.RelianceObservedAt != source.Reliance.ObservedAt || got.RelianceAge != source.Reliance.Age || got.RelianceStale != source.Reliance.Stale || got.BlocksExecution != source.Reliance.BlocksExecution || !reflect.DeepEqual(got.RelianceOmissions, source.Reliance.Omissions) {
+			t.Fatalf("row %d identity/stage/reliance drifted: got=%#v source=%#v", i, got, source)
+		}
+		if source.ActionCounts.Values != nil {
+			values := source.ActionCounts.Values
+			if got.CountsState != source.ActionCounts.State || got.InProgress != values.InProgress || got.Blocked != values.Blocked || got.Ready != values.Ready || got.ActiveProblems != values.ActiveProblems || got.ApprovalRequired != values.ApprovalRequired || got.Actions != values.InProgress+values.Blocked+values.Ready+values.ActiveProblems+values.ApprovalRequired {
+				t.Fatalf("row %d counts drifted: got=%#v source=%#v", i, got, source.ActionCounts)
+			}
+		}
+		if source.ActionCounts.Unavailable != nil {
+			if got.CountsState != source.ActionCounts.State || got.UnavailableReason != source.ActionCounts.Unavailable.Reason || !reflect.DeepEqual(got.UnavailableOmissions, source.ActionCounts.Unavailable.Omissions) {
+				t.Fatalf("row %d unavailable metadata drifted: got=%#v source=%#v", i, got, source.ActionCounts)
+			}
+		}
+		if source.Focus != nil {
+			focus := source.Focus
+			if got.Focus != focus.Title || got.FocusID != focus.WorkID || got.FocusWorkKind != focus.WorkKind || got.FocusLifecycle != focus.Lifecycle || got.FocusAttentionKind != focus.AttentionKind || got.FocusPriority != focus.Priority || got.FocusWorkflowStepLabel != focus.WorkflowStepLabel || got.FocusProjectCount != focus.ProjectCount || got.FocusStageContext != focus.StageContext.Kind {
+				t.Fatalf("row %d focus drifted: got=%#v source=%#v", i, got, focus)
+			}
+			if focus.StageContext.FocusOverride == nil {
+				if got.FocusStageOverrideMaturity != "" || got.FocusStageOverrideAudience != "" {
+					t.Fatalf("row %d unexpected focus stage override: got=%#v", i, got)
+				}
+			} else if got.FocusStageOverrideMaturity != focus.StageContext.FocusOverride.Maturity || got.FocusStageOverrideAudience != focus.StageContext.FocusOverride.AudienceCommitment {
+				t.Fatalf("row %d focus stage override drifted: got=%#v source=%#v", i, got, focus.StageContext.FocusOverride)
+			}
+		}
+		if got.FocusAbsentReason != source.FocusAbsentReason {
+			t.Fatalf("row %d focus absence drifted: got=%q source=%q", i, got.FocusAbsentReason, source.FocusAbsentReason)
+		}
+	}
+
+	for _, authority := range []string{store.ProductRowAuthorityDegraded, store.ProductRowAuthorityUnreachable} {
+		degraded, err := portfolio.Read(context.Background(), s, store.ProductRowRequest{Limit: 3, Source: &store.ProductRowRelianceInput{Authority: authority, Reason: "test-unavailable", Omissions: []string{"work_snapshot"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := (runtime{}).productRows(NewBase("parity-"+authority, "concord_product_view", "portfolio", ManifestVersion), degraded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertProductPortfolioEnvelopeMeta(t, response, degraded)
+		wantPayload, err := portfolio.Payload(degraded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(response.Result, wantPayload) {
+			t.Fatalf("%s payload bytes drifted:\n got %s\nwant %s", authority, response.Result, wantPayload)
+		}
+		var envelopeUnavailable struct {
+			ObservedAt string             `json:"observed_at"`
+			Rows       []store.ProductRow `json:"rows"`
+		}
+		if err := json.Unmarshal(response.Result, &envelopeUnavailable); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(envelopeUnavailable.Rows, degraded.Rows) || envelopeUnavailable.ObservedAt != degraded.ObservedAt {
+			t.Fatalf("%s envelope changed unavailable production result", authority)
+		}
+		snapshot := storeport.FromProductRows(degraded)
+		assertLauncherSnapshotMeta(t, snapshot, degraded)
+		for i, row := range degraded.Rows {
+			if row.ActionCounts.State != store.ProductRowCountsUnavailable || row.ActionCounts.Values != nil || row.ActionCounts.Unavailable == nil || row.ActionCounts.Unavailable.Reason != "test-unavailable" || !reflect.DeepEqual(row.ActionCounts.Unavailable.Omissions, []string{"work_snapshot"}) {
+				t.Fatalf("%s row lost unavailable state: %#v", authority, row)
+			}
+			got := snapshot.Rows[i]
+			if got.CountsState != row.ActionCounts.State || got.UnavailableReason != row.ActionCounts.Unavailable.Reason || !reflect.DeepEqual(got.UnavailableOmissions, row.ActionCounts.Unavailable.Omissions) || got.FocusAbsentReason != row.FocusAbsentReason || got.Reliance != row.Reliance.Authority || got.RelianceReason != row.Reliance.Reason || got.RelianceObservedAt != row.Reliance.ObservedAt || got.RelianceAge != row.Reliance.Age || got.RelianceStale != row.Reliance.Stale || got.BlocksExecution != row.Reliance.BlocksExecution || !reflect.DeepEqual(got.RelianceOmissions, row.Reliance.Omissions) {
+				t.Fatalf("%s row %d unavailable parity drifted: got=%#v source=%#v", authority, i, got, row)
+			}
+		}
+	}
+}
+
+func assertProductPortfolioEnvelopeMeta(t *testing.T, response Envelope, result store.ProductRowResult) {
+	t.Helper()
+	if response.QueryID != result.QueryID || response.ContractVersion != ManifestVersion || response.Authority != Authority(result.Authority) || response.Outcome != OutcomeOK {
+		t.Fatalf("envelope identity/meta drifted: response=%#v result=%#v", response, result)
+	}
+	expectedFreshness := &Freshness{ObservedAt: parseTime(result.Freshness.ObservedAt), Age: result.Freshness.Age, Stale: result.Freshness.Stale}
+	if !reflect.DeepEqual(response.Freshness, expectedFreshness) {
+		t.Fatalf("freshness drifted: got=%#v want=%#v", response.Freshness, expectedFreshness)
+	}
+	expectedWatermark := []Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: fmt.Sprint(result.SourceVersionWatermark)}}
+	if !reflect.DeepEqual(response.SourceVersionWatermark, expectedWatermark) {
+		t.Fatalf("watermark drifted: got=%#v want=%#v", response.SourceVersionWatermark, expectedWatermark)
+	}
+	expectedScope := (&runtime{}).scope(result.ResultMeta)
+	if !reflect.DeepEqual(response.ResolvedScope, expectedScope) {
+		t.Fatalf("resolved scope drifted: got=%#v want=%#v", response.ResolvedScope, expectedScope)
+	}
+	if !reflect.DeepEqual(response.OrderingKeys, result.OrderingKeys) || !reflect.DeepEqual(response.NextCursor, result.NextCursor) {
+		t.Fatalf("pagination metadata drifted: response ordering=%#v cursor=%#v result ordering=%#v cursor=%#v", response.OrderingKeys, response.NextCursor, result.OrderingKeys, result.NextCursor)
+	}
+	expectedOmissions := notices(result.Omissions)
+	expectedWarnings := notices(result.Warnings)
+	if !reflect.DeepEqual(response.Omissions, expectedOmissions) || !reflect.DeepEqual(response.Warnings, expectedWarnings) {
+		t.Fatalf("notices drifted: got omissions=%#v warnings=%#v want omissions=%#v warnings=%#v", response.Omissions, response.Warnings, expectedOmissions, expectedWarnings)
+	}
+}
+
+func assertLauncherSnapshotMeta(t *testing.T, snapshot launcher.Snapshot, result store.ProductRowResult) {
+	t.Helper()
+	if snapshot.QueryID != result.QueryID || snapshot.ContractVersion != result.ContractVersion ||
+		snapshot.SourceVersionWatermark != result.SourceVersionWatermark || snapshot.Watermark != fmt.Sprint(result.SourceVersionWatermark) ||
+		snapshot.ObservedAt != result.ObservedAt || snapshot.Reliance != result.Authority || snapshot.Coverage != result.Authority ||
+		!reflect.DeepEqual(snapshot.OrderingKeys, result.OrderingKeys) || !reflect.DeepEqual(snapshot.NextCursor, result.NextCursor) {
+		t.Fatalf("launcher snapshot metadata drifted: snapshot=%#v result=%#v", snapshot, result)
+	}
+}
+
+func seedPortfolioParityFixture(t *testing.T, s *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
+	_, err := s.DB().ExecContext(ctx, `
+		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES
+		 ('product-active','Active','production','public',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
+		 ('product-quiet','Quiet','prototype','operator_only',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
+		 ('product-duplicate-a','Duplicate','alpha','limited',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
+		 ('product-duplicate-b','Duplicate','beta','public',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z');
+		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('project-active','Active Project',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z');
+		INSERT INTO product_projects(product_id,project_id,role) VALUES ('product-active','project-active','primary');
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES ('work-active','task','Active focus','in_progress',1,1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z',NULL);
+		INSERT INTO work_projects(work_id,project_id,role) VALUES ('work-active','project-active','primary');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	s, err := store.Open(context.Background(), t.TempDir()+"/concord.db")

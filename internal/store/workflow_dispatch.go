@@ -195,7 +195,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	if request.ContractVersion == "" {
 		request.ContractVersion = "2.0.0"
 	}
-	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" {
+	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" && request.ContractVersion != "2.1.0" {
 		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_version is not supported", false, "upgrade Concord before replaying this operation")
 	}
 	if request.AcceptedInputsDigest == "" {

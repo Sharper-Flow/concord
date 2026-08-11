@@ -604,6 +604,355 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "product_row": {
+      "additionalProperties": false,
+      "properties": {
+        "action_counts": {
+          "$ref": "#/$defs/product_row_action_counts"
+        },
+        "display_name": {
+          "$ref": "#/$defs/short"
+        },
+        "display_name_suffix": {
+          "$ref": "#/$defs/short"
+        },
+        "focus": {
+          "$ref": "#/$defs/product_row_focus"
+        },
+        "focus_absent_reason": {
+          "enum": [
+            "stale_block",
+            "unreachable",
+            "no_actionable_work",
+            "authoritative_empty"
+          ],
+          "type": "string"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reliance": {
+          "$ref": "#/$defs/product_row_reliance"
+        },
+        "stage": {
+          "$ref": "#/$defs/product_row_stage"
+        }
+      },
+      "required": [
+        "product_id",
+        "display_name",
+        "stage",
+        "reliance",
+        "action_counts"
+      ],
+      "type": "object"
+    },
+    "product_row_action_counts": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "known",
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        "unavailable": {
+          "$ref": "#/$defs/product_row_unavailable"
+        },
+        "values": {
+          "$ref": "#/$defs/product_row_action_values"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    "product_row_action_values": {
+      "additionalProperties": false,
+      "properties": {
+        "active_problems": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "approval_required": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "blocked": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "in_progress": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ready": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "in_progress",
+        "blocked",
+        "ready",
+        "active_problems",
+        "approval_required"
+      ],
+      "type": "object"
+    },
+    "product_row_focus": {
+      "additionalProperties": false,
+      "properties": {
+        "attention_kind": {
+          "enum": [
+            "approval_required",
+            "active_problem",
+            "blocked",
+            "in_progress",
+            "ready"
+          ],
+          "type": "string"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "project_count": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stage_context": {
+          "$ref": "#/$defs/product_row_stage_context"
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "workflow_step_label": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "work_id",
+        "title",
+        "work_kind",
+        "lifecycle",
+        "attention_kind",
+        "priority",
+        "project_count",
+        "stage_context"
+      ],
+      "type": "object"
+    },
+    "product_row_page": {
+      "additionalProperties": false,
+      "properties": {
+        "observed_at": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/product_row"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "observed_at",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "product_row_portfolio_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source": {
+          "$ref": "#/$defs/product_row_source"
+        }
+      },
+      "required": [
+        "page"
+      ],
+      "type": "object"
+    },
+    "product_row_reliance": {
+      "additionalProperties": false,
+      "properties": {
+        "age": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "authority": {
+          "enum": [
+            "authoritative",
+            "degraded",
+            "unreachable"
+          ],
+          "type": "string"
+        },
+        "blocks_execution": {
+          "type": "boolean"
+        },
+        "observed_at": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "omissions": {
+          "items": {
+            "$ref": "#/$defs/short"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "authority",
+        "observed_at",
+        "age",
+        "stale",
+        "blocks_execution",
+        "omissions"
+      ],
+      "type": "object"
+    },
+    "product_row_source": {
+      "additionalProperties": false,
+      "properties": {
+        "age": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "authority": {
+          "enum": [
+            "authoritative",
+            "degraded",
+            "unreachable"
+          ],
+          "type": "string"
+        },
+        "blocks_execution": {
+          "type": "boolean"
+        },
+        "observed_at": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "omissions": {
+          "items": {
+            "$ref": "#/$defs/short"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "product_row_stage": {
+      "additionalProperties": false,
+      "properties": {
+        "audience_commitment": {
+          "enum": [
+            "operator_only",
+            "limited",
+            "public"
+          ],
+          "type": "string"
+        },
+        "maturity": {
+          "enum": [
+            "prototype",
+            "alpha",
+            "beta",
+            "production",
+            "deprecated"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "maturity",
+        "audience_commitment"
+      ],
+      "type": "object"
+    },
+    "product_row_stage_context": {
+      "additionalProperties": false,
+      "properties": {
+        "focus_override": {
+          "$ref": "#/$defs/product_row_stage"
+        },
+        "kind": {
+          "enum": [
+            "product_default",
+            "single_focus_override",
+            "mixed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "product_row_unavailable": {
+      "additionalProperties": false,
+      "properties": {
+        "omissions": {
+          "items": {
+            "$ref": "#/$defs/short"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "reason",
+        "omissions"
+      ],
+      "type": "object"
+    },
     "product_snapshot": {
       "additionalProperties": false,
       "properties": {

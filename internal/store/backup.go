@@ -396,7 +396,7 @@ func projectionDigest(ctx context.Context, db *sql.DB) (string, error) {
 		query string
 	}{
 		{"products", `SELECT id, display_name, stage_maturity, stage_audience_commitment, version, created_at, updated_at FROM products ORDER BY id`},
-		{"projects", `SELECT id, display_name, version, created_at, updated_at FROM projects ORDER BY id`},
+		{"projects", `SELECT id, display_name, stage_maturity_override, stage_audience_commitment_override, version, created_at, updated_at FROM projects ORDER BY id`},
 		{"work_items", `SELECT id, kind, title, lifecycle, priority, version, created_at, updated_at, terminal_time FROM work_items ORDER BY id`},
 		{"relations", `SELECT work_id_from, work_id_to, kind, created_at FROM relations ORDER BY work_id_from, work_id_to, kind`},
 		{"epic_entries", `SELECT epic_work_id, child_work_id, position, required FROM epic_entries ORDER BY epic_work_id, position, child_work_id`},

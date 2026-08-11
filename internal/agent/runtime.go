@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -106,6 +107,12 @@ type productSnapshotInput struct {
 	PreviewLimit int         `json:"preview_limit"`
 	Budget       budgetInput `json:"budget"`
 }
+type productRowPortfolioInput struct {
+	ProductID string                         `json:"product_id"`
+	Page      pageInput                      `json:"page"`
+	Budget    budgetInput                    `json:"budget"`
+	Source    *store.ProductRowRelianceInput `json:"source"`
+}
 type workListInput struct {
 	ProductID     string      `json:"product_id"`
 	ProjectIDs    []string    `json:"project_ids"`
@@ -183,6 +190,11 @@ type runtime struct {
 	Tool, Operation string
 	Budget          budgetInput
 }
+
+// WorkflowContractVersion remains the durable workflow payload contract. The
+// TS8 surface version may advance through a compatible minor without changing
+// the workflow engine's persisted contract identity.
+const WorkflowContractVersion = "2.0.0"
 
 // Dispatch validates the generated input schema, revalidates TS5 authority,
 // and routes both read and transaction-bound mutation operations through the
@@ -670,6 +682,16 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return failureEnvelope(base, err), nil
 		}
 		return r.q2(base, q)
+	case "concord_product_view.portfolio":
+		var in productRowPortfolioInput
+		if err := decodeStrict(input, &in); err != nil {
+			return base, err
+		}
+		q, err := portfolio.Read(ctx, r.Store, store.ProductRowRequest{Product: in.ProductID, Limit: r.boundedLimit(in.Page.Limit), Cursor: cursorValue(in.Page), Source: in.Source})
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		return r.productRows(base, q)
 	case "concord_work_browse.list":
 		var in workListInput
 		if err := decodeStrict(input, &in); err != nil {
@@ -1086,6 +1108,14 @@ func (r runtime) q2(base Envelope, q store.Q2Result) (Envelope, error) {
 		items = append(items, summary(w))
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"counts": map[string]int{"needed": q.LifecycleCounts["needed"], "in_progress": q.LifecycleCounts["in_progress"], "completed": q.LifecycleCounts["completed"], "cancelled": q.LifecycleCounts["cancelled"]}, "previews": items})
+}
+
+func (r runtime) productRows(base Envelope, q store.ProductRowResult) (Envelope, error) {
+	payload, err := portfolio.Payload(q)
+	if err != nil {
+		return base, err
+	}
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), json.RawMessage(payload))
 }
 func (r runtime) q3(base Envelope, q store.Q3Result) (Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))

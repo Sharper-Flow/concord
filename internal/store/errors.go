@@ -134,7 +134,15 @@ const (
 	KindDefinitionVersionNotMonotonic FailureKind = "definition_version_not_monotonic"
 	KindDefinitionDigestMismatch      FailureKind = "definition_digest_mismatch"
 	KindDefinitionActionOrStepUnknown FailureKind = "definition_action_or_step_unknown"
-	KindUnauthorized                  FailureKind = "unauthorized"
+	// Lane failures are closed registry errors. They fail before a worker can
+	// create any workflow authority or external effect.
+	KindLaneDefinitionNotRegistered  FailureKind = "lane_definition_not_registered"
+	KindLaneDefinitionDigestMismatch FailureKind = "lane_definition_digest_mismatch"
+	KindLaneDefinitionInvalid        FailureKind = "lane_definition_invalid"
+	// KindModelIdentityMismatch records a completed worker whose host readback
+	// identity differs from the model resolved at dispatch.
+	KindModelIdentityMismatch FailureKind = "model_identity_mismatch"
+	KindUnauthorized          FailureKind = "unauthorized"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

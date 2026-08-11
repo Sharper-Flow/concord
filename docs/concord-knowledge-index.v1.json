@@ -358,6 +358,28 @@
       "sha256": "sha256:27cbb4fb8b5252c6cb1f1526c7f18f274f66697222806e1cbbe2bf704911f828"
     },
     {
+      "id": "agent-lanes-contract",
+      "kind": "spec",
+      "path": "docs/agent-lanes-contract.md",
+      "status": "accepted",
+      "date": "2026-08-11T00:00:00Z",
+      "title": "Agent lane contract",
+      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, pinned models, budgets, lifecycle states, and evidence obligations.",
+      "tags": [
+        "typed-workers",
+        "lane-registry",
+        "agents"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:f938bf2f703b0e44db6c51f721d6fd60aad36779f1211821ebd140ac126ee3a5"
+    },
+    {
       "id": "PM3",
       "kind": "spec",
       "path": "docs/product-memory-domain-schema.md",

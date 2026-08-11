@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "registry": "agent_lanes",
+  "version": 1,
+  "lanes": [
+    {
+      "id": "research",
+      "version": 1,
+      "purpose": "Investigate bounded questions and return source-backed findings.",
+      "capability_class": "research",
+      "capabilities": ["read_repository", "search_public_sources", "cite_evidence"],
+      "packet_schema_ref": "agent-lane-packet.v1",
+      "report_schema_ref": "agent-lane-report.v1",
+      "budgets": {"cost_usd_max": 2, "context_tokens_max": 32000, "time_seconds_max": 900},
+      "evidence_obligations": ["source_citations", "bounded_findings", "uncertainties"],
+      "lifecycle_states": ["dispatched", "completed", "failed"],
+      "pinned_model": "openai/gpt-5.6-luna"
+    },
+    {
+      "id": "implement",
+      "version": 1,
+      "purpose": "Implement one approved bounded engineering task and report verification.",
+      "capability_class": "implementation",
+      "capabilities": ["read_repository", "edit_scoped_files", "run_tests", "report_evidence"],
+      "packet_schema_ref": "agent-lane-packet.v1",
+      "report_schema_ref": "agent-lane-report.v1",
+      "budgets": {"cost_usd_max": 4, "context_tokens_max": 48000, "time_seconds_max": 1800},
+      "evidence_obligations": ["files_touched", "verification_commands", "unresolved_issues"],
+      "lifecycle_states": ["dispatched", "completed", "failed"],
+      "pinned_model": "openai/gpt-5.6-luna"
+    },
+    {
+      "id": "review",
+      "version": 1,
+      "purpose": "Review a bounded change against its contract and acceptance evidence.",
+      "capability_class": "review",
+      "capabilities": ["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"],
+      "packet_schema_ref": "agent-lane-packet.v1",
+      "report_schema_ref": "agent-lane-report.v1",
+      "budgets": {"cost_usd_max": 2.5, "context_tokens_max": 40000, "time_seconds_max": 1200},
+      "evidence_obligations": ["contract_findings", "severity", "verification_commands"],
+      "lifecycle_states": ["dispatched", "completed", "failed"],
+      "pinned_model": "zai-coding-plan/glm-5.2"
+    },
+    {
+      "id": "verify",
+      "version": 1,
+      "purpose": "Run independent verification and return deterministic pass or failure evidence.",
+      "capability_class": "verification",
+      "capabilities": ["read_repository", "run_tests", "run_validators", "report_evidence"],
+      "packet_schema_ref": "agent-lane-packet.v1",
+      "report_schema_ref": "agent-lane-report.v1",
+      "budgets": {"cost_usd_max": 3, "context_tokens_max": 40000, "time_seconds_max": 1500},
+      "evidence_obligations": ["commands", "exit_codes", "failure_classification"],
+      "lifecycle_states": ["dispatched", "completed", "failed"],
+      "pinned_model": "openai/gpt-5.6-luna"
+    }
+  ]
+}

@@ -223,13 +223,13 @@ re-litigate them silently.
   and two-valued; grouping comes from declared edges only; incomplete coverage renders
   `unavailable` rather than a shortened table. Single-Product only, since cross-Product
   prioritization remains deferred pending PM2 authority and portability.
-- **Candidate:** [`product-coordination-view.md`](./product-coordination-view.md),
-  non-authorizing design input.
-- **Direction (2026-08-09):** 🟡 open. Adds no field to the C14 row and changes no
-  accepted contract; terminal interaction and prototype detail remain implementation
-  design per `rollout-plan.md` and CD-0006 D6.
-- **Blocks:** the first Product coordination drill-down consumer, not storage or
-  workflow execution.
+- **Decision (2026-08-11):** [`product-coordination-view.md`](./product-coordination-view.md).
+  Accept two bounded Product-scoped modes: a structural Q8 relation tree and a Q5
+  ranked work table joined with Q4 blockage explanation. Adds no field to the C14 row;
+  terminal interaction and prototype detail remain implementation design per
+  `rollout-plan.md` and CD-0006 D6.
+- **Unblocks:** the first Product coordination drill-down consumer. Storage and
+  workflow execution were never blocked by C17.
 
 ### C18. What is the terminal launcher itself?
 - **Question:** What screens exist, how does the operator move between them, what

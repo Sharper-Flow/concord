@@ -202,7 +202,7 @@ func TestMigrateV22ToV23AddsBoundedEpicNarrative(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 23 {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	var narrative string

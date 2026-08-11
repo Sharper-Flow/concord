@@ -1309,6 +1309,14 @@ CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflo
 CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
         `,
 	},
+	{
+		Version: 23,
+		Name:    "epic_narrative",
+		SQL: `
+ALTER TABLE work_items ADD COLUMN narrative TEXT NOT NULL DEFAULT ''
+    CHECK(length(narrative) <= 16384);
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

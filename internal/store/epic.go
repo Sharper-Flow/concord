@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
 
 // EpicEntry is the folded relation/order/requiredness projection. These fields
@@ -18,6 +19,52 @@ type EpicEntry struct {
 }
 
 const maxEpicEntriesRead = 1000
+
+// maxEpicNarrativeLength bounds the Epic coordination narrative in characters,
+// matching SQLite length() and JSON Schema maxLength semantics and the accepted
+// summary bound used by workflow context boundaries.
+const maxEpicNarrativeLength = 16384
+
+type epicNarrativePayload struct {
+	Narrative        string `json:"narrative"`
+	Reason           string `json:"reason"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	ResultingVersion int64  `json:"resulting_version"`
+}
+
+// foldEpicNarrativeRevised makes the Epic coordination narrative a living
+// artifact: the projection updates only through this fenced event, never at
+// creation-only or direct writes.
+func foldEpicNarrativeRevised(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	var p epicNarrativePayload
+	if err := decodePayload(event, &p); err != nil {
+		return err
+	}
+	if p.Narrative == "" || utf8.RuneCountInString(p.Narrative) > maxEpicNarrativeLength || p.Reason == "" || p.ExpectedVersion < 1 || p.ResultingVersion != p.ExpectedVersion+1 {
+		return newFailure(KindInvalidPayload, "fold_event", "epic.narrative_revised payload is invalid", false, "supply a bounded narrative, a revision reason, and consecutive versions")
+	}
+	kind, err := readWorkKind(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if kind != "epic" {
+		return newFailure(KindEpicScopeViolation, "fold_event", "narrative revision target is not an Epic", false, "revise the narrative on an Epic work item")
+	}
+	if err := validateWorkVersion(event, mustVersion(ctx, tx, event.SubjectID), p.ExpectedVersion, p.ResultingVersion); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET narrative=?, version=?, updated_at=? WHERE id=? AND version=?`, p.Narrative, p.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, p.ExpectedVersion)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot revise Epic narrative", true, "retry once the database is writable", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return newFailure(KindProjectionNotFound, "fold_event", "Epic does not exist at the expected version", false, "reload the Epic before revising its narrative")
+	}
+	return nil
+}
 
 type epicEntryPayload struct {
 	ChildWorkID      string `json:"child_work_id"`
@@ -370,4 +417,13 @@ func EpicEntryEvent(eventID, kind, epicID string, entry EpicEntry, actor string,
 	}
 	payload, _ := json.Marshal(epicEntryPayload{ChildWorkID: entry.ChildWorkID, Position: entry.Position, Required: entry.Required, ExpectedVersion: expectedVersion, ResultingVersion: expectedVersion + 1})
 	return Event{EventID: eventID, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: epicID, Actor: actor, OccurredAt: occurredAt, PayloadVersion: 1, Payload: payload}, nil
+}
+
+// EpicNarrativeEvent builds the event-folded Epic narrative revision.
+func EpicNarrativeEvent(eventID, epicID, narrative, reason, actor string, occurredAt time.Time, expectedVersion int64) (Event, error) {
+	payload, err := json.Marshal(epicNarrativePayload{Narrative: narrative, Reason: reason, ExpectedVersion: expectedVersion, ResultingVersion: expectedVersion + 1})
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "epic_narrative_event", "cannot encode Epic narrative revision", false, "supply a JSON-safe narrative", err)
+	}
+	return Event{EventID: eventID, Kind: "epic.narrative_revised", SubjectType: SubjectWorkItem, SubjectID: epicID, Actor: actor, OccurredAt: occurredAt, PayloadVersion: 1, Payload: payload}, nil
 }

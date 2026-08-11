@@ -163,6 +163,7 @@ type WorkItem struct {
 	CreatedAt  string              `json:"created_at"`
 	UpdatedAt  string              `json:"updated_at"`
 	TerminalAt string              `json:"terminal_at,omitempty"`
+	Narrative  string              `json:"narrative,omitempty"`
 	Projects   []ProjectMembership `json:"projects,omitempty"`
 	Blocked    bool                `json:"blocked"`
 	Ready      bool                `json:"ready"`
@@ -1166,6 +1167,11 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	}
 	if len(items) == 0 {
 		return WorkItem{}, unknownScope("query", "work item does not exist")
+	}
+	// The bounded narrative rides the single-record read only; list queries keep
+	// their eight-column shape.
+	if err := tx.QueryRowContext(ctx, `SELECT narrative FROM work_items WHERE id=?`, id).Scan(&items[0].Narrative); err != nil {
+		return WorkItem{}, wrapFailure(KindUnavailable, "query", "cannot read work narrative", true, "retry once the database is readable", err)
 	}
 	return items[0], nil
 }

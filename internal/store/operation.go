@@ -144,6 +144,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"epic_entry.removed":              {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryRemoved},
 	"epic_entry.reordered":            {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryReordered},
 	"epic_entry.requiredness_changed": {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryRequirednessChanged},
+	"epic.narrative_revised":          {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicNarrativeRevised},
 }
 
 func validateEventKindRegistry() error {

@@ -40,6 +40,25 @@ authorization, recovery, and terminal state. Epic completion requires every
 `required=true` child/condition to be terminal or explicitly removed. Removing an
 entry removes its parent/entry projection atomically and never cancels the child.
 
+### D1a. Epic narrative is a living artifact (amended 2026-08-11, issue #47)
+
+An Epic carries a bounded coordination narrative (`work_items.narrative`, at most
+16384 characters, empty until first revised). The narrative is the operator's entry
+point for understanding the initiative and goes stale precisely while the initiative
+is active; a create-only narrative inverts its value. The narrative therefore mutates
+through one first-class operation, parallel to entry membership:
+
+- `epic.narrative_revised` is the only narrative write path. It requires non-empty
+  bounded text, a non-empty revision reason, and the expected-version fence, and it
+  rejects any non-Epic subject before state changes.
+- Actor, reason, and text land in `domain_events`; the projection is rebuild-
+  deterministic from the log. A terminal Epic may still receive a narrative revision
+  so the historical record can be corrected.
+- The narrative rides the single-work read path only; bounded list reads keep their
+  fixed shape.
+- The narrative is a manual summary. No automatic narrative synthesis from entries,
+  and no copying of narrative into child work.
+
 ## D2. C7 resolves to ordinary work items
 
 C7 selects Option A:
@@ -239,3 +258,6 @@ is recoverable.
     explicitly remove or replace their bindings.
 14. A crash after compaction linkage but before pack deletion is completed
     idempotently on resume/next boundary, leaving no orphan active context.
+15. An Epic narrative revision applies through `epic.narrative_revised` with audit
+    actor/reason, survives event-log rebuild, rejects non-Epic subjects and stale
+    expected versions, and leaves prior narrative history in `domain_events`.

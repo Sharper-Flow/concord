@@ -63,7 +63,8 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`decisions/CD-0013-workflow-engine-mechanism.md`](./decisions/CD-0013-workflow-engine-mechanism.md) | **Accepted CD-0013:** workflow definitions as code-defined versioned registry, workflow state as work-item-subject events with typed projections, closed outcome-predicate union, executing-identity evaluator distinctness, entity-keyed impact notices, forward-link-only composition, and a completion gate binding evidence, conditions, spec mandate, verdict, and premise confirmation in one transaction. |
 | [`decisions/CD-0014-terminal-launcher-rendering.md`](./decisions/CD-0014-terminal-launcher-rendering.md) | **Accepted CD-0014:** Bubble Tea v2 behind an isolated launcher adapter, Product-only query scope, no autonomous state polling, exact dependency/license inventory, and tcell v3 fallback/reopen rules. |
 | [`decisions/CD-0015-typed-law-relations.md`](./decisions/CD-0015-typed-law-relations.md) | **Accepted CD-0015:** Git-authoritative typed law relations, derived SQLite projection, and bounded workflow conflict checks with an explicit amendment path. |
-| [`workflow-engine-contract.md`](./workflow-engine-contract.md) + [`workflow-engine.v1.json`](../scenarios/workflow-engine.v1.json) + [`workflow-definition.schema.json`](../contracts/workflow-definition.schema.json) | **CD-0013 implementation contract:** registry digest pinning, V15 projections/folds, closed event payloads, outcome comparison, completion gate, conditions, impact notices, dispatch, family graphs, strict schemas, and all 47 conformance carriers. |
+| [`decisions/CD-0016-context-continuity.md`](./decisions/CD-0016-context-continuity.md) | **Accepted CD-0016:** durable context checkpoints and boundaries, derived pinned continuity, summary-only fallback, and closed restart unavailability until #57. |
+| [`workflow-engine-contract.md`](./workflow-engine-contract.md) + [`workflow-engine.v1.json`](../scenarios/workflow-engine.v1.json) + [`workflow-definition.schema.json`](../contracts/workflow-definition.schema.json) | **CD-0013 implementation contract, amended by CD-0016:** registry digest pinning, V15/V22 projections and folds, closed event payloads, outcome comparison, completion gate, conditions, impact notices, context continuity, dispatch, family graphs, strict schemas, and all 47 conformance carriers. |
 | [`research/R4-competitive-mechanism-hardening.md`](./research/R4-competitive-mechanism-hardening.md) | **Accepted through CD-0008:** ranked mechanism findings across Beads/Dolt, LangGraph, Restate/DBOS, Letta, Herdr, Claude, Jido, Qodo, Devin, Orca, and Superset; includes SQLite ten-process conformance and target multi-agent worktree topology. |
 | [`research/R5-goal-to-outcome-binding.md`](./research/R5-goal-to-outcome-binding.md) | **Accepted through CD-0012:** measured goal drift, specification gaming, and goal misgeneralization evidence; mechanism and formalism surveys; four explicit insufficient-evidence findings; and the counter-evidence that shapes the contract. |
 | [`product-memory-authority-scope.md`](./product-memory-authority-scope.md) | **Accepted PM2:** one global local SQLite authority per Concord installation/operator-machine. |
@@ -127,6 +128,10 @@ CD-0012 gives Priority 2's *intent fidelity* and *no silent drift* attributes a 
 extending CD-0006 D10's approved-mandate pattern from specs authorized for modification to
 end-state required for delivery: a delivered outcome weaker than the approved one fails,
 and work discovered mid-execution forward-links rather than substituting.
+CD-0016 gives Priority 3's continuity requirement a durable mechanism: bounded
+workflow checkpoints and boundaries, pinned state derived from authority, and a
+canonical continuity read. Summary prose is never an authority source, and
+typed-agent restart remains unavailable until issue #57.
 The ordered decisions, current non-authorizing leans, evidence plans,
 dependencies, and decision artifacts live in
 [`clarifications.md`](./clarifications.md) under the Product-memory and minimal

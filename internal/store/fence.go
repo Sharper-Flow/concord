@@ -316,7 +316,7 @@ type idempotencyRow struct {
 const staleMarker = "__stale_attempt__"
 
 func validateClaim(req ClaimRequest) error {
-	if req.ContractVersion != "1.0.0" && req.ContractVersion != "2.0.0" && req.ContractVersion != "2.1.0" && req.ContractVersion != "2.2.0" {
+	if req.ContractVersion != "1.0.0" && req.ContractVersion != "2.0.0" && req.ContractVersion != "2.1.0" && req.ContractVersion != "2.2.0" && req.ContractVersion != "2.3.0" {
 		return newFailure(KindSchemaUnsupported, "claim_step", "contract_version is not supported", false, "upgrade Concord before claiming this operation")
 	}
 	for name, value := range map[string]string{"op_id": req.OpID, "work_id": req.WorkID, "workflow_type_ref": req.WorkflowTypeRef, "step_id": req.StepID, "principal_ref": req.PrincipalRef, "tool": req.Tool, "idempotency_key": req.IdempotencyKey, "request_id": req.RequestID} {
@@ -475,7 +475,7 @@ func readStep(ctx context.Context, q interface {
 	if result.ContractVersion == "" {
 		result.ContractVersion = "1.0.0"
 	}
-	if result.ContractVersion != "1.0.0" && result.ContractVersion != "2.0.0" && result.ContractVersion != "2.1.0" && result.ContractVersion != "2.2.0" {
+	if result.ContractVersion != "1.0.0" && result.ContractVersion != "2.0.0" && result.ContractVersion != "2.1.0" && result.ContractVersion != "2.2.0" && result.ContractVersion != "2.3.0" {
 		return result, newFailure(KindSchemaUnsupported, "step", "durable operation uses an unsupported contract version", false, "upgrade Concord before replaying this operation")
 	}
 	result.ResultKind, result.ResultPayload, result.ResumeCursor = ResultKind(kind.String), payload.String, cursor.String

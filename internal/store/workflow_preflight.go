@@ -460,8 +460,28 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
 			return false
 		}
-		if field.MinLength != nil && int64(len([]byte(text))) < *field.MinLength || field.MaxLength != nil && int64(len([]byte(text))) > *field.MaxLength {
+		if field.MinLength != nil && int64(len([]rune(text))) < *field.MinLength || field.MaxLength != nil && int64(len([]rune(text))) > *field.MaxLength {
 			return false
+		}
+		return true
+	case PayloadStringList:
+		values, ok := value.([]any)
+		if !ok {
+			return false
+		}
+		if field.MinItems != nil && int64(len(values)) < *field.MinItems || field.MaxItems != nil && int64(len(values)) > *field.MaxItems {
+			return false
+		}
+		seen := make(map[string]struct{}, len(values))
+		for _, item := range values {
+			text, ok := item.(string)
+			if !ok || !validReference(text) {
+				return false
+			}
+			if _, exists := seen[text]; exists {
+				return false
+			}
+			seen[text] = struct{}{}
 		}
 		return true
 	case PayloadInteger:

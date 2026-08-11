@@ -196,7 +196,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	if request.ContractVersion == "" {
 		request.ContractVersion = "2.0.0"
 	}
-	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" && request.ContractVersion != "2.1.0" && request.ContractVersion != "2.2.0" {
+	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" && request.ContractVersion != "2.1.0" && request.ContractVersion != "2.2.0" && request.ContractVersion != "2.3.0" {
 		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_version is not supported", false, "upgrade Concord before replaying this operation")
 	}
 	if request.AcceptedInputsDigest == "" {
@@ -233,6 +233,13 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	payload := request.Payload
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
+	}
+	if request.ActionID == "cross_context_boundary" {
+		if fields, fieldErr := workflowActionObject(payload); fieldErr != nil {
+			return result, fieldErr
+		} else if workflowFieldStringDefault(fields, "mode", "summary") == "restart" || workflowFieldStringDefault(fields, "boundary_kind", "summary") == "restart" || fields["restart"] != nil {
+			return result, newFailure(KindUnavailable, "workflow_action", "restart dispatch is unavailable until the registered/versioned typed-agent registry required by Concord issue #57 exists", false, "contact_operator")
+		}
 	}
 	actor := eventActor
 	events := []Event{}
@@ -298,16 +305,17 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 		}
 		return result, nil
 	}
-	// The universal completion event is always present for a successful
-	// internal action. Semantic events carry the typed projection effect;
-	// action_completed owns the auditable action boundary and step advance.
-	resultVersion := request.ExpectedVersion + int64(len(events)) + 1
-	completed, _ := json.Marshal(map[string]any{
-		"work_id": request.WorkID, "expected_version": resultVersion - 1, "resulting_version": resultVersion,
-		"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": 1, "result_evidence_refs": evidenceRefs,
-		"changed_refs": []string{request.WorkID}, "actor_ref": actor,
-	})
-	events = append(events, Event{EventID: request.OperationID + ":completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: completed})
+	// Continuity's typed event is the durable action boundary. Appending a
+	// generic completion after it would make the checkpoint immediately stale.
+	if request.ActionID != "checkpoint_context" && request.ActionID != "cross_context_boundary" {
+		resultVersion := request.ExpectedVersion + int64(len(events)) + 1
+		completed, _ := json.Marshal(map[string]any{
+			"work_id": request.WorkID, "expected_version": resultVersion - 1, "resulting_version": resultVersion,
+			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": 1, "result_evidence_refs": evidenceRefs,
+			"changed_refs": []string{request.WorkID}, "actor_ref": actor,
+		})
+		events = append(events, Event{EventID: request.OperationID + ":completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: completed})
+	}
 
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
 	if err != nil {
@@ -316,7 +324,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	result.EventIDs = operationResult.EventIDs
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
-	resultVersion = request.ExpectedVersion + int64(len(events))
+	resultVersion := request.ExpectedVersion + int64(len(events))
 	result.ResultingVersion = resultVersion
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
 	result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID})
@@ -364,6 +372,49 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	}
 	eventID := request.OperationID + ":semantic"
 	switch request.ActionID {
+	case "checkpoint_context":
+		var workflowRef, workflowDigestValue string
+		var workflowDefinitionVersion, attemptEpoch int64
+		if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDefinitionVersion, &workflowDigestValue); err != nil {
+			return nil, workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, request.WorkID).Scan(&attemptEpoch); err != nil {
+			return nil, workflowProjectionError(err, "cannot read workflow attempt epoch")
+		}
+		if attemptEpoch <= 0 {
+			attemptEpoch = 1
+		}
+		checkpointID := workflowFieldStringDefault(fields, "checkpoint_id", request.OperationID+":context-checkpoint")
+		return []Event{workflowTypedEvent(eventID, WorkflowContextCheckpointed, request.WorkID, actor, request.Now, expected, map[string]any{
+			"checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "step_id": stepID, "attempt_epoch": attemptEpoch,
+			"active_unit": workflowFieldStringDefault(fields, "active_unit", ""), "hypothesis": workflowFieldStringDefault(fields, "hypothesis", ""), "diagnosis": workflowFieldStringDefault(fields, "diagnosis", ""), "strategy": workflowFieldStringDefault(fields, "strategy", ""),
+			"touched_refs": workflowFieldStrings(fields, "touched_refs"), "evidence_refs": workflowFieldStrings(fields, "evidence_refs"), "pending_questions": workflowFieldStrings(fields, "pending_questions"), "pending_decisions": workflowFieldStrings(fields, "pending_decisions"),
+			"workflow_ref": workflowRef, "workflow_definition_version": workflowDefinitionVersion, "workflow_definition_digest": workflowDigestValue, "actor_ref": actor, "request_id": request.RequestID,
+		})}, nil
+	case "cross_context_boundary":
+		boundaryKind := workflowFieldStringDefault(fields, "boundary_kind", "summary")
+		mode := workflowFieldStringDefault(fields, "mode", "summary")
+		if boundaryKind == "restart" || mode == "restart" || fields["restart"] != nil {
+			return nil, newFailure(KindUnavailable, "workflow_action", "restart dispatch is unavailable until the registered/versioned typed-agent registry required by Concord issue #57 exists", false, "contact_operator")
+		}
+		if boundaryKind != "summary" || mode != "summary" || workflowFieldStringDefault(fields, "summary", "") == "" {
+			return nil, newFailure(KindInvalidOperation, "workflow_action", "context boundary currently accepts summary only", false, "use boundary_kind=summary with a completed durable checkpoint")
+		}
+		var workflowRef, workflowDigestValue string
+		var workflowDefinitionVersion, attemptEpoch int64
+		if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDefinitionVersion, &workflowDigestValue); err != nil {
+			return nil, workflowProjectionError(err, "cannot read workflow identity for context boundary")
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, request.WorkID).Scan(&attemptEpoch); err != nil {
+			return nil, workflowProjectionError(err, "cannot read workflow attempt epoch")
+		}
+		checkpointID := workflowFieldStringDefault(fields, "checkpoint_id", "")
+		if checkpointID == "" {
+			return nil, newFailure(KindInvalidOperation, "workflow_action", "summary boundary requires checkpoint_id", false, "reference the latest durable context checkpoint")
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowContextBoundaryCrossed, request.WorkID, actor, request.Now, expected, map[string]any{
+			"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "workflow_definition_version": workflowDefinitionVersion, "workflow_definition_digest": workflowDigestValue, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
+		})}, nil
 	case "approve_contract":
 		if rawOutcome, present := fields["outcome"]; present && string(rawOutcome) == "null" {
 			return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")
@@ -702,7 +753,7 @@ func actionIsFenced(action string) bool {
 }
 
 func actionIsCheckpoint(action string) bool {
-	return strings.HasPrefix(action, "checkpoint_") || action == "record_decision"
+	return (strings.HasPrefix(action, "checkpoint_") && action != "checkpoint_context") || action == "record_decision"
 }
 
 func nullableWorkflowText(value string) any {

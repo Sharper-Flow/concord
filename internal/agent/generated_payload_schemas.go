@@ -129,6 +129,371 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "continuity_boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "boundary_id": {
+          "$ref": "#/$defs/id"
+        },
+        "checkpoint_id": {
+          "$ref": "#/$defs/id"
+        },
+        "checkpoint_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "summary"
+        },
+        "recorded_at": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "summary": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "boundary_id",
+        "sequence",
+        "kind",
+        "checkpoint_id",
+        "checkpoint_sequence",
+        "summary",
+        "recorded_at"
+      ],
+      "type": "object"
+    },
+    "continuity_checkpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "active_unit": {
+          "maxLength": 256,
+          "minLength": 2,
+          "type": "string"
+        },
+        "attempt_epoch": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "checkpoint_id": {
+          "$ref": "#/$defs/id"
+        },
+        "diagnosis": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "hypothesis": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "pending_decisions": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "pending_questions": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "step_id": {
+          "$ref": "#/$defs/short"
+        },
+        "strategy": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "touched_refs": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "work_version": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "work_version",
+        "sequence",
+        "step_id",
+        "attempt_epoch",
+        "active_unit",
+        "hypothesis",
+        "diagnosis",
+        "strategy",
+        "touched_refs",
+        "evidence_refs",
+        "pending_questions",
+        "pending_decisions"
+      ],
+      "type": "object"
+    },
+    "continuity_failure": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_epoch": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/short"
+        },
+        "recoverable": {
+          "type": "boolean"
+        },
+        "step_id": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "kind",
+        "recoverable",
+        "step_id",
+        "attempt_epoch"
+      ],
+      "type": "object"
+    },
+    "continuity_operator_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "allow_custom": {
+          "type": "boolean"
+        },
+        "allow_multiple": {
+          "type": "boolean"
+        },
+        "choices": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "description": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "label": {
+                "$ref": "#/$defs/short"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "description",
+              "action_id"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "contract_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "header": {
+          "$ref": "#/$defs/short"
+        },
+        "premise_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "prompt": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "action_id",
+        "prompt",
+        "header",
+        "choices",
+        "allow_multiple",
+        "allow_custom",
+        "premise_summary",
+        "contract_summary",
+        "decision_context_digest"
+      ],
+      "type": "object"
+    },
+    "continuity_snapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "boundaries": {
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "items": {
+              "items": {
+                "$ref": "#/$defs/continuity_boundary"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            "next_cursor": {
+              "$ref": "#/$defs/cursor"
+            },
+            "watermark": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "count",
+            "items",
+            "next_cursor",
+            "watermark"
+          ],
+          "type": "object"
+        },
+        "latest_checkpoint": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/continuity_checkpoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pinned": {
+          "additionalProperties": false,
+          "properties": {
+            "contract": {
+              "$ref": "#/$defs/workflow_contract"
+            },
+            "latest_checkpoint": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/continuity_checkpoint"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "pending_operator_decision": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/continuity_operator_decision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "product_identity": {
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "maxItems": 64,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "spec_mandate": {
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "maxItems": 32,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "unresolved_failure": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/continuity_failure"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "workflow_step": {
+              "$ref": "#/$defs/short"
+            }
+          },
+          "required": [
+            "product_identity",
+            "workflow_step",
+            "contract",
+            "spec_mandate",
+            "pending_operator_decision",
+            "latest_checkpoint",
+            "unresolved_failure"
+          ],
+          "type": "object"
+        },
+        "typed_availability": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/short"
+            },
+            "restart": {
+              "const": "unavailable"
+            }
+          },
+          "required": [
+            "restart",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "pinned",
+        "latest_checkpoint",
+        "boundaries",
+        "typed_availability"
+      ],
+      "type": "object"
+    },
     "cursor": {
       "maxLength": 4096,
       "type": [
@@ -2020,6 +2385,25 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_trace_continuity_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "page"
+      ],
+      "type": "object"
+    },
     "work_trace_history_input": {
       "additionalProperties": false,
       "properties": {
@@ -2140,23 +2524,31 @@ const GeneratedPayloadSchemaDocument = `{
               "additionalProperties": false,
               "maxProperties": 64,
               "properties": {
+                "active_unit": {},
                 "added": {},
                 "attempt_epoch": {},
                 "audit_evidence": {},
+                "boundary_kind": {},
+                "boundary_sequence": {},
                 "candidate_kind": {},
                 "candidate_refs": {},
+                "checkpoint_id": {},
+                "checkpoint_sequence": {},
                 "complete_gate_prerequisites": {},
                 "condition_id": {},
                 "consumed_contract_version": {},
                 "contract_version": {},
                 "current_claim": {},
                 "dependent_work_id": {},
+                "diagnosis": {},
                 "edge_class": {},
                 "edge_kind": {},
                 "entity_kind": {},
                 "entity_ref": {},
                 "event_stream": {},
                 "evidence_refs": {},
+                "hypothesis": {},
+                "mode": {},
                 "new_contract_version": {},
                 "next_read_expectations": {},
                 "notice_id": {},
@@ -2164,6 +2556,8 @@ const GeneratedPayloadSchemaDocument = `{
                 "operation_id": {},
                 "outcome": {},
                 "payload": {},
+                "pending_decisions": {},
+                "pending_questions": {},
                 "premise": {},
                 "project_ids": {},
                 "proposed_route_conventions": {},
@@ -2174,15 +2568,19 @@ const GeneratedPayloadSchemaDocument = `{
                 "resolution_evidence": {},
                 "resolver_authority": {},
                 "resolver_result": {},
+                "restart": {},
                 "route_conventions": {},
                 "severity": {},
                 "source_contract_version": {},
                 "source_work_id": {},
                 "staleness_rule_id": {},
+                "strategy": {},
                 "successor_work_id": {},
+                "summary": {},
                 "supersede_reason": {},
                 "target_work_id": {},
                 "title": {},
+                "touched_refs": {},
                 "transaction": {},
                 "value_statement": {}
               },

@@ -159,6 +159,11 @@ type historyInput struct {
 	Page       pageInput   `json:"page"`
 	Budget     budgetInput `json:"budget"`
 }
+type continuityInput struct {
+	WorkID string      `json:"work_id"`
+	Page   pageInput   `json:"page"`
+	Budget budgetInput `json:"budget"`
+}
 type relationInput struct {
 	WorkID        string      `json:"work_id"`
 	RelationKinds []string    `json:"relation_kinds"`
@@ -613,6 +618,8 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "invalid_input"
 	case store.KindInvalidOperation:
 		return "invalid_input"
+	case store.KindLimitExceeded:
+		return "limit_exceeded"
 	case store.KindStaleRequiresReview:
 		return "stale_requires_review"
 	case store.KindUnreachable, store.KindGitUnreachable:
@@ -818,6 +825,27 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return response, err
 		}
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	case "concord_work_trace.continuity":
+		var in continuityInput
+		if err := decodeStrict(input, &in); err != nil {
+			return base, err
+		}
+		bindingInput := in
+		bindingInput.Page.Cursor = nil
+		binding, _ := json.Marshal(bindingInput)
+		inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "continuity")
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: in.WorkID, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner})
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		response, err := r.continuity(base, snapshot)
+		if err != nil {
+			return response, err
+		}
+		return r.wrapCursor(ctx, response, inner, string(binding), "continuity")
 	case "concord_work_trace.relations":
 		var in relationInput
 		if err := decodeStrict(input, &in); err != nil {
@@ -1192,6 +1220,20 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		events = append(events, map[string]any{"event_id": e.EventID, "kind": e.Kind, "version": e.Seq, "occurred_at": e.OccurredAt, "actor": e.Actor, "reason": e.Reason, "evidence": evidence})
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"events": events})
+}
+func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (Envelope, error) {
+	watermark := int64(0)
+	if strings.HasPrefix(snapshot.Watermark, "seq:") {
+		watermark, _ = strconv.ParseInt(strings.TrimPrefix(snapshot.Watermark, "seq:"), 10, 64)
+	}
+	meta := store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: snapshot.NextCursor, Omissions: []string{}, Warnings: []string{}}
+	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{
+		"work_id":            snapshot.WorkID,
+		"pinned":             map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure},
+		"latest_checkpoint":  snapshot.LatestCheckpoint,
+		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
+		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
+	})
 }
 func (r runtime) q8(base Envelope, q store.Q8Result) (Envelope, error) {
 	if q.Edges == nil {

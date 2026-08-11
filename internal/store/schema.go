@@ -1218,6 +1218,97 @@ CREATE TRIGGER law_relations_guard_update BEFORE UPDATE ON law_relations FOR EAC
 CREATE TRIGGER law_relations_guard_delete BEFORE DELETE ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+	{
+		Version: 22,
+		Name:    "workflow_context_continuity",
+		SQL: `
+CREATE TABLE workflow_context_checkpoints (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL,
+    checkpoint_sequence INTEGER NOT NULL,
+    checkpoint_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    attempt_epoch INTEGER NOT NULL,
+    active_unit TEXT NOT NULL,
+    hypothesis TEXT NOT NULL,
+    diagnosis TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    touched_refs TEXT NOT NULL CHECK(json_valid(touched_refs) AND json_type(touched_refs)='array'),
+    evidence_refs TEXT NOT NULL CHECK(json_valid(evidence_refs) AND json_type(evidence_refs)='array'),
+    pending_questions TEXT NOT NULL CHECK(json_valid(pending_questions) AND json_type(pending_questions)='array'),
+    pending_decisions TEXT NOT NULL CHECK(json_valid(pending_decisions) AND json_type(pending_decisions)='array'),
+    workflow_ref TEXT NOT NULL,
+    workflow_definition_version INTEGER NOT NULL,
+    workflow_definition_digest TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, work_version, checkpoint_sequence),
+    UNIQUE(work_id, checkpoint_id),
+    CHECK(work_version > 0),
+    CHECK(checkpoint_sequence > 0),
+    CHECK(attempt_epoch > 0),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(length(step_id) BETWEEN 2 AND 128),
+    CHECK(length(active_unit) BETWEEN 2 AND 256),
+    CHECK(length(hypothesis) BETWEEN 2 AND 4096),
+    CHECK(length(diagnosis) BETWEEN 2 AND 4096),
+    CHECK(length(strategy) BETWEEN 2 AND 4096),
+    CHECK(json_array_length(touched_refs) BETWEEN 1 AND 64),
+    CHECK(json_array_length(evidence_refs) BETWEEN 1 AND 64),
+    CHECK(json_array_length(pending_questions) BETWEEN 0 AND 16),
+    CHECK(json_array_length(pending_decisions) BETWEEN 0 AND 16),
+    CHECK(length(workflow_ref) BETWEEN 2 AND 128),
+    CHECK(workflow_definition_version > 0),
+    CHECK(length(workflow_definition_digest) = 71 AND substr(workflow_definition_digest,1,7)='sha256:'),
+    CHECK(length(request_id) > 0)
+);
+CREATE INDEX workflow_context_checkpoints_latest ON workflow_context_checkpoints(work_id, checkpoint_sequence DESC);
+
+CREATE TABLE workflow_context_boundaries (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL,
+    boundary_sequence INTEGER NOT NULL,
+    boundary_count INTEGER NOT NULL,
+    boundary_id TEXT NOT NULL,
+    boundary_kind TEXT NOT NULL CHECK(boundary_kind IN ('summary','restart')),
+    checkpoint_id TEXT NOT NULL,
+    checkpoint_sequence INTEGER NOT NULL,
+    attempt_epoch INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    workflow_ref TEXT NOT NULL,
+    workflow_definition_version INTEGER NOT NULL,
+    workflow_definition_digest TEXT NOT NULL,
+    typed_agent_type TEXT,
+    typed_agent_version TEXT,
+    typed_agent_ruleset_digest TEXT,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, boundary_sequence),
+    UNIQUE(work_id, boundary_id),
+    CHECK(work_version > 0),
+    CHECK(boundary_sequence > 0 AND boundary_count = boundary_sequence),
+    CHECK(length(boundary_id) BETWEEN 2 AND 128),
+    CHECK(boundary_kind='summary' AND length(summary) BETWEEN 1 AND 16384),
+    CHECK(boundary_kind='restart' OR (typed_agent_type IS NULL AND typed_agent_version IS NULL AND typed_agent_ruleset_digest IS NULL)),
+    CHECK(attempt_epoch > 0),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(checkpoint_sequence > 0),
+    CHECK(length(workflow_ref) BETWEEN 2 AND 128),
+    CHECK(workflow_definition_version > 0),
+    CHECK(length(workflow_definition_digest) = 71 AND substr(workflow_definition_digest,1,7)='sha256:'),
+    CHECK(length(request_id) > 0)
+);
+CREATE INDEX workflow_context_boundaries_history ON workflow_context_boundaries(work_id, boundary_sequence DESC);
+CREATE TRIGGER workflow_context_checkpoints_guard_insert BEFORE INSERT ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_update BEFORE UPDATE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is immutable'); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_delete BEFORE DELETE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_boundaries_guard_insert BEFORE INSERT ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is immutable'); END;
+CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+        `,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

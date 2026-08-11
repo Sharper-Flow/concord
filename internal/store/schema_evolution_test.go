@@ -193,7 +193,7 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 		WorkflowDefinitionSelected: {}, WorkflowContractApproved: {}, WorkflowContractSuperseded: {}, WorkflowCandidateSetRevised: {},
 		WorkflowActorRecorded: {}, WorkflowActionStarted: {}, WorkflowActionCheckpointed: {}, WorkflowActionCompleted: {}, WorkflowActionFailed: {},
 		WorkflowEvidenceBound: {}, WorkflowVerdictRecorded: {}, WorkflowPremiseConfirmed: {}, WorkflowSuccessorLinked: {}, WorkflowImpactDeclared: {},
-		WorkflowImpactNoticeRecorded: {}, WorkflowConditionAdded: {}, WorkflowConditionResolved: {}, WorkflowConditionCancelled: {}, WorkflowCompleted: {},
+		WorkflowImpactNoticeRecorded: {}, WorkflowConditionAdded: {}, WorkflowConditionResolved: {}, WorkflowConditionCancelled: {}, WorkflowContextCheckpointed: {}, WorkflowContextBoundaryCrossed: {}, WorkflowCompleted: {},
 	}
 	var gotWorkflowKinds []string
 	for kind := range eventKindRegistry {

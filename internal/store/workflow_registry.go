@@ -74,11 +74,12 @@ const (
 type PayloadValueType string
 
 const (
-	PayloadString  PayloadValueType = "string"
-	PayloadInteger PayloadValueType = "integer"
-	PayloadBoolean PayloadValueType = "boolean"
-	PayloadRef     PayloadValueType = "ref"
-	PayloadDigest  PayloadValueType = "digest"
+	PayloadString     PayloadValueType = "string"
+	PayloadInteger    PayloadValueType = "integer"
+	PayloadBoolean    PayloadValueType = "boolean"
+	PayloadRef        PayloadValueType = "ref"
+	PayloadDigest     PayloadValueType = "digest"
+	PayloadStringList PayloadValueType = "string_list"
 )
 
 type WorkflowPayloadField struct {
@@ -87,6 +88,8 @@ type WorkflowPayloadField struct {
 	Required  bool             `json:"required"`
 	MinLength *int64           `json:"min_length,omitempty"`
 	MaxLength *int64           `json:"max_length,omitempty"`
+	MinItems  *int64           `json:"min_items,omitempty"`
+	MaxItems  *int64           `json:"max_items,omitempty"`
 	Minimum   *int64           `json:"minimum,omitempty"`
 	Maximum   *int64           `json:"maximum,omitempty"`
 }
@@ -583,14 +586,14 @@ func validPredicateKind(value PredicateKind) bool {
 func validatePayloadFields(fields []WorkflowPayloadField) bool {
 	seen := map[string]bool{}
 	for _, field := range fields {
-		if !validWorkflowID(field.Name) || seen[field.Name] || !containsString([]string{"string", "integer", "boolean", "ref", "digest"}, string(field.ValueType)) {
+		if !validWorkflowID(field.Name) || seen[field.Name] || !containsString([]string{"string", "integer", "boolean", "ref", "digest", "string_list"}, string(field.ValueType)) {
 			return false
 		}
 		seen[field.Name] = true
-		if field.MinLength != nil && (*field.MinLength < 0 || *field.MinLength > 4096) || field.MaxLength != nil && (*field.MaxLength < 0 || *field.MaxLength > 4096) || field.Minimum != nil && (*field.Minimum < -2147483648 || *field.Minimum > 2147483647) || field.Maximum != nil && (*field.Maximum < -2147483648 || *field.Maximum > 2147483647) {
+		if field.MinLength != nil && (*field.MinLength < 0 || *field.MinLength > 16384) || field.MaxLength != nil && (*field.MaxLength < 0 || *field.MaxLength > 16384) || field.MinItems != nil && (*field.MinItems < 0 || *field.MinItems > 64) || field.MaxItems != nil && (*field.MaxItems < 0 || *field.MaxItems > 64) || field.Minimum != nil && (*field.Minimum < -2147483648 || *field.Minimum > 2147483647) || field.Maximum != nil && (*field.Maximum < -2147483648 || *field.Maximum > 2147483647) {
 			return false
 		}
-		if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
+		if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.MinItems != nil && field.MaxItems != nil && *field.MinItems > *field.MaxItems || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
 			return false
 		}
 	}
@@ -714,6 +717,40 @@ func actionDefinitions(ids []string, external map[string]bool, approvals map[str
 	return result
 }
 
+func workflowInt(value int64) *int64 { return &value }
+
+func withContinuityActions(definition WorkflowDefinition) WorkflowDefinition {
+	checkpointFields := []WorkflowPayloadField{
+		{Name: "checkpoint_id", ValueType: PayloadRef},
+		{Name: "checkpoint_sequence", ValueType: PayloadInteger, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
+		{Name: "active_unit", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(256)},
+		{Name: "hypothesis", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		{Name: "diagnosis", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		{Name: "strategy", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		{Name: "touched_refs", ValueType: PayloadStringList, Required: true, MinItems: workflowInt(1), MaxItems: workflowInt(64)},
+		{Name: "evidence_refs", ValueType: PayloadStringList, Required: true, MinItems: workflowInt(1), MaxItems: workflowInt(64)},
+		{Name: "pending_questions", ValueType: PayloadStringList, Required: true, MinItems: workflowInt(0), MaxItems: workflowInt(16)},
+		{Name: "pending_decisions", ValueType: PayloadStringList, Required: true, MinItems: workflowInt(0), MaxItems: workflowInt(16)},
+	}
+	boundaryFields := []WorkflowPayloadField{
+		{Name: "boundary_kind", ValueType: PayloadString, Required: true, MinLength: workflowInt(1), MaxLength: workflowInt(16)},
+		{Name: "mode", ValueType: PayloadString, Required: true, MinLength: workflowInt(1), MaxLength: workflowInt(16)},
+		{Name: "checkpoint_id", ValueType: PayloadRef, Required: true},
+		{Name: "checkpoint_sequence", ValueType: PayloadInteger, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
+		{Name: "summary", ValueType: PayloadString, Required: true, MinLength: workflowInt(1), MaxLength: workflowInt(16384)},
+	}
+	continuity := []WorkflowActionDefinition{
+		{ID: "checkpoint_context", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, Payload: WorkflowPayloadDefinition{Fields: checkpointFields}},
+		{ID: "cross_context_boundary", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, Payload: WorkflowPayloadDefinition{Fields: boundaryFields}},
+	}
+	definition.AvailableActions = append(definition.AvailableActions, "checkpoint_context", "cross_context_boundary")
+	definition.ActionDefinitions = append(definition.ActionDefinitions, continuity...)
+	for i := range definition.StepGraph.Steps {
+		definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, "checkpoint_context", "cross_context_boundary")
+	}
+	return definition
+}
+
 func graph(steps []WorkflowStep, edges []WorkflowEdge, terminal string) WorkflowStepGraph {
 	return WorkflowStepGraph{StartStep: steps[0].ID, TerminalSteps: []string{terminal}, Steps: steps, Edges: edges}
 }
@@ -742,7 +779,7 @@ func builtinImplementation() WorkflowDefinition {
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch})
 	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_execution": true, "checkpoint_execution": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
-	return d
+	return withContinuityActions(d)
 }
 func builtinBreakFix() WorkflowDefinition {
 	ids := []string{"reproduce", "diagnose", "repair", "verify", "complete"}
@@ -752,7 +789,7 @@ func builtinBreakFix() WorkflowDefinition {
 	actions := []string{"record_reproduction", "record_root_cause", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch})
 	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_repair": true, "checkpoint_repair": true}, map[string]ActionApproval{"confirm_premise": ActionApprovalRequired})
-	return d
+	return withContinuityActions(d)
 }
 func builtinResearch() WorkflowDefinition {
 	ids := []string{"frame", "investigate", "findings", "conclude", "complete"}
@@ -760,7 +797,7 @@ func builtinResearch() WorkflowDefinition {
 	actions := []string{"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis})
 	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
-	return d
+	return withContinuityActions(d)
 }
 func builtinArchitectureSpike() WorkflowDefinition {
 	ids := []string{"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"}
@@ -771,7 +808,7 @@ func builtinArchitectureSpike() WorkflowDefinition {
 	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis})
 	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_poc": true, "checkpoint_poc": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "accept_decision": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
-	return d
+	return withContinuityActions(d)
 }
 func builtinOpsRunbook() WorkflowDefinition {
 	ids := []string{"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"}
@@ -782,7 +819,7 @@ func builtinOpsRunbook() WorkflowDefinition {
 	actions := []string{"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.ops_runbook", WorkKindOpsRunbook, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
 	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_run": true, "checkpoint_run": true, "rollback_run": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "approve_operation": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
-	return d
+	return withContinuityActions(d)
 }
 func builtinStaticAnalysis() WorkflowDefinition {
 	ids := []string{"scope", "analyze", "report", "review", "complete"}
@@ -792,7 +829,7 @@ func builtinStaticAnalysis() WorkflowDefinition {
 	actions := []string{"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.static_analysis", WorkKindStaticAnalysis, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
 	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"run_analysis": true, "checkpoint_analysis": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
-	return d
+	return withContinuityActions(d)
 }
 func builtinGenericOneOff() WorkflowDefinition {
 	ids := []string{"define", "execute", "verify", "complete"}
@@ -802,5 +839,5 @@ func builtinGenericOneOff() WorkflowDefinition {
 	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff})
 	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_action": true, "checkpoint_action": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
-	return d
+	return withContinuityActions(d)
 }

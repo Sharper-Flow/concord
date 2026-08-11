@@ -44,6 +44,7 @@ func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 		WorkflowEvidenceBound, WorkflowVerdictRecorded, WorkflowPremiseConfirmed,
 		WorkflowSuccessorLinked, WorkflowImpactDeclared, WorkflowImpactNoticeRecorded,
 		WorkflowConditionAdded, WorkflowConditionResolved, WorkflowConditionCancelled,
+		WorkflowContextCheckpointed, WorkflowContextBoundaryCrossed,
 		WorkflowCompleted,
 	}
 	for _, kind := range reserved {

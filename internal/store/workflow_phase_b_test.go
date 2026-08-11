@@ -26,13 +26,13 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.generic_one_off":    {"define", "execute", "verify", "complete"},
 	}
 	wantActions := map[string][]string{
-		"workflow.implementation":     {"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete"},
-		"workflow.break_fix":          {"record_reproduction", "record_root_cause", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"},
-		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"},
-		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"},
-		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"},
-		"workflow.static_analysis":    {"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"},
-		"workflow.generic_one_off":    {"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"},
+		"workflow.implementation":     {"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
+		"workflow.break_fix":          {"record_reproduction", "record_root_cause", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
+		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
+		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
+		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
+		"workflow.static_analysis":    {"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
+		"workflow.generic_one_off":    {"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
 	}
 	wantTerminals := map[string]string{
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete", "workflow.architecture_spike": "complete", "workflow.ops_runbook": "complete", "workflow.static_analysis": "complete", "workflow.generic_one_off": "complete",
@@ -70,6 +70,19 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		}
 		if !reflect.DeepEqual(definition.AvailableActions, wantActions[definition.Ref]) {
 			t.Fatalf("%s actions = %v, want %v", definition.Ref, definition.AvailableActions, wantActions[definition.Ref])
+		}
+		for _, step := range definition.StepGraph.Steps {
+			if !containsString(step.Actions, "checkpoint_context") || !containsString(step.Actions, "cross_context_boundary") {
+				t.Fatalf("%s step %s does not expose both continuity actions", definition.Ref, step.ID)
+			}
+		}
+		for _, action := range definition.ActionDefinitions {
+			if action.ID != "checkpoint_context" && action.ID != "cross_context_boundary" {
+				continue
+			}
+			if action.Approval != ActionApprovalNone || len(action.Payload.Fields) == 0 {
+				t.Fatalf("%s continuity action is not closed and unapproved: %+v", definition.Ref, action)
+			}
 		}
 		if !reflect.DeepEqual(definition.StepGraph.TerminalSteps, []string{wantTerminals[definition.Ref]}) {
 			t.Fatalf("%s terminal steps = %v, want %q", definition.Ref, definition.StepGraph.TerminalSteps, wantTerminals[definition.Ref])

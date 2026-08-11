@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "2.2.0",
+    "version": "2.3.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 8
   },
@@ -46,6 +46,7 @@
       "description": "Trace work history and relations.",
       "operations": [
         "concord_work_trace.history",
+        "concord_work_trace.continuity",
         "concord_work_trace.relations"
       ]
     },
@@ -268,6 +269,26 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_trace.continuity",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "C19.Continuity",
+      "input_schema": "#/schemas/work_trace_continuity_input",
+      "result_schema": "#/schemas/continuity_snapshot",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
         "output_bytes": 65536,
         "versions": [
           "1.0"
@@ -577,6 +598,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_history_input",
       "closed": true
     },
+    "work_trace_continuity_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_continuity_input",
+      "closed": true
+    },
     "work_trace_relations_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_relations_input",
       "closed": true
@@ -615,6 +640,10 @@
     },
     "work_event_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_event_page",
+      "closed": true
+    },
+    "continuity_snapshot": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
     },
     "work_relation_graph": {
@@ -719,6 +748,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:c578eee6e1810f22ae72cabda71835bcc051628bd4792c57d380f5685901fb40",
-  "digest": "sha256:85a55c7ac6c1f55c29aae4f2efc1e29aa941c577a57b05ba1a1dcfc678fa885f"
+  "payload_digest": "sha256:4db1da3a2d161267980632a896f5f3cb3158c0f9b3e3714d4cdfc87e69381313",
+  "digest": "sha256:6a4084e7e2eebcdbb304e04cdab945e07b225c6d7f7aabc589d968e2f8ba1cc9"
 }

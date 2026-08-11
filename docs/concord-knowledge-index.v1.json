@@ -313,6 +313,28 @@
       "sha256": "sha256:db1001a386a9ad27f5d4cc140a497d55149d5fa796cbb2997436ce0d76523b44"
     },
     {
+      "id": "CD-0016",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0016-context-continuity.md",
+      "status": "accepted",
+      "date": "2026-08-11T00:00:00Z",
+      "title": "Context continuity",
+      "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, and typed restart availability.",
+      "tags": [
+        "context-continuity",
+        "workflow",
+        "agents"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d08f88854f05f0763cf0320f39e25298a89ab220d83953ac355109141c9ba27c"
+    },
+    {
       "id": "PM3",
       "kind": "spec",
       "path": "docs/product-memory-domain-schema.md",
@@ -396,7 +418,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bf89dc83dc14337b644df338f93450ef24a3846d1293f2609b6b0f3705f52c2d"
+      "sha256": "sha256:7f7d2694ebd1c26768b1a12b71dfe078b9ce1459436413c96f805b796eb65550"
     },
     {
       "id": "TS3",

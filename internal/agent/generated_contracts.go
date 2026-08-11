@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "2.2.0"
-const ManifestDigest = "sha256:85a55c7ac6c1f55c29aae4f2efc1e29aa941c577a57b05ba1a1dcfc678fa885f"
+const ManifestVersion = "2.3.0"
+const ManifestDigest = "sha256:6a4084e7e2eebcdbb304e04cdab945e07b225c6d7f7aabc589d968e2f8ba1cc9"
 
 type OperationKind string
 
@@ -44,6 +44,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_browse.scope", Tool: "concord_work_browse", Operation: "scope", Kind: OperationKind("read"), QueryID: "PM1.Q6", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_trace.history", Tool: "concord_work_trace", Operation: "history", Kind: OperationKind("read"), QueryID: "PM1.Q7", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_trace.relations", Tool: "concord_work_trace", Operation: "relations", Kind: OperationKind("read"), QueryID: "PM1.Q8", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_trace.continuity", Tool: "concord_work_trace", Operation: "continuity", Kind: OperationKind("read"), QueryID: "C19.Continuity", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_knowledge.search", Tool: "concord_knowledge", Operation: "search", Kind: OperationKind("read"), QueryID: "PM1.Q9", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_knowledge.resolve_note", Tool: "concord_knowledge", Operation: "resolve_note", Kind: OperationKind("read"), QueryID: "PM1.Q10", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_define.capture", Tool: "concord_work_define", Operation: "capture", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always")},
@@ -78,6 +79,11 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"blocked_work_page":               {Required: []string{"items", "nodes", "edges"}, Properties: []string{"items", "nodes", "edges", "next_cursor"}},
 	"budget":                          {Required: []string{"max_bytes", "max_items"}, Properties: []string{"max_bytes", "max_items", "max_millis"}},
 	"canonical_note_result":           {Required: []string{"state"}, Properties: []string{"state", "locator", "candidates"}},
+	"continuity_boundary":             {Required: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}, Properties: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}},
+	"continuity_checkpoint":           {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
+	"continuity_failure":              {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
+	"continuity_operator_decision":    {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
+	"continuity_snapshot":             {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}},
 	"evidence":                        {Required: []string{"kind", "authority", "locator_kind", "locator"}, Properties: []string{"kind", "authority", "locator_kind", "locator", "version", "digest"}},
 	"field":                           {Required: []string{"name", "value"}, Properties: []string{"name", "value"}},
 	"knowledge_page":                  {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "watermark"}},
@@ -121,6 +127,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relation_graph":             {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
 	"work_scope":                      {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor"}},
 	"work_summary":                    {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "project_ids", "ready", "terminal_at"}},
+	"work_trace_continuity_input":     {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "page", "budget"}},
 	"work_trace_history_input":        {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "direction", "event_kinds", "page", "budget"}},
 	"work_trace_relations_input":      {Required: []string{"work_id"}, Properties: []string{"work_id", "relation_kinds", "direction", "depth", "budget"}},
 	"work_transition_action_input":    {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "selected_choice", "decision_context_digest", "fields", "idempotency_key", "evidence", "approval"}},

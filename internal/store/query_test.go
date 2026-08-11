@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +78,115 @@ func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Fatalf("incoming relation query did not use idx_relations_to_kind")
+}
+
+func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
+	s := seedQueryFixture(t)
+	defer s.Close()
+	ctx := context.Background()
+	result, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "prod", Limit: 20, Depth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Works) != 2 {
+		t.Fatalf("works=%#v", result.Works)
+	}
+	var blocked LauncherWork
+	for _, item := range result.Works {
+		if item.ID == "blocked" {
+			blocked = item
+		}
+	}
+	if !blocked.Blocked || blocked.Ready || len(blocked.Blockers) != 1 || blocked.Blockers[0].ID != "blocker" {
+		t.Fatalf("blocked=%#v", blocked)
+	}
+	if blocked.ProjectCount != 1 {
+		t.Fatalf("project count=%d", blocked.ProjectCount)
+	}
+	foundInverse := false
+	for _, edge := range result.Edges {
+		if edge.Kind == "depends_on" && edge.Source == "blocked" && edge.Target == "blocker" {
+			foundInverse = true
+		}
+	}
+	if !foundInverse {
+		t.Fatalf("inverse edges=%#v", result.Edges)
+	}
+	limited, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "prod", Limit: 1, Depth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited.Works) != 1 || !containsString(limited.Omissions, "Product work omitted by launcher limit") {
+		t.Fatalf("work limit must remain visible: %#v", limited)
+	}
+	search, err := s.QueryLauncherSearch(ctx, LauncherSearchRequest{Product: "prod", Query: "blocked", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(search.Works) != 1 || search.Works[0].ID != "blocked" {
+		t.Fatalf("work matches were lost with unavailable knowledge: %#v", search.Works)
+	}
+	if search.KnowledgeAuthority != "unavailable" || !containsString(search.KnowledgeOmissions, "knowledge_home_unavailable") {
+		t.Fatalf("knowledge availability was not typed: %#v", search)
+	}
+	home := KnowledgeHome{HomeProjectID: "knowledge-home", HomeLocatorID: "knowledge-locator", RepoPath: initKnowledgeRepo(t), HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "prod", home, "proj")
+	search, err = s.QueryLauncherSearch(ctx, LauncherSearchRequest{Product: "prod", Query: "blocked", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if search.QueryID != "launcher.search" || search.ResolvedScope.ProductID != "prod" || len(search.Works) != 1 || search.Works[0].ID != "blocked" {
+		t.Fatalf("Product-scoped search=%#v", search)
+	}
+	if search.SourceVersionWatermark == 0 || search.KnowledgeWatermark == "" || search.KnowledgeAuthority == "" {
+		t.Fatalf("search watermarks missing: %#v", search)
+	}
+}
+
+func TestLauncherProductDepthThreeRepresentativeP99(t *testing.T) {
+	if productRowSkipPerformanceUnderRace {
+		t.Skip("representative latency threshold is measured without race instrumentation")
+	}
+	s := openTemp(t)
+	defer s.Close()
+	var statements strings.Builder
+	statements.WriteString("INSERT INTO fold_guard(active) VALUES(1);")
+	statements.WriteString("INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('launcher-perf','Launcher Perf','prototype','operator_only',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');")
+	statements.WriteString("INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('launcher-perf-project','Launcher Perf Project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');")
+	statements.WriteString("INSERT INTO product_projects(product_id,project_id,role) VALUES('launcher-perf','launcher-perf-project','primary');")
+	for i := 0; i < 100; i++ {
+		id := fmt.Sprintf("launcher-perf-work-%03d", i)
+		fmt.Fprintf(&statements, "INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('%s','task','Work %03d','needed',%d,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');", id, i, i)
+		fmt.Fprintf(&statements, "INSERT INTO work_projects(work_id,project_id,role) VALUES('%s','launcher-perf-project','primary');", id)
+		if i > 0 {
+			previous := fmt.Sprintf("launcher-perf-work-%03d", i-1)
+			fmt.Fprintf(&statements, "INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('%s','%s','parent','2026-08-01T00:00:00Z');", previous, id)
+		}
+	}
+	statements.WriteString("DELETE FROM fold_guard;")
+	if _, err := s.DB().Exec(statements.String()); err != nil {
+		t.Fatal(err)
+	}
+	const samples = 100
+	for i := 0; i < 10; i++ {
+		if _, err := s.QueryLauncherProduct(context.Background(), LauncherProductRequest{Product: "launcher-perf", Limit: 100, Depth: 3}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	durations := make([]time.Duration, 0, samples)
+	for i := 0; i < samples; i++ {
+		started := time.Now()
+		if _, err := s.QueryLauncherProduct(context.Background(), LauncherProductRequest{Product: "launcher-perf", Limit: 100, Depth: 3}); err != nil {
+			t.Fatal(err)
+		}
+		durations = append(durations, time.Since(started))
+	}
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	p99 := durations[(99*len(durations)+99)/100-1]
+	t.Logf("C17 S2 depth-3 representative P99=%s target=100ms population=100 work items, 99 structural edges, samples=%d", p99, samples)
+	if p99 > 100*time.Millisecond {
+		t.Fatalf("C17 S2 depth-3 representative P99=%s exceeds 100ms target", p99)
+	}
 }
 
 func TestQueryQ1CarriesUniversalMetadata(t *testing.T) {

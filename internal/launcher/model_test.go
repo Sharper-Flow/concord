@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -36,7 +37,7 @@ func TestModelReadsOnlyOnEntrySubmitAndRefresh(t *testing.T) {
 	}
 }
 
-func TestSelectingProductIsEphemeralS2PlaceholderAndBackDoesNotRead(t *testing.T) {
+func TestSelectingProductReadsS2OnceAndBackDoesNotRead(t *testing.T) {
 	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
 	model := New(port)
 	if err := model.Enter(context.Background()); err != nil {
@@ -45,8 +46,8 @@ func TestSelectingProductIsEphemeralS2PlaceholderAndBackDoesNotRead(t *testing.T
 	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := model.Snapshot(); got.Screen != ScreenProduct || got.AmbientProduct != "p-1" || got.StatusMessage != "not_implemented" {
-		t.Fatalf("S2 placeholder = %#v", got)
+	if got := model.Snapshot(); got.Screen != ScreenProduct || got.AmbientProduct != "p-1" {
+		t.Fatalf("S2 = %#v", got)
 	}
 	if err := model.Back(); err != nil {
 		t.Fatal(err)
@@ -54,8 +55,8 @@ func TestSelectingProductIsEphemeralS2PlaceholderAndBackDoesNotRead(t *testing.T
 	if got := model.Snapshot(); got.Screen != ScreenPortfolio || got.AmbientProduct != "" {
 		t.Fatalf("back snapshot = %#v", got)
 	}
-	if len(port.requests) != 1 {
-		t.Fatalf("selection/back read count = %d, want 1", len(port.requests))
+	if len(port.requests) != 2 {
+		t.Fatalf("selection/back read count = %d, want 2", len(port.requests))
 	}
 }
 
@@ -85,5 +86,16 @@ func TestProjectionIsDeterministicAndCarriesC14Meaning(t *testing.T) {
 	}
 	if first.Rows[0][2] == "" || first.Rows[0][3] == "" || first.Rows[0][4] == "" || first.Markers[0] != "!" {
 		t.Fatalf("C14 meaning missing: %#v markers=%#v", first.Rows[0], first.Markers)
+	}
+}
+
+func TestProductAndWorkProjectionCarriesTypedScreenSections(t *testing.T) {
+	product := Project(Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{{ID: "w-1", Title: "Next", Priority: 1, Lifecycle: "needed", Ready: true}}}, 80)
+	if product.Columns[0] != "Work" || len(product.Rows) != 1 || !strings.Contains(strings.Join(product.Rows[0], " "), "w-1") {
+		t.Fatalf("product projection=%#v", product)
+	}
+	work := Project(Snapshot{Screen: ScreenWork, AmbientProduct: "p-1", Section: SectionKnowledge, Detail: WorkDetail{Item: RankedWork{ID: "w-1", Title: "Next", Lifecycle: "needed"}}}, 80)
+	if work.Columns[0] != "Work" || len(work.Rows) != 1 || !strings.Contains(work.Header[len(work.Header)-1], "knowledge") {
+		t.Fatalf("work projection=%#v", work)
 	}
 }

@@ -54,6 +54,11 @@ Research is a supported kind but remains `supported_not_indexed` until an
 accepted canonical form exists. Missing or invalid manifest records fail closed
 and leave the prior SQLite projection unchanged.
 
+The launcher consumes this index only through bounded Q9 Product-scoped reads;
+S3 resolves a canonical work note through Q10. It preserves `unread`,
+`authoritative-empty`, and `unavailable` as distinct rendered states and does
+not create or update index records.
+
 This design does not weaken work-note compaction publication or fold guards.
 The rebuild path already has typed proof handling for accepted non-work kinds;
 the missing mechanism was canonical manifest ingestion and explicit kind

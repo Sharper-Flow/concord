@@ -145,6 +145,9 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"epic_entry.reordered":            {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryReordered},
 	"epic_entry.requiredness_changed": {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryRequirednessChanged},
 	"epic.narrative_revised":          {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicNarrativeRevised},
+	WorkerDispatched:                  {CurrentVersion: 1, MinSupported: 1, Upcasters: map[int]Upcaster{}, Fold: foldWorkerDispatched},
+	WorkerCompleted:                   {CurrentVersion: 1, MinSupported: 1, Upcasters: map[int]Upcaster{}, Fold: foldWorkerCompleted},
+	WorkerFailed:                      {CurrentVersion: 1, MinSupported: 1, Upcasters: map[int]Upcaster{}, Fold: foldWorkerFailed},
 }
 
 func validateEventKindRegistry() error {
@@ -196,6 +199,9 @@ func validateRegisteredEvent(event Event) error {
 	}
 	if strings.HasPrefix(current.Kind, "workflow.") {
 		return validateWorkflowPayloadShape(current)
+	}
+	if strings.HasPrefix(current.Kind, "worker.") {
+		return validateWorkerPayloadShape(current)
 	}
 	return nil
 }
@@ -491,6 +497,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
 	for _, table := range []string{
+		"worker_attempts",
 		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",
 		"workflow_contracts", "workflow_decision_records", "workflow_instances", "workflow_actors",

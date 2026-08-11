@@ -1307,7 +1307,7 @@ CREATE TRIGGER workflow_context_checkpoints_guard_delete BEFORE DELETE ON workfl
 CREATE TRIGGER workflow_context_boundaries_guard_insert BEFORE INSERT ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is immutable'); END;
 CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-        `,
+		`,
 	},
 	{
 		Version: 23,
@@ -1315,6 +1315,49 @@ CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflo
 		SQL: `
 ALTER TABLE work_items ADD COLUMN narrative TEXT NOT NULL DEFAULT ''
     CHECK(length(narrative) <= 16384);
+		`,
+	},
+	{
+		Version: 24,
+		Name:    "worker_attempt_evidence",
+		SQL: `
+CREATE TABLE worker_attempts (
+    work_id TEXT NOT NULL,
+    attempt_id TEXT PRIMARY KEY,
+    lane_id TEXT NOT NULL,
+    lane_version INTEGER NOT NULL,
+    lane_digest TEXT NOT NULL,
+    capability_class TEXT NOT NULL,
+    routing_policy_version TEXT NOT NULL,
+    resolved_model TEXT NOT NULL,
+    readback_model TEXT NOT NULL,
+    packet_schema_version TEXT NOT NULL,
+    report_schema_version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state IN ('dispatched','completed','failed')),
+    failure_kind TEXT NOT NULL DEFAULT '',
+    failure_detail TEXT NOT NULL DEFAULT '',
+    dispatched_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    CHECK(length(work_id) > 0),
+    CHECK(length(attempt_id) BETWEEN 2 AND 128),
+    CHECK(length(lane_id) BETWEEN 2 AND 32),
+    CHECK(lane_version > 0),
+    CHECK(length(lane_digest) = 71 AND substr(lane_digest,1,7)='sha256:'),
+    CHECK(length(capability_class) BETWEEN 2 AND 64),
+    CHECK(length(routing_policy_version) BETWEEN 1 AND 64),
+    CHECK(length(resolved_model) BETWEEN 3 AND 128),
+    CHECK(length(readback_model) <= 128),
+    CHECK(packet_schema_version = '1.0'),
+    CHECK(report_schema_version = '1.0'),
+    CHECK((lifecycle_state='dispatched' AND completed_at IS NULL AND failed_at IS NULL) OR
+          (lifecycle_state='completed' AND completed_at IS NOT NULL AND failed_at IS NULL AND length(readback_model) >= 3 AND failure_kind='') OR
+          (lifecycle_state='failed' AND failed_at IS NOT NULL AND completed_at IS NULL AND length(readback_model) >= 3 AND length(failure_kind) > 0))
+);
+CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
 }

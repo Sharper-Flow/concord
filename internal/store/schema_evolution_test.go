@@ -224,6 +224,12 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 			t.Fatalf("%s newer payload version was accepted: %v", kind, err)
 		}
 	}
+	for _, kind := range []string{WorkerDispatched, WorkerCompleted, WorkerFailed} {
+		registration, ok := eventKindRegistry[kind]
+		if !ok || registration.CurrentVersion != 1 || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
+			t.Fatalf("%s registration lacks v1 fold/upcaster scaffolding: %+v", kind, registration)
+		}
+	}
 }
 
 func TestIntentRevisionReplaysDeterministically(t *testing.T) {

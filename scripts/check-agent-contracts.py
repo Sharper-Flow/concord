@@ -458,6 +458,21 @@ def main() -> int:
     if tamper.returncode: return tamper.returncode
     generated = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-contracts.py"), "--check"], cwd=ROOT)
     if generated.returncode: return generated.returncode
+    lane_findings: list[str] = []
+    lane_schema_expectations = {
+        ROOT / "contracts/agent-lanes.schema.json": {"schema_version", "registry", "version", "lanes"},
+        ROOT / "contracts/agent-lane-packet.schema.json": {"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"},
+        ROOT / "contracts/agent-lane-report.schema.json": {"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "readback_model", "status", "evidence"},
+    }
+    for path, required in lane_schema_expectations.items():
+        lane_findings.extend(_check_closed_schema(path, required))
+    lane_generator = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-lanes.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
+    if lane_generator.returncode:
+        lane_findings.append(lane_generator.stderr.strip() or lane_generator.stdout.strip() or "lane generator failed")
+    if lane_findings:
+        for finding in lane_findings:
+            print(finding, file=sys.stderr)
+        return 1
     bun = shutil.which("bun")
     if bun:
         with tempfile.TemporaryDirectory() as out:

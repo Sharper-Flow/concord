@@ -1,70 +1,115 @@
 # Concord Agent Instructions
 
-Concord is a public, pre-runtime Go project. The repository currently contains
-accepted Product law, machine-readable contracts/scenarios, repository validators,
-and a deliberately tiny CLI boundary. Runtime storage, adapters, workflow execution,
-installation, releases, and self-hosting do not exist yet.
+Concord is a public Go project: an agent-native Product coordination system for
+one operator and many local AI agents. The repository holds accepted Product
+law, machine-readable contracts/scenarios, a SQLite-backed storage and workflow
+engine, a Bubble Tea terminal launcher, a short-lived JSON CLI, an OpenCode
+TypeScript custom-tool adapter, and repository validators. Linux amd64 is the
+only release platform.
 
 ## Authority and workflow
 
 - GitHub Issues own planned work and defects.
 - Pull requests plus required checks own review and merge evidence.
-- `docs/decisions/`, specifications, and constitutional documents own Product law.
+- `docs/decisions/` (CD-NNNN records), specifications, and constitutional
+  documents own Product law.
 - Use one branch/worktree per change. Never implement directly on `main`.
-- Advance is public predecessor evidence only. Do not create or dual-write Advance
-  state, add `project.json`, or route Concord work through ADV.
-- Concord must not coordinate its own development before replacement readiness.
+- Advance is public predecessor evidence only. Do not create or dual-write
+  Advance state, and do not route Concord work through ADV. A local
+  `project.json` may appear (ADV state); it is **not** gitignored — never
+  commit it.
+- Concord must not coordinate its own development before replacement readiness
+  (CD-0010).
 - Surface conflicts with accepted decisions; never silently narrow the contract.
 
-Start with:
+Start with `docs/README.md`, `docs/priorities.md`, `docs/development-authority.md`,
+the applicable `docs/decisions/CD-NNNN-*.md`, and the linked public issue.
 
-1. `docs/README.md`
-2. `docs/priorities.md`
-3. `docs/development-authority.md`
-4. The applicable `docs/decisions/CD-NNNN-*.md` records
-5. The linked public GitHub issue
+## CLI surface (`cmd/concord`)
+
+Small but no longer `--version`-only:
+
+- `concord --version`, `concord --help`
+- `concord launcher` — interactive Bubble Tea TUI; TTY-only, does **not** read
+  JSON stdin.
+- JSON-stdin commands: `grant`, `invoke`, and operator setup (`client register`
+  / `policy-update` / `key-rotate` / `revoke`, `product create`, `project
+  create`, `product project-add`, `project locator-add` / `update` / `remove`).
+
+JSON command rules (see `commandSpecs` in `cmd/concord/main.go`):
+
+- Reads exactly one strict JSON object from stdin; rejects unknown fields and
+  trailing bytes.
+- Hard cap 65536 bytes on input and output.
+- Hyphenated (`client-register`) and two-word (`client register`) forms are both
+  accepted; no other aliases.
+- `CONCORD_DB_PATH` overrides the SQLite path but is refused inside any git
+  repo or worktree.
 
 ## Verification before push
 
-Run in CI order:
+CI order (`.github/workflows/ci.yml`):
 
 ```sh
 python3 scripts/check-public-content.py
 python3 scripts/check-doc-links.py
 python3 scripts/check-json.py
+python3 scripts/check-agent-contracts.py
+python3 scripts/test-release.py && python3 scripts/test-installer.py
 test -z "$(gofmt -l .)"
 go mod tidy
+git diff --exit-code            # CI's clean checkout; locally scope to -- go.mod go.sum
 go vet ./...
 go test -race ./...
+CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 ```
 
-CI runs `git diff --exit-code` in its clean checkout after `go mod tidy` to reject
-uncommitted module changes. Locally, inspect and stage intentional `go.mod` or
-`go.sum` changes rather than expecting that CI-only command to pass in a dirty tree.
-
-`bin/oc-test` runs those commands in three tiers and adds host admission control when a
-compatible throttle is installed, so concurrent agent sessions cannot saturate one
-machine:
+`bin/oc-test` wraps these with host admission control when `oc-test-gate` is
+installed, so concurrent agent sessions cannot saturate one machine:
 
 | Tier | Runs | Throttled |
 |---|---|---|
-| `bin/oc-test targeted -- <args>` | `go test` with your arguments | no |
-| `bin/oc-test smoke` | `gofmt`, `go vet`, `go test ./...` | yes |
-| `bin/oc-test conformance` | ten-process SQLite race harness | yes |
-| `bin/oc-test full` | the ordered gate above, minus `govulncheck` | yes, plus bounded `go test -p` workers and a wall-clock bound |
+| `targeted -- <args>` | `go test` with your args (defaults to `./...`) | no |
+| `smoke` | `gofmt`, `go vet`, `go test ./...` | yes |
+| `conformance` | long ten-process SQLite harness (`TestTenProcessConformance`, `internal/store`) | yes |
+| `full` | validators + gofmt + `go mod tidy` + `git diff --exit-code -- go.mod go.sum` + `go vet` + `go test -race`, bounded workers and wall-clock | yes |
 
-`full` scopes its module check to `git diff --exit-code -- go.mod go.sum`, so it works in
-a dirty tree. Override `OC_TEST_GO_WORKERS` (default 4) or `OC_TEST_FULL_TIMEOUT`
-(default `20m`) when needed. When no throttle is installed the tier warns and runs
-unthrottled. CI does not use the wrapper; it calls the same commands natively.
+`full` does **not** run `govulncheck` or the long conformance harness. Override
+`OC_TEST_GO_WORKERS` (default 4) or `OC_TEST_FULL_TIMEOUT` (default `20m`).
+Without `oc-test-gate`, tiers warn and run unthrottled. CI does not use the
+wrapper. For tight Go TDD loops, `targeted` the smallest package first, then
+`full` before push.
 
-For tight Go TDD loops, use `targeted` on the smallest package/test first, then
-`bin/oc-test full` before push.
+## Generated code — do not hand-edit
+
+`scripts/generate-agent-contracts.py` produces the files carrying `DO NOT EDIT`
+headers:
+
+- `internal/agent/generated_contracts.go`, `internal/agent/generated_payload_schemas.go`
+- `adapter/opencode/generated-contracts.ts`, `adapter/opencode/generated-contract-tests.ts`
+
+Inputs: `contracts/agent-tool-surface.v1.json` (manifest),
+`contracts/agent-tool-surface.schema.json` (IR),
+`contracts/agent-tool-surface-payloads.schema.json`. A pinned digest lives in
+`contracts/agent-tool-surface.digest`. `scripts/check-agent-contracts.py` (run
+in CI) validates and diffs these — regenerate rather than patching when you
+change the manifest or schemas. `docs/concord-knowledge-index.v1.json` is
+similarly validated by `scripts/check-knowledge-index.py`.
+
+## Release flow
+
+Releases are fully automated (`.github/workflows/release.yml`): on a green CI
+run on `main`, `scripts/release.py` computes the next version from Conventional
+Commit history, builds the Linux amd64 `CGO_ENABLED=0` binary with the version
+ldflag, packages adapter + skills + installer, generates an SBOM, attests
+provenance, tags, and publishes the GitHub Release. Do not hand-tag or hand-cut
+releases. Conventional Commit titles are load-bearing for semver — not just
+style.
 
 ## Public-content boundary
 
-`scripts/check-public-content.py` scans tracked and untracked text. Do not place these
+`scripts/check-public-content.py` scans tracked and untracked text. Do not place
 in the repository, even temporarily:
 
 - private Product/customer names or data;
@@ -73,43 +118,50 @@ in the repository, even temporarily:
 - credentials, tokens, private environment paths, or copied private logs;
 - unreachable private-source citations or private predecessor history.
 
-Use synthetic scenarios and reachable public sources. Do not weaken or bypass the
-validator to make a check pass.
+Use synthetic scenarios and reachable public sources. Do not weaken or bypass
+the validator to make a check pass.
 
 ## Documentation rules
 
 - `docs/priorities.md` is the canonical priority/operating-envelope source.
 - `docs/decisions/` contains binding `CD-NNNN` records until superseded.
 - Active research packs are SQLite working context under CD-0009, never Git
-  knowledge. Do not add research-pack content or runtime research output to docs.
-- Relative links and heading anchors are enforced. Update callers when moving or
-  renaming files/headings.
+  knowledge. Do not add research-pack content or runtime research output to
+  docs.
+- Relative links and heading anchors are enforced
+  (`scripts/check-doc-links.py`). Update callers when moving or renaming
+  files/headings.
 - Add new constitutional documents to the companion table in `docs/README.md`.
-- Decisions/specs/lessons require their accepted durable form; ordinary prose cannot
-  silently acquire authority.
+- Decisions/specs/lessons require their accepted durable form; ordinary prose
+  cannot silently acquire authority.
 
 ## Repository boundaries
 
-| Path | Current role |
+| Path | Role |
 |---|---|
-| `cmd/concord/` | Minimal CLI (`--version` only). |
-| `internal/version/` | Development version value. |
-| `contracts/` | Public schemas/contracts. |
-| `scenarios/` | Synthetic acceptance scenarios. |
+| `cmd/concord/` | CLI entrypoint (see CLI surface above). |
+| `internal/version/` | Version value (ldflag-overridden at release). |
+| `internal/store/` | SQLite authority: schema, events, workflow engine, knowledge index, research, lifecycle, membership. |
+| `internal/launcher/` | Framework-agnostic launcher model; `render/bubbletea` is the TUI adapter; `storeport` is the store bridge. |
+| `internal/agent/` | Agent tool surface: grants, invoke dispatch, envelopes, semver, payload validation, generated contracts. |
+| `internal/portfolio/`, `internal/workflowcorpus/` | Read projections and conformance coverage. |
+| `contracts/` | Public JSON schemas + manifest (generated-code inputs). |
+| `scenarios/` | Synthetic acceptance scenarios and fixtures. |
+| `adapter/opencode/` | Implemented TypeScript custom-tool adapter (`concord.ts` hand-written + generated contracts). |
 | `docs/` | Constitutional Product law and design evidence. |
-| `adapter/opencode/` | Reserved adapter boundary; no implementation yet. |
-| `workflows/` | Reserved workflow-definition boundary. |
-| `skills/` | Conditional/deferred skill boundary. |
+| `workflows/`, `skills/` | Reserved (README only); `skills/` is packaged into releases. |
+| `scripts/` | Validators, codegen, release/install tooling, and their tests. |
 
-Do not populate reserved boundaries opportunistically. Do not introduce third-party
-Go dependencies, SQLite code, framework abstractions, release automation, or runtime
-behavior without the applicable accepted issue/decision scope.
+Do not populate reserved boundaries opportunistically. Do not introduce new
+third-party Go dependencies, framework abstractions, or runtime behavior without
+the applicable accepted issue/decision scope. (Bubble Tea v2, bubbles v2,
+lipgloss v2, and modernc.org/sqlite are already accepted.)
 
 ## Go style
 
 - Go 1.26 with the pinned toolchain from `go.mod`.
-- Standard library first; no current third-party runtime dependencies.
 - Keep behavior, types, tests, and errors local to the package that owns them.
-- Prefer structural invariants, typed failures, transactions, and deterministic tests
-  over heuristic inference.
-- Use Conventional Commit and PR titles.
+- Prefer structural invariants, typed failures, transactions, and deterministic
+  tests over heuristic inference.
+- Use Conventional Commit messages and PR titles (load-bearing for release
+  semver).

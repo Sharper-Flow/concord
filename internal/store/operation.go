@@ -57,11 +57,13 @@ type Product struct {
 
 // Project is the typed current projection of a Project identity.
 type Project struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
-	Version     int64  `json:"version"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID                              string  `json:"id"`
+	DisplayName                     string  `json:"display_name"`
+	StageMaturityOverride           *string `json:"stage_maturity_override,omitempty"`
+	StageAudienceCommitmentOverride *string `json:"stage_audience_commitment_override,omitempty"`
+	Version                         int64   `json:"version"`
+	CreatedAt                       string  `json:"created_at"`
+	UpdatedAt                       string  `json:"updated_at"`
 }
 
 type projectionMutation func(context.Context, *sql.Tx, Event) error
@@ -116,8 +118,9 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"product.created":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProductCreated},
 	"product.renamed":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProductRenamed},
 	"product.stage_changed":           {CurrentVersion: 1, MinSupported: 1, Fold: foldProductStageChanged},
-	"project.created":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectCreated},
+	"project.created":                 {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastProjectCreatedV1}, Fold: foldProjectCreated},
 	"project.renamed":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectRenamed},
+	"project.stage_changed":           {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectStageChanged},
 	"project.locator_added":           {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectLocatorAdded},
 	"project.locator_updated":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectLocatorUpdated},
 	"project.locator_removed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldProjectLocatorRemoved},
@@ -641,11 +644,72 @@ type productStageChangedPayload struct {
 }
 
 type projectCreatedPayload struct {
-	DisplayName string `json:"display_name"`
+	DisplayName                     string          `json:"display_name"`
+	StageMaturityOverride           json.RawMessage `json:"stage_maturity_override"`
+	StageAudienceCommitmentOverride json.RawMessage `json:"stage_audience_commitment_override"`
 }
 
 type projectRenamedPayload struct {
 	DisplayName string `json:"display_name"`
+}
+
+type projectStageChangedPayload struct {
+	StageMaturityOverride           json.RawMessage `json:"stage_maturity_override"`
+	StageAudienceCommitmentOverride json.RawMessage `json:"stage_audience_commitment_override"`
+}
+
+func upcastProjectCreatedV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "project.created v1 payload is not a JSON object", false, "repair the stored Project event payload")
+	}
+	if _, exists := fields["stage_maturity_override"]; exists {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "project.created v1 cannot contain a stage override", false, "use project.created v2 for paired stage overrides")
+	}
+	if _, exists := fields["stage_audience_commitment_override"]; exists {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "project.created v1 cannot contain a stage override", false, "use project.created v2 for paired stage overrides")
+	}
+	fields["stage_maturity_override"] = json.RawMessage("null")
+	fields["stage_audience_commitment_override"] = json.RawMessage("null")
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize project.created v1 payload", false, "repair the stored Project event payload", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 2
+	return event, nil
+}
+
+func decodeProjectStagePair(maturityRaw, audienceRaw json.RawMessage, allowAbsent bool) (*string, *string, error) {
+	maturityAbsent, audienceAbsent := len(maturityRaw) == 0, len(audienceRaw) == 0
+	if maturityAbsent || audienceAbsent {
+		if allowAbsent && maturityAbsent && audienceAbsent {
+			return nil, nil, nil
+		}
+		return nil, nil, newFailure(KindInvalidPayload, "fold_event", "Project stage override must contain both fields", false, "supply both stage override fields or neither")
+	}
+	var maturity, audience *string
+	if string(maturityRaw) != "null" {
+		var value string
+		if err := json.Unmarshal(maturityRaw, &value); err != nil {
+			return nil, nil, newFailure(KindInvalidPayload, "fold_event", "Project maturity override is not a string or null", false, "use an accepted maturity value or null")
+		}
+		maturity = &value
+	}
+	if string(audienceRaw) != "null" {
+		var value string
+		if err := json.Unmarshal(audienceRaw, &value); err != nil {
+			return nil, nil, newFailure(KindInvalidPayload, "fold_event", "Project audience override is not a string or null", false, "use an accepted audience commitment or null")
+		}
+		audience = &value
+	}
+	if (maturity == nil) != (audience == nil) {
+		return nil, nil, newFailure(KindInvalidPayload, "fold_event", "Project stage override must contain a paired maturity and audience commitment", false, "supply both override values or set both to null")
+	}
+	if maturity != nil && !validateProductStage(*maturity, *audience) {
+		return nil, nil, newFailure(KindInvalidPayload, "fold_event", "Project stage override contains an invalid value", false, "use accepted maturity and audience commitment values")
+	}
+	return maturity, audience, nil
 }
 
 func decodePayload(event Event, target any) error {
@@ -770,10 +834,14 @@ func foldProjectCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "project.created payload has no display name", false,
 			"supply a non-empty display name")
 	}
+	overrideMaturity, overrideAudience, err := decodeProjectStagePair(payload.StageMaturityOverride, payload.StageAudienceCommitmentOverride, true)
+	if err != nil {
+		return err
+	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO projects (id, display_name, version, created_at, updated_at)
-		VALUES (?, ?, 1, ?, ?)`, event.SubjectID, payload.DisplayName, now, now)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO projects (id, display_name, stage_maturity_override, stage_audience_commitment_override, version, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 1, ?, ?)`, event.SubjectID, payload.DisplayName, nullableProjectStage(overrideMaturity), nullableProjectStage(overrideAudience), now, now)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "Project already exists", false,
@@ -781,6 +849,41 @@ func foldProjectCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create Project projection", true,
 			"retry once the database is writable", err)
+	}
+	return nil
+}
+
+func nullableProjectStage(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func foldProjectStageChanged(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectProject); err != nil {
+		return err
+	}
+	var payload projectStageChangedPayload
+	if err := decodePayload(event, &payload); err != nil {
+		return err
+	}
+	overrideMaturity, overrideAudience, err := decodeProjectStagePair(payload.StageMaturityOverride, payload.StageAudienceCommitmentOverride, false)
+	if err != nil {
+		return err
+	}
+	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(ctx, `
+		UPDATE projects
+		SET stage_maturity_override = ?, stage_audience_commitment_override = ?, version = version + 1, updated_at = ?
+		WHERE id = ?`, nullableProjectStage(overrideMaturity), nullableProjectStage(overrideAudience), now, event.SubjectID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot update Project stage projection", true, "retry once the database is writable", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify Project stage projection update", true, "retry once the database is readable", err)
+	} else if affected == 0 {
+		return newFailure(KindProjectionNotFound, "fold_event", "Project does not exist", false, "create the Project before changing its stage")
 	}
 	return nil
 }

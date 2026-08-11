@@ -238,7 +238,7 @@ func populateReconstructionSnapshot(ctx context.Context, s *Store, snapshot *Rec
 		snapshot.ProductProjects = memberships
 	case SubjectProject:
 		var project Project
-		if err := s.db.QueryRowContext(ctx, `SELECT id,display_name,version,created_at,updated_at FROM projects WHERE id = ?`, snapshot.Subject.ID).Scan(&project.ID, &project.DisplayName, &project.Version, &project.CreatedAt, &project.UpdatedAt); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT id,display_name,stage_maturity_override,stage_audience_commitment_override,version,created_at,updated_at FROM projects WHERE id = ?`, snapshot.Subject.ID).Scan(&project.ID, &project.DisplayName, &project.StageMaturityOverride, &project.StageAudienceCommitmentOverride, &project.Version, &project.CreatedAt, &project.UpdatedAt); err != nil {
 			return newFailure(KindProjectionNotFound, "reconstruct_subject", "Project was not created by the requested sequence", false, "choose a later sequence")
 		}
 		snapshot.Project = &project

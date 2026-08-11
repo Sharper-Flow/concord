@@ -14,7 +14,12 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/launcher"
+	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
+	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
 )
@@ -36,6 +41,11 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 1 && args[0] == "--help" {
 		writeUsage(out)
 		return 0
+	}
+	// The launcher is a terminal command, not a JSON command. Route it before
+	// any stdin read so bytes intended for the TUI can never be parsed as JSON.
+	if len(args) > 0 && args[0] == "launcher" {
+		return runLauncherCommand(args[1:], in, out, errOut, terminalStreams(in, out))
 	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
@@ -85,8 +95,8 @@ func formatRequiredFields(fields []commandField) string {
 // bootstrap test. Agent grant/invoke fields remain owned by their generated
 // transport contracts.
 var commandSpecs = []commandSpec{
-	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope; envelope_versions: 1.0; surface_range: 2.0.0-2.0.0"},
-	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "client_version", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "surface_version", "envelope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
+	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope; envelope_versions: 1.0; surface_range: 2.1.0-2.1.0"},
+	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "client_version", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "surface_version", "envelope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope; public_key: base64 Ed25519"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
@@ -118,6 +128,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage:")
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
+	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {
@@ -129,6 +140,79 @@ func writeUsage(out io.Writer) {
 		_, _ = fmt.Fprintf(out, "    optional: %s\n", spec.Optional)
 		_, _ = fmt.Fprintf(out, "    accepted values: %s\n", spec.Enums)
 	}
+}
+
+type firstRunPort struct{}
+
+func (firstRunPort) Read(context.Context, launcher.ReadRequest) (launcher.Snapshot, error) {
+	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "first_run", FirstRun: true, StatusMessage: "initialize the Concord authority database through operator setup"}, nil
+}
+
+func terminalStreams(in io.Reader, out io.Writer) bool {
+	input, inOK := in.(*os.File)
+	output, outOK := out.(*os.File)
+	if !inOK || !outOK {
+		return false
+	}
+	inInfo, inErr := input.Stat()
+	outInfo, outErr := output.Stat()
+	return inErr == nil && outErr == nil && inInfo.Mode()&os.ModeCharDevice != 0 && outInfo.Mode()&os.ModeCharDevice != 0
+}
+
+// runLauncherWithTerminalStreams is intentionally internal: production routing
+// requires actual terminal streams, while package tests may provide a PTY-like
+// harness and assert the command boundary without reading JSON stdin.
+func runLauncherWithTerminalStreams(args []string, in io.Reader, out, errOut io.Writer) int {
+	return runLauncherCommand(args, in, out, errOut, true)
+}
+
+func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool) int {
+	if len(args) != 0 {
+		writeDiagnostic(errOut, "concord launcher: unsupported arguments; launcher accepts no JSON stdin arguments")
+		return 2
+	}
+	if !terminal {
+		writeDiagnostic(errOut, "concord launcher requires an interactive TTY (use an internal terminal harness for tests)")
+		return 2
+	}
+	path, err := databasePath()
+	if err != nil {
+		writeDiagnostic(errOut, err.Error())
+		return 1
+	}
+	var port launcher.ReadPort
+	var closeStore func()
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		port = firstRunPort{}
+		closeStore = func() {}
+	} else if statErr != nil {
+		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
+		return 1
+	} else {
+		s, openErr := store.Open(context.Background(), path)
+		if openErr != nil {
+			writeDiagnostic(errOut, openErr.Error())
+			return 1
+		}
+		port = storeport.New(s)
+		closeStore = func() { _ = s.Close() }
+	}
+	defer closeStore()
+	core := launcher.New(port)
+	if err := core.Enter(context.Background()); err != nil {
+		// A failed explicit read is retained as typed unavailable state by the
+		// framework-independent model. Render it instead of falling back to the
+		// prior snapshot or creating a cache authority; the operator can quit or
+		// explicitly retry with r.
+	}
+	profile := bubbletea.Profile{Color: os.Getenv("NO_COLOR") == ""}
+	model := bubbletea.New(core, context.Background(), profile)
+	program := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
+	if _, err := program.Run(); err != nil {
+		writeDiagnostic(errOut, "concord launcher: "+err.Error())
+		return 1
+	}
+	return 0
 }
 
 const dbOverrideEnv = "CONCORD_DB_PATH"

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -92,6 +93,93 @@ func TestRunWithoutArguments(t *testing.T) {
 	if out.Len() != 0 || !strings.Contains(errOut.String(), "Usage:") {
 		t.Fatalf("run() output = %q / %q, want usage on stderr", out.String(), errOut.String())
 	}
+}
+
+func TestLauncherRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"launcher"}, strings.NewReader("not json"), &out, &errOut); code != 2 {
+		t.Fatalf("launcher exit code = %d, want 2; stderr=%q", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "requires an interactive TTY") {
+		t.Fatalf("non-TTY diagnostic = %q", errOut.String())
+	}
+	if strings.Contains(errOut.String(), "JSON") {
+		t.Fatalf("launcher was routed through JSON handling: %q", errOut.String())
+	}
+}
+
+func TestLauncherFirstRunRendersWithoutCreatingAuthority(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "nested", "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	var out, errOut bytes.Buffer
+	if code := runLauncherCommand(nil, strings.NewReader("q"), &out, &errOut, true); code != 0 {
+		t.Fatalf("first-run launcher exit code = %d; stderr=%q", code, errOut.String())
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("first-run launcher changed authority path: stat=%v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(dbPath)); !os.IsNotExist(err) {
+		t.Fatalf("first-run launcher created an authority parent: stat=%v", err)
+	}
+	firstRun, err := firstRunPort{}.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadPortfolio})
+	if err != nil || !firstRun.FirstRun || firstRun.Coverage != "first_run" || firstRun.StatusMessage == "" {
+		t.Fatalf("first-run state = %#v, err=%v", firstRun, err)
+	}
+}
+
+func TestLauncherSessionHasNoDurableEffects(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProductWithProject(context.Background(), store.ProductCreation{
+		ProductID: "product-1", DisplayName: "Concord", StageMaturity: "prototype",
+		StageAudienceCommitment: "operator_only", ProjectID: "project-1", ProjectDisplayName: "Core", Role: "primary",
+	}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	before := launcherDurableCounts(t, s)
+	if before == nil {
+		s.Close()
+		return
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	if code := runLauncherCommand(nil, strings.NewReader("q"), &out, &errOut, true); code != 0 {
+		t.Fatalf("launcher exit code = %d; stderr=%q", code, errOut.String())
+	}
+	s, err = store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	after := launcherDurableCounts(t, s)
+	if after == nil {
+		return
+	}
+	if fmt.Sprint(after) != fmt.Sprint(before) {
+		t.Fatalf("launcher changed durable state: before=%v after=%v", before, after)
+	}
+}
+
+func launcherDurableCounts(t *testing.T, s *store.Store) map[string]int {
+	t.Helper()
+	counts := make(map[string]int)
+	for _, table := range []string{"domain_events", "agent_grants", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
+		var count int
+		if err := s.DB().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
+			t.Errorf("count %s: %v", table, err)
+			return nil
+		}
+		counts[table] = count
+	}
+	return counts
 }
 
 func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {

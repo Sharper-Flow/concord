@@ -79,7 +79,7 @@ func NegotiateSurfaceVersion(supportedRange string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	supported := []SemVer{{Major: 2, Minor: 0, Patch: 0}}
+	supported := []SemVer{{Major: 2, Minor: 0, Patch: 0}, {Major: 2, Minor: 1, Patch: 0}}
 	var selected *SemVer
 	for _, candidate := range supported {
 		if r.Contains(candidate) && (selected == nil || candidate.Compare(*selected) > 0) {

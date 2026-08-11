@@ -158,8 +158,9 @@ def validate(manifest: dict) -> str:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    if len(operations) != 21 or len({o.get("id") for o in operations}) != 21:
-        fail("manifest must contain exactly twenty-one unique operations")
+    expected_operations = 22 if manifest.get("surface", {}).get("version") == "2.1.0" else 21
+    if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
+        fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
     declared = {op for tool in tools for op in tool["operations"]}
     actual = {o["id"] for o in operations}

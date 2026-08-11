@@ -4,8 +4,9 @@
 **Approval date:** 2026-08-10
 **Approval:** Operator-approved architecture spike under GitHub issue #39
 **Supersedes:** The rendering-dependency and query-scope sub-questions in C18
-**Implementation status:** This decision accepts the spike boundary only; launcher
-screens and read-port wiring remain unbuilt.
+**Implementation status:** The S1 portfolio screen and production read-port wiring
+are implemented in issue #45 and become shipped only after merge. S2/S3/session
+launch remain outside this slice.
 
 ## Decision
 
@@ -21,10 +22,11 @@ The framework-independent launcher model and read port live under
 screen projections; it does not define domain types, import the store, or call a
 read from `View`/render methods.
 
-The initial launcher query is **Product-only**: it is scoped to the ambient
-Product and never searches across Products. The launcher remains read-only and
-does not answer approvals, mutate durable state, derive workflow position, or
-create a second state authority.
+The initial launcher semantic query is **Product-only**: it is available only
+after an ambient Product exists on S2/S3 and never searches across Products. S1
+has no semantic-query binding; `/` is a read-free local filter over the fetched
+Product rows. The launcher remains read-only and does not answer approvals,
+mutate durable state, derive workflow position, or create a second state authority.
 
 ## Evidence gate
 

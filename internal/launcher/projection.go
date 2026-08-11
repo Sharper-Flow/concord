@@ -1,8 +1,6 @@
 package launcher
 
-import (
-	"fmt"
-)
+import "fmt"
 
 type Projection struct {
 	Header  []string
@@ -22,17 +20,29 @@ func Project(snapshot Snapshot, width int) Projection {
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))
 	for _, row := range snapshot.Rows {
+		name := row.Name + row.NameSuffix
 		reliance := row.Reliance
 		marker := "OK"
 		if reliance != "clear" && reliance != "ready" && reliance != "" {
 			marker = "!"
 		}
+		actions := fmt.Sprintf("ip:%d b:%d r:%d p:%d a:%d", row.InProgress, row.Blocked, row.Ready, row.ActiveProblems, row.ApprovalRequired)
+		if row.Actions != 0 && row.InProgress == 0 && row.Blocked == 0 && row.Ready == 0 && row.ActiveProblems == 0 && row.ApprovalRequired == 0 {
+			actions = fmt.Sprintf("%d", row.Actions)
+		}
+		if row.CountsState == "unavailable" {
+			actions = "unavailable: " + row.UnavailableReason
+		}
+		focus := row.Focus
+		if focus == "" {
+			focus = "none: " + row.FocusAbsentReason
+		}
 		rows = append(rows, []string{
-			row.Name,
+			name,
 			row.Stage,
 			marker + " " + reliance,
-			fmt.Sprintf("%d", row.Actions),
-			row.Focus,
+			actions,
+			focus,
 		})
 		markers = append(markers, marker)
 	}

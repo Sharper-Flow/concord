@@ -12,23 +12,35 @@ import (
 // Product to have a Project membership, so Product and its first Project are
 // created together rather than exposing an invalid intermediate state.
 type ProductCreation struct {
-	ProductID               string
-	DisplayName             string
-	StageMaturity           string
-	StageAudienceCommitment string
-	ProjectID               string
-	ProjectDisplayName      string
-	Role                    string
-	Reason                  string
+	ProductID                              string
+	DisplayName                            string
+	StageMaturity                          string
+	StageAudienceCommitment                string
+	ProjectID                              string
+	ProjectDisplayName                     string
+	ProjectStageMaturityOverride           string
+	ProjectStageAudienceCommitmentOverride string
+	Role                                   string
+	Reason                                 string
 }
 
 type ProjectCreation struct {
-	ProjectID              string
-	DisplayName            string
-	ProductID              string
-	Role                   string
-	Reason                 string
-	ExpectedProductVersion int64
+	ProjectID                       string
+	DisplayName                     string
+	StageMaturityOverride           string
+	StageAudienceCommitmentOverride string
+	ProductID                       string
+	Role                            string
+	Reason                          string
+	ExpectedProductVersion          int64
+}
+
+type ProjectStageChange struct {
+	ProjectID                       string
+	StageMaturityOverride           string
+	StageAudienceCommitmentOverride string
+	ExpectedVersion                 int64
+	Reason                          string
 }
 
 type ProductMembershipAddition struct {
@@ -65,7 +77,7 @@ func (s *Store) EntityVersion(ctx context.Context, subjectType SubjectType, id s
 }
 
 func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCreation) (ApplyOperationResult, error) {
-	if request.ProductID == "" || request.DisplayName == "" || request.ProjectID == "" || request.ProjectDisplayName == "" || !validateProductStage(request.StageMaturity, request.StageAudienceCommitment) {
+	if request.ProductID == "" || request.DisplayName == "" || request.ProjectID == "" || request.ProjectDisplayName == "" || !validateProductStage(request.StageMaturity, request.StageAudienceCommitment) || !validateProjectStageOverride(request.ProjectStageMaturityOverride, request.ProjectStageAudienceCommitmentOverride) {
 		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "product_create", "Product and initial Project fields are required", false, "supply valid Product stage and non-empty identities")
 	}
 	if request.Role != "primary" && request.Role != "secondary" {
@@ -79,7 +91,11 @@ func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCre
 		"display_name": request.DisplayName, "stage_maturity": request.StageMaturity,
 		"stage_audience_commitment": request.StageAudienceCommitment,
 	})
-	projectPayload, _ := json.Marshal(map[string]string{"display_name": request.ProjectDisplayName})
+	projectPayload, _ := json.Marshal(projectCreatedEventPayload(request.ProjectDisplayName, request.ProjectStageMaturityOverride, request.ProjectStageAudienceCommitmentOverride))
+	projectPayloadVersion := 1
+	if request.ProjectStageMaturityOverride != "" {
+		projectPayloadVersion = 2
+	}
 	membershipPayload, _ := json.Marshal(map[string]any{
 		"product_id": request.ProductID, "project_id": request.ProjectID, "role": request.Role,
 		"reason": request.Reason, "expected_version": 1, "resulting_version": 2,
@@ -87,7 +103,7 @@ func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCre
 	return ApplyOperationWithResult(ctx, s, Operation{
 		Events: []Event{
 			{EventID: operatorEventID("product.created", request.ProductID), Kind: "product.created", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: productPayload},
-			{EventID: operatorEventID("project.created", request.ProjectID), Kind: "project.created", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: projectPayload},
+			{EventID: operatorEventID("project.created", request.ProjectID), Kind: "project.created", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: when, PayloadVersion: projectPayloadVersion, Payload: projectPayload},
 			{EventID: operatorEventID("product_project.added", request.ProductID+":"+request.ProjectID), Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: membershipPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): 0, VersionRef(SubjectProject, request.ProjectID): 0},
@@ -95,7 +111,7 @@ func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCre
 }
 
 func (s *Store) CreateProjectForProduct(ctx context.Context, request ProjectCreation) (ApplyOperationResult, error) {
-	if request.ProjectID == "" || request.DisplayName == "" || request.ProductID == "" || request.ExpectedProductVersion < 1 {
+	if request.ProjectID == "" || request.DisplayName == "" || request.ProductID == "" || request.ExpectedProductVersion < 1 || !validateProjectStageOverride(request.StageMaturityOverride, request.StageAudienceCommitmentOverride) {
 		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "project_create", "Project, Product, and positive Product version are required", false, "supply an existing Product and its current version")
 	}
 	if request.Role != "primary" && request.Role != "secondary" {
@@ -105,17 +121,66 @@ func (s *Store) CreateProjectForProduct(ctx context.Context, request ProjectCrea
 		request.Reason = "operator bootstrap"
 	}
 	when := time.Now().UTC()
-	projectPayload, _ := json.Marshal(map[string]string{"display_name": request.DisplayName})
+	projectPayload, _ := json.Marshal(projectCreatedEventPayload(request.DisplayName, request.StageMaturityOverride, request.StageAudienceCommitmentOverride))
+	projectPayloadVersion := 1
+	if request.StageMaturityOverride != "" {
+		projectPayloadVersion = 2
+	}
 	membershipPayload, _ := json.Marshal(map[string]any{
 		"product_id": request.ProductID, "project_id": request.ProjectID, "role": request.Role,
 		"reason": request.Reason, "expected_version": request.ExpectedProductVersion, "resulting_version": request.ExpectedProductVersion + 1,
 	})
 	return ApplyOperationWithResult(ctx, s, Operation{
 		Events: []Event{
-			{EventID: operatorEventID("project.created", request.ProjectID), Kind: "project.created", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: projectPayload},
+			{EventID: operatorEventID("project.created", request.ProjectID), Kind: "project.created", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: when, PayloadVersion: projectPayloadVersion, Payload: projectPayload},
 			{EventID: operatorEventID("product_project.added", request.ProductID+":"+request.ProjectID), Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: membershipPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedProductVersion, VersionRef(SubjectProject, request.ProjectID): 0},
+	})
+}
+
+func validateProjectStageOverride(maturity, audience string) bool {
+	if maturity == "" && audience == "" {
+		return true
+	}
+	return validateProductStage(maturity, audience)
+}
+
+func projectCreatedEventPayload(displayName, maturity, audience string) map[string]any {
+	payload := map[string]any{"display_name": displayName}
+	if maturity == "" && audience == "" {
+		return payload
+	}
+	payload["stage_maturity_override"] = maturity
+	payload["stage_audience_commitment_override"] = audience
+	return payload
+}
+
+// ChangeProjectStage is the only operator write for Project stage. Clearing
+// both values restores inheritance from the Product default; a partial pair
+// is rejected before an event can be appended.
+func (s *Store) ChangeProjectStage(ctx context.Context, request ProjectStageChange) (ApplyOperationResult, error) {
+	if request.ProjectID == "" || request.ExpectedVersion < 1 || !validateProjectStageOverride(request.StageMaturityOverride, request.StageAudienceCommitmentOverride) {
+		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "project_stage_change", "Project stage override must be a complete accepted pair or both empty", false, "supply both accepted override values or clear both")
+	}
+	if request.Reason == "" {
+		request.Reason = "operator stage change"
+	}
+	payload := map[string]any{
+		"stage_maturity_override":            nil,
+		"stage_audience_commitment_override": nil,
+		"reason":                             request.Reason,
+		"expected_version":                   request.ExpectedVersion,
+		"resulting_version":                  request.ExpectedVersion + 1,
+	}
+	if request.StageMaturityOverride != "" {
+		payload["stage_maturity_override"] = request.StageMaturityOverride
+		payload["stage_audience_commitment_override"] = request.StageAudienceCommitmentOverride
+	}
+	encoded, _ := json.Marshal(payload)
+	return ApplyOperationWithResult(ctx, s, Operation{
+		Events:           []Event{{EventID: operatorEventID("project.stage_changed", request.ProjectID), Kind: "project.stage_changed", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: encoded}},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, request.ProjectID): request.ExpectedVersion},
 	})
 }
 

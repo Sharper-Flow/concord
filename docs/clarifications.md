@@ -259,9 +259,9 @@ re-litigate them silently.
 - **Direction:** ✅ accepted. The workflow engine and durable knowledge resolver have
    shipped; stale sequencing statements that treated them as C18 prerequisites are
    retired.
-- **Implementation status:** The accepted screen contract and renderer spike do not
-  mean the launcher screens or read-port wiring are built; those remain implementation
-  work under the accepted contract.
+- **Implementation status:** The S1 portfolio screen and production read-port wiring
+   are implemented by issue #45 and become shipped only after merge. S2/S3 and session
+   launch remain unbuilt, so Concord is not replacement-ready.
 
 ---
 

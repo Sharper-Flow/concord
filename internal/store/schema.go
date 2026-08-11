@@ -1142,6 +1142,32 @@ BEGIN
 END;
 		`,
 	},
+	{
+		Version: 20,
+		Name:    "project_stage_overrides",
+		SQL: `
+ALTER TABLE projects ADD COLUMN stage_maturity_override TEXT
+    CHECK(stage_maturity_override IS NULL OR stage_maturity_override IN ('prototype','alpha','beta','production','deprecated'));
+ALTER TABLE projects ADD COLUMN stage_audience_commitment_override TEXT
+    CHECK(stage_audience_commitment_override IS NULL OR stage_audience_commitment_override IN ('operator_only','limited','public'));
+
+CREATE TRIGGER projects_stage_override_pair_insert
+BEFORE INSERT ON projects FOR EACH ROW
+WHEN (NEW.stage_maturity_override IS NULL) <> (NEW.stage_audience_commitment_override IS NULL)
+BEGIN
+    SELECT RAISE(ABORT, 'Project stage override must contain both maturity and audience commitment');
+END;
+CREATE TRIGGER projects_stage_override_pair_update
+BEFORE UPDATE OF stage_maturity_override, stage_audience_commitment_override ON projects FOR EACH ROW
+WHEN (NEW.stage_maturity_override IS NULL) <> (NEW.stage_audience_commitment_override IS NULL)
+BEGIN
+    SELECT RAISE(ABORT, 'Project stage override must contain both maturity and audience commitment');
+END;
+
+CREATE INDEX products_display_name_order
+    ON products(display_name, id);
+        `,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -41,7 +41,7 @@
       }
     },
     "operations": {
-      "type": "array", "minItems": 21, "maxItems": 21,
+      "type": "array", "minItems": 22, "maxItems": 22,
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["id", "tool", "kind", "query_id", "input_schema", "result_schema", "capability", "consequence", "approval", "metadata"],
@@ -50,7 +50,7 @@
           "tool": {"type": "string"},
           "kind": {"enum": ["read", "mutation"]},
           "availability": {"enum": ["always", "workflow_definition"]},
-          "query_id": {"type": ["string", "null"], "pattern": "^PM1\\.Q([1-9]|10)$"},
+          "query_id": {"type": ["string", "null"], "pattern": "^(PM1\\.Q([1-9]|10)|C14\\.ProductRows)$"},
           "input_schema": {"type": "string", "pattern": "^#/schemas/[a-z0-9_]+$"},
           "result_schema": {"type": "string", "pattern": "^#/schemas/[a-z0-9_]+$"},
           "capability": {"enum": ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope"]},
@@ -80,7 +80,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["context", "idempotency", "pagination", "output_bytes", "versions"],
       "properties": {
-        "context": {"enum": ["ambient", "explicit", "workflow"]},
+        "context": {"enum": ["ambient", "explicit", "workflow", "portfolio"]},
         "idempotency": {"enum": ["request_id", "required"]},
         "pagination": {"enum": ["none", "cursor"]},
         "output_bytes": {"const": 65536},

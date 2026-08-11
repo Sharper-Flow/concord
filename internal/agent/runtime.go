@@ -556,7 +556,24 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 	base.Authority = AuthorityAuthoritative
 	base.Outcome = OutcomeError
 	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
-	return base
+	if _, err := base.Encode(); err == nil {
+		return base
+	}
+	// Error delivery must remain possible when the rejected success inherited
+	// optional fields large enough to exceed the envelope cap. Rebuild the base
+	// from its bounded identity only when preserving metadata is undeliverable.
+	// The typed error is the only authoritative response to a rejected result.
+	errorBase := NewBase(base.RequestID, base.Tool, base.Operation, base.ContractVersion)
+	errorBase.ResolvedScope = base.ResolvedScope
+	errorBase.Authority = AuthorityAuthoritative
+	errorBase.Outcome = OutcomeError
+	errorBase.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
+	if _, err := errorBase.Encode(); err != nil {
+		// Scope is useful when it remains deliverable, but never at the expense
+		// of the limit error itself crossing the agent boundary.
+		errorBase.ResolvedScope = nil
+	}
+	return errorBase
 }
 func mapFailureKind(kind store.FailureKind) string {
 	switch kind {

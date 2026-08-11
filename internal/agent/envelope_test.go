@@ -175,6 +175,67 @@ func TestOperationPayloadValidationUsesGeneratedClosedSchemas(t *testing.T) {
 	if err := ValidateOperationPayload("concord_work_compact", "reconcile", []byte(`{"operation_id":"op-1","expected_operation_version":2,"idempotency_key":"idem-1","evidence":[{"kind":"artifact","authority":"test","locator_kind":"file","locator":"README.md","unknown":true}]}`), false); err == nil {
 		t.Fatal("unknown property inside union branch array accepted")
 	}
+	validResult := []byte(`{"changed_refs":[{"entity_kind":"work_item","id":"w-1","version":2}],"next_valid_intents":[]}`)
+	if err := ValidateOperationPayload("concord_work_relate", "link", validResult, true); err != nil {
+		t.Fatalf("valid generated mutation result rejected: %v", err)
+	}
+	if err := ValidateOperationPayload("concord_work_relate", "link", []byte(`{"changed_refs":[],"next_valid_intents":[],"unknown":true}`), true); err == nil {
+		t.Fatal("unknown mutation result property accepted")
+	}
+}
+
+func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
+	for _, operation := range []struct{ tool, operation string }{
+		{"concord_work_define", "capture"}, {"concord_work_define", "revise_intent"},
+		{"concord_work_transition", "lifecycle"}, {"concord_work_transition", "workflow_action"},
+		{"concord_work_relate", "set_memberships"}, {"concord_work_relate", "link"}, {"concord_work_relate", "unlink"}, {"concord_work_relate", "supersede"}, {"concord_work_relate", "restore_superseded"},
+		{"concord_work_compact", "publish"}, {"concord_work_compact", "reconcile"},
+	} {
+		t.Run(operation.tool+"."+operation.operation, func(t *testing.T) {
+			base := NewBase("mutation-result", operation.tool, operation.operation, ManifestVersion)
+			intent := NextIntent{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect"}
+			response := (runtime{Tool: base.Tool, Operation: base.Operation}).mutationResult(base, mutationPayload([]ChangedRef{{EntityKind: "work_item", ID: "w-1", Version: "2"}}, []NextIntent{intent}), []ChangedRef{{EntityKind: "work_item", ID: "w-1", Version: "2"}}, []NextIntent{intent})
+			if response.Outcome != OutcomeOK {
+				t.Fatalf("canonical mutation result rejected: %+v", response.Error)
+			}
+		})
+	}
+}
+
+func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T) {
+	base := NewBase("mutation-result-reject", "concord_work_define", "capture", ManifestVersion)
+	r := runtime{Tool: base.Tool, Operation: base.Operation}
+	invalid := r.mutationResult(base, json.RawMessage(`{"changed_refs":[],"next_valid_intents":[],"unknown":true}`), nil, nil)
+	if invalid.Outcome != OutcomeError || invalid.Error == nil || invalid.Error.Kind != "malformed_response" {
+		t.Fatalf("invalid result=%+v", invalid)
+	}
+	largeItems := mutationPayload([]ChangedRef{{EntityKind: "work_item", ID: "w-1", Version: "1"}, {EntityKind: "work_item", ID: "w-2", Version: "1"}}, nil)
+	itemLimited := (runtime{Tool: base.Tool, Operation: base.Operation, Budget: budgetInput{MaxItems: 1}}).mutationResult(base, largeItems, []ChangedRef{{EntityKind: "work_item", ID: "w-1", Version: "1"}, {EntityKind: "work_item", ID: "w-2", Version: "1"}}, nil)
+	if itemLimited.Outcome != OutcomeError || itemLimited.Error == nil || itemLimited.Error.Kind != "budget_refused" {
+		t.Fatalf("item-limited result=%+v", itemLimited)
+	}
+	byteLimited := (runtime{Tool: base.Tool, Operation: base.Operation, Budget: budgetInput{MaxBytes: 1}}).mutationResult(base, mutationPayload(nil, nil), nil, nil)
+	if byteLimited.Outcome != OutcomeError || byteLimited.Error == nil || byteLimited.Error.Kind != "budget_refused" {
+		t.Fatalf("byte-limited result=%+v", byteLimited)
+	}
+	base.EvidenceRefs = make([]EvidenceRef, 32)
+	for i := range base.EvidenceRefs {
+		base.EvidenceRefs[i] = EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)}
+	}
+	hardLimited := r.mutationResult(base, mutationPayload(nil, nil), nil, nil)
+	if hardLimited.Outcome != OutcomeError || hardLimited.Error == nil || hardLimited.Error.Kind != "limit_exceeded" {
+		t.Fatalf("hard-limited result=%+v", hardLimited)
+	}
+	encoded, err := hardLimited.Encode()
+	if err != nil {
+		t.Fatalf("limit error must remain deliverable: %v", err)
+	}
+	if len(encoded) > MaxEnvelopeBytes {
+		t.Fatalf("limit error size=%d, want <= %d", len(encoded), MaxEnvelopeBytes)
+	}
+	if len(hardLimited.EvidenceRefs) != 0 {
+		t.Fatalf("limit error retained rejected success evidence: %d refs", len(hardLimited.EvidenceRefs))
+	}
 }
 
 func TestStrictOperationUnions(t *testing.T) {

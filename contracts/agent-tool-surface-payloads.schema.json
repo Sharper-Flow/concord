@@ -382,6 +382,7 @@
         "required_evidence": {
           "type": "array",
           "maxItems": 7,
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
           }
@@ -389,6 +390,7 @@
         "route_conventions": {
           "type": "array",
           "maxItems": 16,
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
           }
@@ -396,6 +398,15 @@
         "spec_mandate": {
           "type": "array",
           "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "law_modifies": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
           }

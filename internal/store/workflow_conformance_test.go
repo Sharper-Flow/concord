@@ -1232,6 +1232,22 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, actionResult)
 }
 
+func corpusSetupInputDeclaresLaw(input workflowCorpusEvent) bool {
+	if input.Kind != WorkflowContractApproved {
+		return false
+	}
+	values, ok := input.Payload["spec_mandate"].([]any)
+	if !ok {
+		return strings.Contains(fmt.Sprint(input.Payload["spec_mandate"]), "spec:one")
+	}
+	for _, value := range values {
+		if fmt.Sprint(value) == "spec:one" {
+			return true
+		}
+	}
+	return false
+}
+
 func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any, request workflowCorpusRequest, definition WorkflowDefinition) error {
 	if request.Operation.OpID == "" || (request.ActionID != string(corpusActionCompleteExternal) && request.ActionID != string(corpusActionRetry) && request.ActionID != string(corpusActionTakeover)) {
 		return nil
@@ -1615,6 +1631,11 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 				if err := replayWorkflowAuthority(ctx, s, opID, input.WorkID, "principal:operator", input.EventID, []string{"evidence-verification"}); err != nil {
 					return err
 				}
+			}
+		}
+		if input.Kind == WorkflowContractApproved && corpusSetupInputDeclaresLaw(input) {
+			if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`); err != nil {
+				return err
 			}
 		}
 		expected, ok := workflowCorpusInt(input.Payload["expected_version"])

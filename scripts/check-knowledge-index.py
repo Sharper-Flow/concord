@@ -17,10 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
 ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "records"}
-ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256"}
+ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations"}
 ALLOWED_SCOPES = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 KINDS = {"work_note", "lesson", "decision", "spec", "research"}
 RECORD_KINDS = {"lesson", "decision", "spec"}
+LAW_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with"}
 
 
 class DuplicateKeyError(ValueError):
@@ -65,8 +66,9 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     unknown = set(data) - ALLOWED_ROOT
     if unknown:
         fail(findings, f"manifest: unknown fields: {sorted(unknown)}")
-    if data.get("schema_version") != "1.0":
-        fail(findings, "manifest: schema_version must be 1.0")
+    schema_version = data.get("schema_version")
+    if schema_version not in {"1.0", "1.1"}:
+        fail(findings, "manifest: schema_version must be 1.0 or 1.1")
     supported = data.get("supported_kinds")
     indexed = data.get("indexed_kinds")
     records = data.get("records")
@@ -92,11 +94,24 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         unknown = set(record) - ALLOWED_RECORD
         if unknown:
             fail(findings, f"{prefix}: unknown fields: {sorted(unknown)}")
-        required = ALLOWED_RECORD - {"successor"}
+        required = ALLOWED_RECORD - {"successor", "law_relations"}
         missing = required - set(record)
         if missing:
             fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
             continue
+
+        if "law_relations" in record and schema_version != "1.1":
+            fail(findings, f"{prefix}: law_relations require schema_version 1.1")
+        relations = record.get("law_relations", [])
+        if not isinstance(relations, list) or len(relations) > 32:
+            fail(findings, f"{prefix}: law_relations must be a bounded array")
+        elif not isinstance(record.get("kind"), str) or record.get("kind") not in {"decision", "spec"}:
+            if relations:
+                fail(findings, f"{prefix}: law_relations are only allowed on decision/spec records")
+        else:
+            for relation in relations:
+                if not isinstance(relation, dict) or set(relation) != {"kind", "target_id"} or relation.get("kind") not in LAW_KINDS or not valid_id(relation.get("target_id")):
+                    fail(findings, f"{prefix}: invalid law relation")
 
         identifier = record["id"]
         if not valid_id(identifier):
@@ -175,6 +190,60 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                 fail(findings, f"{prefix}: hash drift for {path}")
 
     by_id = {record.get("id"): record for record in records if isinstance(record, dict) and isinstance(record.get("id"), str)}
+    relation_keys: set[tuple[str, str, str]] = set()
+    graph: dict[str, list[str]] = {}
+    for number, record in enumerate(records):
+        if not isinstance(record, dict):
+            continue
+        prefix = f"manifest.records[{number}]"
+        for relation in record.get("law_relations", []) if isinstance(record.get("law_relations", []), list) else []:
+            if not isinstance(relation, dict) or relation.get("kind") not in LAW_KINDS:
+                continue
+            target = by_id.get(relation.get("target_id"))
+            if target is None or target.get("kind") not in {"decision", "spec"}:
+                fail(findings, f"{prefix}: law relation target is not a declared decision/spec record")
+                continue
+            kind = relation["kind"]
+            left, right = record.get("id"), relation.get("target_id")
+            if not isinstance(left, str) or not isinstance(right, str):
+                continue
+            if kind == "conflicts_with" and left > right:
+                left, right = right, left
+            key = (kind, left, right)
+            if key in relation_keys:
+                fail(findings, f"{prefix}: duplicate law relation, including reverse conflict")
+            relation_keys.add(key)
+            if kind == "supersedes":
+                if record.get("status") != "accepted" or target.get("status") != "superseded" or target.get("successor") != record.get("id"):
+                    fail(findings, f"{prefix}: supersedes relation disagrees with target successor")
+            if kind in {"supersedes", "refines", "subordinate_to"}:
+                graph.setdefault(record.get("id"), []).append(relation.get("target_id"))
+    if schema_version == "1.1":
+        for record in records:
+            if not isinstance(record, dict) or not record.get("successor"):
+                continue
+            successor = by_id.get(record["successor"])
+            if not any(isinstance(r, dict) and r.get("kind") == "supersedes" and r.get("target_id") == record.get("id") for r in (successor or {}).get("law_relations", [])):
+                fail(findings, f"manifest.records: successor {record['successor']} lacks matching supersedes relation")
+
+    def has_cycle(graph: dict[str, list[str]]) -> bool:
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        def visit(node: str) -> bool:
+            if node in visiting:
+                return True
+            if node in visited:
+                return False
+            visiting.add(node)
+            if any(visit(child) for child in graph.get(node, [])):
+                return True
+            visiting.remove(node)
+            visited.add(node)
+            return False
+        return any(visit(node) for node in graph)
+
+    if has_cycle(graph):
+        fail(findings, "manifest: directed law relations contain a cycle")
     for number, record in enumerate(records):
         if not isinstance(record, dict) or record.get("status") != "superseded" or not isinstance(record.get("successor"), str):
             continue

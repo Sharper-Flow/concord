@@ -2265,6 +2265,14 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_contract": {
       "additionalProperties": false,
       "properties": {
+        "law_modifies": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
         "outcome_kind": {
           "$ref": "#/$defs/short"
         },
@@ -2280,21 +2288,24 @@ const GeneratedPayloadSchemaDocument = `{
             "$ref": "#/$defs/id"
           },
           "maxItems": 7,
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "route_conventions": {
           "items": {
             "$ref": "#/$defs/id"
           },
           "maxItems": 16,
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "spec_mandate": {
           "items": {
             "$ref": "#/$defs/id"
           },
           "maxItems": 32,
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "version": {
           "$ref": "#/$defs/version"

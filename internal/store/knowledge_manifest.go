@@ -36,6 +36,13 @@ var knowledgeKindsClosed = map[string]bool{
 
 var manifestRecordKinds = map[string]bool{"lesson": true, "decision": true, "spec": true}
 
+var lawRelationKinds = map[string]bool{
+	"supersedes":     true,
+	"refines":        true,
+	"subordinate_to": true,
+	"conflicts_with": true,
+}
+
 // KnowledgeManifest is the one tracked registry for non-work-note durable
 // knowledge. It contains metadata and proofs, never document bodies.
 type KnowledgeManifest struct {
@@ -48,17 +55,25 @@ type KnowledgeManifest struct {
 // KnowledgeRecord is a bounded declaration whose path and hash identify the
 // authoritative markdown blob at one commit.
 type KnowledgeRecord struct {
-	ID        string                `json:"id"`
-	Kind      string                `json:"kind"`
-	Path      string                `json:"path"`
-	Status    string                `json:"status"`
-	Date      string                `json:"date"`
-	Title     string                `json:"title"`
-	Summary   string                `json:"summary"`
-	Tags      []string              `json:"tags"`
-	Scopes    KnowledgeRecordScopes `json:"scopes"`
-	Successor string                `json:"successor,omitempty"`
-	SHA256    string                `json:"sha256"`
+	ID           string                `json:"id"`
+	Kind         string                `json:"kind"`
+	Path         string                `json:"path"`
+	Status       string                `json:"status"`
+	Date         string                `json:"date"`
+	Title        string                `json:"title"`
+	Summary      string                `json:"summary"`
+	Tags         []string              `json:"tags"`
+	Scopes       KnowledgeRecordScopes `json:"scopes"`
+	Successor    string                `json:"successor,omitempty"`
+	SHA256       string                `json:"sha256"`
+	LawRelations []KnowledgeRelation   `json:"law_relations,omitempty"`
+}
+
+// KnowledgeRelation is authored in the Git knowledge manifest. It is never a
+// source of precedence by itself; conflicts_with records an unresolved pair.
+type KnowledgeRelation struct {
+	Kind     string `json:"kind"`
+	TargetID string `json:"target_id"`
 }
 
 type KnowledgeRecordScopes struct {
@@ -93,7 +108,7 @@ func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
 }
 
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
-	if manifest.SchemaVersion != "1.0" || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
+	if (manifest.SchemaVersion != "1.0" && manifest.SchemaVersion != "1.1") || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict v1 root fields")
 	}
 	supported, err := validateManifestKindList(manifest.SupportedKinds, "supported_kinds")
@@ -132,7 +147,103 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 	if err := validateManifestSuccessors(manifest.Records); err != nil {
 		return err
 	}
+	if err := validateManifestRelations(manifest); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateManifestRelations(manifest KnowledgeManifest) error {
+	byID := make(map[string]KnowledgeRecord, len(manifest.Records))
+	for _, record := range manifest.Records {
+		byID[record.ID] = record
+	}
+	seen := map[string]bool{}
+	graph := map[string][]string{}
+	for _, record := range manifest.Records {
+		if len(record.LawRelations) == 0 {
+			continue
+		}
+		if manifest.SchemaVersion != "1.1" || record.Kind == "lesson" || !manifestRecordKinds[record.Kind] {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on 1.1 decision/spec records", false, "publish authored relations on a schema 1.1 decision or spec")
+		}
+		for _, relation := range record.LawRelations {
+			if !lawRelationKinds[relation.Kind] || relation.TargetID == "" || relation.TargetID == record.ID {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind, target, or self-edge is invalid", false, "use one closed relation kind and a distinct law ID")
+			}
+			target, ok := byID[relation.TargetID]
+			if !ok || target.Kind == "lesson" || !manifestRecordKinds[target.Kind] {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")
+			}
+			key := relation.Kind + "\x00" + record.ID + "\x00" + relation.TargetID
+			if relation.Kind == "conflicts_with" {
+				left, right := record.ID, relation.TargetID
+				if left > right {
+					left, right = right, left
+				}
+				key = relation.Kind + "\x00" + left + "\x00" + right
+			}
+			if seen[key] {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated, including a reverse conflict declaration", false, "declare each typed law relation once")
+			}
+			seen[key] = true
+			switch relation.Kind {
+			case "supersedes":
+				if record.Status != "accepted" || target.Status != "superseded" || target.Successor != record.ID {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "supersedes relation disagrees with the target successor declaration", false, "make an accepted source supersede its exact superseded successor target")
+				}
+				graph[record.ID] = append(graph[record.ID], relation.TargetID)
+			case "refines", "subordinate_to":
+				graph[record.ID] = append(graph[record.ID], relation.TargetID)
+			}
+		}
+	}
+	for _, record := range manifest.Records {
+		if manifest.SchemaVersion != "1.1" || record.Successor == "" {
+			continue
+		}
+		found := false
+		for _, relation := range byID[record.Successor].LawRelations {
+			if relation.Kind == "supersedes" && relation.TargetID == record.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "successor declaration lacks its matching supersedes relation", false, "declare the corresponding supersedes edge on the accepted successor")
+		}
+	}
+	if relationGraphHasCycle(graph) {
+		return newFailure(KindCycleDetected, "parse_knowledge_manifest", "directed law relations contain a cycle", false, "remove the cycle from the authored law graph")
+	}
+	return nil
+}
+
+func relationGraphHasCycle(graph map[string][]string) bool {
+	state := map[string]uint8{}
+	var visit func(string) bool
+	visit = func(node string) bool {
+		if state[node] == 1 {
+			return true
+		}
+		if state[node] == 2 {
+			return false
+		}
+		state[node] = 1
+		for _, target := range graph[node] {
+			if visit(target) {
+				return true
+			}
+		}
+		state[node] = 2
+		return false
+	}
+	for node := range graph {
+		if visit(node) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateManifestSuccessors(records []KnowledgeRecord) error {
@@ -367,11 +478,18 @@ func sameKnowledgeRecord(a, b KnowledgeRecord) bool {
 		record.Scopes.ProjectIDs = append([]string{}, record.Scopes.ProjectIDs...)
 		record.Scopes.ComponentIDs = append([]string{}, record.Scopes.ComponentIDs...)
 		record.Scopes.TagIDs = append([]string{}, record.Scopes.TagIDs...)
+		record.LawRelations = append([]KnowledgeRelation{}, record.LawRelations...)
 		sort.Strings(record.Tags)
 		sort.Strings(record.Scopes.ProductIDs)
 		sort.Strings(record.Scopes.ProjectIDs)
 		sort.Strings(record.Scopes.ComponentIDs)
 		sort.Strings(record.Scopes.TagIDs)
+		sort.Slice(record.LawRelations, func(i, j int) bool {
+			if record.LawRelations[i].Kind == record.LawRelations[j].Kind {
+				return record.LawRelations[i].TargetID < record.LawRelations[j].TargetID
+			}
+			return record.LawRelations[i].Kind < record.LawRelations[j].Kind
+		})
 		return record
 	}
 	a, b = normalize(a), normalize(b)

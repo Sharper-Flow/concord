@@ -33,6 +33,7 @@ type WorkflowActionExecutionRequest struct {
 	IdempotencyKey       string
 	RequestID            string
 	AcceptedScope        string
+	LawModifies          []string
 	ContractVersion      string
 	Now                  time.Time
 }
@@ -195,7 +196,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	if request.ContractVersion == "" {
 		request.ContractVersion = "2.0.0"
 	}
-	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" && request.ContractVersion != "2.1.0" {
+	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" && request.ContractVersion != "2.1.0" && request.ContractVersion != "2.2.0" {
 		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_version is not supported", false, "upgrade Concord before replaying this operation")
 	}
 	if request.AcceptedInputsDigest == "" {
@@ -424,8 +425,16 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if spec == nil {
 			spec = []string{}
 		}
+		lawModifies := workflowFieldStrings(fields, "law_modifies")
+		if len(lawModifies) == 0 && len(request.LawModifies) != 0 {
+			lawModifies = append([]string(nil), request.LawModifies...)
+		}
 		rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
-		return []Event{workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": json.RawMessage(outcome), "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)})}, nil
+		contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": json.RawMessage(outcome), "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+		if request.ContractVersion == "2.2.0" {
+			contract["law_boundary_version"] = 1
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)}, nil
 	case "revise_candidates":
 		added := workflowFieldStrings(fields, "added")
 		if len(added) == 0 {

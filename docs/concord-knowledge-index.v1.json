@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "supported_kinds": [
     "work_note",
     "decision",
@@ -291,6 +291,28 @@
       "sha256": "sha256:69572c989082346d22b3330f3b4b3596f3e0be9996bc5d9ec95647e63bdd8579"
     },
     {
+      "id": "CD-0015",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0015-typed-law-relations.md",
+      "status": "accepted",
+      "date": "2026-08-11T00:00:00Z",
+      "title": "Typed law relations and Git-derived workflow checks",
+      "summary": "Defines Git-authoritative typed law relations and bounded workflow conflict checks.",
+      "tags": [
+        "law",
+        "relations",
+        "workflow"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:db1001a386a9ad27f5d4cc140a497d55149d5fa796cbb2997436ce0d76523b44"
+    },
+    {
       "id": "PM3",
       "kind": "spec",
       "path": "docs/product-memory-domain-schema.md",
@@ -374,7 +396,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:daf6d0591e0c9b4896af489f2e9d4837608f4d68d3d0c8dca4b57f7dfae56dfd"
+      "sha256": "sha256:bf89dc83dc14337b644df338f93450ef24a3846d1293f2609b6b0f3705f52c2d"
     },
     {
       "id": "TS3",

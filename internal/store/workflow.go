@@ -50,17 +50,19 @@ type workflowDefinitionSelectedPayload struct {
 
 type workflowContractApprovedPayload struct {
 	WorkflowVersionFields
-	ContractVersion  int64           `json:"contract_version"`
-	Premise          string          `json:"premise"`
-	OutcomeKind      string          `json:"outcome_kind"`
-	OutcomePayload   json.RawMessage `json:"outcome_payload"`
-	RequiredEvidence []string        `json:"required_evidence"`
-	RouteConventions []string        `json:"route_conventions"`
-	SpecMandate      []string        `json:"spec_mandate"`
-	RigorClass       string          `json:"rigor_class"`
-	ConsequenceClass string          `json:"consequence_class,omitempty"`
-	PremiseHash      string          `json:"premise_hash,omitempty"`
-	OutcomeHash      string          `json:"outcome_hash,omitempty"`
+	ContractVersion    int64           `json:"contract_version"`
+	Premise            string          `json:"premise"`
+	OutcomeKind        string          `json:"outcome_kind"`
+	OutcomePayload     json.RawMessage `json:"outcome_payload"`
+	RequiredEvidence   []string        `json:"required_evidence"`
+	RouteConventions   []string        `json:"route_conventions"`
+	SpecMandate        []string        `json:"spec_mandate"`
+	LawModifies        []string        `json:"law_modifies"`
+	LawBoundaryVersion int             `json:"law_boundary_version,omitempty"`
+	RigorClass         string          `json:"rigor_class"`
+	ConsequenceClass   string          `json:"consequence_class,omitempty"`
+	PremiseHash        string          `json:"premise_hash,omitempty"`
+	OutcomeHash        string          `json:"outcome_hash,omitempty"`
 }
 
 type workflowContractSupersededPayload struct {
@@ -561,8 +563,25 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if p.ContractVersion <= 0 || !workflowString(p.Premise, 4096) || !workflowList(p.RequiredEvidence, 7, 0) || !workflowList(p.RouteConventions, 16, 0) || !workflowList(p.SpecMandate, 32, 0) || !validateWorkflowOutcome(p.OutcomePayload, p.OutcomeKind) {
+	if p.ContractVersion <= 0 || !workflowString(p.Premise, 4096) || !workflowList(p.RequiredEvidence, 7, 0) || !workflowList(p.RouteConventions, 16, 0) || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) || !validateWorkflowOutcome(p.OutcomePayload, p.OutcomeKind) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains invalid contract fields", false, "supply a strict closed workflow outcome and bounded contract fields")
+	}
+	if p.LawBoundaryVersion != 0 && p.LawBoundaryVersion != 1 {
+		return newFailure(KindInvalidPayload, "fold_event", "contract_approved law boundary version is invalid", false, "use the supported law boundary version")
+	}
+	if p.LawModifies == nil {
+		p.LawModifies = []string{}
+	}
+	if p.SpecMandate == nil {
+		p.SpecMandate = []string{}
+	}
+	if p.LawBoundaryVersion == 1 {
+		if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
+			return err
+		}
+		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, p.SpecMandate, p.LawModifies, true); err != nil {
+			return err
+		}
 	}
 	if p.ConsequenceClass != "internal_sqlite" && p.ConsequenceClass != "cross_authority" && p.ConsequenceClass != "external_effect" {
 		return newFailure(KindInvalidPayload, "fold_event", "contract consequence class is not closed", false, "use internal_sqlite, cross_authority, or external_effect")
@@ -587,7 +606,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.OutcomeKind, string(p.OutcomePayload), p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), p.RigorClass)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.OutcomeKind, string(p.OutcomePayload), p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -608,7 +627,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class) SELECT work_id,?,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT work_id,?,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
 		// The revision event carries the audit and version identity; the
 		// approved predicate remains immutable until the next explicit approval.
 		return workflowProjectionError(err, "cannot create superseding workflow contract")

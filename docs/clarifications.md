@@ -37,6 +37,24 @@ follows them without restating the ranked list.
 These are decided for the current planning baseline. Companion documents must not
 re-litigate them silently.
 
+### R0. Typed law relation authority
+
+- **Decision (2026-08-11):** accepted by CD-0015 for issue #44. Git knowledge
+  manifests remain the sole law authority. Decision/spec records may carry the
+  closed `supersedes`, `refines`, `subordinate_to`, and `conflicts_with`
+  relations in compatible manifest schema `1.1`; SQLite stores only their
+  transactional derived projection. `conflicts_with` never grants precedence.
+- **Workflow boundary:** `spec_mandate` remains the referenced law set and
+  `law_modifies` is a bounded subset that explicitly enters the operator-approved
+  amendment path. Unknown laws and unresolved explicit conflicts block planning
+  and completion, except that planning may proceed when the conflict endpoint is
+  explicitly mandated for amendment. Completion still requires the Git delta to
+  resolve it.
+- **What this closes:** whether law relations need a typed persistence model,
+  whether SQLite may author them, and whether a conflict may be bypassed by
+  precedence inference. No per-rule obligation field or heuristic persistence is
+  introduced.
+
 ### R1. Primary operator surface and ZLauncher role
 - **Direction:** The **Product-first terminal launcher** is the primary operator
   surface. A lightweight grid/table admin panel and a web UI are optional

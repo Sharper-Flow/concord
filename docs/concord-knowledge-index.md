@@ -2,7 +2,8 @@
 
 The tracked [`concord-knowledge-index.v1.json`](./concord-knowledge-index.v1.json)
 is the manifest-primary registry for durable `decision`, `spec`, and `lesson`
-records in a repository home. The companion
+records in a repository home. Schema `1.1` is backward-compatible with `1.0`
+and optionally adds authored typed law relations to decision/spec records. The companion
 [`concord-knowledge-index.v1.schema.json`](../contracts/concord-knowledge-index.v1.schema.json)
 is the closed JSON Schema contract.
 
@@ -21,6 +22,14 @@ runtime Go counts UTF-8 runes and the checker counts Python Unicode scalars.
 Supersession targets must be declared in the same manifest, must not self-link,
 and must retain kind-compatible active status (`accepted` for decisions/specs,
 `published` for lessons).
+
+`law_relations` is closed to `supersedes`, `refines`, `subordinate_to`, and
+`conflicts_with`. Both endpoints must be decision/spec records in the same
+manifest. Self edges, duplicates, reverse conflict declarations, directed
+cycles, and supersession edges that disagree with `successor` are rejected.
+`conflicts_with` is normalized as one unordered projection pair and never
+implies precedence. Relations are authored only by an operator-approved Git
+manifest/spec/decision delta.
 
 `scopes.mode` is explicit: `home` means the record belongs to this canonical
 home and has no installation-local IDs; `explicit` requires the declared ID
@@ -49,6 +58,12 @@ The standard-library checker validates the authored registry, recomputes hashes,
 rejects dangling or generated/candidate entries, and proves every `CD-*.md`
 decision is included. `python3 scripts/check-knowledge-index.py --update`
 updates hashes only; it never authors inclusion, metadata, or status.
+
+SQLite's `law_subjects` and `law_relations` tables are derived only by
+`RebuildKnowledgeIndex` for one home, inside the same transactional fold guard.
+Failed validation or rollback leaves the previous derived law projection
+byte-identical. Workflow `spec_mandate` references these accepted subjects;
+bounded `law_modifies` explicitly enters the operator-approved amendment path.
 
 Research is a supported kind but remains `supported_not_indexed` until an
 accepted canonical form exists. Missing or invalid manifest records fail closed

@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "2.1.0"
-const ManifestDigest = "sha256:d8d11335874981ab85d7f2c0e2ef4ed5caa3114bf7d799394e97bd7a86795dee"
+const ManifestVersion = "2.2.0"
+const ManifestDigest = "sha256:85a55c7ac6c1f55c29aae4f2efc1e29aa941c577a57b05ba1a1dcfc678fa885f"
 
 type OperationKind string
 
@@ -125,7 +125,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_trace_relations_input":      {Required: []string{"work_id"}, Properties: []string{"work_id", "relation_kinds", "direction", "depth", "budget"}},
 	"work_transition_action_input":    {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "selected_choice", "decision_context_digest", "fields", "idempotency_key", "evidence", "approval"}},
 	"work_transition_lifecycle_input": {Required: []string{"work_id", "expected_version", "target", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "target", "reason", "idempotency_key", "evidence", "approval"}},
-	"workflow_contract":               {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}},
+	"workflow_contract":               {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies"}},
 	"workflow_read":                   {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}},
 }
 

@@ -124,6 +124,8 @@ func knowledgeProjectionSnapshot(t *testing.T, s *Store) string {
 		`SELECT work_id,component_id FROM archived_work_components ORDER BY work_id,component_id`,
 		`SELECT work_id,tag_id FROM archived_work_tags ORDER BY work_id,tag_id`,
 		`SELECT kind,coverage,reason,scanned_commit_oid FROM knowledge_kind_coverage ORDER BY kind`,
+		`SELECT law_id,kind,status,path,title,content_hash,scanned_commit_oid FROM law_subjects ORDER BY home_project_id,home_locator_id,law_id`,
+		`SELECT source_law_id,kind,target_law_id,scanned_commit_oid FROM law_relations ORDER BY home_project_id,home_locator_id,source_law_id,kind,target_law_id`,
 		`SELECT scanned_commit_oid,scanned_at,complete FROM knowledge_index_watermark ORDER BY home_project_id,home_locator_id,head_ref`,
 	} {
 		rows, err := s.DB().Query(query)

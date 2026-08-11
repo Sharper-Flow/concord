@@ -302,6 +302,17 @@ re-litigate them silently.
   [#424](https://github.com/Sharper-Flow/Advance/issues/424), recorded in
   [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md). These identify
   mechanisms to prevent structurally; they are not work Concord must reproduce.
+- **Long-term gap surfaced by #422 (2026-08-10):** the predecessor's short-term fix bounds the
+  fallback path and adds typed size limits, but the deeper structural gap remains: the
+  predecessor's report persistence is change-keyed (reports are projections stored inside a
+  change's own record), so investigation work not tied to a change has no durable home and
+  takes the fallback every time. A proper solution needs a persistence surface for stateless
+  research output — a project-scoped or session-scoped store that is not a change projection.
+  This is tracked as a separate predecessor follow-up
+  ([Sharper-Flow/Advance](https://github.com/Sharper-Flow/Advance) ADV change
+  `changelessReportPersistence`) and should inform [Concord #43](https://github.com/Sharper-Flow/concord/issues/43):
+  bounding a delegated result is necessary but not sufficient if the result has nowhere
+  durable to land.
 - **What it blocks:** nothing in the storage or tool-surface slices. It shapes any
   workflow expected to run longer than one window, and it should be settled before a
   self-hosting readiness claim.

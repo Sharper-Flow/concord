@@ -23,7 +23,18 @@ checks the accepted Git-derived `law_subjects` and `law_relations` projection;
 an explicit conflict may pass planning only when a conflicting endpoint is in
 `law_modifies`. Completion reruns the check without that exception, so only a
 Git-authorized law delta can resolve the conflict. Earlier contracts retain
-their prior evidence-reference interpretation of `spec_mandate`.
+ their prior evidence-reference interpretation of `spec_mandate`.
+
+CD-0016 adds V22 context-continuity projections and the two closed workflow
+events `workflow.context_checkpointed` and `workflow.context_boundary_crossed`.
+`checkpoint_context` and `cross_context_boundary` remain actions on the
+existing workflow-action route. The canonical `C19.Continuity` read is exposed
+by the additive 2.3.0 agent surface; its pinned projection is derived from
+durable workflow state and never from advisory summary text.
+The two actions are added to every built-in definition and step by one owning
+definition builder, with strict payload fields and no approval. The explicit
+continuity read does not automatically inject pinned context into current
+OpenCode calls; future typed-agent injection belongs to issue #57.
 
 ## 1. Common representation and bounds
 

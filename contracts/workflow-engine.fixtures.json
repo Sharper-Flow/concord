@@ -10,19 +10,19 @@
         "schema_version": "1.0",
         "ref": "workflow.implementation",
         "version": 1,
-        "digest": "sha256:9345da1d1390a49870386578337eb49ab86c7283c1acf4cb71c2db2255c0c489",
+        "digest": "sha256:a10740f64bc1a5573ba90bd2e06691d04e46c13b6017a554a40d3923bd9b63e6",
         "work_kind": "implementation",
         "step_graph": {
           "start_step": "proposal",
           "terminal_steps": ["release"],
           "steps": [
-            {"id": "proposal", "kind": "internal_sqlite", "actions": ["record_proposal"]},
-            {"id": "discovery", "kind": "internal_sqlite", "actions": ["record_discovery"]},
-            {"id": "design", "kind": "internal_sqlite", "actions": ["record_design"]},
-            {"id": "planning", "kind": "human_checkpoint", "actions": ["approve_contract"]},
-            {"id": "execution", "kind": "external_effect", "actions": ["start_execution", "checkpoint_execution", "bind_evidence"]},
-            {"id": "acceptance", "kind": "human_checkpoint", "actions": ["record_verdict", "confirm_premise"]},
-            {"id": "release", "kind": "internal_sqlite", "actions": ["complete"]}
+            {"id": "proposal", "kind": "internal_sqlite", "actions": ["record_proposal", "checkpoint_context", "cross_context_boundary"]},
+            {"id": "discovery", "kind": "internal_sqlite", "actions": ["record_discovery", "checkpoint_context", "cross_context_boundary"]},
+            {"id": "design", "kind": "internal_sqlite", "actions": ["record_design", "checkpoint_context", "cross_context_boundary"]},
+            {"id": "planning", "kind": "human_checkpoint", "actions": ["approve_contract", "checkpoint_context", "cross_context_boundary"]},
+            {"id": "execution", "kind": "external_effect", "actions": ["start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "checkpoint_context", "cross_context_boundary"]},
+            {"id": "acceptance", "kind": "human_checkpoint", "actions": ["record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary"]},
+            {"id": "release", "kind": "internal_sqlite", "actions": ["complete", "checkpoint_context", "cross_context_boundary"]}
           ],
           "edges": [
             {"from": "proposal", "to": "discovery", "kind": "forward"},
@@ -34,7 +34,7 @@
             {"from": "execution", "to": "execution", "kind": "retry"}
           ]
         },
-        "available_actions": ["record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "record_verdict", "confirm_premise", "complete"],
+        "available_actions": ["record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"],
         "action_definitions": [
           {"id": "record_proposal", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
           {"id": "record_discovery", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
@@ -43,9 +43,13 @@
           {"id": "start_execution", "consequence": "external_effect", "approval": "none", "payload": {"fields": []}},
           {"id": "checkpoint_execution", "consequence": "external_effect", "approval": "none", "payload": {"fields": []}},
           {"id": "bind_evidence", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "declare_impact", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "link_successor", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
           {"id": "record_verdict", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
           {"id": "confirm_premise", "consequence": "internal_sqlite", "approval": "required", "payload": {"fields": []}},
-          {"id": "complete", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}}
+          {"id": "complete", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": []}},
+          {"id": "checkpoint_context", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": [{"name": "checkpoint_id", "value_type": "ref", "required": false}, {"name": "checkpoint_sequence", "value_type": "integer", "required": false, "minimum": 1, "maximum": 2147483647}, {"name": "active_unit", "value_type": "string", "required": true, "min_length": 2, "max_length": 256}, {"name": "hypothesis", "value_type": "string", "required": true, "min_length": 2, "max_length": 4096}, {"name": "diagnosis", "value_type": "string", "required": true, "min_length": 2, "max_length": 4096}, {"name": "strategy", "value_type": "string", "required": true, "min_length": 2, "max_length": 4096}, {"name": "touched_refs", "value_type": "string_list", "required": true, "min_items": 1, "max_items": 64}, {"name": "evidence_refs", "value_type": "string_list", "required": true, "min_items": 1, "max_items": 64}, {"name": "pending_questions", "value_type": "string_list", "required": true, "min_items": 0, "max_items": 16}, {"name": "pending_decisions", "value_type": "string_list", "required": true, "min_items": 0, "max_items": 16}]}},
+          {"id": "cross_context_boundary", "consequence": "internal_sqlite", "approval": "none", "payload": {"fields": [{"name": "boundary_kind", "value_type": "string", "required": true, "min_length": 1, "max_length": 16}, {"name": "mode", "value_type": "string", "required": true, "min_length": 1, "max_length": 16}, {"name": "checkpoint_id", "value_type": "ref", "required": true}, {"name": "checkpoint_sequence", "value_type": "integer", "required": false, "minimum": 1, "maximum": 2147483647}, {"name": "summary", "value_type": "string", "required": true, "min_length": 1, "max_length": 16384}]}}
         ],
         "required_evidence_kinds": ["verification", "review"],
         "outcome_schema": {"default_kind": "check", "allowed_kinds": ["exists", "absent", "check"], "allowed_outcome_tokens": [], "decision_record_required": false},

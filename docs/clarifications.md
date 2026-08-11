@@ -339,7 +339,12 @@ re-litigate them silently.
 - **What it blocks:** nothing in the storage or tool-surface slices. It shapes any
   workflow expected to run longer than one window, and it should be settled before a
   self-hosting readiness claim.
-- **Direction:** 🟠 candidate recorded, awaiting operator direction.
+- **Direction:** ✅ accepted under CD-0016 (2026-08-11). Durable checkpoints and
+  boundary records own the working state; pinned continuity is re-derived from
+  SQLite on every call; summaries are advisory and summary-only boundaries are
+  allowed only after a completed durable unit. Clean typed-agent restart is the
+  preferred future path but remains unavailable until issue #57. The canonical
+  read is `concord_work_trace.continuity` on surface 2.3.0.
 
 ---
 

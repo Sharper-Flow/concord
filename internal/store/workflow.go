@@ -13,25 +13,27 @@ import (
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
 const (
-	WorkflowDefinitionSelected   = "workflow.definition_selected"
-	WorkflowContractApproved     = "workflow.contract_approved"
-	WorkflowContractSuperseded   = "workflow.contract_superseded"
-	WorkflowCandidateSetRevised  = "workflow.candidate_set_revised"
-	WorkflowActorRecorded        = "workflow.actor_recorded"
-	WorkflowActionStarted        = "workflow.action_started"
-	WorkflowActionCheckpointed   = "workflow.action_checkpointed"
-	WorkflowActionCompleted      = "workflow.action_completed"
-	WorkflowActionFailed         = "workflow.action_failed"
-	WorkflowEvidenceBound        = "workflow.evidence_bound"
-	WorkflowVerdictRecorded      = "workflow.verdict_recorded"
-	WorkflowPremiseConfirmed     = "workflow.premise_confirmed"
-	WorkflowSuccessorLinked      = "workflow.successor_linked"
-	WorkflowImpactDeclared       = "workflow.impact_declared"
-	WorkflowImpactNoticeRecorded = "workflow.impact_notice_recorded"
-	WorkflowConditionAdded       = "workflow.condition_added"
-	WorkflowConditionResolved    = "workflow.condition_resolved"
-	WorkflowConditionCancelled   = "workflow.condition_cancelled"
-	WorkflowCompleted            = "workflow.completed"
+	WorkflowDefinitionSelected     = "workflow.definition_selected"
+	WorkflowContractApproved       = "workflow.contract_approved"
+	WorkflowContractSuperseded     = "workflow.contract_superseded"
+	WorkflowCandidateSetRevised    = "workflow.candidate_set_revised"
+	WorkflowActorRecorded          = "workflow.actor_recorded"
+	WorkflowActionStarted          = "workflow.action_started"
+	WorkflowActionCheckpointed     = "workflow.action_checkpointed"
+	WorkflowActionCompleted        = "workflow.action_completed"
+	WorkflowActionFailed           = "workflow.action_failed"
+	WorkflowEvidenceBound          = "workflow.evidence_bound"
+	WorkflowVerdictRecorded        = "workflow.verdict_recorded"
+	WorkflowPremiseConfirmed       = "workflow.premise_confirmed"
+	WorkflowSuccessorLinked        = "workflow.successor_linked"
+	WorkflowImpactDeclared         = "workflow.impact_declared"
+	WorkflowImpactNoticeRecorded   = "workflow.impact_notice_recorded"
+	WorkflowConditionAdded         = "workflow.condition_added"
+	WorkflowConditionResolved      = "workflow.condition_resolved"
+	WorkflowConditionCancelled     = "workflow.condition_cancelled"
+	WorkflowContextCheckpointed    = "workflow.context_checkpointed"
+	WorkflowContextBoundaryCrossed = "workflow.context_boundary_crossed"
+	WorkflowCompleted              = "workflow.completed"
 )
 
 type WorkflowVersionFields struct {
@@ -134,6 +136,43 @@ type workflowActionFailedPayload struct {
 	FailureKind  string `json:"failure_kind"`
 	Recoverable  bool   `json:"recoverable"`
 	ActorRef     string `json:"actor_ref"`
+}
+
+type workflowContextCheckpointedPayload struct {
+	WorkflowVersionFields
+	CheckpointID              string   `json:"checkpoint_id"`
+	CheckpointSequence        int64    `json:"checkpoint_sequence"`
+	StepID                    string   `json:"step_id"`
+	AttemptEpoch              int64    `json:"attempt_epoch"`
+	ActiveUnit                string   `json:"active_unit"`
+	Hypothesis                string   `json:"hypothesis"`
+	Diagnosis                 string   `json:"diagnosis"`
+	Strategy                  string   `json:"strategy"`
+	TouchedRefs               []string `json:"touched_refs"`
+	EvidenceRefs              []string `json:"evidence_refs"`
+	PendingQuestions          []string `json:"pending_questions"`
+	PendingDecisions          []string `json:"pending_decisions"`
+	WorkflowRef               string   `json:"workflow_ref"`
+	WorkflowDefinitionVersion int64    `json:"workflow_definition_version"`
+	WorkflowDefinitionDigest  string   `json:"workflow_definition_digest"`
+	ActorRef                  string   `json:"actor_ref"`
+	RequestID                 string   `json:"request_id"`
+}
+
+type workflowContextBoundaryCrossedPayload struct {
+	WorkflowVersionFields
+	BoundaryID                string `json:"boundary_id"`
+	BoundarySequence          int64  `json:"boundary_sequence"`
+	BoundaryKind              string `json:"boundary_kind"`
+	CheckpointID              string `json:"checkpoint_id"`
+	CheckpointSequence        int64  `json:"checkpoint_sequence"`
+	Summary                   string `json:"summary"`
+	WorkflowRef               string `json:"workflow_ref"`
+	WorkflowDefinitionVersion int64  `json:"workflow_definition_version"`
+	WorkflowDefinitionDigest  string `json:"workflow_definition_digest"`
+	AttemptEpoch              int64  `json:"attempt_epoch"`
+	ActorRef                  string `json:"actor_ref"`
+	RequestID                 string `json:"request_id"`
 }
 
 type workflowEvidenceBoundPayload struct {
@@ -240,6 +279,7 @@ var workflowAdvancementEventKinds = map[string]struct{}{
 	WorkflowEvidenceBound: {}, WorkflowVerdictRecorded: {}, WorkflowPremiseConfirmed: {},
 	WorkflowSuccessorLinked: {}, WorkflowImpactDeclared: {}, WorkflowImpactNoticeRecorded: {},
 	WorkflowConditionAdded: {}, WorkflowConditionResolved: {}, WorkflowConditionCancelled: {},
+	WorkflowContextCheckpointed: {}, WorkflowContextBoundaryCrossed: {},
 	WorkflowCompleted: {},
 }
 
@@ -278,6 +318,8 @@ func init() {
 	eventKindRegistry[WorkflowConditionAdded] = workflowRegistration(foldWorkflowConditionAdded)
 	eventKindRegistry[WorkflowConditionResolved] = workflowRegistration(foldWorkflowConditionResolved)
 	eventKindRegistry[WorkflowConditionCancelled] = workflowRegistration(foldWorkflowConditionCancelled)
+	eventKindRegistry[WorkflowContextCheckpointed] = workflowRegistration(foldWorkflowContextCheckpointed)
+	eventKindRegistry[WorkflowContextBoundaryCrossed] = workflowRegistration(foldWorkflowContextBoundaryCrossed)
 	eventKindRegistry[WorkflowCompleted] = workflowRegistration(foldWorkflowCompleted)
 }
 
@@ -326,6 +368,10 @@ func validateWorkflowPayloadShape(event Event) error {
 		target = &workflowActionCompletedPayload{}
 	case WorkflowActionFailed:
 		target = &workflowActionFailedPayload{}
+	case WorkflowContextCheckpointed:
+		target = &workflowContextCheckpointedPayload{}
+	case WorkflowContextBoundaryCrossed:
+		target = &workflowContextBoundaryCrossedPayload{}
 	case WorkflowEvidenceBound:
 		target = &workflowEvidenceBoundPayload{}
 	case WorkflowVerdictRecorded:
@@ -371,6 +417,10 @@ func validateWorkflowPayloadShape(event Event) error {
 	case *workflowActionCompletedPayload:
 		fields = payload.WorkflowVersionFields
 	case *workflowActionFailedPayload:
+		fields = payload.WorkflowVersionFields
+	case *workflowContextCheckpointedPayload:
+		fields = payload.WorkflowVersionFields
+	case *workflowContextBoundaryCrossedPayload:
 		fields = payload.WorkflowVersionFields
 	case *workflowEvidenceBoundPayload:
 		fields = payload.WorkflowVersionFields
@@ -840,6 +890,139 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_decision_records(work_id,question,options_considered,decision,rationale,consequences,inputs,poc_findings,supersedes,superseded_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpoint.Question, workflowJSON(checkpoint.Options), checkpoint.Decision, checkpoint.Rationale, workflowJSON(checkpoint.Consequences), workflowJSON(checkpoint.Inputs), checkpoint.POCFindings, valueOrNil(checkpoint.Supersedes), valueOrNil(checkpoint.SupersededBy), event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow decision")
+}
+
+func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowContextCheckpointedPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if !workflowString(p.CheckpointID, 128) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 ||
+		!workflowString(p.ActiveUnit, 256) || !workflowString(p.Hypothesis, 4096) || !workflowString(p.Diagnosis, 4096) ||
+		!workflowString(p.Strategy, 4096) || !workflowList(p.TouchedRefs, 64, 1) || !workflowList(p.EvidenceRefs, 64, 1) ||
+		!workflowList(p.PendingQuestions, 16, 0) || !workflowList(p.PendingDecisions, 16, 0) || !workflowString(p.WorkflowRef, 128) ||
+		p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest, "sha256:") || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint is incomplete or outside its bounds", false, "supply all durable working-state fields within the context continuity bounds")
+	}
+	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
+		return err
+	}
+	var currentStep, workflowRef, workflowDigestValue string
+	var workflowVersion int64
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
+		return workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
+	}
+	if (currentStep != "start" && currentStep != p.StepID) || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
+		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current workflow step and definition", false, "reread the current workflow context")
+	}
+	var activeAttempt int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, event.SubjectID).Scan(&activeAttempt); err != nil {
+		return workflowProjectionError(err, "cannot read workflow attempt epoch")
+	}
+	if activeAttempt != p.AttemptEpoch {
+		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current attempt epoch", false, "reread the current workflow attempt")
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(checkpoint_sequence),0)+1 FROM workflow_context_checkpoints WHERE work_id=?`, event.SubjectID).Scan(&sequence); err != nil {
+		return workflowProjectionError(err, "cannot assign context checkpoint sequence")
+	}
+	if p.CheckpointSequence != 0 && p.CheckpointSequence != sequence {
+		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint sequence is not the next monotonic sequence", false, "use the next checkpoint sequence")
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, p.CheckpointID, p.StepID, p.AttemptEpoch, p.ActiveUnit, p.Hypothesis, p.Diagnosis, p.Strategy, workflowJSON(p.TouchedRefs), workflowJSON(p.EvidenceRefs), workflowJSON(p.PendingQuestions), workflowJSON(p.PendingDecisions), p.WorkflowRef, p.WorkflowDefinitionVersion, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	return workflowProjectionError(err, "cannot record context checkpoint")
+}
+
+func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowContextBoundaryCrossedPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest, "sha256:") || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+		return newFailure(KindInvalidPayload, "fold_event", "context boundary is not a bounded summary boundary", false, "cross only a summary boundary after a durable checkpoint")
+	}
+	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
+		return err
+	}
+	var workflowRef, workflowDigestValue string
+	var workflowVersion int64
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
+		return workflowProjectionError(err, "cannot read workflow identity for context boundary")
+	}
+	if workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
+		return newFailure(KindStaleAttempt, "fold_event", "context boundary does not bind the current workflow definition", false, "reread the current workflow context")
+	}
+	var checkpointVersion, checkpointSequence, attemptEpoch int64
+	var checkpointStep string
+	var pendingDecisions string
+	if err := tx.QueryRowContext(ctx, `SELECT work_version,checkpoint_sequence,step_id,attempt_epoch,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? AND checkpoint_id=?`, event.SubjectID, p.CheckpointID).Scan(&checkpointVersion, &checkpointSequence, &checkpointStep, &attemptEpoch, &pendingDecisions); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindInvalidOperation, "fold_event", "context boundary requires a durable checkpoint", false, "checkpoint_context before crossing a boundary")
+		}
+		return workflowProjectionError(err, "cannot read context checkpoint")
+	}
+	var currentWorkVersion int64
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, event.SubjectID).Scan(&currentWorkVersion); err != nil {
+		return workflowProjectionError(err, "cannot read current work version for context boundary")
+	}
+	var currentStep string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep); err != nil {
+		return workflowProjectionError(err, "cannot read current workflow step for context boundary")
+	}
+	if currentStep == "start" {
+		currentStep = checkpointStep
+	}
+	if checkpointVersion != currentWorkVersion || checkpointStep != currentStep || attemptEpoch != p.AttemptEpoch {
+		return newFailure(KindStaleAttempt, "fold_event", "context boundary references a stale checkpoint or attempt", false, "reread the latest context checkpoint")
+	}
+	if p.CheckpointSequence != 0 && p.CheckpointSequence != checkpointSequence {
+		return newFailure(KindStaleAttempt, "fold_event", "context boundary references a stale checkpoint sequence", false, "reread the latest context checkpoint")
+	}
+	if p.CheckpointSequence == 0 {
+		p.CheckpointSequence = checkpointSequence
+	}
+	var latestCheckpointSequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(checkpoint_sequence),0) FROM workflow_context_checkpoints WHERE work_id=?`, event.SubjectID).Scan(&latestCheckpointSequence); err != nil {
+		return workflowProjectionError(err, "cannot read latest context checkpoint sequence")
+	}
+	if checkpointSequence != latestCheckpointSequence {
+		return newFailure(KindStaleAttempt, "fold_event", "context boundary must reference the latest context checkpoint", false, "reread the latest context checkpoint")
+	}
+	var pending []string
+	if json.Unmarshal([]byte(pendingDecisions), &pending) != nil {
+		return newFailure(KindInvariantViolation, "fold_event", "checkpoint pending decisions are malformed", false, "rebuild context projections from the event log")
+	}
+	if len(pending) != 0 {
+		return newFailure(KindInvalidOperation, "fold_event", "summary boundary is forbidden while operator decisions remain pending", false, "resolve pending decisions before crossing a summary boundary")
+	}
+	var active int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial'))`, event.SubjectID).Scan(&active); err != nil {
+		return workflowProjectionError(err, "cannot inspect active workflow attempts")
+	}
+	if active != 0 {
+		return newFailure(KindInvalidOperation, "fold_event", "summary boundary is forbidden during an active effect or attempt", false, "complete or reconcile the active operation first")
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(boundary_sequence),0)+1 FROM workflow_context_boundaries WHERE work_id=?`, event.SubjectID).Scan(&sequence); err != nil {
+		return workflowProjectionError(err, "cannot assign context boundary sequence")
+	}
+	if p.BoundarySequence != 0 && p.BoundarySequence != sequence {
+		return newFailure(KindInvalidPayload, "fold_event", "context boundary sequence is not monotonic", false, "use the next boundary sequence")
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, sequence, p.BoundaryID, p.BoundaryKind, p.CheckpointID, p.CheckpointSequence, p.AttemptEpoch, p.Summary, p.WorkflowRef, p.WorkflowDefinitionVersion, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	return workflowProjectionError(err, "cannot record context boundary")
 }
 
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {

@@ -490,7 +490,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
 	for _, table := range []string{
-		"workflow_premise_confirmations", "workflow_impact_notices", "workflow_impact_edges",
+		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",
 		"workflow_contracts", "workflow_decision_records", "workflow_instances", "workflow_actors",
 		"epic_entries", "relations", "work_projects", "work_items", "product_projects",

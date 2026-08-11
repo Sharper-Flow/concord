@@ -41,6 +41,7 @@ const (
 	KindUnavailable FailureKind = "unavailable"
 	// KindInvalidOperation marks an operation that cannot be applied as a unit.
 	KindInvalidOperation FailureKind = "invalid_operation"
+	KindLimitExceeded    FailureKind = "limit_exceeded"
 	// KindVersionConflict marks an optimistic-concurrency precondition that no
 	// longer matches the projection version.
 	KindVersionConflict FailureKind = "version_conflict"

@@ -82,10 +82,12 @@
       "required": ["name", "value_type", "required"],
       "properties": {
         "name": {"$ref": "#/$defs/id"},
-        "value_type": {"enum": ["string", "integer", "boolean", "ref", "digest"]},
+        "value_type": {"enum": ["string", "integer", "boolean", "ref", "digest", "string_list"]},
         "required": {"type": "boolean"},
         "min_length": {"type": "integer", "minimum": 0, "maximum": 4096},
-        "max_length": {"type": "integer", "minimum": 0, "maximum": 4096},
+        "max_length": {"type": "integer", "minimum": 0, "maximum": 16384},
+        "min_items": {"type": "integer", "minimum": 0, "maximum": 64},
+        "max_items": {"type": "integer", "minimum": 0, "maximum": 64},
         "minimum": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
         "maximum": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}
       }

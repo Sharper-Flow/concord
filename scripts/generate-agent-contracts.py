@@ -158,7 +158,7 @@ def validate(manifest: dict) -> str:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    expected_operations = 22 if manifest.get("surface", {}).get("version") in {"2.1.0", "2.2.0"} else 21
+    expected_operations = 23 if manifest.get("surface", {}).get("version") == "2.3.0" else (22 if manifest.get("surface", {}).get("version") in {"2.1.0", "2.2.0"} else 21)
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -234,6 +234,7 @@ def fixtures_projection(manifest: dict) -> str:
         return schema
     def sample(schema):
         schema=resolve(schema)
+        if "const" in schema: return schema["const"]
         if "oneOf" in schema:
             branch=schema["oneOf"][0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
             if isinstance(result,dict): base.update(result); return base

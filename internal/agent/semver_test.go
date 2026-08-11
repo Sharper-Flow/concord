@@ -18,3 +18,18 @@ func TestSemVerNegotiationIsNumericAndServerOwned(t *testing.T) {
 		t.Fatal("accepted lexical-only range")
 	}
 }
+
+func TestSurfaceNegotiationRetains21And22AndSelects23WhenAvailable(t *testing.T) {
+	for _, testCase := range []struct {
+		rangeValue string
+		want       string
+	}{
+		{rangeValue: "2.1.0-2.2.0", want: "2.2.0"},
+		{rangeValue: "2.2.0-2.3.0", want: "2.3.0"},
+	} {
+		got, err := NegotiateSurfaceVersion(testCase.rangeValue)
+		if err != nil || got != testCase.want {
+			t.Fatalf("range %q negotiated %q err=%v, want %q", testCase.rangeValue, got, err, testCase.want)
+		}
+	}
+}

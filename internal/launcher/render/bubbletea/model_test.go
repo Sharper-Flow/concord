@@ -275,8 +275,9 @@ func TestS1NavigationFilterHelpRefreshAndS2BackAreReadBounded(t *testing.T) {
 	if p.reads != 2 {
 		t.Fatalf("refresh reads=%d, want 2", p.reads)
 	}
+	p.state = launcher.Snapshot{Screen: launcher.ScreenProduct, Section: launcher.SectionRelations, Coverage: "authoritative"}
 	m.UpdateKey("enter")
-	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.StatusMessage != "not_implemented" {
+	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.StatusMessage != "" {
 		t.Fatalf("S2=%#v", got)
 	}
 	if p.reads != 3 {

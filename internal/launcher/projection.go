@@ -1,6 +1,9 @@
 package launcher
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Projection struct {
 	Header  []string
@@ -19,6 +22,28 @@ func Project(snapshot Snapshot, width int) Projection {
 	columns := []string{"Product", "Stage", "Reliance", "Actions", "Focus"}
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))
+	if snapshot.Screen == ScreenProduct {
+		columns = []string{"Work", "Priority", "Lifecycle", "Blocked", "Projects"}
+		for _, item := range snapshot.Ranked {
+			blocked := "no"
+			if item.Blocked {
+				blocked = "yes"
+			}
+			rows = append(rows, []string{item.ID + " " + item.Title, fmt.Sprintf("%d", item.Priority), item.Lifecycle, blocked, fmt.Sprintf("%d", item.ProjectCount)})
+		}
+	}
+	if snapshot.Screen == ScreenWork {
+		columns = []string{"Work", "Lifecycle", "Priority", "Projects", "Section"}
+		item := snapshot.Detail.Item
+		rows = append(rows, []string{item.ID + " " + item.Title, item.Lifecycle, fmt.Sprintf("%d", item.Priority), fmt.Sprintf("%d", item.ProjectCount), string(snapshot.Section)})
+	}
+	if snapshot.Screen != ScreenPortfolio {
+		ambient := snapshot.AmbientProduct
+		if ambient == "" {
+			ambient = "(none)"
+		}
+		return Projection{Header: []string{"PRODUCT: " + ambient, "WATERMARK: " + watermarkText(snapshot.Watermark), "AGE: " + watermarkText(snapshot.ObservedAt), "SCREEN: " + string(snapshot.Screen), "RELIANCE: " + relianceText(snapshot.Reliance), "COVERAGE: " + coverageText(snapshot.Coverage), "SECTION: " + string(snapshot.Section)}, Columns: columns, Rows: rows, Markers: []string{strings.ToUpper(string(snapshot.Section))}}
+	}
 	for _, row := range snapshot.Rows {
 		name := row.Name + row.NameSuffix
 		reliance := row.Reliance
@@ -77,4 +102,23 @@ func Project(snapshot Snapshot, width int) Projection {
 		},
 		Columns: columns, Rows: rows, Markers: markers,
 	}
+}
+
+func watermarkText(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+func relianceText(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+func coverageText(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }

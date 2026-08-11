@@ -1,6 +1,8 @@
 # Product coordination view — accepted contract
 
 **Status:** Accepted C17 contract, approved by the operator on 2026-08-11.
+**Implementation status:** Issue #51 wires the bounded S2 relation tree and ranked
+work projection; replacement readiness remains unclaimed.
 
 This document binds the Product coordination view required by Priority 4 and launcher
 S2. It preserves the previously reviewed candidate behavior: two bounded modes over

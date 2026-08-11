@@ -140,24 +140,10 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	defer rows.Close()
 	items := make([]KnowledgeItem, 0, limit)
 	for rows.Next() {
-		var item KnowledgeItem
-		var lessonTags, productIDs, projectIDs, componentIDs, tagIDs string
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &componentIDs, &tagIDs); err != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode a knowledge index row", true, "retry once the database is readable", err)
+		item, err := scanKnowledgeItem(rows)
+		if err != nil {
+			return out, err
 		}
-		if json.Unmarshal([]byte(lessonTags), &item.LessonTags) != nil {
-			return out, newFailure(KindInvariantViolation, "PM1.Q9", "indexed lesson_tags are malformed", false, "rebuild the git-derived knowledge index")
-		}
-		for _, scope := range []struct {
-			raw    string
-			target *[]string
-		}{{productIDs, &item.ProductIDs}, {projectIDs, &item.ProjectIDs}, {componentIDs, &item.ComponentIDs}, {tagIDs, &item.TagIDs}} {
-			if json.Unmarshal([]byte(scope.raw), scope.target) != nil {
-				return out, newFailure(KindInvariantViolation, "PM1.Q9", "indexed scope is malformed", false, "rebuild the git-derived knowledge index")
-			}
-		}
-		item.CommitOID = item.Commit
-		item.NotePathRef = item.NotePath
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -183,6 +169,28 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	meta.NextCursor = cursor
 	out.ResultMeta, out.Items, out.IndexWatermark = meta, items, watermark
 	return out, nil
+}
+
+func scanKnowledgeItem(rows *sql.Rows) (KnowledgeItem, error) {
+	var item KnowledgeItem
+	var lessonTags, productIDs, projectIDs, componentIDs, tagIDs string
+	if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &componentIDs, &tagIDs); err != nil {
+		return item, wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode a knowledge index row", true, "retry once the database is readable", err)
+	}
+	if json.Unmarshal([]byte(lessonTags), &item.LessonTags) != nil {
+		return item, newFailure(KindInvariantViolation, "PM1.Q9", "indexed lesson_tags are malformed", false, "rebuild the git-derived knowledge index")
+	}
+	for _, scope := range []struct {
+		raw    string
+		target *[]string
+	}{{productIDs, &item.ProductIDs}, {projectIDs, &item.ProjectIDs}, {componentIDs, &item.ComponentIDs}, {tagIDs, &item.TagIDs}} {
+		if json.Unmarshal([]byte(scope.raw), scope.target) != nil {
+			return item, newFailure(KindInvariantViolation, "PM1.Q9", "indexed scope is malformed", false, "rebuild the git-derived knowledge index")
+		}
+	}
+	item.CommitOID = item.Commit
+	item.NotePathRef = item.NotePath
+	return item, nil
 }
 
 func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error) {

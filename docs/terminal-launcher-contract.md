@@ -2,8 +2,9 @@
 
 **Status:** Accepted under [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md), 2026-08-10.
 **Implementation status:** S1 portfolio wiring shipped through issue #45 and PR #48.
-S2/S3, session launch, and the
-replacement-ready floor remain unbuilt; this slice is not replacement-ready.
+Issue #51 implements the S2 Product coordination view, S3 Work detail, scoped
+knowledge/search, explicit refresh, and identity-only OpenCode handoff. The
+replacement-ready floor remains unclaimed; this slice is not replacement-ready.
 
 This document is the accepted C18 launcher contract. CD-0014 records the rendering
 spike, exact dependency inventory, evidence gate, and Product-only query scope.

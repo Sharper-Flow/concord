@@ -3,6 +3,8 @@ package bubbletea
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -27,31 +29,41 @@ type keyMap struct {
 	Help    key.Binding
 	Quit    key.Binding
 	Clear   key.Binding
+	Search  key.Binding
+	Section key.Binding
+	Launch  key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Move, k.Filter, k.Refresh, k.Open, k.Help, k.Quit}
+	return []key.Binding{k.Move, k.Filter, k.Search, k.Section, k.Refresh, k.Open, k.Launch, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Move, k.Page, k.Filter, k.Refresh}, {k.Open, k.Back, k.Help, k.Quit, k.Clear}}
+	return [][]key.Binding{{k.Move, k.Page, k.Filter, k.Search, k.Refresh}, {k.Open, k.Back, k.Section, k.Launch, k.Help, k.Quit, k.Clear}}
 }
 
 type Model struct {
-	core       *launcher.Model
-	ctx        context.Context
-	input      textinput.Model
-	table      table.Model
-	help       help.Model
-	profile    Profile
-	projection launcher.Projection
-	filterMode bool
-	showHelp   bool
-	keys       keyMap
-	cursor     int
-	scroll     int
-	width      int
-	height     int
+	core                         *launcher.Model
+	ctx                          context.Context
+	input                        textinput.Model
+	table                        table.Model
+	help                         help.Model
+	profile                      Profile
+	projection                   launcher.Projection
+	filterMode                   bool
+	queryMode                    bool
+	queryDisplayed               bool
+	filterValue, queryValue      string
+	queryBase                    launcher.Snapshot
+	showHelp                     bool
+	keys                         keyMap
+	cursor                       int
+	scroll                       int
+	width                        int
+	height                       int
+	launch                       func(launcher.SessionHandoff) tea.Cmd
+	productCursor, productScroll int
+	queryCursor, queryScroll     int
 }
 
 func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
@@ -71,8 +83,12 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 			Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 			Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 			Clear:   key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "clear")),
+			Search:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
+			Section: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "section")),
+			Launch:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "launch")),
 		},
 	}
+	model.launch = defaultSessionLauncher
 	if !profile.Color {
 		model.help.Styles = help.Styles{}
 	}
@@ -90,18 +106,52 @@ func (m *Model) Sync() {
 
 // OpenFilter enters S1's read-free local filter mode.
 func (m *Model) OpenFilter() tea.Cmd {
+	if m.core.Snapshot().Screen == launcher.ScreenWork {
+		return nil
+	}
 	m.filterMode = true
+	m.queryMode = false
+	m.input.Prompt = "FILTER: "
+	m.input.SetValue(m.filterValue)
 	return m.input.Focus()
 }
 
 // OpenQuery remains a compatibility name from the renderer spike. It opens
 // only the S1 local filter; no semantic query read is available on S1.
-func (m *Model) OpenQuery() tea.Cmd { return m.OpenFilter() }
+func (m *Model) OpenQuery() tea.Cmd {
+	if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
+		m.queryBase = m.core.Snapshot()
+		m.queryCursor, m.queryScroll = m.cursor, m.scroll
+		m.queryMode = true
+		m.filterMode = false
+		m.input.Prompt = "QUERY: "
+		m.queryValue = ""
+		m.input.SetValue("")
+		return m.input.Focus()
+	}
+	return m.OpenFilter()
+}
 
-func (m *Model) QueryValue() string  { return m.input.Value() }
-func (m *Model) FilterValue() string { return m.input.Value() }
-func (m *Model) Cursor() int         { return m.cursor }
-func (m *Model) HelpVisible() bool   { return m.showHelp }
+func (m *Model) SetSessionLauncher(fn func(launcher.SessionHandoff) tea.Cmd) {
+	if fn != nil {
+		m.launch = fn
+	}
+}
+
+func (m *Model) QueryValue() string {
+	if m.queryMode || m.filterMode {
+		return m.input.Value()
+	}
+	return m.queryValue
+}
+func (m *Model) FilterValue() string {
+	if m.filterMode {
+		return m.input.Value()
+	}
+	return m.filterValue
+}
+func (m *Model) Cursor() int       { return m.cursor }
+func (m *Model) HelpVisible() bool { return m.showHelp }
 
 // UpdateKey feeds a deterministic key event to tests and internal callers.
 func (m *Model) UpdateKey(value string) tea.Cmd {
@@ -147,9 +197,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Sync()
 		return m, nil
 	case tea.PasteMsg:
-		if m.filterMode {
+		if m.filterMode || m.queryMode {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
+			m.storeInputValue()
 			m.clampCursor()
 			return m, cmd
 		}
@@ -162,20 +213,48 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	keyValue := msg.Key()
-	if m.filterMode {
+	if m.filterMode || m.queryMode {
 		switch {
 		case keyValue.Mod&tea.ModCtrl != 0 && keyValue.Code == 'l':
 			m.input.Reset()
+			m.storeInputValue()
 			m.clampCursor()
 			return m, nil
-		case key == "enter", key == "esc":
-			m.filterMode = false
+		case key == "enter":
+			wasQuery := m.queryMode
+			value := m.input.Value()
+			m.filterMode, m.queryMode = false, false
 			m.input.Blur()
+			if wasQuery {
+				m.queryValue = value
+				if err := m.core.SubmitQuery(m.ctx, value); err != nil {
+					m.setError(err)
+				} else {
+					m.queryDisplayed = true
+				}
+			} else {
+				m.filterValue = value
+			}
+			m.clampCursor()
+			m.Sync()
+			return m, nil
+		case key == "esc":
+			wasQuery := m.queryMode
+			m.filterMode, m.queryMode = false, false
+			m.input.Blur()
+			if wasQuery {
+				m.core.RestoreSnapshot(m.queryBase)
+				m.cursor, m.scroll = m.queryCursor, m.queryScroll
+				m.queryDisplayed = m.queryBase.QueryResult
+				m.queryValue = ""
+				m.Sync()
+			}
 			m.clampCursor()
 			return m, nil
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
+		m.storeInputValue()
 		m.clampCursor()
 		return m, cmd
 	}
@@ -183,6 +262,27 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "/":
 		return m, m.OpenFilter()
+	case "s":
+		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
+			return m, m.OpenQuery()
+		}
+	case "tab":
+		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
+			next := launcher.SectionRelations
+			switch m.core.Section() {
+			case launcher.SectionRelations:
+				next = launcher.SectionRanked
+			case launcher.SectionRanked:
+				next = launcher.SectionKnowledge
+			}
+			if next == launcher.SectionKnowledge {
+				if err := m.core.EnsureKnowledge(m.ctx); err != nil {
+					m.setError(err)
+				}
+			}
+			_ = m.core.SetSection(next)
+			m.Sync()
+		}
 	case "?":
 		m.showHelp = !m.showHelp
 		return m, nil
@@ -192,6 +292,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.Sync()
 		return m, nil
+	case "l":
+		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
+			return m, m.launch(m.core.Handoff())
+		}
 	case "j", "down":
 		m.move(1)
 	case "k", "up":
@@ -199,7 +303,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		m.cursor, m.scroll = 0, 0
 	case "G":
-		m.cursor = max(0, len(m.filteredRows())-1)
+		m.cursor = max(0, m.rowCount()-1)
 		m.adjustScroll()
 	case "ctrl+d":
 		m.move(m.pageSize() / 2)
@@ -216,16 +320,43 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if err := m.core.SelectProduct(m.ctx, rows[m.cursor].ID); err != nil {
 					m.setError(err)
 				}
+				m.filterValue = ""
+				m.input.Reset()
+				m.Sync()
+			}
+		} else if m.core.Snapshot().Screen == launcher.ScreenProduct && m.core.Section() == launcher.SectionRanked {
+			rows := m.filteredRanked()
+			if len(rows) > 0 && m.cursor < len(rows) {
+				m.productCursor, m.productScroll = m.cursor, m.scroll
+				if err := m.core.SelectWork(m.ctx, rows[m.cursor].ID); err != nil {
+					m.setError(err)
+				}
+				m.filterValue = ""
+				m.input.Reset()
 				m.Sync()
 			}
 		}
 	case "esc", "h", "left":
+		if m.queryDisplayed {
+			m.core.RestoreSnapshot(m.queryBase)
+			m.cursor, m.scroll = m.queryCursor, m.queryScroll
+			m.queryDisplayed = m.queryBase.QueryResult
+			m.queryValue = ""
+			m.input.Reset()
+			m.Sync()
+			return m, nil
+		}
+		wasWork := m.core.Snapshot().Screen == launcher.ScreenWork
 		if err := m.core.Back(); err != nil {
 			m.setError(err)
 		}
 		m.Sync()
+		if wasWork {
+			m.cursor, m.scroll = m.productCursor, m.productScroll
+			m.clampCursor()
+		}
 	case "q", "ctrl+c":
-		if m.core.Snapshot().Screen == launcher.ScreenProduct {
+		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
 			_ = m.core.Back()
 			m.Sync()
 			return m, nil
@@ -233,6 +364,14 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m *Model) storeInputValue() {
+	if m.queryMode {
+		m.queryValue = m.input.Value()
+	} else if m.filterMode {
+		m.filterValue = m.input.Value()
+	}
 }
 
 func (m *Model) setError(err error) {
@@ -247,7 +386,7 @@ func (m *Model) setError(err error) {
 
 func (m *Model) filteredRows() []launcher.ProductRow {
 	rows := m.core.Snapshot().Rows
-	needle := strings.ToLower(m.input.Value())
+	needle := strings.ToLower(m.filterValue)
 	if needle == "" {
 		return rows
 	}
@@ -260,9 +399,24 @@ func (m *Model) filteredRows() []launcher.ProductRow {
 	return filtered
 }
 
+func (m *Model) filteredRanked() []launcher.RankedWork {
+	rows := m.core.Snapshot().Ranked
+	needle := strings.ToLower(m.filterValue)
+	if needle == "" {
+		return rows
+	}
+	out := make([]launcher.RankedWork, 0, len(rows))
+	for _, row := range rows {
+		if strings.Contains(strings.ToLower(row.ID+" "+row.Title+" "+row.Kind+" "+row.Lifecycle), needle) {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
 func (m *Model) move(delta int) {
-	rows := m.filteredRows()
-	if len(rows) == 0 {
+	count := m.rowCount()
+	if count == 0 {
 		m.cursor, m.scroll = 0, 0
 		return
 	}
@@ -270,8 +424,8 @@ func (m *Model) move(delta int) {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	if m.cursor >= len(rows) {
-		m.cursor = len(rows) - 1
+	if m.cursor >= count {
+		m.cursor = count - 1
 	}
 	m.adjustScroll()
 }
@@ -294,15 +448,26 @@ func (m *Model) adjustScroll() {
 }
 
 func (m *Model) clampCursor() {
-	rows := m.filteredRows()
-	if len(rows) == 0 {
+	count := m.rowCount()
+	if count == 0 {
 		m.cursor, m.scroll = 0, 0
 		return
 	}
-	if m.cursor >= len(rows) {
-		m.cursor = len(rows) - 1
+	if m.cursor >= count {
+		m.cursor = count - 1
 	}
 	m.adjustScroll()
+}
+
+func (m *Model) rowCount() int {
+	s := m.core.Snapshot()
+	if s.Screen == launcher.ScreenProduct {
+		return len(m.filteredRanked())
+	}
+	if s.Screen == launcher.ScreenWork {
+		return len(s.Detail.History)
+	}
+	return len(m.filteredRows())
 }
 
 func (m *Model) Init() tea.Cmd  { return nil }
@@ -313,8 +478,16 @@ func (m *Model) View() tea.View { return tea.NewView(m.Render()) }
 func (m *Model) Render() string {
 	projection := m.projection
 	rows := m.filteredRows()
+	screen := m.core.Snapshot().Screen
+	m.keys.Search.SetEnabled(screen != launcher.ScreenPortfolio)
+	m.keys.Filter.SetEnabled(screen != launcher.ScreenWork)
+	m.keys.Section.SetEnabled(screen != launcher.ScreenPortfolio)
+	m.keys.Launch.SetEnabled(screen != launcher.ScreenPortfolio)
 	if m.core.Snapshot().Screen == launcher.ScreenProduct {
 		return m.renderS2(projection.Header)
+	}
+	if m.core.Snapshot().Screen == launcher.ScreenWork {
+		return m.renderS3(projection.Header)
 	}
 	widths := columnWidths(m.width)
 	columns := make([]table.Column, len(projection.Columns))
@@ -345,9 +518,9 @@ func (m *Model) Render() string {
 	lines = wrapHeaders(lines, m.width)
 	if m.filterMode {
 		lines = append(lines, m.input.View())
-	} else if m.input.Value() != "" {
+	} else if m.filterValue != "" {
 		hidden := len(m.core.Snapshot().Rows) - len(rows)
-		lines = append(lines, "FILTERED: "+m.input.Value()+" (hidden: "+fmtInt(hidden)+")")
+		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(hidden)+")")
 	}
 	snapshot := m.core.Snapshot()
 	if len(snapshot.Rows) == 0 && snapshot.Coverage == "first_run" {
@@ -359,21 +532,163 @@ func (m *Model) Render() string {
 	}
 	lines = append(lines, m.table.View())
 	if m.showHelp {
-		lines = append(lines, "HELP: "+m.help.View(m.keys))
+		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
 	} else {
-		lines = append(lines, m.help.View(m.keys))
+		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (m *Model) renderS2(headers []string) string {
 	lines := append([]string{}, headers...)
-	lines = append(lines, "S2 PRODUCT: not_implemented", "S2: Product coordination remains outside S1", "KEYS: esc/h/left back  q back")
+	s := m.core.Snapshot()
+	lines = append(lines, "S2 PRODUCT COORDINATION", "SECTION: "+string(s.Section), "RELIANCE: "+s.Reliance+" COVERAGE: "+s.Coverage)
+	if s.StatusMessage != "" {
+		lines = append(lines, "STATUS: "+s.StatusMessage)
+	}
+	if m.filterMode {
+		lines = append(lines, m.input.View())
+	} else if m.filterValue != "" {
+		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
+	}
+	switch s.Section {
+	case launcher.SectionRelations:
+		if s.Relations.Unavailable != "" {
+			lines = append(lines, "RELATIONS: unavailable: "+s.Relations.Unavailable)
+		}
+		if s.Relations.Invariant != "" {
+			lines = append(lines, "INVARIANT: "+s.Relations.Invariant)
+		}
+		if len(s.Relations.Roots) > 0 {
+			lines = append(lines, "ROOTS: "+strings.Join(s.Relations.Roots, ", "))
+		}
+		if len(s.Relations.Components) == 0 {
+			lines = append(lines, "RELATIONS: authoritative-empty")
+		}
+		for i, component := range s.Relations.Components {
+			lines = append(lines, "COMPONENT "+fmtInt(i+1)+": "+strings.Join(component, " -> "))
+		}
+		for _, edge := range s.Relations.Edges {
+			lines = append(lines, "EDGE "+edge.Kind+": "+edge.Source+" -> "+edge.Target)
+		}
+	case launcher.SectionRanked:
+		ranked := m.filteredRanked()
+		if len(ranked) == 0 {
+			lines = append(lines, "WORK: authoritative-empty")
+		}
+		for i, item := range ranked {
+			marker := "ACTIVE"
+			if item.Ready {
+				marker = "READY"
+			}
+			if item.Blocked {
+				marker = "BLOCKED"
+			}
+			lines = append(lines, fmtInt(i+1)+" "+marker+" "+item.ID+" "+item.Title+" priority="+fmtInt64(item.Priority)+" lifecycle="+item.Lifecycle+" projects="+fmtInt(item.ProjectCount))
+			for _, blocker := range item.Blockers {
+				external := ""
+				if blocker.External {
+					external = " external"
+				}
+				lines = append(lines, "  BLOCKER "+blocker.ID+" "+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
+			}
+		}
+	case launcher.SectionKnowledge:
+		lines = append(lines, knowledgeLines(s.Knowledge)...)
+	}
+	if s.QueryResult {
+		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
+	}
+	if s.QueryResult && len(s.Knowledge.Items) > 0 {
+		lines = append(lines, "KNOWLEDGE MATCHES:")
+		for _, item := range s.Knowledge.Items {
+			lines = append(lines, "  "+item.Kind+" "+item.ID+" "+item.Title)
+		}
+	}
+	if s.QueryResult {
+		lines = append(lines, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
+	}
 	if m.showHelp {
-		lines = append(lines, "HELP: esc/h/left back  q back  ? hide")
+		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
+	} else {
+		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
 	}
 	return strings.Join(wrapHeaders(lines, m.width), "\n")
 }
+
+func (m *Model) renderS3(headers []string) string {
+	lines := append([]string{}, headers...)
+	s := m.core.Snapshot()
+	if s.QueryResult {
+		lines = append(lines, "S3 WORK SEARCH", "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
+		for _, item := range s.Ranked {
+			lines = append(lines, "WORK MATCH: "+item.ID+" "+item.Title+" lifecycle="+item.Lifecycle)
+		}
+		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
+		lines = append(lines, knowledgeLines(s.Knowledge)...)
+		if m.showHelp {
+			lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
+		} else {
+			lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
+		}
+		return strings.Join(wrapHeaders(lines, m.width), "\n")
+	}
+	d := s.Detail
+	lines = append(lines, "S3 WORK DETAIL", "WORK: "+d.Item.ID+" "+d.Item.Title, "LIFECYCLE: "+d.Item.Lifecycle+" PRIORITY: "+fmtInt64(d.Item.Priority), "SECTION: "+string(s.Section), "PROJECTS: "+strings.Join(d.Projects, ", "), "WORKFLOW: "+d.Workflow)
+	if s.StatusMessage != "" {
+		lines = append(lines, "STATUS: "+s.StatusMessage)
+	}
+	if d.Item.Blocked {
+		for _, b := range d.Item.Blockers {
+			lines = append(lines, "BLOCKER: "+b.ID+" "+b.Title+" authority="+b.Authority+" age="+b.Age)
+		}
+	} else {
+		lines = append(lines, "BLOCKED: no")
+	}
+	switch s.Section {
+	case launcher.SectionKnowledge:
+		lines = append(lines, knowledgeLines(s.Knowledge)...)
+	case launcher.SectionRelations:
+		for _, e := range d.Edges {
+			lines = append(lines, "EDGE "+e.Kind+": "+e.Source+" -> "+e.Target)
+		}
+	case launcher.SectionRanked:
+		for _, h := range d.History {
+			lines = append(lines, "HISTORY: "+h)
+		}
+	}
+	if s.QueryResult && len(s.Knowledge.Items) > 0 {
+		lines = append(lines, "KNOWLEDGE MATCHES:")
+		for _, item := range s.Knowledge.Items {
+			lines = append(lines, "  "+item.Kind+" "+item.ID+" "+item.Title)
+		}
+	}
+	if m.showHelp {
+		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
+	} else {
+		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
+	}
+	return strings.Join(wrapHeaders(lines, m.width), "\n")
+}
+
+func knowledgeLines(section launcher.KnowledgeSection) []string {
+	if !section.Read {
+		return []string{"KNOWLEDGE: unread"}
+	}
+	if section.State == "unavailable" {
+		return []string{"KNOWLEDGE: unavailable: " + section.Reason}
+	}
+	if len(section.Items) == 0 {
+		return []string{"KNOWLEDGE: authoritative-empty"}
+	}
+	out := []string{"KNOWLEDGE:"}
+	for _, item := range section.Items {
+		out = append(out, "  "+item.Kind+" "+item.ID+" "+item.Title+" "+item.Reference)
+	}
+	return out
+}
+
+func helpLines(value string, width int) []string { return splitDisplay(value, width) }
 
 func actionText(row launcher.ProductRow) string {
 	if row.CountsState == "unavailable" {
@@ -416,6 +731,39 @@ func fmtInt(value int) string {
 		value /= 10
 	}
 	return string(digits)
+}
+
+func fmtInt64(value int64) string {
+	if value < 0 {
+		return "-" + fmtInt64(-value)
+	}
+	return fmtInt(int(value))
+}
+
+func defaultSessionLauncher(handoff launcher.SessionHandoff) tea.Cmd {
+	prompt := "Concord identity: product_id=" + handoff.ProductID
+	cmd := exec.Command("opencode", "--prompt", prompt)
+	cmd.Env = handoffEnv(handoff)
+	if handoff.WorkID != "" {
+		prompt += " work_id=" + handoff.WorkID
+		cmd.Args = []string{"opencode", "--prompt", prompt}
+	}
+	return tea.ExecProcess(cmd, nil)
+}
+
+func handoffEnv(handoff launcher.SessionHandoff) []string {
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, value := range os.Environ() {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") {
+			continue
+		}
+		env = append(env, value)
+	}
+	env = append(env, "CONCORD_SELECTED_PRODUCT_ID="+handoff.ProductID)
+	if handoff.WorkID != "" {
+		env = append(env, "CONCORD_SELECTED_WORK_ID="+handoff.WorkID)
+	}
+	return env
 }
 
 func columnWidths(width int) []int {

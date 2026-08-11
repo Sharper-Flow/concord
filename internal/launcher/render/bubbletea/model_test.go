@@ -279,11 +279,11 @@ func TestS1NavigationFilterHelpRefreshAndS2BackAreReadBounded(t *testing.T) {
 	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.StatusMessage != "not_implemented" {
 		t.Fatalf("S2=%#v", got)
 	}
-	if p.reads != 2 {
+	if p.reads != 3 {
 		t.Fatalf("selection reads=%d", p.reads)
 	}
 	m.UpdateKey("esc")
-	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 2 {
+	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 3 {
 		t.Fatalf("back screen=%s reads=%d", core.Snapshot().Screen, p.reads)
 	}
 }
@@ -308,5 +308,177 @@ func TestS1QuitReturnsTeaQuitAndNoRead(t *testing.T) {
 	_, cmd := m.Update(keyPress('q', "q", 0))
 	if cmd == nil || p.reads != 0 {
 		t.Fatalf("quit cmd=%v reads=%d", cmd != nil, p.reads)
+	}
+}
+
+type coordinationPort struct {
+	reads    int
+	requests []launcher.ReadRequest
+}
+
+func (p *coordinationPort) Read(_ context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
+	p.reads++
+	p.requests = append(p.requests, request)
+	switch request.Kind {
+	case launcher.ReadPortfolio:
+		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: []launcher.ProductRow{{ID: "product-1", Name: "Product One"}}}, nil
+	case launcher.ReadProduct:
+		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: request.Section, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Depth: 3}}, nil
+	case launcher.ReadSearch:
+		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionRanked, Coverage: "authoritative", QueryResult: true, QuerySubmitted: request.Query, Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}}}, nil
+	case launcher.ReadWork:
+		return launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: request.Section, Coverage: "authoritative", Detail: launcher.WorkDetail{Item: launcher.RankedWork{ID: request.Work, Title: "First", Lifecycle: "needed", Priority: 1}, History: []string{"created"}}}, nil
+	case launcher.ReadKnowledge:
+		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionKnowledge, Coverage: "authoritative", Knowledge: launcher.KnowledgeSection{Read: true, State: "authoritative-empty"}}, nil
+	default:
+		return launcher.Snapshot{}, nil
+	}
+}
+
+func TestS2S3NavigationRestoresProductSelectionAndScroll(t *testing.T) {
+	p := &coordinationPort{}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("enter")
+	if core.Snapshot().Screen != launcher.ScreenProduct || p.reads != 2 {
+		t.Fatalf("S2=%#v reads=%d", core.Snapshot(), p.reads)
+	}
+	m.UpdateKey("tab") // relation -> ranked
+	m.UpdateKey("j")
+	m.UpdateKey("enter")
+	if core.Snapshot().Screen != launcher.ScreenWork || core.Handoff().WorkID != "work-2" || p.reads != 3 {
+		t.Fatalf("S3=%#v reads=%d", core.Snapshot(), p.reads)
+	}
+	m.UpdateKey("esc")
+	if core.Snapshot().Screen != launcher.ScreenProduct || m.Cursor() != 1 || core.Section() != launcher.SectionRanked {
+		t.Fatalf("restored product=%#v cursor=%d", core.Snapshot(), m.Cursor())
+	}
+}
+
+func TestKnowledgeIsLazyAndQuerySubmitsExactlyOnce(t *testing.T) {
+	p := &coordinationPort{}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("enter")
+	reads := p.reads
+	m.UpdateKey("tab")
+	if p.reads != reads {
+		t.Fatalf("relation to ranked read=%d", p.reads)
+	}
+	m.UpdateKey("tab")
+	if p.reads != reads+1 || !core.Snapshot().Knowledge.Read {
+		t.Fatalf("knowledge read=%d snapshot=%#v", p.reads, core.Snapshot())
+	}
+	m.UpdateKey("tab") // knowledge -> relations
+	m.UpdateKey("tab") // relations -> ranked
+	m.UpdateKey("s")
+	m.Update(keyPress('b', "b", 0))
+	if p.reads != reads+1 {
+		t.Fatalf("query typing read=%d", p.reads)
+	}
+	m.UpdateKey("enter")
+	if p.reads != reads+2 || len(p.requests) == 0 || p.requests[len(p.requests)-1].Kind != launcher.ReadSearch {
+		t.Fatalf("query submit reads=%d requests=%#v", p.reads, p.requests)
+	}
+}
+
+func TestDisplayedQueryEscRestoresSnapshotCursorAndScroll(t *testing.T) {
+	p := &coordinationPort{}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("enter")
+	m.UpdateKey("tab")
+	m.UpdateKey("j")
+	m.scroll = 1
+	m.UpdateKey("s")
+	m.Update(keyPress('b', "b", 0))
+	m.UpdateKey("enter")
+	if p.reads != 3 {
+		t.Fatalf("query must make exactly one port read: %d", p.reads)
+	}
+	m.UpdateKey("esc")
+	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.Section != launcher.SectionRanked || m.Cursor() != 1 || m.scroll != 1 {
+		t.Fatalf("query Esc did not restore prior Product state: snapshot=%#v cursor=%d scroll=%d", got, m.Cursor(), m.scroll)
+	}
+}
+
+func TestFilterAndQueryInputRemainSeparate(t *testing.T) {
+	p := &coordinationPort{}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("/")
+	m.Update(keyPress('p', "p", 0))
+	m.UpdateKey("enter")
+	if m.FilterValue() != "p" {
+		t.Fatalf("filter value=%q", m.FilterValue())
+	}
+	m.UpdateKey("enter")
+	if m.FilterValue() != "" {
+		t.Fatalf("S1 filter leaked into S2: %q", m.FilterValue())
+	}
+	m.UpdateKey("s")
+	if m.QueryValue() != "" {
+		t.Fatalf("semantic query inherited filter input: %q", m.QueryValue())
+	}
+	m.Update(keyPress('q', "q", 0))
+	m.UpdateKey("enter")
+	if m.FilterValue() != "" || core.Snapshot().QuerySubmitted != "q" {
+		t.Fatalf("submitted query became local filter: filter=%q snapshot=%#v", m.FilterValue(), core.Snapshot())
+	}
+}
+
+func TestS2AndS3RenderUnavailableForegroundReadState(t *testing.T) {
+	for _, snapshot := range []launcher.Snapshot{
+		{Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"},
+		{Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-1", Section: launcher.SectionRelations, Coverage: "unreachable", StatusMessage: "database unavailable"},
+	} {
+		p := &port{state: snapshot}
+		core := launcher.New(p)
+		core.RestoreSnapshot(snapshot)
+		m := New(core, context.Background(), Profile{})
+		rendered := m.Render()
+		if !strings.Contains(rendered, "STATUS: "+snapshot.StatusMessage) {
+			t.Fatalf("foreground read state must remain visible: %q", rendered)
+		}
+	}
+}
+
+func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
+	p := &coordinationPort{}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.SelectWork(context.Background(), "work-1"); err != nil {
+		t.Fatal(err)
+	}
+	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 1 {
+		t.Fatalf("ambient-less work selection=%#v reads=%d", core.Snapshot(), p.reads)
+	}
+	m := New(core, context.Background(), Profile{})
+	called := launcher.SessionHandoff{}
+	m.SetSessionLauncher(func(handoff launcher.SessionHandoff) tea.Cmd { called = handoff; return func() tea.Msg { return nil } })
+	m.UpdateKey("enter")
+	m.UpdateKey("l")
+	if called != (launcher.SessionHandoff{ProductID: "product-1"}) {
+		t.Fatalf("S2 handoff=%#v", called)
+	}
+	m.UpdateKey("tab")
+	m.UpdateKey("enter")
+	m.UpdateKey("l")
+	if called.ProductID != "product-1" || called.WorkID != "work-1" {
+		t.Fatalf("S3 handoff=%#v", called)
 	}
 }

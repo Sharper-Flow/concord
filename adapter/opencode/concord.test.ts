@@ -56,6 +56,38 @@ test("grant bootstrap sends typed assertion arrays and preserves the canonical v
   expect(Buffer.from(canonicalAssertion(canonicalFields as any)).toString("base64")).toBe(grantAssertionVector.canonical_base64)
 })
 
+test("launcher Product identity is validated and bound during grant bootstrap", async () => {
+  const previous = process.env.CONCORD_SELECTED_PRODUCT_ID
+  process.env.CONCORD_SELECTED_PRODUCT_ID = "product-launcher-51"
+  let request: any
+  try {
+    await runProduct({ async run(_argv: string[], input: string) {
+      if (!request) request = JSON.parse(input)
+      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    } })
+  } finally {
+    if (previous === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
+    else process.env.CONCORD_SELECTED_PRODUCT_ID = previous
+  }
+  expect(request.assertion.requested_product_id).toBe("product-launcher-51")
+})
+
+test("invalid launcher Product identity is not granted", async () => {
+  const previous = process.env.CONCORD_SELECTED_PRODUCT_ID
+  process.env.CONCORD_SELECTED_PRODUCT_ID = "../other-product"
+  let request: any
+  try {
+    await runProduct({ async run(_argv: string[], input: string) {
+      if (!request) request = JSON.parse(input)
+      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    } })
+  } finally {
+    if (previous === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
+    else process.env.CONCORD_SELECTED_PRODUCT_ID = previous
+  }
+  expect(request.assertion.requested_product_id).toBe("")
+})
+
 test("single core response rejects invalid trailing content", async () => {
   for (const suffix of [" garbage", "\n{}"] as const) {
     let calls = 0
@@ -253,6 +285,28 @@ test("fake seams exercise grant bootstrap and malformed-response handling", asyn
   expect(result.error.kind).toBe("malformed_response")
   expect(result.error.adapter_reason).toBe("malformed_core_response")
   expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+})
+
+test("grant cache remains bound to the requested capability", async () => {
+  let calls = 0
+  const requestedCapabilities: string[] = []
+  const runner = { async run(_argv: string[], input: string) {
+    calls++
+    const request = JSON.parse(input)
+    if (calls === 1 || calls === 3) {
+      requestedCapabilities.push(request.assertion.requested_capabilities[0])
+      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    }
+    const response = calls === 2
+      ? coreEnvelope("concord_product_view", "resolve", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } })
+      : coreEnvelope("concord_work_transition", "lifecycle", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } })
+    return { exitCode: 0, stdout: JSON.stringify(response), stderr: "" }
+  } }
+  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+  await adapter.product_view.execute({ operation: "resolve", input: { product_id: "product-1" } }, contextFor())
+  await adapter.work_transition.execute({ operation: "lifecycle", input: { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" } }, contextFor())
+  expect(requestedCapabilities).toEqual(["product_read", "work_transition"])
+  expect(calls).toBe(4)
 })
 
 test("canonical host approval vector matches core encoding", () => {

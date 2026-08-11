@@ -1,8 +1,8 @@
 # Terminal launcher — accepted contract
 
 **Status:** Accepted under [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md), 2026-08-10.
-**Implementation status:** S1 portfolio wiring is implemented in issue #45 and is
-shipped only after its pull request merges. S2/S3, session launch, and the
+**Implementation status:** S1 portfolio wiring shipped through issue #45 and PR #48.
+S2/S3, session launch, and the
 replacement-ready floor remain unbuilt; this slice is not replacement-ready.
 
 This document is the accepted C18 launcher contract. CD-0014 records the rendering
@@ -17,23 +17,23 @@ Product-first visibility part of the replacement-ready floor. R1 in
 operating surface and that the predecessor session-bootstrap layer is not a candidate
 for it.
 
-Two accepted or candidate contracts describe things the launcher renders:
+Two accepted contracts describe things the launcher renders:
 
 - accepted C14 ([`product-row-contract.md`](./product-row-contract.md)) fixes the
   Product row;
-- candidate C17 proposes the Product coordination drill-down in
+- accepted C17 defines the Product coordination drill-down in
   [`product-coordination-view.md`](./product-coordination-view.md).
 
-Neither describes the launcher. C14 §Status is explicit that it "does not decide"
-terminal interaction, keybindings, layout toolkit, the Product detail screen, or the
-component tree. C17 §4 defers to the launcher as an already-accepted container. No
-accepted document specifies the container itself.
+Before C18, neither described the launcher. C14 §Status is explicit that it "does not
+decide" terminal interaction, keybindings, layout toolkit, the Product detail screen,
+or the component tree. C17 §4 defers to the launcher as an already-accepted container.
+No accepted document specified the container itself.
 
-The concrete consequence: there is today no accepted answer to what screens exist,
-how the operator moves between them, what the launcher may do, when it re-reads
-state, or what establishes the ambient Product context that
+The gap was that no accepted answer specified what screens exist, how the operator
+moves between them, what the launcher may do, when it re-reads state, or what
+establishes the ambient Product context that
 [`design-constraints.md`](./design-constraints.md) §13 requires agents to inherit
-structurally. This candidate proposes that container.
+structurally. This contract defines that container.
 
 ## 2. The launcher's job
 
@@ -75,7 +75,7 @@ prototype evidence, on the same rule C14 §11 applies to row fields.
 | # | Screen | Job | Body |
 |---|---|---|---|
 | S1 | Portfolio | Choose which Product becomes ambient context | C14 rows, paged |
-| S2 | Product | Coordinate within one Product — what is blocked, what blocks it, what is next | C17 modes, if accepted, plus the Product/Project knowledge section |
+| S2 | Product | Coordinate within one Product — what is blocked, what blocks it, what is next | Accepted C17 modes plus the Product/Project knowledge section |
 | S3 | Work | Understand one work item and resume it in a session | Work detail, workflow position, evidence, plus the work-scoped knowledge section |
 
 ### Durable knowledge is a section, not a screen
@@ -562,7 +562,7 @@ mutation surface.
 
 ## 15. Sequencing
 
-This accepted contract depends on accepted C14 plus the C17 candidate's bounded
+This accepted contract depends on accepted C14 plus accepted C17's bounded
 read shapes. The workflow engine and durable knowledge resolver have shipped, so
 neither is a stale sequencing prerequisite. A practical order is:
 
@@ -621,8 +621,7 @@ This accepted contract should be reopened when:
   ([`clarifications.md`](./clarifications.md)).
 - C14 fixes the row and explicitly defers interaction, keybindings, layout toolkit,
   and the detail screen ([`product-row-contract.md`](./product-row-contract.md)).
-- C17 proposes the Product drill-down and defers the container to the launcher
-  (candidate, not yet merged).
+- C17 defines the accepted Product drill-down and defers the container to the launcher.
 - Ambient Product context, typed degradation, no-polling impact propagation, bounded
   reads, single derivation, and non-destructive recovery are constraints §13, §2, §5,
   §14, and §19 ([`design-constraints.md`](./design-constraints.md)).

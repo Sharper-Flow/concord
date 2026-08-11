@@ -1,15 +1,15 @@
-# Product coordination view — candidate
+# Product coordination view — accepted contract
 
-**Status:** Non-authorizing candidate answer to open clarification C17.
+**Status:** Accepted C17 contract, approved by the operator on 2026-08-11.
 
-This document proposes a shape. It binds nothing, authorizes no implementation, and
-does not narrow any accepted contract. It becomes authority only if the operator
-accepts it, at which point it takes the accepted-contract form used by
-[`product-row-contract.md`](./product-row-contract.md).
+This document binds the Product coordination view required by Priority 4 and launcher
+S2. It preserves the previously reviewed candidate behavior: two bounded modes over
+canonical Product-scoped reads, structural grouping only, stored-priority ranking,
+and visible incomplete coverage.
 
 Terminal-launcher interaction and prototype detail are explicitly reserved as
 implementation design by [`rollout-plan.md`](./rollout-plan.md) and CD-0006 D6, so a
-candidate at this layer does not require a new decision record.
+contract at this layer does not require a new decision record.
 
 ## 1. The gap
 
@@ -23,10 +23,10 @@ Product dashboard. It carries at most one focus item and explicitly excludes the
 blocker graph. That is correct for a row and insufficient for coordination.
 
 C14 defers the rest in one sentence: selecting a row opens the Product or workflow
-detail where the remaining concerns belong. No accepted document specifies what that
-detail renders for coordination. This candidate proposes that one view.
+detail where the remaining concerns belong. Before C17, no accepted document
+specified what that detail renders for coordination. C17 accepts that view here.
 
-## 2. Proposed shape
+## 2. Accepted shape
 
 One **Product coordination view**, reached by selecting a Product row and opening
 Product detail, rendering two modes over already-accepted canonical queries from
@@ -36,7 +36,7 @@ Product detail, rendering two modes over already-accepted canonical queries from
 
 Source: Q8, dependencies and supersession.
 
-| Aspect | Proposed rule |
+| Aspect | Rule |
 |---|---|
 | Relation kinds | `parent`, `blocks`, `depends_on`, `supersedes`, `implements` |
 | Depth | Default 1, maximum 3, matching the Q8 bound |
@@ -54,7 +54,7 @@ it carries no authority and is not stable across two renders of unchanged state.
 
 Source: Q5, highest-priority ready work, joined with Q4, explain blocked work.
 
-| Column | Source | Proposed rule |
+| Column | Source | Rule |
 |---|---|---|
 | Work ID and title | Q5 | Title truncates before identity or priority meaning is lost |
 | Priority | Q5 explicit priority rank | Stored value, never computed or inferred |
@@ -81,9 +81,9 @@ The view inherits the reliance discipline C14 already established:
   omissions. Partial data never renders as complete, and unknown never renders as
   zero.
 
-## 4. What this candidate does not change
+## 4. What this contract does not change
 
-| Accepted item | Status under this candidate |
+| Accepted item | Status under this contract |
 |---|---|
 | R1 in [`clarifications.md`](./clarifications.md) — the launcher is the primary operator surface and the predecessor session bootstrap layer is not a candidate for it | Unchanged. This is a view inside the accepted launcher. |
 | C14 default Product row fields and exclusions | Unchanged. No field is added to the row. |
@@ -93,11 +93,11 @@ The view inherits the reliance discipline C14 already established:
 | R5 — active work first, history behind drill-down | Honored. Terminal and completed work is excluded. |
 | [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored. The view navigates and explains; it takes no substantive workflow action. |
 
-## 5. Proposed anti-requirements
+## 5. Anti-requirements
 
-Each of these is proposed as a prohibition because prose-based coordination answers
-have produced it, and each produced output that looked authoritative while being
-non-derivable and unstable across runs.
+Each of these is prohibited because prose-based coordination answers have produced
+it, and each produced output that looked authoritative while being non-derivable and
+unstable across runs.
 
 1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
    model-assigned numeric importance is heuristic authority over correctness.
@@ -118,9 +118,9 @@ non-derivable and unstable across runs.
 - Q4 relation depth default 1, maximum 3.
 - Both modes derive from the same typed projections and authority watermark as PM1.
 
-## 7. Proposed acceptance tests
+## 7. Acceptance tests
 
-A prototype would need to satisfy at minimum:
+The implementation must satisfy at minimum:
 
 - A multi-level parent chain renders as one component tree with a single root.
 - A relation cycle renders `invariant_violation` and is neither hidden nor silently
@@ -143,7 +143,7 @@ the column set or the ordering rule; it would not authorize adding inferred fiel
 
 ## 8. Sequencing
 
-This candidate depends only on already-accepted contracts, so it does not block on new
+This contract depends only on already-accepted contracts, so it does not block on new
 law. Its implementation depends on the named bounded reads being available through
 the production query surface. A practical order is:
 
@@ -154,7 +154,7 @@ the production query surface. A practical order is:
 
 ## 9. Risks
 
-| Risk | Proposed mitigation |
+| Risk | Mitigation |
 |---|---|
 | Relation edges are under-declared, so the tree looks empty and invites heuristic inference | Empty renders as authoritative-empty with an explicit reason and never falls back to inferred edges |
 | Priority ranks are unset in early corpora, making ordering look arbitrary | Missing priority is a typed absent value ordered last, never a substituted guess |
@@ -163,7 +163,7 @@ the production query surface. A practical order is:
 
 ## 10. Falsifiers
 
-This candidate should be revised or withdrawn when:
+This contract must be revised or superseded when:
 
 - the operator cannot name blocked, blocker, and next from the view in one pass;
 - structural grouping proves unusable because real work carries too few declared

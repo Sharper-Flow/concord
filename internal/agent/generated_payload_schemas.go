@@ -2346,6 +2346,10 @@ const GeneratedPayloadSchemaDocument = `{
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
+        "narrative": {
+          "maxLength": 16384,
+          "type": "string"
+        },
         "priority": {
           "maximum": 100,
           "minimum": -100,

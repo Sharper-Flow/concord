@@ -55,7 +55,7 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 22 {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 23 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','lesson','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
@@ -100,7 +100,7 @@ func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testin
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 22 {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 23 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
@@ -148,7 +148,7 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 22 {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 23 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	for _, table := range []string{"law_subjects", "law_relations"} {
@@ -166,6 +166,58 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 	}
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='law_boundary_version'`).Scan(&lawBoundaryVersion); err != nil || lawBoundaryVersion != 1 {
 		t.Fatalf("law_boundary_version column count=%d err=%v", lawBoundaryVersion, err)
+	}
+}
+
+func TestMigrateV22ToV23AddsBoundedEpicNarrative(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v22.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:22] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('pre-existing','epic','Epic','needed',1,1,'now','now')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 23 {
+		t.Fatalf("version=%d err=%v", version, err)
+	}
+	var narrative string
+	if err := db.QueryRowContext(ctx, `SELECT narrative FROM work_items WHERE id='pre-existing'`).Scan(&narrative); err != nil || narrative != "" {
+		t.Fatalf("pre-existing narrative=%q err=%v, want empty default", narrative, err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := db.ExecContext(ctx, `UPDATE work_items SET narrative=? WHERE id='pre-existing'`, strings.Repeat("n", 16385)); err == nil {
+		t.Fatal("oversize narrative bypassed bounded CHECK")
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE work_items SET narrative=? WHERE id='pre-existing'`, strings.Repeat("n", 16384)); err != nil {
+		t.Fatalf("bounded narrative rejected: %v", err)
 	}
 }
 

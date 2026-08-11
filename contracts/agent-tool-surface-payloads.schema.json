@@ -270,6 +270,10 @@
         "ready": {
           "type": "boolean"
         },
+        "narrative": {
+          "type": "string",
+          "maxLength": 16384
+        },
         "terminal_at": {
           "type": [
             "string",

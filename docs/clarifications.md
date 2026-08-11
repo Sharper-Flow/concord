@@ -263,6 +263,66 @@ re-litigate them silently.
    are implemented by issue #45 and become shipped only after merge. S2/S3 and session
    launch remain unbuilt, so Concord is not replacement-ready.
 
+### C19. Agent context continuity
+- **Question:** What law governs an agent's working context across the point where it
+  exceeds the model's window? Concord has no position. Does Concord specify
+  summarize-in-place, clean restart from a structured handoff, or both with a stated
+  precedence — and what must survive unconditionally?
+- **Why:** every long-running agent session crosses this boundary, and the boundary is
+  lossy. Published measurement finds that standing instructions are dropped
+  disproportionately relative to hard rules when a session is summarized, that
+  protecting the plan alone does not recover task success because the working state is
+  what matters, and that loss compounds across successive boundaries rather than adding.
+  A coordination system whose value is stated obligations cannot leave the survival of
+  those obligations to a summarizer's judgement.
+- **Naming hazard:** "compaction" is already taken. PM6/PM7 use it for the terminal-work
+  durable-knowledge tier — see [`compaction-design.md`](./compaction-design.md) and
+  [`compaction-retention-policy.md`](./compaction-retention-policy.md). This question is
+  unrelated to that tier and must be named **context continuity** to avoid collision.
+- **Existing contracts do not cover it.** TS5
+  ([`agent-call-context-contract.md`](./agent-call-context-contract.md)) is the per-call
+  ambient scope envelope, not the model's working window. TS2 §3
+  ([`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md)) bounds tool-schema
+  tokens, not conversation history. The C18 launcher handoff carries identity only. A
+  position here needs a new decision record; no existing record can be amended into one.
+- **Why Concord is well placed:** TS5 already states that there is no mutable protocol
+  session and no ambient state held by a daemon. If every call is stateless and all
+  state is durable, the working context is a **derived projection** that can be rebuilt
+  deterministically from the store rather than a conversation that must be compressed.
+  That removes the summarizer from the correctness path entirely. Predecessor harnesses
+  are converging on the same conclusion from the opposite direction, having started with
+  summarization and added restarts afterwards.
+- **Candidate shape (2026-08-10):** three operations at three anchors, not one setting.
+  A small **pinned** set re-emitted from durable state on every call — active obligation
+  level, pending operator decision, and the crucial subset of standing law — which is
+  never carried *through* a summary. A **summarization** step permitted only at a
+  completed unit of work, never mid-derivation, because that is the one moment when the
+  working state has just been made durable and eviction is therefore free. A **clean
+  restart** seeded from the already-approved handoff artifact at a phase boundary, where
+  the prior phase's exploration is genuinely spent. Boundaries crossed are counted and
+  observable, since compounding loss makes that count the best available signal of
+  degraded output.
+- **Predecessor evidence:** [Advance #422](https://github.com/Sharper-Flow/Advance/issues/422),
+  [#423](https://github.com/Sharper-Flow/Advance/issues/423), and
+  [#424](https://github.com/Sharper-Flow/Advance/issues/424), recorded in
+  [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md). These identify
+  mechanisms to prevent structurally; they are not work Concord must reproduce.
+- **Long-term gap surfaced by #422 (2026-08-10):** the predecessor's short-term fix bounds the
+  fallback path and adds typed size limits, but the deeper structural gap remains: the
+  predecessor's report persistence is change-keyed (reports are projections stored inside a
+  change's own record), so investigation work not tied to a change has no durable home and
+  takes the fallback every time. A proper solution needs a persistence surface for stateless
+  research output — a project-scoped or session-scoped store that is not a change projection.
+  This is tracked as a separate predecessor follow-up
+  ([Sharper-Flow/Advance](https://github.com/Sharper-Flow/Advance) ADV change
+  `changelessReportPersistence`) and should inform [Concord #43](https://github.com/Sharper-Flow/concord/issues/43):
+  bounding a delegated result is necessary but not sufficient if the result has nowhere
+  durable to land.
+- **What it blocks:** nothing in the storage or tool-surface slices. It shapes any
+  workflow expected to run longer than one window, and it should be settled before a
+  self-hosting readiness claim.
+- **Direction:** 🟠 candidate recorded, awaiting operator direction.
+
 ---
 
 ## 🟡 Medium — resolve as they come up

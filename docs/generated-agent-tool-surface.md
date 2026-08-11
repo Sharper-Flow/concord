@@ -1,13 +1,14 @@
 # Generated Concord agent tool surface
 
-Source manifest: `2.0.0` / `sha256:6d7994b5481557df2ee066967b61c9eeacc99d22eac9d3c4af3336ed857533e9`
-Payload schema digest: `sha256:d06c6d6cdd66af933101b41a081b2b5bb8e571a878eb3cc03f8434c2c827c917`
-Supported surface versions: `2.0.0`; envelope schema: `1.0`
+Source manifest: `2.1.0` / `sha256:d8d11335874981ab85d7f2c0e2ef4ed5caa3114bf7d799394e97bd7a86795dee`
+Payload schema digest: `sha256:79f934d7d40c46dd9ce6e3eeb3d98eb73b2fb030613f09c2e2c7e45d4236a61b`
+Supported surface versions: `2.1.0`; envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
 | `concord_product_view.resolve` | `read` | `PM1.Q1` | `product_read` | `read` | `always` |
 | `concord_product_view.snapshot` | `read` | `PM1.Q2` | `product_read` | `read` | `always` |
+| `concord_product_view.portfolio` | `read` | `C14.ProductRows` | `product_read` | `read` | `always` |
 | `concord_work_browse.list` | `read` | `PM1.Q3` | `product_read` | `read` | `always` |
 | `concord_work_browse.blocked` | `read` | `PM1.Q4` | `product_read` | `read` | `always` |
 | `concord_work_browse.ready` | `read` | `PM1.Q5` | `product_read` | `read` | `always` |

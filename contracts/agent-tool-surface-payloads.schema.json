@@ -1,67 +1,2488 @@
 {
-  "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "$id":"https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/agent-tool-surface-payloads.schema.json",
-  "title":"Concord TS3/TS4 operation payloads",
-  "type":"object","additionalProperties":false,
-  "$defs":{
-    "id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},
-    "short":{"type":"string","minLength":1,"maxLength":256},
-    "digest":{"type":"string","minLength":8,"maxLength":128,"pattern":"^(sha256:)?[0-9a-fA-F]{8,}$"},
-    "version":{"type":"integer","minimum":1},
-    "cursor":{"type":["string","null"],"maxLength":4096},
-    "limit":{"type":"integer","minimum":1,"maximum":100,"default":20},
-    "detail":{"type":"string","enum":["summary","full"]},
-    "direction":{"type":"string","enum":["outgoing","incoming","both"]},
-    "lifecycle":{"type":"string","enum":["needed","in_progress","completed","cancelled"]},
-    "work_kind":{"type":"string","enum":["task","bug","decision","research","epic","other"]},
-     "relation_kind":{"type":"string","enum":["parent","blocks","implements","supersedes","superseded_by"]},
-    "scope":{"type":"object","additionalProperties":false,"properties":{"product_id":{"$ref":"#/$defs/id"},"project_ids":{"type":"array","maxItems":100,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"work_ids":{"type":"array","maxItems":100,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"scope_version":{"$ref":"#/$defs/id"}}},
-    "page":{"type":"object","additionalProperties":false,"required":["cursor","limit"],"properties":{"cursor":{"$ref":"#/$defs/cursor"},"limit":{"$ref":"#/$defs/limit"}}},
-    "evidence":{"type":"object","additionalProperties":false,"required":["kind","authority","locator_kind","locator"],"properties":{"kind":{"type":"string","enum":["verification","review","approval","commit","durable_note","native_run","artifact"]},"authority":{"$ref":"#/$defs/short"},"locator_kind":{"$ref":"#/$defs/short"},"locator":{"type":"string","minLength":1,"maxLength":2048},"version":{"type":"string","maxLength":256},"digest":{"$ref":"#/$defs/digest"}}},
-    "approval":{"type":"object","additionalProperties":false,"required":["approval_ref"],"properties":{"approval_ref":{"$ref":"#/$defs/id"}}},
-    "budget":{"type":"object","additionalProperties":false,"required":["max_bytes","max_items"],"properties":{"max_bytes":{"type":"integer","minimum":1,"maximum":65536},"max_items":{"type":"integer","minimum":1,"maximum":100},"max_millis":{"type":"integer","minimum":1,"maximum":300000}}},
-    "field":{"type":"object","additionalProperties":false,"required":["name","value"],"properties":{"name":{"$ref":"#/$defs/short"},"value":{"type":["string","number","boolean","null"]}}},
-     "work_summary":{"type":"object","additionalProperties":false,"required":["id","kind","title","lifecycle","version"],"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/work_kind"},"title":{"$ref":"#/$defs/short"},"lifecycle":{"$ref":"#/$defs/lifecycle"},"version":{"$ref":"#/$defs/version"},"priority":{"type":"integer","minimum":-100,"maximum":100},"project_ids":{"type":"array","maxItems":100,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"ready":{"type":"boolean"},"terminal_at":{"type":["string","null"],"maxLength":64}}},
-      "operator_choice":{"type":"object","additionalProperties":false,"required":["id","label","description","action_id"],"properties":{"id":{"$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/short"},"description":{"$ref":"#/$defs/short"},"action_id":{"$ref":"#/$defs/id"}}},
-      "operator_question":{"type":"object","additionalProperties":false,"required":["action_id","prompt","header","choices","allow_multiple","allow_custom","premise_summary","contract_summary","decision_context_digest"],"properties":{"action_id":{"$ref":"#/$defs/id"},"prompt":{"$ref":"#/$defs/short"},"header":{"$ref":"#/$defs/short"},"choices":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"$ref":"#/$defs/operator_choice"}},"allow_multiple":{"const":false},"allow_custom":{"const":false},"premise_summary":{"$ref":"#/$defs/short"},"contract_summary":{"$ref":"#/$defs/short"},"decision_context_digest":{"$ref":"#/$defs/digest"}}},
-      "workflow_contract":{"type":"object","additionalProperties":false,"required":["version","premise","outcome_kind","outcome_payload","required_evidence","route_conventions","spec_mandate"],"properties":{"version":{"$ref":"#/$defs/version"},"premise":{"$ref":"#/$defs/short"},"outcome_kind":{"$ref":"#/$defs/short"},"outcome_payload":{"type":"string","maxLength":16384},"required_evidence":{"type":"array","maxItems":7,"items":{"$ref":"#/$defs/id"}},"route_conventions":{"type":"array","maxItems":16,"items":{"$ref":"#/$defs/id"}},"spec_mandate":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/id"}}}},
-      "workflow_read":{"type":"object","additionalProperties":false,"required":["work_id","state","current_step","definition","conditions","unresolved_conditions","unreadable_conditions","ready","blocking_conditions","impact_notices","completion_warnings"],"properties":{"work_id":{"$ref":"#/$defs/id"},"state":{"$ref":"#/$defs/short"},"current_step":{"$ref":"#/$defs/id"},"definition":{"type":"object","additionalProperties":false,"required":["ref","version","digest"],"properties":{"ref":{"$ref":"#/$defs/id"},"version":{"$ref":"#/$defs/version"},"digest":{"$ref":"#/$defs/digest"}}},"contract":{"$ref":"#/$defs/workflow_contract"},"operator_question":{"type":["object","null"],"$ref":"#/$defs/operator_question"},"candidate_ids":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/id"}},"conditions":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["id","await_type","await_ref","resolution_authority","state"],"properties":{"id":{"$ref":"#/$defs/id"},"await_type":{"$ref":"#/$defs/short"},"await_ref":{"$ref":"#/$defs/id"},"resolution_authority":{"$ref":"#/$defs/id"},"state":{"$ref":"#/$defs/short"}}}},"unresolved_conditions":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/id"}},"unreadable_conditions":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/id"}},"ready":{"type":"boolean"},"blocking_conditions":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/id"}},"impact_notices":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["notice_id","source_work_id","source_contract_version","entity_kind","entity_ref","target_work_id","edge_id","severity"],"properties":{"notice_id":{"$ref":"#/$defs/id"},"source_work_id":{"$ref":"#/$defs/id"},"source_contract_version":{"$ref":"#/$defs/version"},"entity_kind":{"$ref":"#/$defs/short"},"entity_ref":{"$ref":"#/$defs/id"},"target_work_id":{"$ref":"#/$defs/id"},"edge_id":{"$ref":"#/$defs/id"},"severity":{"$ref":"#/$defs/short"}}}},"completion_warnings":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/short"}}}},
-    "work_page":{"type":"object","additionalProperties":false,"required":["items"],"properties":{"items":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/work_summary"}},"next_cursor":{"$ref":"#/$defs/cursor"},"readiness_evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}}}},
-    "product_view_resolve_input":{"type":"object","additionalProperties":false,"properties":{"product_id":{"$ref":"#/$defs/id"},"project_id":{"$ref":"#/$defs/id"},"page":{"$ref":"#/$defs/page"},"budget":{"$ref":"#/$defs/budget"}},"oneOf":[{"required":["product_id"],"not":{"required":["project_id"]}},{"required":["project_id"],"not":{"required":["product_id"]}},{"not":{"anyOf":[{"required":["product_id"]},{"required":["project_id"]}]}}]},
-    "product_view_snapshot_input":{"type":"object","additionalProperties":false,"properties":{"product_id":{"$ref":"#/$defs/id"},"project_ids":{"type":"array","maxItems":100,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"preview_limit":{"type":"integer","minimum":1,"maximum":20},"budget":{"$ref":"#/$defs/budget"}}},
-    "work_browse_list_input":{"type":"object","additionalProperties":false,"required":["page"],"properties":{"product_id":{"$ref":"#/$defs/id"},"project_ids":{"type":"array","maxItems":100,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"work_ids":{"type":"array","maxItems":100,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"lifecycle":{"$ref":"#/$defs/lifecycle"},"kind":{"$ref":"#/$defs/work_kind"},"component_id":{"$ref":"#/$defs/id"},"tag_ids":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"priority_min":{"type":"integer","minimum":-100,"maximum":100},"priority_max":{"type":"integer","minimum":-100,"maximum":100},"detail":{"$ref":"#/$defs/detail"},"terminal_since":{"type":["string","null"],"maxLength":64},"page":{"$ref":"#/$defs/page"},"budget":{"$ref":"#/$defs/budget"}}},
-    "work_browse_ready_input":{"type":"object","additionalProperties":false,"required":["page"],"properties":{"product_id":{"$ref":"#/$defs/id"},"project_id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/work_kind"},"page":{"$ref":"#/$defs/page"},"budget":{"$ref":"#/$defs/budget"}}},
-    "work_browse_blocked_input":{"type":"object","additionalProperties":false,"required":["page"],"properties":{"product_id":{"$ref":"#/$defs/id"},"project_id":{"$ref":"#/$defs/id"},"work_id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/work_kind"},"depth":{"type":"integer","minimum":1,"maximum":3},"page":{"$ref":"#/$defs/page"},"budget":{"$ref":"#/$defs/budget"}}},
-    "work_browse_scope_input":{"type":"object","additionalProperties":false,"required":["product_id"],"properties":{"product_id":{"$ref":"#/$defs/id"},"project_id":{"$ref":"#/$defs/id"},"work_id":{"$ref":"#/$defs/id"},"page":{"$ref":"#/$defs/page"},"budget":{"$ref":"#/$defs/budget"},"one_of":{"type":"string","enum":["project","work"]}},"oneOf":[{"required":["work_id"],"not":{"required":["project_id"]}},{"required":["project_id"],"not":{"required":["work_id"]}}]},
-    "work_trace_history_input":{"type":"object","additionalProperties":false,"required":["work_id","page"],"properties":{"work_id":{"$ref":"#/$defs/id"},"direction":{"$ref":"#/$defs/direction"},"event_kinds":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/short"}},"page":{"$ref":"#/$defs/page"},"budget":{"$ref":"#/$defs/budget"}}},
-    "work_trace_relations_input":{"type":"object","additionalProperties":false,"required":["work_id"],"properties":{"work_id":{"$ref":"#/$defs/id"},"relation_kinds":{"type":"array","maxItems":8,"uniqueItems":true,"items":{"$ref":"#/$defs/relation_kind"}},"direction":{"$ref":"#/$defs/direction"},"depth":{"type":"integer","minimum":1,"maximum":3},"budget":{"$ref":"#/$defs/budget"}}},
-    "knowledge_search_input":{"type":"object","additionalProperties":false,"required":["page"],"properties":{"product_id":{"$ref":"#/$defs/id"},"project_id":{"$ref":"#/$defs/id"},"kinds":{"type":"array","maxItems":16,"uniqueItems":true,"items":{"type":"string","enum":["decision","lesson","specification","note","research"]}},"tags":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"text":{"type":"string","maxLength":512},"since":{"type":["string","null"],"maxLength":64},"until":{"type":["string","null"],"maxLength":64},"page":{"$ref":"#/$defs/page"},"budget":{"$ref":"#/$defs/budget"}}},
-    "knowledge_resolve_input":{"type":"object","additionalProperties":false,"properties":{"work_id":{"$ref":"#/$defs/id"},"knowledge_id":{"$ref":"#/$defs/id"}},"oneOf":[{"required":["work_id"],"not":{"required":["knowledge_id"]}},{"required":["knowledge_id"],"not":{"required":["work_id"]}}]},
-     "product_context":{"type":"object","additionalProperties":false,"required":["product_id","projects"],"properties":{"product_id":{"$ref":"#/$defs/id"},"stage":{"type":"string","enum":["prototype","alpha","beta","production","deprecated"]},"projects":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["project_id","version"],"properties":{"project_id":{"$ref":"#/$defs/id"},"version":{"$ref":"#/$defs/version"},"role":{"type":"string","enum":["primary","secondary"]}}}},"candidates":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"next_cursor":{"$ref":"#/$defs/cursor"}}},
-    "product_snapshot":{"type":"object","additionalProperties":false,"required":["counts","previews"],"properties":{"counts":{"type":"object","additionalProperties":false,"required":["needed","in_progress","completed","cancelled"],"properties":{"needed":{"type":"integer","minimum":0},"in_progress":{"type":"integer","minimum":0},"completed":{"type":"integer","minimum":0},"cancelled":{"type":"integer","minimum":0}}},"previews":{"type":"array","maxItems":20,"items":{"$ref":"#/$defs/work_summary"}}}},
-    "blocked_work_page":{"type":"object","additionalProperties":false,"required":["items","nodes","edges"],"properties":{"items":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/work_summary"}},"nodes":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/work_summary"}},"edges":{"type":"array","maxItems":200,"items":{"type":"object","additionalProperties":false,"required":["from","to","kind"],"properties":{"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"kind":{"type":"string","enum":["blocks","parent"]}}}},"next_cursor":{"$ref":"#/$defs/cursor"}}},
-     "work_scope":{"type":"object","additionalProperties":false,"required":["items"],"properties":{"work":{"$ref":"#/$defs/work_summary"},"memberships":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["project_id","role"],"properties":{"project_id":{"$ref":"#/$defs/id"},"role":{"type":"string","enum":["primary","secondary"]}}}},"items":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/work_summary"}},"next_cursor":{"$ref":"#/$defs/cursor"}},"anyOf":[{"required":["work","memberships"]},{"required":["items"]}]},
-     "work_event_page":{"type":"object","additionalProperties":false,"required":["events"],"properties":{"events":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["event_id","kind","version","occurred_at"],"properties":{"event_id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/short"},"version":{"$ref":"#/$defs/version"},"occurred_at":{"type":"string","maxLength":64},"actor":{"$ref":"#/$defs/id"},"reason":{"$ref":"#/$defs/short"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}}}}},"next_cursor":{"$ref":"#/$defs/cursor"},"workflow":{"$ref":"#/$defs/workflow_read"}}},
-     "work_relation_graph":{"type":"object","additionalProperties":false,"required":["nodes","edges"],"properties":{"nodes":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/work_summary"}},"edges":{"type":"array","maxItems":200,"items":{"type":"object","additionalProperties":false,"required":["from","to","kind"],"properties":{"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relation_kind"}}}},"replacement_state":{"type":"string","enum":["none","active","reopened"]}}},
-    "knowledge_page":{"type":"object","additionalProperties":false,"required":["items"],"properties":{"items":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["knowledge_id","kind","locator"],"properties":{"knowledge_id":{"$ref":"#/$defs/id"},"kind":{"type":"string","enum":["decision","lesson","specification","note","research"]},"locator":{"type":"string","minLength":1,"maxLength":2048},"commit_oid":{"$ref":"#/$defs/id"},"content_hash":{"$ref":"#/$defs/digest"}}}},"next_cursor":{"$ref":"#/$defs/cursor"},"watermark":{"type":"string","maxLength":256}}},
-    "canonical_note_result":{"type":"object","additionalProperties":false,"required":["state"],"properties":{"state":{"type":"string","enum":["canonical","not_compacted","missing","ambiguous"]},"locator":{"type":["string","null"],"maxLength":2048},"candidates":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}}}},
-     "work_define_capture_input":{"type":"object","additionalProperties":false,"required":["title","value_statement","kind","project_ids","idempotency_key"],"properties":{"title":{"$ref":"#/$defs/short"},"value_statement":{"$ref":"#/$defs/short"},"kind":{"$ref":"#/$defs/work_kind"},"project_ids":{"type":"array","minItems":1,"maxItems":100,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"priority":{"type":"integer","minimum":-100,"maximum":100},"tags":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"component_id":{"$ref":"#/$defs/id"},"workflow_type_ref":{"$ref":"#/$defs/id"},"external_ref":{"$ref":"#/$defs/short"},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"}}},
-    "work_define_revise_input":{"type":"object","additionalProperties":false,"required":["work_id","expected_version","title","value_statement","kind","reason","idempotency_key"],"properties":{"work_id":{"$ref":"#/$defs/id"},"expected_version":{"$ref":"#/$defs/version"},"title":{"$ref":"#/$defs/short"},"value_statement":{"$ref":"#/$defs/short"},"kind":{"$ref":"#/$defs/work_kind"},"priority":{"type":"integer","minimum":-100,"maximum":100},"tags":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}},"component_id":{"$ref":"#/$defs/id"},"workflow_type_ref":{"$ref":"#/$defs/id"},"reason":{"$ref":"#/$defs/short"},"idempotency_key":{"$ref":"#/$defs/id"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}}}},
-    "work_transition_lifecycle_input":{"type":"object","additionalProperties":false,"required":["work_id","expected_version","target","reason","idempotency_key"],"properties":{"work_id":{"$ref":"#/$defs/id"},"expected_version":{"$ref":"#/$defs/version"},"target":{"$ref":"#/$defs/lifecycle"},"reason":{"$ref":"#/$defs/short"},"idempotency_key":{"$ref":"#/$defs/id"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}},"approval":{"$ref":"#/$defs/approval"}}},
-      "work_transition_action_input":{"type":"object","additionalProperties":false,"required":["work_id","expected_version","action_id","idempotency_key"],"properties":{"work_id":{"$ref":"#/$defs/id"},"expected_version":{"$ref":"#/$defs/version"},"action_id":{"$ref":"#/$defs/id"},"selected_choice":{"type":"string","enum":["confirm","revise","stop"]},"decision_context_digest":{"$ref":"#/$defs/digest"},"fields":{"oneOf":[{"type":"array","maxItems":16,"uniqueItems":true,"items":{"$ref":"#/$defs/field"}},{"type":"object","maxProperties":64,"additionalProperties":false,"properties":{"added":{},"attempt_epoch":{},"audit_evidence":{},"candidate_kind":{},"candidate_refs":{},"complete_gate_prerequisites":{},"condition_id":{},"consumed_contract_version":{},"contract_version":{},"current_claim":{},"dependent_work_id":{},"edge_class":{},"edge_kind":{},"entity_kind":{},"entity_ref":{},"event_stream":{},"evidence_refs":{},"new_contract_version":{},"next_read_expectations":{},"notice_id":{},"observed_drift":{},"operation_id":{},"outcome":{},"payload":{},"premise":{},"project_ids":{},"proposed_route_conventions":{},"relation":{},"relation_data":{},"removed":{},"required_route_conventions":{},"resolution_evidence":{},"resolver_authority":{},"resolver_result":{},"route_conventions":{},"severity":{},"source_contract_version":{},"source_work_id":{},"staleness_rule_id":{},"successor_work_id":{},"supersede_reason":{},"target_work_id":{},"title":{},"transaction":{},"value_statement":{}}}]},"idempotency_key":{"$ref":"#/$defs/id"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}},"approval":{"$ref":"#/$defs/approval"}},"if":{"properties":{"action_id":{"const":"confirm_premise"}}},"then":{"required":["selected_choice","decision_context_digest"],"not":{"required":["fields"]}},"else":{"not":{"anyOf":[{"required":["selected_choice"]},{"required":["decision_context_digest"]}]}}},
-    "work_relate_memberships_input":{"type":"object","additionalProperties":false,"required":["work_id","expected_version","memberships","idempotency_key"],"properties":{"work_id":{"$ref":"#/$defs/id"},"expected_version":{"$ref":"#/$defs/version"},"memberships":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["project_id","role"],"properties":{"project_id":{"$ref":"#/$defs/id"},"role":{"type":"string","enum":["primary","secondary"]}}}},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"}}},
-     "work_relate_link_input":{"type":"object","additionalProperties":false,"required":["from_work_id","to_work_id","from_expected_version","to_expected_version","kind","reason","idempotency_key"],"properties":{"from_work_id":{"$ref":"#/$defs/id"},"to_work_id":{"$ref":"#/$defs/id"},"from_expected_version":{"$ref":"#/$defs/version"},"to_expected_version":{"$ref":"#/$defs/version"},"kind":{"$ref":"#/$defs/relation_kind"},"reason":{"$ref":"#/$defs/short"},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"}}},
-     "work_relate_unlink_input":{"type":"object","additionalProperties":false,"required":["relation_id","expected_versions","reason","idempotency_key"],"properties":{"relation_id":{"$ref":"#/$defs/id"},"expected_versions":{"type":"array","minItems":1,"maxItems":100,"uniqueItems":true,"items":{"type":"object","additionalProperties":false,"required":["work_id","version"],"properties":{"work_id":{"$ref":"#/$defs/id"},"version":{"$ref":"#/$defs/version"}}}},"reason":{"$ref":"#/$defs/short"},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"}}},
-     "work_relate_supersede_input":{"type":"object","additionalProperties":false,"required":["predecessor_id","successor_id","predecessor_expected_version","successor_expected_version","reason","idempotency_key"],"properties":{"predecessor_id":{"$ref":"#/$defs/id"},"successor_id":{"$ref":"#/$defs/id"},"predecessor_expected_version":{"$ref":"#/$defs/version"},"successor_expected_version":{"$ref":"#/$defs/version"},"reason":{"$ref":"#/$defs/short"},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}}}},
-    "work_relate_restore_input":{"type":"object","additionalProperties":false,"required":["predecessor_id","predecessor_expected_version","successor_id","successor_expected_version","reason","idempotency_key","approval"],"properties":{"predecessor_id":{"$ref":"#/$defs/id"},"predecessor_expected_version":{"$ref":"#/$defs/version"},"successor_id":{"$ref":"#/$defs/id"},"successor_expected_version":{"$ref":"#/$defs/version"},"replacement_successor_id":{"$ref":"#/$defs/id"},"replacement_successor_expected_version":{"$ref":"#/$defs/version"},"instruction":{"$ref":"#/$defs/short"},"reason":{"$ref":"#/$defs/short"},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}}}},
-    "work_compact_publish_input":{"type":"object","additionalProperties":false,"required":["work_id","expected_version","content","content_digest","home_project_id","home_locator_id","idempotency_key","approval"],"properties":{"work_id":{"$ref":"#/$defs/id"},"expected_version":{"$ref":"#/$defs/version"},"content":{"type":"string","minLength":1,"maxLength":32768},"content_digest":{"$ref":"#/$defs/digest"},"home_project_id":{"$ref":"#/$defs/id"},"home_locator_id":{"$ref":"#/$defs/id"},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}}}},
-     "work_compact_reconcile_input":{"type":"object","additionalProperties":false,"properties":{"operation_id":{"$ref":"#/$defs/id"},"expected_operation_version":{"$ref":"#/$defs/version"},"work_id":{"$ref":"#/$defs/id"},"expected_work_version":{"$ref":"#/$defs/version"},"expected_proof_digest":{"$ref":"#/$defs/digest"},"idempotency_key":{"$ref":"#/$defs/id"},"approval":{"$ref":"#/$defs/approval"},"evidence":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/evidence"}}},"oneOf":[{"required":["operation_id","expected_operation_version","idempotency_key"],"not":{"required":["work_id","expected_work_version"]}},{"required":["work_id","expected_work_version","idempotency_key"],"not":{"required":["operation_id","expected_operation_version"]}}]},
-    "mutation_result": {
-      "type":"object","additionalProperties":false,"required":["changed_refs","next_valid_intents"],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/agent-tool-surface-payloads.schema.json",
+  "title": "Concord TS3/TS4 operation payloads",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "short": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "digest": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^(sha256:)?[0-9a-fA-F]{8,}$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 4096
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "detail": {
+      "type": "string",
+      "enum": [
+        "summary",
+        "full"
+      ]
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "outgoing",
+        "incoming",
+        "both"
+      ]
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": [
+        "needed",
+        "in_progress",
+        "completed",
+        "cancelled"
+      ]
+    },
+    "work_kind": {
+      "type": "string",
+      "enum": [
+        "task",
+        "bug",
+        "decision",
+        "research",
+        "epic",
+        "other"
+      ]
+    },
+    "relation_kind": {
+      "type": "string",
+      "enum": [
+        "parent",
+        "blocks",
+        "implements",
+        "supersedes",
+        "superseded_by"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "changed_refs": {"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["entity_kind","id","version"],"properties":{"entity_kind":{"$ref":"#/$defs/short"},"id":{"$ref":"#/$defs/id"},"version":{"$ref":"#/$defs/version"}}}},
-        "next_valid_intents": {"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"required":["tool","operation","reason_code"],"properties":{"tool":{"$ref":"#/$defs/id"},"operation":{"$ref":"#/$defs/short"},"reason_code":{"$ref":"#/$defs/short"}}}},
-        "operation_id":{"$ref":"#/$defs/id"}
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "work_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "scope_version": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cursor",
+        "limit"
+      ],
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "authority",
+        "locator_kind",
+        "locator"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "verification",
+            "review",
+            "approval",
+            "commit",
+            "durable_note",
+            "native_run",
+            "artifact"
+          ]
+        },
+        "authority": {
+          "$ref": "#/$defs/short"
+        },
+        "locator_kind": {
+          "$ref": "#/$defs/short"
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_ref"
+      ],
+      "properties": {
+        "approval_ref": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_bytes",
+        "max_items"
+      ],
+      "properties": {
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "max_items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "max_millis": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300000
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/short"
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "work_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "lifecycle",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "project_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "terminal_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        }
+      }
+    },
+    "operator_choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "description",
+        "action_id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "$ref": "#/$defs/short"
+        },
+        "description": {
+          "$ref": "#/$defs/short"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "operator_question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "prompt",
+        "header",
+        "choices",
+        "allow_multiple",
+        "allow_custom",
+        "premise_summary",
+        "contract_summary",
+        "decision_context_digest"
+      ],
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "prompt": {
+          "$ref": "#/$defs/short"
+        },
+        "header": {
+          "$ref": "#/$defs/short"
+        },
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/operator_choice"
+          }
+        },
+        "allow_multiple": {
+          "const": false
+        },
+        "allow_custom": {
+          "const": false
+        },
+        "premise_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "contract_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "workflow_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "premise",
+        "outcome_kind",
+        "outcome_payload",
+        "required_evidence",
+        "route_conventions",
+        "spec_mandate"
+      ],
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "premise": {
+          "$ref": "#/$defs/short"
+        },
+        "outcome_kind": {
+          "$ref": "#/$defs/short"
+        },
+        "outcome_payload": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "required_evidence": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "route_conventions": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "spec_mandate": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "workflow_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "state",
+        "current_step",
+        "definition",
+        "conditions",
+        "unresolved_conditions",
+        "unreadable_conditions",
+        "ready",
+        "blocking_conditions",
+        "impact_notices",
+        "completion_warnings"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "$ref": "#/$defs/short"
+        },
+        "current_step": {
+          "$ref": "#/$defs/id"
+        },
+        "definition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "version",
+            "digest"
+          ],
+          "properties": {
+            "ref": {
+              "$ref": "#/$defs/id"
+            },
+            "version": {
+              "$ref": "#/$defs/version"
+            },
+            "digest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "contract": {
+          "$ref": "#/$defs/workflow_contract"
+        },
+        "operator_question": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "$ref": "#/$defs/operator_question"
+        },
+        "candidate_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "conditions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "await_type",
+              "await_ref",
+              "resolution_authority",
+              "state"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "await_type": {
+                "$ref": "#/$defs/short"
+              },
+              "await_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "resolution_authority": {
+                "$ref": "#/$defs/id"
+              },
+              "state": {
+                "$ref": "#/$defs/short"
+              }
+            }
+          }
+        },
+        "unresolved_conditions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "unreadable_conditions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "blocking_conditions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "impact_notices": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "notice_id",
+              "source_work_id",
+              "source_contract_version",
+              "entity_kind",
+              "entity_ref",
+              "target_work_id",
+              "edge_id",
+              "severity"
+            ],
+            "properties": {
+              "notice_id": {
+                "$ref": "#/$defs/id"
+              },
+              "source_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "source_contract_version": {
+                "$ref": "#/$defs/version"
+              },
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "entity_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "target_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "edge_id": {
+                "$ref": "#/$defs/id"
+              },
+              "severity": {
+                "$ref": "#/$defs/short"
+              }
+            }
+          }
+        },
+        "completion_warnings": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/short"
+          }
+        }
+      }
+    },
+    "work_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/work_summary"
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "readiness_evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "product_view_resolve_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "product_id"
+          ],
+          "not": {
+            "required": [
+              "project_id"
+            ]
+          }
+        },
+        {
+          "required": [
+            "project_id"
+          ],
+          "not": {
+            "required": [
+              "product_id"
+            ]
+          }
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "product_id"
+                ]
+              },
+              {
+                "required": [
+                  "project_id"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "product_view_snapshot_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "preview_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "work_browse_list_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "work_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "component_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tag_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "priority_min": {
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "priority_max": {
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "detail": {
+          "$ref": "#/$defs/detail"
+        },
+        "terminal_since": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "work_browse_ready_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "work_browse_blocked_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "work_browse_scope_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "one_of": {
+          "type": "string",
+          "enum": [
+            "project",
+            "work"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "work_id"
+          ],
+          "not": {
+            "required": [
+              "project_id"
+            ]
+          }
+        },
+        {
+          "required": [
+            "project_id"
+          ],
+          "not": {
+            "required": [
+              "work_id"
+            ]
+          }
+        }
+      ]
+    },
+    "work_trace_history_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "page"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "event_kinds": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/short"
+          }
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "work_trace_relations_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "relation_kinds": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/relation_kind"
+          }
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "knowledge_search_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kinds": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "lesson",
+              "specification",
+              "note",
+              "research"
+            ]
+          }
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "since": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "until": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "knowledge_resolve_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "knowledge_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "work_id"
+          ],
+          "not": {
+            "required": [
+              "knowledge_id"
+            ]
+          }
+        },
+        {
+          "required": [
+            "knowledge_id"
+          ],
+          "not": {
+            "required": [
+              "work_id"
+            ]
+          }
+        }
+      ]
+    },
+    "product_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "projects"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "prototype",
+            "alpha",
+            "beta",
+            "production",
+            "deprecated"
+          ]
+        },
+        "projects": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "version"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "secondary"
+                ]
+              }
+            }
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/cursor"
+        }
+      }
+    },
+    "product_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "counts",
+        "previews"
+      ],
+      "properties": {
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "needed",
+            "in_progress",
+            "completed",
+            "cancelled"
+          ],
+          "properties": {
+            "needed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "in_progress": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "completed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cancelled": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "previews": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/work_summary"
+          }
+        }
+      }
+    },
+    "blocked_work_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/work_summary"
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/work_summary"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to",
+              "kind"
+            ],
+            "properties": {
+              "from": {
+                "$ref": "#/$defs/id"
+              },
+              "to": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "blocks",
+                  "parent"
+                ]
+              }
+            }
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/cursor"
+        }
+      }
+    },
+    "work_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "work": {
+          "$ref": "#/$defs/work_summary"
+        },
+        "memberships": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "role"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "secondary"
+                ]
+              }
+            }
+          }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/work_summary"
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/cursor"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "work",
+            "memberships"
+          ]
+        },
+        {
+          "required": [
+            "items"
+          ]
+        }
+      ]
+    },
+    "work_event_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events"
+      ],
+      "properties": {
+        "events": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "event_id",
+              "kind",
+              "version",
+              "occurred_at"
+            ],
+            "properties": {
+              "event_id": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "$ref": "#/$defs/short"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              },
+              "occurred_at": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "actor": {
+                "$ref": "#/$defs/id"
+              },
+              "reason": {
+                "$ref": "#/$defs/short"
+              },
+              "evidence": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "$ref": "#/$defs/evidence"
+                }
+              }
+            }
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "workflow": {
+          "$ref": "#/$defs/workflow_read"
+        }
+      }
+    },
+    "work_relation_graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/work_summary"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to",
+              "kind"
+            ],
+            "properties": {
+              "from": {
+                "$ref": "#/$defs/id"
+              },
+              "to": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "$ref": "#/$defs/relation_kind"
+              }
+            }
+          }
+        },
+        "replacement_state": {
+          "type": "string",
+          "enum": [
+            "none",
+            "active",
+            "reopened"
+          ]
+        }
+      }
+    },
+    "knowledge_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "knowledge_id",
+              "kind",
+              "locator"
+            ],
+            "properties": {
+              "knowledge_id": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "decision",
+                  "lesson",
+                  "specification",
+                  "note",
+                  "research"
+                ]
+              },
+              "locator": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "commit_oid": {
+                "$ref": "#/$defs/id"
+              },
+              "content_hash": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "watermark": {
+          "type": "string",
+          "maxLength": 256
+        }
+      }
+    },
+    "canonical_note_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "canonical",
+            "not_compacted",
+            "missing",
+            "ambiguous"
+          ]
+        },
+        "locator": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2048
+        },
+        "candidates": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "work_define_capture_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "value_statement",
+        "kind",
+        "project_ids",
+        "idempotency_key"
+      ],
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "value_statement": {
+          "$ref": "#/$defs/short"
+        },
+        "kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "project_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "component_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workflow_type_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "external_ref": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
+      }
+    },
+    "work_define_revise_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "title",
+        "value_statement",
+        "kind",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "value_statement": {
+          "$ref": "#/$defs/short"
+        },
+        "kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "component_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workflow_type_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "work_transition_lifecycle_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "target",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "target": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
+      }
+    },
+    "work_transition_action_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "selected_choice": {
+          "type": "string",
+          "enum": [
+            "confirm",
+            "revise",
+            "stop"
+          ]
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "fields": {
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/field"
+              }
+            },
+            {
+              "type": "object",
+              "maxProperties": 64,
+              "additionalProperties": false,
+              "properties": {
+                "added": {},
+                "attempt_epoch": {},
+                "audit_evidence": {},
+                "candidate_kind": {},
+                "candidate_refs": {},
+                "complete_gate_prerequisites": {},
+                "condition_id": {},
+                "consumed_contract_version": {},
+                "contract_version": {},
+                "current_claim": {},
+                "dependent_work_id": {},
+                "edge_class": {},
+                "edge_kind": {},
+                "entity_kind": {},
+                "entity_ref": {},
+                "event_stream": {},
+                "evidence_refs": {},
+                "new_contract_version": {},
+                "next_read_expectations": {},
+                "notice_id": {},
+                "observed_drift": {},
+                "operation_id": {},
+                "outcome": {},
+                "payload": {},
+                "premise": {},
+                "project_ids": {},
+                "proposed_route_conventions": {},
+                "relation": {},
+                "relation_data": {},
+                "removed": {},
+                "required_route_conventions": {},
+                "resolution_evidence": {},
+                "resolver_authority": {},
+                "resolver_result": {},
+                "route_conventions": {},
+                "severity": {},
+                "source_contract_version": {},
+                "source_work_id": {},
+                "staleness_rule_id": {},
+                "successor_work_id": {},
+                "supersede_reason": {},
+                "target_work_id": {},
+                "title": {},
+                "transaction": {},
+                "value_statement": {}
+              }
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
+      },
+      "if": {
+        "properties": {
+          "action_id": {
+            "const": "confirm_premise"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "selected_choice",
+          "decision_context_digest"
+        ],
+        "not": {
+          "required": [
+            "fields"
+          ]
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "selected_choice"
+              ]
+            },
+            {
+              "required": [
+                "decision_context_digest"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "work_relate_memberships_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "memberships",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "memberships": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "role"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "secondary"
+                ]
+              }
+            }
+          }
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
+      }
+    },
+    "work_relate_link_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_work_id",
+        "to_work_id",
+        "from_expected_version",
+        "to_expected_version",
+        "kind",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "from_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "to_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "from_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "to_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "kind": {
+          "$ref": "#/$defs/relation_kind"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
+      }
+    },
+    "work_relate_unlink_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_id",
+        "expected_versions",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "relation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_versions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "work_id",
+              "version"
+            ],
+            "properties": {
+              "work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
+      }
+    },
+    "work_relate_supersede_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predecessor_id",
+        "successor_id",
+        "predecessor_expected_version",
+        "successor_expected_version",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "predecessor_id": {
+          "$ref": "#/$defs/id"
+        },
+        "successor_id": {
+          "$ref": "#/$defs/id"
+        },
+        "predecessor_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "successor_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "work_relate_restore_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predecessor_id",
+        "predecessor_expected_version",
+        "successor_id",
+        "successor_expected_version",
+        "reason",
+        "idempotency_key",
+        "approval"
+      ],
+      "properties": {
+        "predecessor_id": {
+          "$ref": "#/$defs/id"
+        },
+        "predecessor_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "successor_id": {
+          "$ref": "#/$defs/id"
+        },
+        "successor_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "replacement_successor_id": {
+          "$ref": "#/$defs/id"
+        },
+        "replacement_successor_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "instruction": {
+          "$ref": "#/$defs/short"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "work_compact_publish_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "content",
+        "content_digest",
+        "home_project_id",
+        "home_locator_id",
+        "idempotency_key",
+        "approval"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        },
+        "content_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "home_project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "home_locator_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "work_compact_reconcile_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_operation_version": {
+          "$ref": "#/$defs/version"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_work_version": {
+          "$ref": "#/$defs/version"
+        },
+        "expected_proof_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "operation_id",
+            "expected_operation_version",
+            "idempotency_key"
+          ],
+          "not": {
+            "required": [
+              "work_id",
+              "expected_work_version"
+            ]
+          }
+        },
+        {
+          "required": [
+            "work_id",
+            "expected_work_version",
+            "idempotency_key"
+          ],
+          "not": {
+            "required": [
+              "operation_id",
+              "expected_operation_version"
+            ]
+          }
+        }
+      ]
+    },
+    "mutation_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changed_refs",
+        "next_valid_intents"
+      ],
+      "properties": {
+        "changed_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entity_kind",
+              "id",
+              "version"
+            ],
+            "properties": {
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        },
+        "next_valid_intents": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "properties": {
+              "tool": {
+                "$ref": "#/$defs/id"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              }
+            }
+          }
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "product_row_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "type": "string",
+          "enum": [
+            "authoritative",
+            "degraded",
+            "unreachable"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "age": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "blocks_execution": {
+          "type": "boolean"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "omissions": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/short"
+          }
+        }
+      }
+    },
+    "product_row_portfolio_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "source": {
+          "$ref": "#/$defs/product_row_source"
+        }
+      }
+    },
+    "product_row_stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maturity",
+        "audience_commitment"
+      ],
+      "properties": {
+        "maturity": {
+          "type": "string",
+          "enum": [
+            "prototype",
+            "alpha",
+            "beta",
+            "production",
+            "deprecated"
+          ]
+        },
+        "audience_commitment": {
+          "type": "string",
+          "enum": [
+            "operator_only",
+            "limited",
+            "public"
+          ]
+        }
+      }
+    },
+    "product_row_reliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "observed_at",
+        "age",
+        "stale",
+        "blocks_execution",
+        "omissions"
+      ],
+      "properties": {
+        "authority": {
+          "type": "string",
+          "enum": [
+            "authoritative",
+            "degraded",
+            "unreachable"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "age": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "blocks_execution": {
+          "type": "boolean"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "omissions": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/short"
+          }
+        }
+      }
+    },
+    "product_row_unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "omissions"
+      ],
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "omissions": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/short"
+          }
+        }
+      }
+    },
+    "product_row_action_values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "in_progress",
+        "blocked",
+        "ready",
+        "active_problems",
+        "approval_required"
+      ],
+      "properties": {
+        "in_progress": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "ready": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "active_problems": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "approval_required": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "product_row_action_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "known",
+            "unavailable"
+          ]
+        },
+        "values": {
+          "$ref": "#/$defs/product_row_action_values"
+        },
+        "unavailable": {
+          "$ref": "#/$defs/product_row_unavailable"
+        }
+      }
+    },
+    "product_row_stage_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "product_default",
+            "single_focus_override",
+            "mixed"
+          ]
+        },
+        "focus_override": {
+          "$ref": "#/$defs/product_row_stage"
+        }
+      }
+    },
+    "product_row_focus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "title",
+        "work_kind",
+        "lifecycle",
+        "attention_kind",
+        "priority",
+        "project_count",
+        "stage_context"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "work_kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "attention_kind": {
+          "type": "string",
+          "enum": [
+            "approval_required",
+            "active_problem",
+            "blocked",
+            "in_progress",
+            "ready"
+          ]
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "workflow_step_label": {
+          "$ref": "#/$defs/short"
+        },
+        "project_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "stage_context": {
+          "$ref": "#/$defs/product_row_stage_context"
+        }
+      }
+    },
+    "product_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "display_name",
+        "stage",
+        "reliance",
+        "action_counts"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "display_name": {
+          "$ref": "#/$defs/short"
+        },
+        "display_name_suffix": {
+          "$ref": "#/$defs/short"
+        },
+        "stage": {
+          "$ref": "#/$defs/product_row_stage"
+        },
+        "reliance": {
+          "$ref": "#/$defs/product_row_reliance"
+        },
+        "action_counts": {
+          "$ref": "#/$defs/product_row_action_counts"
+        },
+        "focus": {
+          "$ref": "#/$defs/product_row_focus"
+        },
+        "focus_absent_reason": {
+          "type": "string",
+          "enum": [
+            "stale_block",
+            "unreachable",
+            "no_actionable_work",
+            "authoritative_empty"
+          ]
+        }
+      }
+    },
+    "product_row_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "rows"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/product_row"
+          }
+        }
       }
     }
   }

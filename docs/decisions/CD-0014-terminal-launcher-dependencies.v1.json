@@ -1,0 +1,150 @@
+{
+  "schema": "concord.bubbletea-dependency-inventory.v1",
+  "package": "./internal/launcher/render/bubbletea",
+  "runtime": [
+    {
+      "module": "charm.land/bubbles/v2",
+      "version": "v2.1.1",
+      "role": "runtime direct",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "373b3931e66627aadcfebd7771df93f3439203147e587a924508c63e20184d7f"}]
+    },
+    {
+      "module": "charm.land/bubbletea/v2",
+      "version": "v2.0.8",
+      "role": "runtime direct",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "373b3931e66627aadcfebd7771df93f3439203147e587a924508c63e20184d7f"}]
+    },
+    {
+      "module": "charm.land/lipgloss/v2",
+      "version": "v2.0.5",
+      "role": "runtime direct",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "3f531fb89f23b218fbe16b24fb5950418fa1f0046db5cfddb2c1e0d6d39bfcc0"}]
+    },
+    {
+      "module": "github.com/atotto/clipboard",
+      "version": "v0.1.4",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "BSD-3-Clause", "sha256": "2c4bac8e2a97180d6e7758c37de85d1cda1859aaf85b56da15d935d2d9a5564f"}]
+    },
+    {
+      "module": "github.com/charmbracelet/colorprofile",
+      "version": "v0.4.3",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "57d6eeeb336030b89c0e0d12cf869f84b97a481cd00b350ef21fca995da5a39a"}]
+    },
+    {
+      "module": "github.com/charmbracelet/ultraviolet",
+      "version": "v0.0.0-20260703014108-f5a850f9c2b7",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "8a77c755a1d1fbdc932e86f0449549121820b6f4cc1234b12fcfc8d38013c1de"}]
+    },
+    {
+      "module": "github.com/charmbracelet/x/ansi",
+      "version": "v0.11.7",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b"}]
+    },
+    {
+      "module": "github.com/charmbracelet/x/term",
+      "version": "v0.2.2",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b"}]
+    },
+    {
+      "module": "github.com/charmbracelet/x/termios",
+      "version": "v0.1.1",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b"}]
+    },
+    {
+      "module": "github.com/charmbracelet/x/windows",
+      "version": "v0.2.2",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b"}]
+    },
+    {
+      "module": "github.com/clipperhouse/displaywidth",
+      "version": "v0.11.0",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "fcdcc889a11c39c73d36019b838af41b418eb7811af12b746ace40c3074bb96c"}]
+    },
+    {
+      "module": "github.com/clipperhouse/uax29/v2",
+      "version": "v2.7.0",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "07e9e3daaccc707c9b7d535ed1405a65d37919fdd42197fe55e68820e974688c"}]
+    },
+    {
+      "module": "github.com/lucasb-eyer/go-colorful",
+      "version": "v1.4.0",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "1e4cf2a117516ec1b54041d68ed4f5d331878b04de3386f4790e7b5b9c04e1ec"}]
+    },
+    {
+      "module": "github.com/mattn/go-runewidth",
+      "version": "v0.0.24",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "88a2379b3ca34bf5c57127aff9dcb802bbb60ece0805cdbda65b3bd115f971d9"}]
+    },
+    {
+      "module": "github.com/muesli/cancelreader",
+      "version": "v0.2.2",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "8c139dbbc83b4fb055b4100b6b9402f7de3dd6bbca05015bdfcc4b392c8cfd5f"}]
+    },
+    {
+      "module": "github.com/rivo/uniseg",
+      "version": "v0.4.7",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE.txt", "family": "MIT", "sha256": "a59885f5f0f3b3c07cf9444db5fe399b6f0791eac82055f7b85cc65500551039"}]
+    },
+    {
+      "module": "github.com/xo/terminfo",
+      "version": "v0.0.0-20220910002029-abceb7e1c41e",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "MIT", "sha256": "1f5f51151ba96f0492ce288bd007242f924fdad9f04002e175e951644340a891"}]
+    },
+    {
+      "module": "golang.org/x/sync",
+      "version": "v0.21.0",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "BSD-3-Clause", "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"}]
+    },
+    {
+      "module": "golang.org/x/sys",
+      "version": "v0.47.0",
+      "role": "runtime transitive",
+      "license": [{"file": "LICENSE", "family": "BSD-3-Clause", "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"}]
+    }
+  ],
+  "test_only": [],
+  "module_graph_only": [
+    {
+      "module": "github.com/aymanbagabas/go-udiff",
+      "version": "v0.4.1",
+      "role": "module graph only",
+      "license": [
+        {"file": "docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD", "family": "BSD-3-Clause", "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067", "source": "repository"},
+        {"file": "docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT", "family": "MIT", "sha256": "aa3df2110cf0f39305936b72071c4e894ffb6849970b8e6e2c9c583bd9be9adb", "source": "repository"}
+      ]
+    },
+    {
+      "module": "github.com/charmbracelet/x/exp/golden",
+      "version": "v0.0.0-20250806222409-83e3a29d542f",
+      "role": "module graph only",
+      "license": [{"file": "docs/decisions/license-evidence/github.com/charmbracelet/x/exp/golden/v0.0.0-20250806222409-83e3a29d542f/LICENSE", "family": "MIT", "sha256": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b", "source": "repository"}]
+    },
+    {
+      "module": "github.com/dustin/go-humanize",
+      "version": "v1.0.1",
+      "role": "module graph only",
+      "license": [{"file": "docs/decisions/license-evidence/github.com/dustin/go-humanize/v1.0.1/LICENSE", "family": "MIT", "sha256": "a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71", "source": "repository"}]
+    },
+    {
+      "module": "golang.org/x/exp",
+      "version": "v0.0.0-20231006140011-7918f672742d",
+      "role": "module graph only",
+      "license": [{"file": "docs/decisions/license-evidence/golang.org/x/exp/v0.0.0-20231006140011-7918f672742d/LICENSE", "family": "BSD-3-Clause", "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067", "source": "repository"}]
+    }
+  ]
+}

@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "2.0.0"
-const ManifestDigest = "sha256:6d7994b5481557df2ee066967b61c9eeacc99d22eac9d3c4af3336ed857533e9"
+const ManifestVersion = "2.1.0"
+const ManifestDigest = "sha256:d8d11335874981ab85d7f2c0e2ef4ed5caa3114bf7d799394e97bd7a86795dee"
 
 type OperationKind string
 
@@ -37,6 +37,7 @@ type ContractOperation struct {
 var ContractOperations = []ContractOperation{
 	{ID: "concord_product_view.resolve", Tool: "concord_product_view", Operation: "resolve", Kind: OperationKind("read"), QueryID: "PM1.Q1", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_product_view.snapshot", Tool: "concord_product_view", Operation: "snapshot", Kind: OperationKind("read"), QueryID: "PM1.Q2", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_product_view.portfolio", Tool: "concord_product_view", Operation: "portfolio", Kind: OperationKind("read"), QueryID: "C14.ProductRows", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.list", Tool: "concord_work_browse", Operation: "list", Kind: OperationKind("read"), QueryID: "PM1.Q3", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.blocked", Tool: "concord_work_browse", Operation: "blocked", Kind: OperationKind("read"), QueryID: "PM1.Q4", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.ready", Tool: "concord_work_browse", Operation: "ready", Kind: OperationKind("read"), QueryID: "PM1.Q5", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
@@ -87,6 +88,17 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"operator_question":               {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
 	"page":                            {Required: []string{"cursor", "limit"}, Properties: []string{"cursor", "limit"}},
 	"product_context":                 {Required: []string{"product_id", "projects"}, Properties: []string{"product_id", "stage", "projects", "candidates", "next_cursor"}},
+	"product_row":                     {Required: []string{"product_id", "display_name", "stage", "reliance", "action_counts"}, Properties: []string{"product_id", "display_name", "display_name_suffix", "stage", "reliance", "action_counts", "focus", "focus_absent_reason"}},
+	"product_row_action_counts":       {Required: []string{"state"}, Properties: []string{"state", "values", "unavailable"}},
+	"product_row_action_values":       {Required: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required"}, Properties: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required"}},
+	"product_row_focus":               {Required: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "project_count", "stage_context"}, Properties: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "workflow_step_label", "project_count", "stage_context"}},
+	"product_row_page":                {Required: []string{"observed_at", "rows"}, Properties: []string{"observed_at", "rows"}},
+	"product_row_portfolio_input":     {Required: []string{"page"}, Properties: []string{"product_id", "page", "budget", "source"}},
+	"product_row_reliance":            {Required: []string{"authority", "observed_at", "age", "stale", "blocks_execution", "omissions"}, Properties: []string{"authority", "observed_at", "age", "stale", "blocks_execution", "reason", "omissions"}},
+	"product_row_source":              {Required: []string{}, Properties: []string{"authority", "observed_at", "age", "stale", "blocks_execution", "reason", "omissions"}},
+	"product_row_stage":               {Required: []string{"maturity", "audience_commitment"}, Properties: []string{"maturity", "audience_commitment"}},
+	"product_row_stage_context":       {Required: []string{"kind"}, Properties: []string{"kind", "focus_override"}},
+	"product_row_unavailable":         {Required: []string{"reason", "omissions"}, Properties: []string{"reason", "omissions"}},
 	"product_snapshot":                {Required: []string{"counts", "previews"}, Properties: []string{"counts", "previews"}},
 	"product_view_resolve_input":      {Required: []string{}, Properties: []string{"product_id", "project_id", "page", "budget"}},
 	"product_view_snapshot_input":     {Required: []string{}, Properties: []string{"product_id", "project_ids", "preview_limit", "budget"}},

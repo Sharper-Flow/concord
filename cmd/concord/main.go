@@ -97,6 +97,9 @@ func formatRequiredFields(fields []commandField) string {
 var commandSpecs = []commandSpec{
 	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope; envelope_versions: 1.0; surface_range: 2.1.0-2.3.0"},
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "client_version", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "surface_version", "envelope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
+	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("routing_policy_version"), field("routing_policy_digest"), field("resolved_model"), field("resolution_role"), field("fallback_reason"), field("packet_schema_version"), field("report_schema_version")), Optional: "none", Enums: "resolution_role: preferred | fallback; fallback_reason: rate_limit | provider_unavailable | budget_exhausted | other | empty for preferred; resolved_model must be in the declared routing-policy resolution set"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version")), Optional: "none", Enums: "readback_model must equal the dispatch resolved_model"},
+	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | model_identity_mismatch"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope; public_key: base64 Ed25519"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
@@ -252,9 +255,131 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return runInvoke(raw, s, service, out, errOut)
 	case "grant":
 		return runGrant(raw, service, out, errOut)
+	case "worker-dispatch", "worker-complete", "worker-fail":
+		return runWorkerCommand(command, raw, s, out, errOut)
 	default:
 		return runInternal(command, raw, service, s, out, errOut)
 	}
+}
+
+type workerDispatchRequest struct {
+	EventID              string `json:"event_id"`
+	WorkID               string `json:"work_id"`
+	AttemptID            string `json:"attempt_id"`
+	LaneID               string `json:"lane_id"`
+	LaneVersion          int64  `json:"lane_version"`
+	LaneDigest           string `json:"lane_digest"`
+	RoutingPolicyVersion string `json:"routing_policy_version"`
+	RoutingPolicyDigest  string `json:"routing_policy_digest"`
+	ResolvedModel        string `json:"resolved_model"`
+	ResolutionRole       string `json:"resolution_role"`
+	FallbackReason       string `json:"fallback_reason"`
+	PacketSchemaVersion  string `json:"packet_schema_version"`
+	ReportSchemaVersion  string `json:"report_schema_version"`
+}
+
+type workerCompleteRequest struct {
+	EventID             string `json:"event_id"`
+	WorkID              string `json:"work_id"`
+	AttemptID           string `json:"attempt_id"`
+	ReadbackModel       string `json:"readback_model"`
+	ReportSchemaVersion string `json:"report_schema_version"`
+}
+
+type workerFailRequest struct {
+	EventID       string `json:"event_id"`
+	WorkID        string `json:"work_id"`
+	AttemptID     string `json:"attempt_id"`
+	ReadbackModel string `json:"readback_model"`
+	FailureKind   string `json:"failure_kind"`
+	Detail        string `json:"detail"`
+}
+
+func runWorkerCommand(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
+	ctx := context.Background()
+	switch command {
+	case "worker-dispatch":
+		var request workerDispatchRequest
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		lane, err := store.LookupLane(request.LaneID, request.LaneVersion, request.LaneDigest)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		policy, err := store.LookupRoutingPolicy(lane.CapabilityClass, request.RoutingPolicyVersion, request.RoutingPolicyDigest)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if err := store.ValidateWorkerDispatchIdentity(lane, policy, request.ResolvedModel, request.ResolutionRole, request.FallbackReason); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: request.RoutingPolicyVersion, RoutingPolicyDigest: request.RoutingPolicyDigest, ResolvedModel: request.ResolvedModel, ResolutionRole: request.ResolutionRole, FallbackReason: request.FallbackReason, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion}
+		return applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+	case "worker-complete":
+		var request workerCompleteRequest
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		attempt, err := s.WorkerAttemptByID(ctx, request.AttemptID)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if attempt.WorkID != request.WorkID {
+			writeOperatorDiagnostic(errOut, command, "worker attempt belongs to a different work item")
+			return 1
+		}
+		if err := store.ValidateWorkerCompletion(attempt.ResolvedModel, request.ReadbackModel); err != nil {
+			failurePayload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: store.WorkerFailureModelIdentity, Detail: "resolved model differs from host readback model"}
+			if appendErr := applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(failurePayload)}, io.Discard, errOut); appendErr != 0 {
+				return appendErr
+			}
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion}
+		return applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+	case "worker-fail":
+		var request workerFailRequest
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if attempt, err := s.WorkerAttemptByID(ctx, request.AttemptID); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		} else if attempt.WorkID != request.WorkID {
+			writeOperatorDiagnostic(errOut, command, "worker attempt belongs to a different work item")
+			return 1
+		}
+		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail}
+		return applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+	}
+	writeOperatorDiagnostic(errOut, command, "unsupported command")
+	return 2
+}
+
+func applyWorkerEvent(command string, s *store.Store, event store.Event, out, errOut io.Writer) int {
+	result, err := store.ApplyOperationWithResult(context.Background(), s, store.Operation{Events: []store.Event{event}})
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeOperatorResult(command, s, result.EventIDs, nil, out, errOut)
+}
+
+func mustMarshalWorkerPayload(value any) []byte {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return payload
 }
 
 func validateRequiredCommandFields(command string, raw []byte) error {

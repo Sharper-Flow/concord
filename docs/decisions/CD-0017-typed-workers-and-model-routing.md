@@ -1,6 +1,6 @@
 # CD-0017: Typed Workers and Model Routing
 
-**Status:** Accepted 2026-08-11
+**Status:** Accepted 2026-08-11; amended 2026-08-11 (fallback resolution semantics: D2/D3/D5/D8 clarified, D9 routing-policy record added, Invariant 7 replaced — operator-accepted)
 **Type:** Architecture decision (spike outcome)
 **Spike:** [`../research/R6-typed-workers-and-model-routing.md`](../research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
@@ -54,7 +54,10 @@ core per CD-0005 D6.
 Every registered lane definition **must pin a model**. OpenCode's documented
 inheritance rule runs an unpinned subagent on the invoking primary's model, which
 would make executing-model identity invisible. Pinning is the distinctness control,
-not a preference.
+not a preference. Pinning declares the lane's **preferred** model and defeats
+invisible host inheritance; it does not forbid a host-resolved, declared, recorded
+fallback per D3/D9. A pinned model that never runs because a declared fallback ran
+instead is not a pinning violation; an undeclared or unrecorded model is.
 
 ### D3. Model routing binds capability classes, not vendor identifiers
 
@@ -64,9 +67,14 @@ fallback chain (for example through the operator's model-routing plugin). Provid
 releases then change host configuration, never durable law.
 
 Preferred-model unavailability, rate limiting, budget exhaustion, or provider
-failure produces a **typed fallback/blocked outcome** on the owning workflow
-attempt. Silent substitution is prohibited: whatever model actually ran must appear
-in evidence per D5.
+failure produces one of two typed outcomes on the owning workflow attempt: a
+**recorded fallback resolution** (a declared fallback model resolved by host
+configuration per D9 and confirmed by readback — a legal outcome), or a **blocked**
+outcome (the declared resolution set is exhausted — a typed failure). The
+`resolved_model` recorded at dispatch is whichever member of the declared
+resolution set the host resolved to. Silent substitution — a model that ran but is
+neither declared in the resolution set nor matched by readback — is the prohibited
+defect, and whatever model actually ran must appear in evidence per D5.
 
 ### D4. Worker authority boundary
 
@@ -83,13 +91,16 @@ construction: the prohibition binds authority, not labor.
 Every worker attempt records durably:
 
 - requested lane identifier, version, and contract digest;
-- requested capability class and routing-policy version;
-- resolved provider/model at dispatch;
+- requested capability class, routing-policy version, and routing-policy digest;
+- resolved provider/model at dispatch, its **resolution role**
+  (`preferred` | `fallback`), and — when the role is fallback — a typed
+  **fallback reason**;
 - **readback executing-model identity** read from the host after the run;
 - packet and report schema versions.
 
-A mismatch between resolved and readback model is a typed dispatch failure, not a
-warning. A fallback event recorded through readback is legal evidence; an
+The typed dispatch failure is `resolved ≠ readback`, or `resolved ∉` the declared
+resolution set. A fallback event recorded through readback — `resolved` is a
+declared fallback member and `readback == resolved` — is legal evidence; an
 unrecorded model change is a defect.
 
 ### D6. Reviewer/model distinctness is structurally available and workflow-declared
@@ -119,8 +130,24 @@ The operator's existing model-routing TUI/plugin (primary-plus-ordered-fallback 
 agent) is the **accepted host mechanism** for D3 fallback chains. Concord lane
 definitions become routing targets of that infrastructure; Concord does not
 re-implement provider fallback, and the infrastructure does not learn Concord law.
-The boundary is the same one capability-placement.md draws: provider mechanics are
-orchestrated, Product truth is owned.
+The host mechanism provides **recovery** (preferred → ordered fallback), not merely
+evidence. The legal resolution set — the members a host chain may resolve to for a
+capability class without producing silent substitution — is declared in the
+Concord-owned routing-policy record (D9), kept consistent with the host chain. The
+host owns runtime fallback mechanics; Concord owns the evidence boundary that
+decides which resolutions are legal to record. The boundary is the same one
+capability-placement.md draws: provider mechanics are orchestrated, Product truth
+is owned.
+
+### D9. Routing-policy record
+
+A canonical routing-policy record lives in `contracts/`, generated and
+digest-pinned under the same regime as the lane registry (D1). Each entry binds a
+capability class to an ordered resolution set `[preferred, fallback…]` where
+`preferred` equals the `pinned_model` of every lane of that class. A dispatch pins
+`(capability_class, routing_policy_version, routing_policy_digest)`, and
+`resolved_model` must be a member of the declared set. Provider releases change the
+routing-policy record and host configuration, not the lane registry (D3).
 
 ## Invariants
 
@@ -133,8 +160,10 @@ orchestrated, Product truth is owned.
 4. Worker runs never record workflow step transitions, verdicts, or completion.
 5. Every lane definition pins a model; unpinned inheritance is a registry defect.
 6. Readback executing-model identity appears in every worker attempt's evidence.
-7. Fallback produces a typed outcome and a recorded actual model; silent
-   substitution is a defect.
+7. A fallback produces a typed outcome — preferred resolution, recorded fallback
+   resolution (`resolved ∈` declared set, `readback == resolved`), or blocked —
+   with a recorded actual model. Silent substitution (`resolved ∉` declared set,
+   or `readback ≠ resolved`) is a defect.
 8. Lane contracts and schemas evolve only through the accepted versioning mechanism.
 9. No Concord self-hosting claim occurs before this decision is implemented and
    included in replacement-readiness evidence.

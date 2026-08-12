@@ -221,6 +221,54 @@ func TestMigrateV22ToV23AddsBoundedEpicNarrative(t *testing.T) {
 	}
 }
 
+func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v24.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:24] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"routing_policy_digest", "resolution_role", "fallback_reason"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('worker_attempts') WHERE name=?`, column).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("column %s count=%d err=%v", column, count, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,resolved_model,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work','attempt', 'research',1,?,'research','routing-v1','openai/gpt-5.6-luna','', '1.0','1.0','dispatched','now')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		t.Fatalf("default routing evidence insert failed: %v", err)
+	}
+	var digest, role, reason string
+	if err := db.QueryRowContext(ctx, `SELECT routing_policy_digest,resolution_role,fallback_reason FROM worker_attempts WHERE attempt_id='attempt'`).Scan(&digest, &role, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if digest != RoutingPolicyManifestDigest || role != WorkerResolutionPreferred || reason != "" {
+		t.Fatalf("migration defaults = %s/%s/%s", digest, role, reason)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET resolution_role='fallback', fallback_reason='' WHERE attempt_id='attempt'`); err == nil {
+		t.Fatal("fallback without typed reason bypassed CHECK")
+	}
+}
+
 func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concord-v8.db")
 	ctx := context.Background()

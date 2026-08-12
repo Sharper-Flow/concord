@@ -167,9 +167,15 @@
       "id": "fc3-reviewer-model-distinctness",
       "condition": "fc3",
       "title": "Reviewer and implementation cannot resolve to the same model where distinctness is declared",
-      "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The existing distinctness check compares agent and session references only, so two agents on one model pass.",
-      "state": "outstanding",
-      "issue": 57
+      "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The distinctness check compares the readback executing model against the verdict model wherever a definition declares evaluator independence, and fails closed when either model is absent.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/workflow_outcome.go",
+        "internal/store/workflow_completion.go",
+        "internal/store/workflow_registry.go",
+        "internal/store/workflow_model_distinctness_test.go",
+        "contracts/workflow-definition.schema.json"
+      ]
     },
     {
       "id": "fc3-lane-behavioral-evals",

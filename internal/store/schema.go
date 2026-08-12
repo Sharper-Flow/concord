@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -1407,6 +1409,18 @@ CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BE
 CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
 		`,
 	},
+	{
+		Version: 27,
+		Name:    "workflow_executing_model_identity",
+		SQL: `
+-- CD-0017 D6 evaluates distinctness against readback executing-model identity.
+-- The model is a property of one run, not of an actor: workflow_actors is an
+-- identity table whose actor_ref is derived from its unique four-tuple, so the
+-- observed model is recorded where the actor acts instead.
+ALTER TABLE workflow_instances ADD COLUMN execution_model TEXT NOT NULL DEFAULT ''
+    CHECK(length(execution_model) <= 128);
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -1492,10 +1506,114 @@ func CheckSchemaCompatibility(ctx context.Context, db *sql.DB, supportedMax ...i
 	return compatibility, nil
 }
 
+// migrationLockBudget bounds how long a concurrent opener waits for another
+// process to finish migrating. Every migration lengthens the single migrating
+// transaction while the connection busy timeout stays fixed, so one timeout is
+// not a safe ceiling: the budget must cover a full manifest apply, not one
+// lock acquisition. It is bounded to fail rather than hang.
+const migrationLockBudget = 90 * time.Second
+
+const (
+	migrationRetryInitialDelay = 25 * time.Millisecond
+	migrationRetryMaxDelay     = 500 * time.Millisecond
+)
+
 // Migrate brings the database up to this binary's schema version. It is
 // idempotent, applies the manifest and all pending steps in one transaction,
 // and fails closed on drift or on a database written by a newer binary.
+//
+// Concurrent openers of one database are serialized by SQLite. The first
+// caller applies the manifest; the rest observe a busy database. Because the
+// migrating transaction grows with every added step while the connection busy
+// timeout does not, a single blocked attempt is retried within a bounded
+// budget, and each retry re-checks the read-only fast path so a waiter returns
+// as soon as the winner commits.
 func Migrate(ctx context.Context, db *sql.DB) error {
+	deadline := time.Now().Add(migrationLockBudget)
+	delay := migrationRetryInitialDelay
+	for {
+		current, err := migrationManifestCurrent(ctx, db)
+		if err != nil {
+			return err
+		}
+		if current {
+			return nil
+		}
+		err = migrateOnce(ctx, db)
+		if err == nil {
+			return nil
+		}
+		if !migrationLockContended(err) || !time.Now().Before(deadline) {
+			return err
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return wrapFailure(KindUnavailable, "migrate", "schema migration was cancelled while waiting for another process", true,
+				"retry once the database is writable", ctx.Err())
+		case <-timer.C:
+		}
+		if delay < migrationRetryMaxDelay {
+			delay *= 2
+			if delay > migrationRetryMaxDelay {
+				delay = migrationRetryMaxDelay
+			}
+		}
+	}
+}
+
+// migrationManifestCurrent reports whether the database is already at this
+// binary's schema version. It reads without opening a write transaction, so a
+// routine open of an up-to-date database never contends for the write lock.
+// Drift and newer-binary detection still run here: skipping the write
+// transaction must never skip the manifest check.
+func migrationManifestCurrent(ctx context.Context, db *sql.DB) (bool, error) {
+	var present string
+	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		if migrationLockContended(err) {
+			return false, nil
+		}
+		return false, wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
+			"confirm the database is readable", err)
+	}
+	applied, err := appliedMigrations(ctx, db)
+	if err != nil {
+		return false, nil
+	}
+	if err := checkManifest(applied); err != nil {
+		return false, err
+	}
+	for _, m := range migrations {
+		if _, done := applied[m.Version]; !done {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// migrationLockContended reports whether a failure means another process holds
+// the write lock. It never treats drift, unsupported schema, or a membership
+// migration requirement as contention.
+func migrationLockContended(err error) bool {
+	var failure *Failure
+	if errors.As(err, &failure) {
+		if failure.Kind != KindUnavailable {
+			return false
+		}
+		err = failure.Err
+	}
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "database table is locked")
+}
+
+func migrateOnce(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
@@ -1566,7 +1684,13 @@ func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func appliedMigrations(ctx context.Context, tx *sql.Tx) (map[int]string, error) {
+// manifestQueryer is satisfied by both *sql.DB and *sql.Tx so the manifest can
+// be read without opening a write transaction.
+type manifestQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func appliedMigrations(ctx context.Context, tx manifestQueryer) (map[int]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT version, checksum FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest", true,

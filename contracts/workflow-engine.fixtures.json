@@ -7,10 +7,10 @@
       "schema": "workflow-definition.schema.json",
       "valid": true,
       "instance": {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "ref": "workflow.implementation",
         "version": 1,
-        "digest": "sha256:a10740f64bc1a5573ba90bd2e06691d04e46c13b6017a554a40d3923bd9b63e6",
+        "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
         "work_kind": "implementation",
         "step_graph": {
           "start_step": "proposal",
@@ -55,7 +55,8 @@
         "outcome_schema": {"default_kind": "check", "allowed_kinds": ["exists", "absent", "check"], "allowed_outcome_tokens": [], "decision_record_required": false},
         "rigor_rules": [{"maturity": "prototype", "audience_band": "internal", "required_evidence_kinds": ["verification"]}],
         "staleness_rules": [],
-        "composition_rules": {"forward_link_only": true, "allowed_successor_work_kinds": ["break_fix", "research"], "forbidden_compositions": []}
+        "composition_rules": {"forward_link_only": true, "allowed_successor_work_kinds": ["break_fix", "research"], "forbidden_compositions": []},
+        "evaluator_independence": {"model_distinct": false}
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},

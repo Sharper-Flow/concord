@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/workflow-definition.schema.json",
-  "title": "Concord workflow definition manifest v1",
+  "title": "Concord workflow definition manifest v1.1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "ref", "version", "digest", "work_kind", "step_graph", "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules", "staleness_rules", "composition_rules"],
+  "required": ["schema_version", "ref", "version", "digest", "work_kind", "step_graph", "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules", "staleness_rules", "composition_rules", "evaluator_independence"],
   "properties": {
     "$schema": {"type": "string", "minLength": 1, "maxLength": 256},
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"enum": ["1.0", "1.1"]},
     "ref": {"type": "string", "pattern": "^workflow\\.[a-z][a-z0-9_.-]{1,62}$", "minLength": 10, "maxLength": 64},
     "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
@@ -19,7 +19,8 @@
     "outcome_schema": {"$ref": "#/$defs/outcomeSchema"},
     "rigor_rules": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/rigorRule"}},
     "staleness_rules": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/stalenessRule"}},
-    "composition_rules": {"$ref": "#/$defs/compositionRules"}
+    "composition_rules": {"$ref": "#/$defs/compositionRules"},
+    "evaluator_independence": {"$ref": "#/$defs/evaluatorIndependence"}
   },
   "allOf": [
     {"if": {"properties": {"work_kind": {"const": "implementation"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "check"}, "allowed_kinds": {"const": ["exists", "absent", "check"]}, "allowed_outcome_tokens": {"const": []}, "decision_record_required": {"const": false}}}}}},
@@ -123,6 +124,14 @@
         "forward_link_only": {"const": true},
         "allowed_successor_work_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}},
         "forbidden_compositions": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["successor_work_kind", "reason"], "properties": {"successor_work_kind": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 256}}}}
+      }
+    },
+    "evaluatorIndependence": {
+      "description": "CD-0017 D6 evaluator-independence dimensions a workflow declares. Model distinctness is structurally available to every workflow and mandatory for none; a globally mandatory rule awaits the R6 section 5 measured basis.",
+      "type": "object", "additionalProperties": false,
+      "required": ["model_distinct"],
+      "properties": {
+        "model_distinct": {"description": "When true, the implementation and review runs must resolve to different readback model identities. Evaluated against actual readback identity so a fallback-induced collision is caught, and failed closed when either model is unrecorded.", "type": "boolean"}
       }
     }
   }

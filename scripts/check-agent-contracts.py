@@ -294,7 +294,7 @@ def check_workflow_contracts() -> list[str]:
     findings += _check_closed_schema(ROOT / "contracts/workflow-definition.schema.json", {
         "schema_version", "ref", "version", "digest", "work_kind", "step_graph",
         "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules",
-        "staleness_rules", "composition_rules",
+        "staleness_rules", "composition_rules", "evaluator_independence",
     })
     outcome = ROOT / "contracts/workflow-outcome.schema.json"
     findings += _check_closed_schema(outcome, set())

@@ -155,18 +155,30 @@ type WorkflowCompositionRules struct {
 	ForbiddenCompositions     []WorkflowForbiddenComposition `json:"forbidden_compositions"`
 }
 
+// WorkflowEvaluatorIndependence carries the dimensions of evaluator
+// independence a workflow declares. CD-0017 D6 makes model distinctness
+// structurally available to every workflow and mandatory for none; a globally
+// mandatory rule awaits the R6 section 5 measured basis.
+type WorkflowEvaluatorIndependence struct {
+	// ModelDistinct requires the implementation and review runs to resolve to
+	// different readback model identities. Evaluated against actual readback
+	// identity so a fallback-induced collision is caught.
+	ModelDistinct bool `json:"model_distinct"`
+}
+
 type WorkflowDefinition struct {
-	Ref                   string                     `json:"ref"`
-	Version               int64                      `json:"version"`
-	WorkKind              WorkKind                   `json:"work_kind"`
-	StepGraph             WorkflowStepGraph          `json:"step_graph"`
-	AvailableActions      []string                   `json:"available_actions"`
-	ActionDefinitions     []WorkflowActionDefinition `json:"action_definitions"`
-	RequiredEvidenceKinds []EvidenceKind             `json:"required_evidence_kinds"`
-	OutcomeSchema         WorkflowOutcomeSchema      `json:"outcome_schema"`
-	RigorRules            []WorkflowRigorRule        `json:"rigor_rules"`
-	StalenessRules        []WorkflowStalenessRule    `json:"staleness_rules"`
-	CompositionRules      WorkflowCompositionRules   `json:"composition_rules"`
+	Ref                   string                        `json:"ref"`
+	Version               int64                         `json:"version"`
+	WorkKind              WorkKind                      `json:"work_kind"`
+	StepGraph             WorkflowStepGraph             `json:"step_graph"`
+	AvailableActions      []string                      `json:"available_actions"`
+	ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
+	RequiredEvidenceKinds []EvidenceKind                `json:"required_evidence_kinds"`
+	OutcomeSchema         WorkflowOutcomeSchema         `json:"outcome_schema"`
+	RigorRules            []WorkflowRigorRule           `json:"rigor_rules"`
+	StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
+	CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
+	EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
 }
 
 type RegisteredDefinition struct {
@@ -399,19 +411,20 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	// part of this manifest, and nil arrays are normalized to schema arrays.
 	definition = normalizeWorkflowDefinition(definition)
 	manifest := struct {
-		SchemaVersion         string                     `json:"schema_version"`
-		Ref                   string                     `json:"ref"`
-		Version               int64                      `json:"version"`
-		WorkKind              WorkKind                   `json:"work_kind"`
-		StepGraph             WorkflowStepGraph          `json:"step_graph"`
-		AvailableActions      []string                   `json:"available_actions"`
-		ActionDefinitions     []WorkflowActionDefinition `json:"action_definitions"`
-		RequiredEvidenceKinds []EvidenceKind             `json:"required_evidence_kinds"`
-		OutcomeSchema         WorkflowOutcomeSchema      `json:"outcome_schema"`
-		RigorRules            []WorkflowRigorRule        `json:"rigor_rules"`
-		StalenessRules        []WorkflowStalenessRule    `json:"staleness_rules"`
-		CompositionRules      WorkflowCompositionRules   `json:"composition_rules"`
-	}{"1.0", definition.Ref, definition.Version, definition.WorkKind, definition.StepGraph, definition.AvailableActions, definition.ActionDefinitions, definition.RequiredEvidenceKinds, definition.OutcomeSchema, definition.RigorRules, definition.StalenessRules, definition.CompositionRules}
+		SchemaVersion         string                        `json:"schema_version"`
+		Ref                   string                        `json:"ref"`
+		Version               int64                         `json:"version"`
+		WorkKind              WorkKind                      `json:"work_kind"`
+		StepGraph             WorkflowStepGraph             `json:"step_graph"`
+		AvailableActions      []string                      `json:"available_actions"`
+		ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
+		RequiredEvidenceKinds []EvidenceKind                `json:"required_evidence_kinds"`
+		OutcomeSchema         WorkflowOutcomeSchema         `json:"outcome_schema"`
+		RigorRules            []WorkflowRigorRule           `json:"rigor_rules"`
+		StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
+		CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
+		EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
+	}{"1.1", definition.Ref, definition.Version, definition.WorkKind, definition.StepGraph, definition.AvailableActions, definition.ActionDefinitions, definition.RequiredEvidenceKinds, definition.OutcomeSchema, definition.RigorRules, definition.StalenessRules, definition.CompositionRules, definition.EvaluatorIndependence}
 	return json.Marshal(manifest)
 }
 

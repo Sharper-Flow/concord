@@ -102,6 +102,9 @@ type workflowActionStartedPayload struct {
 	AcceptedInputsDigest string `json:"accepted_inputs_digest"`
 	IdempotencyIdentity  string `json:"idempotency_identity"`
 	ActorRef             string `json:"actor_ref"`
+	// ExecutionModel is the readback executing-model identity for this run
+	// (CD-0017 D5). Empty when the run dispatched no typed lane.
+	ExecutionModel string `json:"execution_model,omitempty"`
 }
 
 type workflowActionCheckpointedPayload struct {
@@ -193,6 +196,9 @@ type workflowVerdictRecordedPayload struct {
 	VerdictActorRef          string   `json:"verdict_actor_ref"`
 	EvaluationEvidence       []string `json:"evaluation_evidence"`
 	IncomparableWithApproved bool     `json:"incomparable_with_approved"`
+	// VerdictModel is the readback executing-model identity of the review run
+	// (CD-0017 D5). Empty when the evaluator dispatched no typed lane.
+	VerdictModel string `json:"verdict_model,omitempty"`
 }
 
 type workflowPremiseConfirmedPayload struct {
@@ -779,6 +785,9 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if !workflowString(p.StepID, 128) || !workflowString(p.ActionID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || p.AcceptedInputsDigest == "" || !workflowString(p.IdempotencyIdentity, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_started has invalid step, attempt, or idempotency fields", false, "supply bounded action-start fields")
 	}
+	if err := ValidateWorkflowActorModel(p.ExecutionModel); err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "action_started has an invalid readback model identity", false, "supply a bounded readback model identity")
+	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
@@ -789,7 +798,7 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if p.StepID == "planning" {
 		instanceState = "planned"
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state=?,execution_actor_ref=?,started_at=coalesce(started_at,?) WHERE work_id=?`, p.StepID, instanceState, p.ActorRef, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state=?,execution_actor_ref=?,execution_model=?,started_at=coalesce(started_at,?) WHERE work_id=?`, p.StepID, instanceState, p.ActorRef, p.ExecutionModel, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot start workflow action")
 	}
@@ -1128,6 +1137,9 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if p.ContractVersion <= 0 || !workflowString(p.PredicateID, 128) || (p.VerdictKind != "ok" && p.VerdictKind != "outcome_mismatch" && p.VerdictKind != "insufficient_evidence") || !workflowString(p.VerdictActorRef, 70) || !workflowList(p.EvaluationEvidence, 32, 1) {
 		return newFailure(KindInvalidPayload, "fold_event", "verdict_recorded has invalid verdict fields", false, "supply a closed verdict and complete evidence")
+	}
+	if err := ValidateWorkflowActorModel(p.VerdictModel); err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "verdict_recorded has an invalid readback model identity", false, "supply a bounded readback model identity")
 	}
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {
 		return err

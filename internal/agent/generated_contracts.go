@@ -7,7 +7,7 @@ import (
 )
 
 const ManifestVersion = "2.3.0"
-const ManifestDigest = "sha256:e908bbb901b8276c63c0fde9c15f78a6c71cad717c789be102d4aa908b1f7e92"
+const ManifestDigest = "sha256:c86002a1cd615cf26ae39f1fac410edc94dc0ce6f94ecd86538668dccf087b87"
 
 type OperationKind string
 
@@ -115,8 +115,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_browse_scope_input":         {Required: []string{"product_id"}, Properties: []string{"product_id", "project_id", "work_id", "page", "budget", "one_of"}},
 	"work_compact_publish_input":      {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence"}},
 	"work_compact_reconcile_input":    {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence"}},
-	"work_define_capture_input":       {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "approval"}},
-	"work_define_revise_input":        {Required: []string{"work_id", "expected_version", "title", "value_statement", "kind", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "title", "value_statement", "kind", "priority", "tags", "component_id", "workflow_type_ref", "reason", "idempotency_key", "evidence"}},
+	"work_define_capture_input":       {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "approval"}},
+	"work_define_revise_input":        {Required: []string{"work_id", "expected_version", "title", "value_statement", "kind", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "reason", "idempotency_key", "evidence"}},
 	"work_event_page":                 {Required: []string{"events"}, Properties: []string{"events", "next_cursor", "workflow"}},
 	"work_page":                       {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
 	"work_relate_link_input":          {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key", "approval"}},
@@ -126,7 +126,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relate_unlink_input":        {Required: []string{"relation_id", "expected_versions", "reason", "idempotency_key"}, Properties: []string{"relation_id", "expected_versions", "reason", "idempotency_key", "approval"}},
 	"work_relation_graph":             {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
 	"work_scope":                      {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor"}},
-	"work_summary":                    {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "project_ids", "ready", "narrative", "terminal_at"}},
+	"work_summary":                    {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at"}},
 	"work_trace_continuity_input":     {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "page", "budget"}},
 	"work_trace_history_input":        {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "direction", "event_kinds", "page", "budget"}},
 	"work_trace_relations_input":      {Required: []string{"work_id"}, Properties: []string{"work_id", "relation_kinds", "direction", "depth", "budget"}},

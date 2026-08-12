@@ -29,6 +29,7 @@ type captureMutationInput struct {
 	Kind            string         `json:"kind"`
 	ProjectIDs      []string       `json:"project_ids"`
 	Priority        int64          `json:"priority"`
+	Urgency         string         `json:"urgency"`
 	Tags            []string       `json:"tags"`
 	ComponentID     string         `json:"component_id"`
 	WorkflowTypeRef string         `json:"workflow_type_ref"`
@@ -43,6 +44,7 @@ type reviseMutationInput struct {
 	ValueStatement  string   `json:"value_statement"`
 	Kind            string   `json:"kind"`
 	Priority        int64    `json:"priority"`
+	Urgency         string   `json:"urgency"`
 	Tags            []string `json:"tags"`
 	ComponentID     string   `json:"component_id"`
 	WorkflowTypeRef string   `json:"workflow_type_ref"`
@@ -749,7 +751,11 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
 		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			priority := in.Priority
-			payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "tags": in.Tags, "component_id": in.ComponentID, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
+			urgency := in.Urgency
+			if urgency == "" {
+				urgency = "standard"
+			}
+			payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "component_id": in.ComponentID, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
 			memberships := make([]storeMembership, len(in.ProjectIDs))
 			for i, project := range in.ProjectIDs {
 				role := "secondary"
@@ -805,7 +811,11 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			if existingErr == nil && in.WorkflowTypeRef != "" && existingDefinitionRef != in.WorkflowTypeRef {
 				return nil, nil, nil, fmt.Errorf("workflow definition cannot be changed after initialization")
 			}
-			payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "tags": in.Tags, "component_id": in.ComponentID, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+			urgency := in.Urgency
+			if urgency == "" {
+				urgency = "standard"
+			}
+			payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "component_id": in.ComponentID, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 			if err != nil {
 				return nil, nil, nil, err

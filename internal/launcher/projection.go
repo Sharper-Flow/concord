@@ -23,19 +23,19 @@ func Project(snapshot Snapshot, width int) Projection {
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))
 	if snapshot.Screen == ScreenProduct {
-		columns = []string{"Work", "Priority", "Lifecycle", "Blocked", "Projects"}
+		columns = []string{"Work", "Priority", "Urgency", "Lifecycle", "Blocked", "Projects"}
 		for _, item := range snapshot.Ranked {
 			blocked := "no"
 			if item.Blocked {
 				blocked = "yes"
 			}
-			rows = append(rows, []string{item.ID + " " + item.Title, fmt.Sprintf("%d", item.Priority), item.Lifecycle, blocked, fmt.Sprintf("%d", item.ProjectCount)})
+			rows = append(rows, []string{item.ID + " " + item.Title, fmt.Sprintf("%d", item.Priority), item.Urgency, item.Lifecycle, blocked, fmt.Sprintf("%d", item.ProjectCount)})
 		}
 	}
 	if snapshot.Screen == ScreenWork {
-		columns = []string{"Work", "Lifecycle", "Priority", "Projects", "Section"}
+		columns = []string{"Work", "Lifecycle", "Priority", "Urgency", "Projects", "Section"}
 		item := snapshot.Detail.Item
-		rows = append(rows, []string{item.ID + " " + item.Title, item.Lifecycle, fmt.Sprintf("%d", item.Priority), fmt.Sprintf("%d", item.ProjectCount), string(snapshot.Section)})
+		rows = append(rows, []string{item.ID + " " + item.Title, item.Lifecycle, fmt.Sprintf("%d", item.Priority), item.Urgency, fmt.Sprintf("%d", item.ProjectCount), string(snapshot.Section)})
 	}
 	if snapshot.Screen != ScreenPortfolio {
 		ambient := snapshot.AmbientProduct

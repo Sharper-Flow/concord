@@ -104,6 +104,7 @@ type Blocker struct {
 type RankedWork struct {
 	ID, Kind, Title, Lifecycle string
 	Priority                   int64
+	Urgency                    string
 	CreatedAt, UpdatedAt       string
 	ProjectCount               int
 	Blocked, Ready             bool

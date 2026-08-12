@@ -155,6 +155,7 @@ type productRowWork struct {
 	Title             string
 	Lifecycle         string
 	Priority          int64
+	Urgency           string
 	CreatedAt         string
 	UpdatedAt         string
 	ProjectCount      int
@@ -185,6 +186,7 @@ WITH page_products AS (
 		w.title,
 		w.lifecycle,
 		w.priority,
+		w.urgency,
 		w.created_at,
 		w.updated_at,
 		COUNT(wp.project_id) AS project_count,
@@ -218,12 +220,12 @@ WITH page_products AS (
 	JOIN projects project ON project.id = wp.project_id
 	JOIN work_items w ON w.id = wp.work_id
 	LEFT JOIN workflow_instances wi ON wi.work_id = w.id
-	GROUP BY pp.id, w.id, w.kind, w.title, w.lifecycle, w.priority, w.created_at, w.updated_at,
+	GROUP BY pp.id, w.id, w.kind, w.title, w.lifecycle, w.priority, w.urgency, w.created_at, w.updated_at,
 		wi.current_step, wi.definition_ref, wi.definition_version, wi.definition_digest, wi.instance_state
 )
 SELECT
 	pp.id, pp.display_name, pp.stage_maturity, pp.stage_audience_commitment, pp.version, pp.created_at, pp.updated_at,
-	sw.work_id, sw.kind, sw.title, sw.lifecycle, sw.priority, sw.created_at, sw.updated_at, sw.project_count,
+	sw.work_id, sw.kind, sw.title, sw.lifecycle, sw.priority, sw.urgency, sw.created_at, sw.updated_at, sw.project_count,
 	sw.blocked, sw.ready, sw.active_problem,
 	sw.current_step, sw.definition_ref, sw.definition_version, sw.definition_digest, sw.instance_state, sw.stage_override_min, sw.stage_override_max
 FROM page_products pp
@@ -404,6 +406,9 @@ func productRowRelevantTime(w productRowWork) string {
 }
 
 func lessProductRowWork(a, b productRowWork) bool {
+	if a.Urgency != b.Urgency {
+		return a.Urgency < b.Urgency
+	}
 	if a.Priority != b.Priority {
 		return a.Priority < b.Priority
 	}
@@ -505,12 +510,12 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 	definitionCache := make(map[string]RegisteredDefinition)
 	for rows.Next() {
 		var p Product
-		var workID, workKind, title, lifecycle, createdAt, updatedAt sql.NullString
+		var workID, workKind, title, lifecycle, urgency, createdAt, updatedAt sql.NullString
 		var priority, projectCount, definitionVersion sql.NullInt64
 		var blocked, ready, activeProblem sql.NullBool
 		var currentStep, definitionRef, definitionDigest, instanceState, stageOverrideMin, stageOverrideMax sql.NullString
 		if err := rows.Scan(&p.ID, &p.DisplayName, &p.StageMaturity, &p.StageAudienceCommitment, &p.Version, &p.CreatedAt, &p.UpdatedAt,
-			&workID, &workKind, &title, &lifecycle, &priority, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem,
+			&workID, &workKind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem,
 			&currentStep, &definitionRef, &definitionVersion, &definitionDigest, &instanceState, &stageOverrideMin, &stageOverrideMax); err != nil {
 			return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot decode Product row", true, "retry once the database is readable", err)
 		}
@@ -531,7 +536,7 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 			approvalRequired = false
 		}
 		products[idx].works = append(products[idx].works, productRowWork{
-			ID: workID.String, Kind: workKind.String, Title: title.String, Lifecycle: lifecycle.String, Priority: priority.Int64,
+			ID: workID.String, Kind: workKind.String, Title: title.String, Lifecycle: lifecycle.String, Priority: priority.Int64, Urgency: urgency.String,
 			CreatedAt: createdAt.String, UpdatedAt: updatedAt.String, ProjectCount: int(projectCount.Int64), Blocked: blocked.Bool,
 			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, WorkflowStepLabel: stepLabel,
 			StageOverrides: parseProductRowStageOverrides(stageOverrideMin.String, stageOverrideMax.String),

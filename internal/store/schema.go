@@ -1374,6 +1374,39 @@ ALTER TABLE worker_attempts ADD COLUMN fallback_reason TEXT NOT NULL DEFAULT ''
           (resolution_role='fallback' AND fallback_reason IN ('rate_limit','provider_unavailable','budget_exhausted','other')));
 		`,
 	},
+	{
+		Version: 26,
+		Name:    "declared_urgency_and_provenance",
+		SQL: `
+ALTER TABLE work_items ADD COLUMN urgency TEXT NOT NULL DEFAULT 'standard'
+    CHECK(urgency IN ('standard', 'expedite'));
+DROP TRIGGER relations_guard_insert;
+DROP TRIGGER relations_guard_update;
+DROP TRIGGER relations_guard_delete;
+DROP INDEX idx_relations_from_kind;
+DROP INDEX idx_relations_to_kind;
+DROP INDEX relations_supersedes_target;
+ALTER TABLE relations RENAME TO relations_v26;
+CREATE TABLE relations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id_from TEXT NOT NULL REFERENCES work_items(id),
+    work_id_to   TEXT NOT NULL REFERENCES work_items(id),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'blocks', 'supersedes', 'implements', 'forward_link', 'raised_from')),
+    created_at   TEXT NOT NULL,
+    CHECK(work_id_from <> work_id_to),
+    UNIQUE(work_id_from, work_id_to, kind)
+);
+INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at)
+    SELECT id,work_id_from,work_id_to,kind,created_at FROM relations_v26;
+DROP TABLE relations_v26;
+CREATE INDEX idx_relations_from_kind ON relations(work_id_from, kind, work_id_to);
+CREATE INDEX idx_relations_to_kind ON relations(work_id_to, kind, work_id_from);
+CREATE UNIQUE INDEX relations_supersedes_target ON relations(work_id_to) WHERE kind = 'supersedes';
+CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -4,11 +4,11 @@
 
 Registry digest: `sha256:8eb42f5620abb0b87a3661b041fcb12b29620d14ccb985c052fafef2c6b3d3bc`
 
-| Lane | Capability class | Packet | Report | Pinned model |
+| Lane | Capability class | Packet | Report | Pinned preferred model |
 |---|---|---|---|---|
 | `research` v1 | `research` | `agent-lane-packet.v1` | `agent-lane-report.v1` | `openai/gpt-5.6-luna` |
 | `implement` v1 | `implementation` | `agent-lane-packet.v1` | `agent-lane-report.v1` | `openai/gpt-5.6-luna` |
 | `review` v1 | `review` | `agent-lane-packet.v1` | `agent-lane-report.v1` | `zai-coding-plan/glm-5.2` |
 | `verify` v1 | `verification` | `agent-lane-packet.v1` | `agent-lane-report.v1` | `openai/gpt-5.6-luna` |
 
-Every lane is closed, versioned, digest-pinned, and model-pinned. Unknown lane identity or digest fails closed before work begins.
+Every lane is closed, versioned, digest-pinned, and pinned to a preferred model. Declared fallback resolution is governed by the generated routing policy. Unknown lane identity or digest fails closed before work begins.

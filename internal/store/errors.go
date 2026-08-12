@@ -139,6 +139,9 @@ const (
 	KindLaneDefinitionNotRegistered  FailureKind = "lane_definition_not_registered"
 	KindLaneDefinitionDigestMismatch FailureKind = "lane_definition_digest_mismatch"
 	KindLaneDefinitionInvalid        FailureKind = "lane_definition_invalid"
+	KindRoutingPolicyNotRegistered   FailureKind = "routing_policy_not_registered"
+	KindRoutingPolicyDigestMismatch  FailureKind = "routing_policy_digest_mismatch"
+	KindRoutingPolicyInvalid         FailureKind = "routing_policy_invalid"
 	// KindModelIdentityMismatch records a completed worker whose host readback
 	// identity differs from the model resolved at dispatch.
 	KindModelIdentityMismatch FailureKind = "model_identity_mismatch"

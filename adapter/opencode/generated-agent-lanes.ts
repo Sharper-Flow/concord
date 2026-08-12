@@ -125,4 +125,41 @@ export const agentLanes = [
     "digest": "sha256:27aa54758f4c90542c1e7d0da567e68bd79f8476cf50fa1590849be29a8a7f4c"
   }
 ] as const;
+export const agentLanePacketSchema = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/agent-lane-packet.schema.json","title":"Concord agent lane packet v1","type":"object","additionalProperties":false,"required":["schema_version","attempt_id","lane_id","lane_version","lane_digest","work_id","step_id","inputs"],"properties":{"schema_version":{"const":"1.0"},"attempt_id":{"type":"string","minLength":2,"maxLength":128},"lane_id":{"type":"string","minLength":2,"maxLength":32},"lane_version":{"type":"integer","minimum":1,"maximum":2147483647},"lane_digest":{"type":"string","minLength":71,"maxLength":71,"pattern":"^sha256:[0-9a-f]{64}$"},"work_id":{"type":"string","minLength":1,"maxLength":128},"step_id":{"type":"string","minLength":1,"maxLength":128},"inputs":{"type":"object","additionalProperties":false,"required":["task"],"properties":{"task":{"type":"string","minLength":1,"maxLength":4096},"context":{"type":"string","minLength":0,"maxLength":16384},"constraints":{"type":"array","minItems":0,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":512}}}}}} as const;
+export const routingPolicyManifestDigest = "sha256:99a5805ad7593954f6b5219511760609b80493a899c3d00fa1f68204d5e56046" as const;
+export const routingPolicyVersion = "routing-v1" as const;
+export const routingPolicies = [
+  {
+    "capability_class": "research",
+    "preferred_model": "openai/gpt-5.6-luna",
+    "resolution_set": [
+      "openai/gpt-5.6-luna",
+      "zai-coding-plan/glm-5.2"
+    ]
+  },
+  {
+    "capability_class": "implementation",
+    "preferred_model": "openai/gpt-5.6-luna",
+    "resolution_set": [
+      "openai/gpt-5.6-luna",
+      "zai-coding-plan/glm-5.2"
+    ]
+  },
+  {
+    "capability_class": "review",
+    "preferred_model": "zai-coding-plan/glm-5.2",
+    "resolution_set": [
+      "zai-coding-plan/glm-5.2",
+      "kimi-for-coding/kimi-for-coding"
+    ]
+  },
+  {
+    "capability_class": "verification",
+    "preferred_model": "openai/gpt-5.6-luna",
+    "resolution_set": [
+      "openai/gpt-5.6-luna",
+      "zai-coding-plan/glm-5.2"
+    ]
+  }
+] as const;
 export type AgentLane = (typeof agentLanes)[number];

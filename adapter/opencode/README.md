@@ -33,6 +33,9 @@ other aliases are accepted:
 | `project-locator-add` | `project locator-add` |
 | `project-locator-update` | `project locator-update` |
 | `project-locator-remove` | `project locator-remove` |
+| `worker-dispatch` | — |
+| `worker-complete` | — |
+| `worker-fail` | — |
 
 `grant` and `invoke` use only their single-word forms. A first installation
 normally registers the client, runs `product-create` (which atomically creates
@@ -91,3 +94,60 @@ new Project version is `1`, so its locator mutation uses `expected_version: 1`.
 After installing the adapter, run an adapter tool from that repository. It
 retrieves the matching private seed, signs the grant assertion, and invokes the
 tool only after the core accepts the resolved locator and scope.
+
+The `worker-*` verbs are internal orchestrator verbs. They use the same strict
+JSON-stdin boundary but are not grant-gated agent tools and do not expand TS8.
+
+## Typed worker lane dispatch
+
+CD-0017 lane workers are dispatched by the hand-written `dispatch.ts` module,
+not by the TS8 tool surface. It resolves a packet's registered lane to the
+generated `concord-<lane>` agent and its pinned preferred model, validates the
+closed `agent-lane-packet.v1` shape before spawning, and invokes:
+
+```text
+opencode run --agent concord-<lane> --model <provider/model> --format json <packet>
+```
+
+The adapter reads the executing model and session identity from the JSON event
+metadata, then checks the model against the capability class's generated
+resolution set. A declared fallback emits `resolution_role: fallback` and a
+typed reason; an exhausted set emits blocked. An undeclared model or a
+readback different from the resolved model is an error. Neither is silent
+substitution. Worker lifecycle evidence is recorded by the internal
+`worker-dispatch`, `worker-complete`, and `worker-fail` CLI verbs; workers never
+record workflow transitions, verdicts, or completion.
+
+### Recommended host permission and fallback configuration
+
+Keep Concord lane dispatch closed to generic host agents. In the OpenCode
+configuration that owns the `task` permission, use an explicit map like this:
+
+```yaml
+permission:
+  task:
+    "*": deny
+    "general": deny
+    "explore": deny
+    "concord-*": allow
+```
+
+The lane agent definitions also deny nested task dispatch. Configure the OMR
+plugin's ordered fallback targets under its plugin tuple, for example:
+
+```jsonc
+{
+  "plugin": [["opencode-model-routing", {
+    "agents": {
+      "concord-research": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.2"] },
+      "concord-implement": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.2"] },
+      "concord-review": { "fallback_models": ["zai-coding-plan/glm-5.2", "kimi-for-coding/kimi-for-coding"] },
+      "concord-verify": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.2"] }
+    }
+  }]]
+}
+```
+
+Fallback configuration is host-owned. The adapter does not claim that a
+preferred model ran: fallback surfaces through session readback and the D5
+worker evidence, as required by CD-0017 D5/D8.

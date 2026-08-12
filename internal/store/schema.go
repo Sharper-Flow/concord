@@ -1360,6 +1360,20 @@ CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+	{
+		Version: 25,
+		Name:    "worker_routing_resolution_evidence",
+		SQL: `
+ALTER TABLE worker_attempts ADD COLUMN routing_policy_digest TEXT NOT NULL
+    DEFAULT 'sha256:99a5805ad7593954f6b5219511760609b80493a899c3d00fa1f68204d5e56046'
+    CHECK(length(routing_policy_digest) = 71 AND substr(routing_policy_digest,1,7)='sha256:');
+ALTER TABLE worker_attempts ADD COLUMN resolution_role TEXT NOT NULL DEFAULT 'preferred'
+    CHECK(resolution_role IN ('preferred','fallback'));
+ALTER TABLE worker_attempts ADD COLUMN fallback_reason TEXT NOT NULL DEFAULT ''
+    CHECK((resolution_role='preferred' AND fallback_reason='') OR
+          (resolution_role='fallback' AND fallback_reason IN ('rate_limit','provider_unavailable','budget_exhausted','other')));
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

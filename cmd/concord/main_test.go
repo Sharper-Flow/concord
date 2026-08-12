@@ -402,6 +402,154 @@ func TestCommandRouterRejectsUnsupportedFormsCleanly(t *testing.T) {
 	}
 }
 
+func TestWorkerCLIRecordsLifecycleAndTypedModelMismatch(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	lane := store.BuiltinLaneDefinitions()[0]
+	dispatch := workerDispatchJSON(t, "dispatch-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion)
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
+		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
+	}
+	complete := fmt.Sprintf(`{"event_id":"complete-1","work_id":"work-1","attempt_id":"attempt-1","readback_model":%q,"report_schema_version":%q}`, lane.PinnedModel, store.WorkerReportSchemaVersion)
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(complete), &out, &errOut); code != 0 {
+		t.Fatalf("worker-complete exit=%d stderr=%q", code, errOut.String())
+	}
+
+	failedDispatch := workerDispatchJSON(t, "dispatch-2", "work-1", "attempt-2", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion)
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(failedDispatch), &out, &errOut); code != 0 {
+		t.Fatalf("failed worker-dispatch exit=%d stderr=%q", code, errOut.String())
+	}
+	fail := fmt.Sprintf(`{"event_id":"fail-2","work_id":"work-1","attempt_id":"attempt-2","readback_model":%q,"failure_kind":%q,"detail":"provider unavailable"}`, lane.PinnedModel, store.WorkerFailureFallbackBlocked)
+	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(fail), &out, &errOut); code != 0 {
+		t.Fatalf("worker-fail exit=%d stderr=%q", code, errOut.String())
+	}
+
+	mismatchDispatch := workerDispatchJSON(t, "dispatch-3", "work-1", "attempt-3", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion)
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(mismatchDispatch), &out, &errOut); code != 0 {
+		t.Fatalf("mismatch worker-dispatch exit=%d stderr=%q", code, errOut.String())
+	}
+	mismatch := `{"event_id":"failed-3","work_id":"work-1","attempt_id":"attempt-3","readback_model":"openai/fallback-model","report_schema_version":"1.0"}`
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(mismatch), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), string(store.KindModelIdentityMismatch)) {
+		t.Fatalf("mismatch worker-complete exit=%d stderr=%q, want typed mismatch", code, errOut.String())
+	}
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var completed, failed int
+	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerCompleted).Scan(&completed); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerFailed).Scan(&failed); err != nil {
+		t.Fatal(err)
+	}
+	if completed != 1 || failed != 2 {
+		t.Fatalf("worker lifecycle events = completed:%d failed:%d, want completed:1 failed:2", completed, failed)
+	}
+	var state, failureKind string
+	if err := s.DB().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, "attempt-3").Scan(&state, &failureKind); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" || failureKind != string(store.KindModelIdentityMismatch) {
+		t.Fatalf("mismatch projection = %s/%s", state, failureKind)
+	}
+}
+
+func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
+	lane := store.BuiltinLaneDefinitions()[0]
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+		want   string
+	}{
+		{name: "unknown lane", mutate: func(value map[string]any) { value["lane_id"] = "unknown" }, want: string(store.KindLaneDefinitionNotRegistered)},
+		{name: "digest mismatch", mutate: func(value map[string]any) { value["lane_digest"] = "sha256:" + strings.Repeat("0", 64) }, want: string(store.KindLaneDefinitionDigestMismatch)},
+		{name: "unpinned model", mutate: func(value map[string]any) { value["resolved_model"] = "" }, want: string(store.KindLaneDefinitionInvalid)},
+		{name: "packet schema mismatch", mutate: func(value map[string]any) { value["packet_schema_version"] = "9.0" }, want: string(store.KindInvalidPayload)},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))
+			value := map[string]any{}
+			if err := json.Unmarshal([]byte(workerDispatchJSON(t, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion)), &value); err != nil {
+				t.Fatal(err)
+			}
+			testCase.mutate(value)
+			raw, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out, errOut bytes.Buffer
+			if code := runWithInput([]string{"worker-dispatch"}, bytes.NewReader(raw), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), testCase.want) {
+				t.Fatalf("exit=%d stderr=%q, want typed failure %q", code, errOut.String(), testCase.want)
+			}
+		})
+	}
+}
+
+func TestWorkerCLIAcceptsRecordedFallbackAndCompletesOnMatchingReadback(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	lane := store.BuiltinLaneDefinitions()[2]
+	policy, err := store.LookupRoutingPolicy(lane.CapabilityClass, store.RoutingPolicyVersion, store.RoutingPolicyManifestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := map[string]any{}
+	if err := json.Unmarshal([]byte(workerDispatchJSON(t, "fallback-dispatch", "work-fallback", "attempt-fallback", lane, policy.ResolutionSet[1], store.WorkerPacketSchemaVersion)), &value); err != nil {
+		t.Fatal(err)
+	}
+	value["resolution_role"] = store.WorkerResolutionFallback
+	value["fallback_reason"] = "rate_limit"
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"worker-dispatch"}, bytes.NewReader(raw), &out, &errOut); code != 0 {
+		t.Fatalf("fallback dispatch exit=%d stderr=%q", code, errOut.String())
+	}
+	complete := fmt.Sprintf(`{"event_id":"fallback-complete","work_id":"work-fallback","attempt_id":"attempt-fallback","readback_model":%q,"report_schema_version":"1.0"}`, policy.ResolutionSet[1])
+	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(complete), &out, &errOut); code != 0 {
+		t.Fatalf("fallback complete exit=%d stderr=%q", code, errOut.String())
+	}
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var state, role, reason, resolved, readback string
+	if err := s.DB().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model FROM worker_attempts WHERE attempt_id=?`, "attempt-fallback").Scan(&state, &role, &reason, &resolved, &readback); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" || role != store.WorkerResolutionFallback || reason != "rate_limit" || resolved != policy.ResolutionSet[1] || readback != resolved {
+		t.Fatalf("fallback CLI projection = %s/%s/%s/%s/%s", state, role, reason, resolved, readback)
+	}
+}
+
+func workerDispatchJSON(t *testing.T, eventID, workID, attemptID string, lane store.LaneDefinition, resolvedModel, packetVersion string) string {
+	t.Helper()
+	value := map[string]any{
+		"event_id": eventID, "work_id": workID, "attempt_id": attemptID,
+		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"routing_policy_version": "routing-v1", "routing_policy_digest": store.RoutingPolicyManifestDigest,
+		"resolved_model": resolvedModel, "resolution_role": store.WorkerResolutionPreferred, "fallback_reason": "",
+		"packet_schema_version": packetVersion, "report_schema_version": store.WorkerReportSchemaVersion,
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 func TestGrantJSONSignatureRoundTripAndFailuresAtCommandBoundary(t *testing.T) {
 	repo, privateKey := seedCLIAuthority(t, "client-1", "product-1", "project-1")
 	publicKey := privateKey.Public().(ed25519.PublicKey)

@@ -226,8 +226,12 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	}
 	for _, kind := range []string{WorkerDispatched, WorkerCompleted, WorkerFailed} {
 		registration, ok := eventKindRegistry[kind]
-		if !ok || registration.CurrentVersion != 1 || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
-			t.Fatalf("%s registration lacks v1 fold/upcaster scaffolding: %+v", kind, registration)
+		wantVersion := 1
+		if kind == WorkerDispatched {
+			wantVersion = 2
+		}
+		if !ok || registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
+			t.Fatalf("%s registration lacks expected fold/upcaster scaffolding: %+v", kind, registration)
 		}
 	}
 }

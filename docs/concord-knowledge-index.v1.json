@@ -355,7 +355,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:27cbb4fb8b5252c6cb1f1526c7f18f274f66697222806e1cbbe2bf704911f828"
+      "sha256": "sha256:9194f4595814f424fcc2d47f58c8bae8baf3b1f90eb96290cb5376a94d50a453"
     },
     {
       "id": "agent-lanes-contract",
@@ -377,7 +377,30 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f938bf2f703b0e44db6c51f721d6fd60aad36779f1211821ebd140ac126ee3a5"
+      "sha256": "sha256:6b89edd732d1655dbfdd4186fdb00a37fbcd5eca999812ca44ad056975a7ec72"
+    },
+    {
+      "id": "routing-policy-contract",
+      "kind": "spec",
+      "path": "docs/routing-policy-contract.md",
+      "status": "accepted",
+      "date": "2026-08-11T00:00:00Z",
+      "title": "Worker routing policy",
+      "summary": "Generated CD-0017 routing policy binding capability classes to pinned preferred models and ordered declared fallback resolution sets.",
+      "tags": [
+        "typed-workers",
+        "model-routing",
+        "fallback",
+        "agents"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:e0cf80d25e1d384d5267b7e0de6c4fda83b17acdfe8afbbed4a23a30317e45cd"
     },
     {
       "id": "PM3",

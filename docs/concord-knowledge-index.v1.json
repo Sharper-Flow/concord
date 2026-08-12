@@ -358,6 +358,30 @@
       "sha256": "sha256:9194f4595814f424fcc2d47f58c8bae8baf3b1f90eb96290cb5376a94d50a453"
     },
     {
+      "id": "CD-0018",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
+      "status": "accepted",
+      "date": "2026-08-12T00:00:00Z",
+      "title": "Declared urgency and provenance for parallel-eligible work",
+      "summary": "Closed two-band urgency enum (standard/expedite) prepended to ranking with priority retained as within-band tiebreak, plus a typed non-blocking acyclic raised_from provenance relation; no assignment, claim, or parallel-safety mechanism.",
+      "tags": [
+        "urgency",
+        "provenance",
+        "relations",
+        "agents",
+        "coordination"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:e59bc210c968d618efe4d12158cb8ef59f5cbd15cc4539a07fc51f7c227a174e"
+    },
+    {
       "id": "agent-lanes-contract",
       "kind": "spec",
       "path": "docs/agent-lanes-contract.md",

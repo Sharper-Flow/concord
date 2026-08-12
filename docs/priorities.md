@@ -147,6 +147,8 @@ Concord's first usable form is a **complete, replacement-ready coordination surf
 
 Incremental design, build, replay, and shadow evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Migration begins only after the full floor below is proven.
 
+Distance from the floor is recorded in [`floor-readiness.md`](./floor-readiness.md) and its validated manifest, which decomposes each condition below into items whose state is checked in CI. That record is authorizing for *where Concord stands*; this section remains authorizing for *what the floor is*.
+
 Migration then proceeds one Product at a time. Advance remains authority for unmigrated Products; each migrated Product fixes forward in Concord. Advance retires after the final Product moves. This is a bounded transition, not permanent coexistence or rollback.
 
 It becomes usable when:
@@ -190,6 +192,7 @@ silently decided by implication.
 | Document | What it owns |
 |---|---|
 | [`README.md`](./README.md) | Navigation hub; links to canonical decisions. |
+| [`floor-readiness.md`](./floor-readiness.md) | Authorizing per-item record of distance from the first-usable floor. |
 | [`core-architecture.md`](./core-architecture.md) | Go-core direction, consolidated resilience invariants; storage settled by CD-0002. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and hard constraints derived from the priorities. |
 | [`rollout-plan.md`](./rollout-plan.md) | Dependency-driven sequencing and entry conditions. |

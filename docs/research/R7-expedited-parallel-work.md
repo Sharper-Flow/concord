@@ -1,6 +1,7 @@
 # R7: Expedited, Parallel-Eligible Work — Research Findings
 
-> **Status:** Research complete; awaiting operator decision.
+> **Status:** Research complete; recommendation accepted by CD-0018 on 2026-08-12.
+> **Decision:** [`CD-0018-declared-urgency-and-provenance.md`](../decisions/CD-0018-declared-urgency-and-provenance.md).
 > **Question:** How should an agent capture work that the operator can immediately
 > hand to a second agent to run in parallel — recording both its urgency and its
 > provenance — without adding assignment semantics or a computed importance score?

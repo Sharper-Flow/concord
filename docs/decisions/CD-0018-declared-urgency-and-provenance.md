@@ -117,6 +117,29 @@ distinct from a `standard` item in the ranked list. The launcher performs no new
 action: the operator's existing `l` handoff path is how a second agent session starts.
 C18's read-only contract is honored without amendment.
 
+## Operational usage note
+
+> The mechanism for delivering operational guidance to Concord agents — skills,
+> prompt injection, documentation, or another shape — is not yet decided. The
+> following is recorded here so the semantics and discipline survive regardless
+> of how guidance eventually reaches agents. When the agent-guidance shape is
+> decided, this section is the source for urgency and provenance usage.
+
+**Urgency bands.** `expedite` means "the operator should start a second agent on
+this now, displacing or paralleling current work." It is not a severity label and
+not a way to make important work look urgent. Important work that belongs in the
+normal queue uses `standard` with a low `priority` value. Every surveyed tracker
+that offers an expedite tier warns that overuse collapses the signal: if
+everything is expedite, nothing is. Agents should default to `standard` and use
+`expedite` only when the motivating situation — an unblock, a stopgap, a
+parallel-eligible side task — genuinely requires immediate parallel attention.
+
+**Raised_from.** Records that one item was raised while working on another. Link
+the new item back to the item that motivated it so the operator can trace why it
+exists. Do not use `raised_from` for decomposition (that is `parent`) or for
+replacement (that is `superseded_by`). Do not use it between items that merely
+happen to be in the same area — the edge records provenance, not topic similarity.
+
 ## Invariants
 
 1. Every work item has exactly one `urgency` value, either `standard` or `expedite`.

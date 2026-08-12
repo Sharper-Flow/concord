@@ -328,12 +328,12 @@ func TestWorkflowOutcomeStrengthAndActorDistinctness(t *testing.T) {
 	}
 	executing := WorkflowActor{PrincipalRef: "p1", ClientRef: "c1", AgentRef: "a1", SessionRef: "s1", ActorClass: ActorAgent}
 	verdict := executing
-	if err := ValidateDistinctWorkflowActors(executing, verdict); err == nil {
+	if err := ValidateDistinctWorkflowActors(executing, verdict, false); err == nil {
 		t.Fatal("same executing and verdict actor accepted")
 	}
 	operatorVerdict := executing
 	operatorVerdict.ActorClass = ActorOperator
-	if err := ValidateDistinctWorkflowActors(executing, operatorVerdict); err != nil {
+	if err := ValidateDistinctWorkflowActors(executing, operatorVerdict, false); err != nil {
 		t.Fatalf("operator verdict was not distinct from agent executor: %v", err)
 	}
 }

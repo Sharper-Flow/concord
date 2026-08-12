@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"regexp"
+	"strings"
 )
 
 const maxWorkflowPredicateBytes = 64 * 1024
@@ -490,7 +491,7 @@ func EvaluateWorkflowOutcome(approved, delivered OutcomePredicate, context Workf
 		if context.ExecutingActor == nil || context.VerdictActor == nil {
 			return WorkflowOutcomeEvaluation{}, newFailure(KindUnauthorized, "workflow_outcome", "evaluator actor tuple is incomplete", false, "supply complete executing and verdict actor tuples")
 		}
-		if err := ValidateDistinctWorkflowActors(*context.ExecutingActor, *context.VerdictActor); err != nil {
+		if err := ValidateDistinctWorkflowActors(*context.ExecutingActor, *context.VerdictActor, false); err != nil {
 			return WorkflowOutcomeEvaluation{}, err
 		}
 	}
@@ -565,6 +566,21 @@ type WorkflowActor struct {
 	AgentRef     string     `json:"agent_ref"`
 	SessionRef   string     `json:"session_ref"`
 	ActorClass   ActorClass `json:"actor_class"`
+	// Model is the readback executing-model identity observed for the run in
+	// which this actor acted (CD-0017 D5). It is deliberately not part of the
+	// actor identity tuple: workflow_actors is keyed by its four authenticated
+	// references, and one identity may act on different models across runs.
+	Model string `json:"model,omitempty"`
+}
+
+// ValidateWorkflowActorModel bounds a recorded readback model identity. An
+// empty value means no model was observed, which is legal for operator actors
+// and for runs that never dispatched a typed lane.
+func ValidateWorkflowActorModel(model string) error {
+	if len(model) > 128 || model != strings.TrimSpace(model) {
+		return newFailure(KindUnauthorized, "workflow_actor", "readback model identity is not a bounded reference", false, "record the readback model reported by the host")
+	}
+	return nil
 }
 
 func ValidateWorkflowActor(actor WorkflowActor) error {
@@ -590,11 +606,23 @@ func WorkflowActorRef(actor WorkflowActor) (string, error) {
 	sum := sha256.Sum256(canonical)
 	return "actor:" + hex.EncodeToString(sum[:]), nil
 }
-func ValidateDistinctWorkflowActors(executing, verdict WorkflowActor) error {
+
+// ValidateDistinctWorkflowActors enforces CD-0013 D5 evaluator-actor
+// distinctness unconditionally, and the CD-0017 D6 readback-model dimension
+// when the owning workflow declares independent evaluation. D6 is available to
+// every workflow and mandatory for none, so the declared flag is supplied by
+// the caller from the workflow definition.
+func ValidateDistinctWorkflowActors(executing, verdict WorkflowActor, requireModelDistinct bool) error {
 	if err := ValidateWorkflowActor(executing); err != nil {
 		return err
 	}
 	if err := ValidateWorkflowActor(verdict); err != nil {
+		return err
+	}
+	if err := ValidateWorkflowActorModel(executing.Model); err != nil {
+		return err
+	}
+	if err := ValidateWorkflowActorModel(verdict.Model); err != nil {
 		return err
 	}
 	if executing.ActorClass == ActorAgent && verdict.ActorClass == ActorOperator {
@@ -602,6 +630,19 @@ func ValidateDistinctWorkflowActors(executing, verdict WorkflowActor) error {
 	}
 	if executing.AgentRef == verdict.AgentRef && executing.SessionRef == verdict.SessionRef {
 		return newFailure(KindUnauthorized, "workflow_actor", "executing actor cannot author its own verdict", false, "record an independent evaluator verdict")
+	}
+	if !requireModelDistinct {
+		return nil
+	}
+	// D6 evaluates actual readback identities so a fallback-induced collision is
+	// caught. An unrecorded model cannot prove distinctness, so a workflow that
+	// declares independent evaluation fails closed rather than reading the
+	// absence as a pass (CD-0017 invariant 3).
+	if executing.Model == "" || verdict.Model == "" {
+		return newFailure(KindMissingEvidence, "workflow_actor", "declared evaluator model distinctness requires a readback model identity on both actors", false, "record the readback executing-model identity for the implementation and the review run")
+	}
+	if executing.Model == verdict.Model {
+		return newFailure(KindUnauthorized, "workflow_actor", "executing and verdict actors resolved to the same readback model identity", false, "route the review to a distinct model or clear the declared evaluator independence")
 	}
 	return nil
 }

@@ -159,7 +159,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if verdict == nil || verdict.ContractVersion != contract.Version {
 		return workflowClauseFailure(KindMissingEvidence, 4, "workflow verdict is missing for the approved contract", "provide_evidence")
 	}
-	if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef); err != nil {
+	if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
 		return workflowClauseError(err, 4)
 	}
 	if err := verifyVerdictEvidence(ctx, tx, event.SubjectID, verdict.EvaluationEvidence); err != nil {
@@ -363,16 +363,22 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 	return rows.Err()
 }
 
-func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor string) error {
+// workflowCompletionActorDistinct enforces CD-0013 D5 actor distinctness and,
+// where the definition declares it, the CD-0017 D6 readback-model dimension.
+// The executing model is read from the instance because it is a property of the
+// run, not of the actor identity; the verdict model travels on the verdict
+// event for the same reason.
+func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
 	var executing WorkflowActor
-	if err := tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model); err != nil {
 		return newFailure(KindUnauthorized, "complete_workflow", "executing actor tuple is incomplete", false, "contact_operator")
 	}
 	var verdict WorkflowActor
 	if err := tx.QueryRowContext(ctx, `SELECT actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, verdictActor).Scan(&verdict.ActorRef, &verdict.PrincipalRef, &verdict.ClientRef, &verdict.AgentRef, &verdict.SessionRef, &verdict.ActorClass); err != nil {
 		return newFailure(KindUnauthorized, "complete_workflow", "verdict actor tuple is incomplete", false, "contact_operator")
 	}
-	if err := ValidateDistinctWorkflowActors(executing, verdict); err != nil {
+	verdict.Model = verdictModel
+	if err := ValidateDistinctWorkflowActors(executing, verdict, requireModelDistinct); err != nil {
 		return err
 	}
 	return nil

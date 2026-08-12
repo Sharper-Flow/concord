@@ -1,0 +1,288 @@
+{
+  "schema_version": "1.0",
+  "source": {
+    "path": "docs/priorities.md",
+    "section": "First-usable floor"
+  },
+  "conditions": [
+    {
+      "id": "fc1",
+      "ordinal": 1,
+      "title": "The operator can see, plan, and act across the full Product scope from the launcher."
+    },
+    {
+      "id": "fc2",
+      "ordinal": 2,
+      "title": "Agents can read, write, and execute within that Product context through tools."
+    },
+    {
+      "id": "fc3",
+      "ordinal": 3,
+      "title": "Every supported work kind has a defined workflow type and completion evidence."
+    },
+    {
+      "id": "fc4",
+      "ordinal": 4,
+      "title": "Required authority/freshness is explicit and CD-0006 R3's accepted cross-workflow impact policy is enforced."
+    },
+    {
+      "id": "fc5",
+      "ordinal": 5,
+      "title": "Concord-owned data and workflow boundaries satisfy Priority 1 (no locks, no hand-repair, safe evolution)."
+    },
+    {
+      "id": "fc6",
+      "ordinal": 6,
+      "title": "The predecessor surfaces Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage."
+    }
+  ],
+  "items": [
+    {
+      "id": "fc1-portfolio-visibility",
+      "condition": "fc1",
+      "title": "Launcher renders portfolio, Product, and Work views",
+      "requirement": "The operator can reach portfolio rows, a Product drill-down, and a single Work item from the terminal launcher without leaving it.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/launcher/model.go",
+        "internal/launcher/render/bubbletea/model.go",
+        "docs/terminal-launcher-contract.md"
+      ]
+    },
+    {
+      "id": "fc1-session-handoff",
+      "condition": "fc1",
+      "title": "Launcher hands work identity to a session",
+      "requirement": "The operator can act on a selected Work item by launching an agent session seeded with its identity, without the launcher performing a durable write.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/launcher/render/bubbletea/model.go",
+        "docs/terminal-launcher-contract.md"
+      ]
+    },
+    {
+      "id": "fc1-operator-work-capture",
+      "condition": "fc1",
+      "title": "Operator can create work from an operator surface",
+      "requirement": "The operator can capture a new Work item without holding an agent grant. Today no launcher binding and none of the CLI command specs create work; capture is reachable only through the grant-gated concord_work_define.capture tool operation.",
+      "state": "outstanding",
+      "issue": 76
+    },
+    {
+      "id": "fc1-full-product-scope",
+      "condition": "fc1",
+      "title": "Operator visibility spans the full Product scope",
+      "requirement": "The condition says 'across the full Product scope'. The accepted launcher contract admits one ambient Product and forbids any result set spanning Products, so the two documents disagree and the condition cannot currently be claimed.",
+      "state": "outstanding",
+      "issue": 76
+    },
+    {
+      "id": "fc2-read-tools",
+      "condition": "fc2",
+      "title": "Bounded read tools cover orientation, work, provenance, and knowledge",
+      "requirement": "The four accepted TS3 read tools are exposed in the generated surface and dispatch to store projections.",
+      "state": "satisfied",
+      "evidence": [
+        "contracts/agent-tool-surface.v1.json",
+        "internal/agent/runtime.go",
+        "docs/agent-read-tool-contract.md"
+      ]
+    },
+    {
+      "id": "fc2-mutation-tools",
+      "condition": "fc2",
+      "title": "Intent mutation tools define, transition, relate, and compact work",
+      "requirement": "The four accepted TS4 mutation tools are exposed and dispatch through the authorized mutation path.",
+      "state": "satisfied",
+      "evidence": [
+        "contracts/agent-tool-surface.v1.json",
+        "internal/agent/mutations.go",
+        "docs/agent-mutation-tool-contract.md"
+      ]
+    },
+    {
+      "id": "fc2-call-authority",
+      "condition": "fc2",
+      "title": "Grants, capabilities, and operation-bound approvals are core-enforced",
+      "requirement": "Every invocation resolves a core-issued grant to a principal and capability set; consequential mutations require a durable approval bound to operation digest, scope, and expected versions. Caller prose and self-asserted booleans confer no authority.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/agent/authority.go",
+        "internal/store/schema.go",
+        "docs/agent-call-context-contract.md"
+      ]
+    },
+    {
+      "id": "fc2-adapter-transport",
+      "condition": "fc2",
+      "title": "One adapter module maps the tool surface to the short-lived CLI",
+      "requirement": "The accepted TS6 adapter exposes the tool surface to the host and validates envelopes and identity only, leaving domain semantics in the core.",
+      "state": "satisfied",
+      "evidence": [
+        "adapter/opencode/concord.ts",
+        "docs/agent-adapter-transport-contract.md"
+      ]
+    },
+    {
+      "id": "fc2-context-freshness",
+      "condition": "fc2",
+      "title": "Scope-version freshness behaves as TS5 section 3 specifies",
+      "requirement": "An outdated but semantically unchanged scope permits a read with an explicit refreshed version, while a mutation on outdated scope fails before any effect. Ownership change or new ambiguity fails all Product-scoped calls.",
+      "state": "unmeasured",
+      "reason": "The grant validation path was confirmed to run on every invocation, but the specific read-refresh versus mutation-reject split described in TS5 section 3 was not audited against the implementation in the pass that produced this manifest."
+    },
+    {
+      "id": "fc3-workflow-types",
+      "condition": "fc3",
+      "title": "Purpose-built workflow types exist for every supported work kind",
+      "requirement": "A code-defined, versioned, digest-pinned registry supplies a workflow definition for each supported work kind plus one generic one-off type, and unknown references fail closed.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/workflow_registry.go",
+        "contracts/workflow-definition.schema.json",
+        "docs/workflows.md"
+      ]
+    },
+    {
+      "id": "fc3-completion-evidence",
+      "condition": "fc3",
+      "title": "Completion is gated on bound evidence and an operator premise confirmation",
+      "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, a verdict authored by a distinct actor, and an operator-class premise confirmation, all in one transaction.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/workflow_completion.go",
+        "internal/store/workflow_conformance_test.go",
+        "docs/decisions/CD-0013-workflow-engine-mechanism.md"
+      ]
+    },
+    {
+      "id": "fc3-lane-pipeline",
+      "condition": "fc3",
+      "title": "Research, implementation, and review lanes complete an end-to-end synthetic workflow",
+      "requirement": "A synthetic scenario drives the three lanes through one workflow producing typed evidence. No file under scenarios/ currently references a lane identifier.",
+      "state": "outstanding",
+      "issue": 57
+    },
+    {
+      "id": "fc3-reviewer-model-distinctness",
+      "condition": "fc3",
+      "title": "Reviewer and implementation cannot resolve to the same model where distinctness is declared",
+      "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The existing distinctness check compares agent and session references only, so two agents on one model pass.",
+      "state": "outstanding",
+      "issue": 57
+    },
+    {
+      "id": "fc3-lane-behavioral-evals",
+      "condition": "fc3",
+      "title": "Lane prompt behaviour is measured by an evaluation harness",
+      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. Lane agent definitions exist as prose; no harness, fixture, or eval configuration is present in the repository.",
+      "state": "outstanding",
+      "issue": 57
+    },
+    {
+      "id": "fc3-worker-authority-boundary",
+      "condition": "fc3",
+      "title": "Worker runs demonstrably create no nested workflow authority",
+      "requirement": "CD-0017 D4 forbids workers recording step transitions, verdicts, or completion. The worker attempt projection is structurally free of those fields, but no negative test asserts the prohibition.",
+      "state": "outstanding",
+      "issue": 57
+    },
+    {
+      "id": "fc4-authority-explicit",
+      "condition": "fc4",
+      "title": "Required authority is explicit at every call",
+      "requirement": "Capability class, resolved scope, expected entity versions, and approval class are declared per operation and validated by the core rather than inferred from caller input.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/agent/authority.go",
+        "docs/agent-call-context-contract.md"
+      ]
+    },
+    {
+      "id": "fc4-impact-infrastructure",
+      "condition": "fc4",
+      "title": "Declared impact edges and bounded boundary checks exist",
+      "requirement": "Workflows declare typed impact edges with hard/soft class and severity; consequential actions consult impact notices through one bounded query before executing.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/schema.go",
+        "internal/store/workflow_preflight.go",
+        "internal/store/workflow_conformance_test.go"
+      ]
+    },
+    {
+      "id": "fc4-r3-conformance",
+      "condition": "fc4",
+      "title": "Impact propagation matches accepted CD-0006 R3",
+      "requirement": "R3 requires reverse-edge computation at completion, notices keyed by entity, a breaking verdict, and blocking only on hard edge plus breaking change. Shipped behaviour diverges on each of those points.",
+      "state": "outstanding",
+      "issue": 75
+    },
+    {
+      "id": "fc4-workflow-staleness",
+      "condition": "fc4",
+      "title": "Declared staleness rules block or warn at completion",
+      "requirement": "Blocking staleness rules whose bound input has drifted prevent completion; warning rules surface without blocking.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/workflow_completion.go",
+        "internal/store/workflow_staleness.go"
+      ]
+    },
+    {
+      "id": "fc5-append-only-authority",
+      "condition": "fc5",
+      "title": "One append-only event log is the sole state authority",
+      "requirement": "Domain events are the authority and typed projections are derived in the same transaction. Corrections append; history is not hand-repaired.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/schema.go",
+        "docs/product-memory-domain-schema.md",
+        "docs/decisions/CD-0002-concord-state-authority.md"
+      ]
+    },
+    {
+      "id": "fc5-concurrent-process-conformance",
+      "condition": "fc5",
+      "title": "Concurrent agent-facing writes do not contend",
+      "requirement": "A production-like multi-process harness demonstrates correctness and recovery under concurrent agent writes without lock contention on the agent-facing path.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/workflow_conformance_test.go",
+        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md"
+      ]
+    },
+    {
+      "id": "fc5-in-flight-schema-evolution",
+      "condition": "fc5",
+      "title": "Schema and workflow changes are safe for in-flight work",
+      "requirement": "A schema or workflow-definition change lands without corrupting or stranding work already in progress, and historical events remain readable across the change.",
+      "state": "unmeasured",
+      "reason": "Migration and upcaster machinery exists, but no audit in the pass that produced this manifest confirmed that an in-flight work item survives a schema or definition change end to end."
+    },
+    {
+      "id": "fc6-predecessor-surface-enumeration",
+      "condition": "fc6",
+      "title": "Predecessor operational territory is enumerated",
+      "requirement": "An authorizing artifact names the operational capabilities the predecessor provides, described by territory rather than by command shape, so Concord coverage can be judged against it.",
+      "state": "outstanding",
+      "issue": 78
+    },
+    {
+      "id": "fc6-operational-coverage",
+      "condition": "fc6",
+      "title": "Concord covers that territory without loss",
+      "requirement": "Every enumerated predecessor capability resolves to covered, not covered, or deliberately excluded with a reason.",
+      "state": "unmeasured",
+      "reason": "Coverage cannot be assessed before the enumeration in fc6-predecessor-surface-enumeration exists. Recorded as unknown rather than absent, because neither state has been established."
+    },
+    {
+      "id": "fc6-consumed-surface-stability",
+      "condition": "fc6",
+      "title": "Predecessor surfaces consumed as evidence are stable enough to rely on",
+      "requirement": "Any predecessor surface Concord consumes as evidence is identified, and its stability is assessed against the reliance placed on it.",
+      "state": "unmeasured",
+      "reason": "No inventory identifies which predecessor surfaces Concord currently consumes as evidence, so the reliance being asserted has not been established."
+    }
+  ]
+}

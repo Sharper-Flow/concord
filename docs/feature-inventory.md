@@ -16,6 +16,10 @@
 > **Tool-surface hold:** predecessor capability names are evidence about jobs and
 > failure patterns, not a transfer plan. TS1–TS9 in
 > [`clarifications.md`](./clarifications.md) own Concord's minimal tool surface.
+> **Readiness authority:** this inventory does not record distance from the
+> first-usable floor and never has.
+> [`floor-readiness.md`](./floor-readiness.md) and its validated manifest own
+> that record; this document remains non-authorizing capability evidence.
 
 ## How to read this
 

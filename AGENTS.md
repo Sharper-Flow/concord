@@ -95,7 +95,15 @@ Inputs: `contracts/agent-tool-surface.v1.json` (manifest),
 `contracts/agent-tool-surface.digest`. `scripts/check-agent-contracts.py` (run
 in CI) validates and diffs these — regenerate rather than patching when you
 change the manifest or schemas. `docs/concord-knowledge-index.v1.json` is
-similarly validated by `scripts/check-knowledge-index.py`.
+similarly validated by `scripts/check-knowledge-index.py`, and
+`docs/floor-readiness.v1.json` by `scripts/check-floor-readiness.py`. Both run
+inside `scripts/check-json.py` in CI.
+
+`docs/floor-readiness.v1.json` is the authorizing record of distance from the
+first-usable floor. Editing it is how readiness state changes — a satisfied item
+requires an existing evidence path, an outstanding item requires a tracking
+issue, and `unmeasured` is a distinct state from incomplete. See
+[`docs/floor-readiness.md`](docs/floor-readiness.md).
 
 ## Release flow
 

@@ -215,7 +215,7 @@ func insertScratchProject(ctx context.Context, tx *sql.Tx, id string) error {
 }
 
 func insertScratchWork(ctx context.Context, tx *sql.Tx, id string) error {
-	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_items (id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES (?, 'reconstruction', ?, 'needed', 0, 1, 'reconstruction', 'reconstruction')`, id, "reconstructed work "+id)
+	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_items (id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at) VALUES (?, 'reconstruction', ?, 'needed', 0, 'standard', 1, 'reconstruction', 'reconstruction')`, id, "reconstructed work "+id)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "reconstruct_subject", "cannot prepare a scoped work endpoint", true,
 			"retry once the temporary database is available", err)
@@ -250,7 +250,7 @@ func populateReconstructionSnapshot(ctx context.Context, s *Store, snapshot *Rec
 	case SubjectWorkItem:
 		var work WorkItem
 		var terminalTime sql.NullString
-		if err := s.db.QueryRowContext(ctx, `SELECT id,kind,title,lifecycle,priority,created_at,updated_at,terminal_time FROM work_items WHERE id = ?`, snapshot.Subject.ID).Scan(&work.ID, &work.Kind, &work.Title, &work.Lifecycle, &work.Priority, &work.CreatedAt, &work.UpdatedAt, &terminalTime); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT id,kind,title,lifecycle,priority,urgency,created_at,updated_at,terminal_time FROM work_items WHERE id = ?`, snapshot.Subject.ID).Scan(&work.ID, &work.Kind, &work.Title, &work.Lifecycle, &work.Priority, &work.Urgency, &work.CreatedAt, &work.UpdatedAt, &terminalTime); err != nil {
 			return newFailure(KindProjectionNotFound, "reconstruct_subject", "work item was not created by the requested sequence", false, "choose a later sequence")
 		}
 		if terminalTime.Valid {

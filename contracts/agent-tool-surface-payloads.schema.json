@@ -81,7 +81,15 @@
         "blocks",
         "implements",
         "supersedes",
-        "superseded_by"
+        "superseded_by",
+        "raised_from"
+      ]
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "expedite"
       ]
     },
     "scope": {
@@ -258,6 +266,9 @@
           "type": "integer",
           "minimum": -100,
           "maximum": 100
+        },
+        "urgency": {
+          "$ref": "#/$defs/urgency"
         },
         "project_ids": {
           "type": "array",
@@ -1589,6 +1600,9 @@
           "minimum": -100,
           "maximum": 100
         },
+        "urgency": {
+          "$ref": "#/$defs/urgency"
+        },
         "tags": {
           "type": "array",
           "maxItems": 32,
@@ -1646,6 +1660,9 @@
           "type": "integer",
           "minimum": -100,
           "maximum": 100
+        },
+        "urgency": {
+          "$ref": "#/$defs/urgency"
         },
         "tags": {
           "type": "array",

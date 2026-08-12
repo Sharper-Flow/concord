@@ -584,7 +584,11 @@ func (m *Model) renderS2(headers []string) string {
 			if item.Blocked {
 				marker = "BLOCKED"
 			}
-			lines = append(lines, fmtInt(i+1)+" "+marker+" "+item.ID+" "+item.Title+" priority="+fmtInt64(item.Priority)+" lifecycle="+item.Lifecycle+" projects="+fmtInt(item.ProjectCount))
+			urgency := item.Urgency
+			if urgency == "" {
+				urgency = "standard"
+			}
+			lines = append(lines, fmtInt(i+1)+" "+marker+" "+item.ID+" "+item.Title+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+" projects="+fmtInt(item.ProjectCount))
 			for _, blocker := range item.Blockers {
 				external := ""
 				if blocker.External {
@@ -634,7 +638,11 @@ func (m *Model) renderS3(headers []string) string {
 		return strings.Join(wrapHeaders(lines, m.width), "\n")
 	}
 	d := s.Detail
-	lines = append(lines, "S3 WORK DETAIL", "WORK: "+d.Item.ID+" "+d.Item.Title, "LIFECYCLE: "+d.Item.Lifecycle+" PRIORITY: "+fmtInt64(d.Item.Priority), "SECTION: "+string(s.Section), "PROJECTS: "+strings.Join(d.Projects, ", "), "WORKFLOW: "+d.Workflow)
+	urgency := d.Item.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	lines = append(lines, "S3 WORK DETAIL", "WORK: "+d.Item.ID+" "+d.Item.Title, "LIFECYCLE: "+d.Item.Lifecycle+" PRIORITY: "+fmtInt64(d.Item.Priority)+" URGENCY: "+urgency, "SECTION: "+string(s.Section), "PROJECTS: "+strings.Join(d.Projects, ", "), "WORKFLOW: "+d.Workflow)
 	if s.StatusMessage != "" {
 		lines = append(lines, "STATUS: "+s.StatusMessage)
 	}

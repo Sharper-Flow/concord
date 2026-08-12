@@ -1450,7 +1450,8 @@ const GeneratedPayloadSchemaDocument = `{
         "blocks",
         "implements",
         "supersedes",
-        "superseded_by"
+        "superseded_by",
+        "raised_from"
       ],
       "type": "string"
     },
@@ -1485,6 +1486,13 @@ const GeneratedPayloadSchemaDocument = `{
     "short": {
       "maxLength": 256,
       "minLength": 1,
+      "type": "string"
+    },
+    "urgency": {
+      "enum": [
+        "standard",
+        "expedite"
+      ],
       "type": "string"
     },
     "version": {
@@ -1825,6 +1833,9 @@ const GeneratedPayloadSchemaDocument = `{
         "title": {
           "$ref": "#/$defs/short"
         },
+        "urgency": {
+          "$ref": "#/$defs/urgency"
+        },
         "value_statement": {
           "$ref": "#/$defs/short"
         },
@@ -1881,6 +1892,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "title": {
           "$ref": "#/$defs/short"
+        },
+        "urgency": {
+          "$ref": "#/$defs/urgency"
         },
         "value_statement": {
           "$ref": "#/$defs/short"
@@ -2375,6 +2389,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "title": {
           "$ref": "#/$defs/short"
+        },
+        "urgency": {
+          "$ref": "#/$defs/urgency"
         },
         "version": {
           "$ref": "#/$defs/version"

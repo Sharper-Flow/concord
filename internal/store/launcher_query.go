@@ -31,6 +31,7 @@ type LauncherWork struct {
 	Title        string
 	Lifecycle    string
 	Priority     int64
+	Urgency      string
 	CreatedAt    string
 	UpdatedAt    string
 	ProjectCount int
@@ -124,17 +125,17 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 		return out, err
 	}
 	needle := "%" + strings.ToLower(req.Query) + "%"
-	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,
+	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) AND w.lifecycle IN ('needed','in_progress') AND lower(w.id || ' ' || w.title || ' ' || w.kind) LIKE ?
-		ORDER BY w.priority,w.created_at DESC,w.id LIMIT ?`, req.Product, req.Product, needle, limit+1)
+		ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ?`, req.Product, req.Product, needle, limit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.search", "cannot search Product work", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var item LauncherWork
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -195,7 +196,7 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 	}
 	out.KnowledgeWatermark, out.KnowledgeAuthority = knowledgeWatermark, knowledgeAuthority
 	omissions := append([]string(nil), out.Omissions...)
-	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.search", ResolvedScope{ProductID: req.Product}, []string{"priority", "created_at", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.search", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "created_at", "id"})
 	out.Omissions = append(out.Omissions, omissions...)
 	out.Omissions = append(out.Omissions, out.KnowledgeOmissions...)
 	if out.Works == nil {
@@ -231,18 +232,18 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
-	q := `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,
+	q := `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
-		ORDER BY w.priority,w.created_at DESC,w.id LIMIT ?`
+		ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ?`
 	rows, err := tx.QueryContext(ctx, q, req.Product, req.Product, limit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.product", "cannot read Product work", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var item LauncherWork
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -317,7 +318,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 		out.Edges = []RelationEdge{}
 	}
 	omissions := append([]string(nil), out.Omissions...)
-	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.product", ResolvedScope{ProductID: req.Product}, []string{"priority", "created_at", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.product", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "created_at", "id"})
 	out.Omissions = append(out.Omissions, omissions...)
 	return out, err
 }
@@ -382,7 +383,7 @@ func (s *Store) QueryLauncherWork(ctx context.Context, req LauncherWorkRequest) 
 	if !inScope {
 		return out, unknownScope("launcher.work", "work is not in ambient Product")
 	}
-	w := LauncherWork{ID: base.ID, Kind: base.Kind, Title: base.Title, Lifecycle: base.Lifecycle, Priority: base.Priority, CreatedAt: base.CreatedAt, UpdatedAt: base.UpdatedAt, Blocked: base.Blocked, Ready: base.Ready}
+	w := LauncherWork{ID: base.ID, Kind: base.Kind, Title: base.Title, Lifecycle: base.Lifecycle, Priority: base.Priority, Urgency: base.Urgency, CreatedAt: base.CreatedAt, UpdatedAt: base.UpdatedAt, Blocked: base.Blocked, Ready: base.Ready}
 	w.ProjectCount, err = projectCount(ctx, tx, req.Work)
 	if err != nil {
 		return out, err

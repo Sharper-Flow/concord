@@ -14,6 +14,7 @@ type workCreatedPayload struct {
 	Title           string   `json:"title"`
 	ValueStatement  string   `json:"value_statement,omitempty"`
 	Priority        *int64   `json:"priority"`
+	Urgency         string   `json:"urgency,omitempty"`
 	Tags            []string `json:"tags,omitempty"`
 	ComponentID     string   `json:"component_id,omitempty"`
 	WorkflowTypeRef string   `json:"workflow_type_ref,omitempty"`
@@ -65,6 +66,7 @@ type workIntentPayload struct {
 	ValueStatement   string   `json:"value_statement"`
 	Kind             string   `json:"kind"`
 	Priority         int64    `json:"priority"`
+	Urgency          string   `json:"urgency,omitempty"`
 	Tags             []string `json:"tags"`
 	ComponentID      string   `json:"component_id,omitempty"`
 	WorkflowTypeRef  string   `json:"workflow_type_ref,omitempty"`
@@ -126,7 +128,7 @@ type relationPayload struct {
 }
 
 var relationKinds = map[string]bool{
-	"parent": true, "blocks": true, "supersedes": true, "implements": true,
+	"parent": true, "blocks": true, "supersedes": true, "implements": true, "raised_from": true,
 }
 
 var lifecycleStates = map[string]bool{
@@ -152,12 +154,20 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "work.created payload has empty kind or title", false,
 			"supply non-empty work kind and title")
 	}
+	urgency := payload.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	if urgency != "standard" && urgency != "expedite" {
+		return newFailure(KindInvalidPayload, "fold_event", "work.created payload has invalid urgency", false,
+			"supply urgency of 'standard' or 'expedite'")
+	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	intent, _ := json.Marshal(map[string]any{"title": payload.Title, "value_statement": payload.ValueStatement, "kind": payload.WorkKind, "priority": *payload.Priority, "tags": payload.Tags, "component_id": payload.ComponentID, "workflow_type_ref": payload.WorkflowTypeRef, "external_ref": payload.ExternalRef})
+	intent, _ := json.Marshal(map[string]any{"title": payload.Title, "value_statement": payload.ValueStatement, "kind": payload.WorkKind, "priority": *payload.Priority, "urgency": urgency, "tags": payload.Tags, "component_id": payload.ComponentID, "workflow_type_ref": payload.WorkflowTypeRef, "external_ref": payload.ExternalRef})
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at, terminal_time, intent_json)
-		VALUES (?, ?, ?, 'needed', ?, 1, ?, ?, NULL, ?)`,
-		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, now, now, string(intent))
+		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json)
+		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?)`,
+		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "work item already exists", false,
@@ -180,6 +190,14 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.Title == "" || payload.ValueStatement == "" || payload.Kind == "" || payload.Reason == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "work.intent_revised payload is incomplete", false, "supply the complete mutable intent and reason")
 	}
+	urgency := payload.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	if urgency != "standard" && urgency != "expedite" {
+		return newFailure(KindInvalidPayload, "fold_event", "work.intent_revised payload has invalid urgency", false,
+			"supply urgency of 'standard' or 'expedite'")
+	}
 	current, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
@@ -191,7 +209,7 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode revised work intent", false, "supply a JSON-safe mutable intent", err)
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE work_items SET kind=?,title=?,priority=?,intent_json=?,version=?,updated_at=? WHERE id=? AND version=?`, payload.Kind, payload.Title, payload.Priority, string(intent), payload.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, payload.ExpectedVersion)
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET kind=?,title=?,priority=?,urgency=?,intent_json=?,version=?,updated_at=? WHERE id=? AND version=?`, payload.Kind, payload.Title, payload.Priority, urgency, string(intent), payload.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, payload.ExpectedVersion)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot revise work intent", true, "retry once the database is writable", err)
 	}

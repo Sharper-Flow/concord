@@ -160,6 +160,7 @@ type WorkItem struct {
 	Title      string              `json:"title"`
 	Lifecycle  string              `json:"lifecycle"`
 	Priority   int64               `json:"priority"`
+	Urgency    string              `json:"urgency"`
 	CreatedAt  string              `json:"created_at"`
 	UpdatedAt  string              `json:"updated_at"`
 	TerminalAt string              `json:"terminal_at,omitempty"`
@@ -559,7 +560,7 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 	if err := tx.QueryRowContext(ctx, countQuery, scopeArgs(req.Product, projectArgsToIDs(projectArgs))...).Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5], &counts[6], &counts[7], &counts[8]); err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q2", "cannot read Product snapshot", true, "retry once the database is readable", err)
 	}
-	previewQuery := scope + ` SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.terminal_time ELSE w.created_at END DESC, w.priority, w.id LIMIT ?`
+	previewQuery := scope + ` SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY w.urgency ASC, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.terminal_time ELSE w.created_at END DESC, w.priority, w.id LIMIT ?`
 	args2 := scopeArgs(req.Product, projectArgsToIDs(projectArgs))
 	args2 = append(args2, limit)
 	items, err := scanWorkItems(ctx, tx, previewQuery, args2...)
@@ -576,7 +577,7 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q2", ResolvedScope{ProductID: req.Product}, []string{"relevant_time", "priority", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q2", ResolvedScope{ProductID: req.Product}, []string{"urgency", "relevant_time", "priority", "id"})
 	if err != nil {
 		return out, err
 	}
@@ -606,6 +607,7 @@ type q3Cursor struct {
 	Version                          int `json:"version"`
 	QueryID, Product, Project, Order string
 	States                           []string `json:"states"`
+	Urgency                          string   `json:"urgency"`
 	Priority                         int64    `json:"priority"`
 	Timestamp, ID                    string
 }
@@ -625,6 +627,9 @@ func decodeQ3Cursor(raw string, req Q3Request, states []string, order string) (q
 	var c q3Cursor
 	if json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q3" || c.Product != req.Product || c.Project != req.Project || c.Order != order || !equalStrings(c.States, states) || c.ID == "" || c.Timestamp == "" {
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor does not match the requested listing", false, "use a cursor returned for the same query and filters")
+	}
+	if c.Urgency != "" && c.Urgency != "standard" && c.Urgency != "expedite" {
+		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor has an invalid urgency value", false, "restart the bounded listing")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, c.Timestamp); err != nil {
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor has an invalid ordering timestamp", false, "restart the bounded listing")
@@ -663,11 +668,11 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, newFailure(KindInvalidFilter, "PM1.Q3", "priority_min exceeds priority_max", false, "supply an ordered priority range")
 	}
 	terminalOnly := terminalOnlyQ3(states)
-	order := "priority:asc,relevant_time:desc,id:asc"
-	orderSQL := "priority ASC, relevant_time DESC, id ASC"
+	order := "urgency:asc,priority:asc,relevant_time:desc,id:asc"
+	orderSQL := "urgency ASC, priority ASC, relevant_time DESC, id ASC"
 	if terminalOnly {
-		order = "terminal_time:desc,priority:asc,id:asc"
-		orderSQL = "relevant_time DESC, priority ASC, id ASC"
+		order = "urgency:asc,terminal_time:desc,priority:asc,id:asc"
+		orderSQL = "urgency ASC, relevant_time DESC, priority ASC, id ASC"
 	}
 	tx, err := beginRead(ctx, s, "PM1.Q3")
 	if err != nil {
@@ -725,15 +730,15 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 			return out, err
 		}
 		if terminalOnly {
-			cursorSQL = ` AND (relevant_time < ? OR (relevant_time = ? AND priority > ?) OR (relevant_time = ? AND priority = ? AND id > ?))`
-			cursorArgs = []any{c.Timestamp, c.Timestamp, c.Priority, c.Timestamp, c.Priority, c.ID}
+			cursorSQL = ` AND (urgency > ? OR (urgency = ? AND relevant_time < ?) OR (urgency = ? AND relevant_time = ? AND priority > ?) OR (urgency = ? AND relevant_time = ? AND priority = ? AND id > ?))`
+			cursorArgs = []any{c.Urgency, c.Urgency, c.Timestamp, c.Urgency, c.Timestamp, c.Priority, c.Urgency, c.Timestamp, c.Priority, c.ID}
 		} else {
-			cursorSQL = ` AND (priority > ? OR (priority = ? AND relevant_time < ?) OR (priority = ? AND relevant_time = ? AND id > ?))`
-			cursorArgs = []any{c.Priority, c.Priority, c.Timestamp, c.Priority, c.Timestamp, c.ID}
+			cursorSQL = ` AND (urgency > ? OR (urgency = ? AND priority > ?) OR (urgency = ? AND priority = ? AND relevant_time < ?) OR (urgency = ? AND priority = ? AND relevant_time = ? AND id > ?))`
+			cursorArgs = []any{c.Urgency, c.Urgency, c.Priority, c.Urgency, c.Priority, c.Timestamp, c.Urgency, c.Priority, c.Timestamp, c.ID}
 		}
 	}
-	scope := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + filter + `), base AS (SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') AS terminal_time, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.terminal_time ELSE w.created_at END AS relevant_time FROM work_items w JOIN scoped s ON s.work_id=w.id)`
-	query := scope + ` SELECT id,kind,title,lifecycle,priority,created_at,updated_at,terminal_time FROM base WHERE 1=1` + placeholders + cursorSQL + ` ORDER BY ` + orderSQL + ` LIMIT ?`
+	scope := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + filter + `), base AS (SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') AS terminal_time, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.terminal_time ELSE w.created_at END AS relevant_time FROM work_items w JOIN scoped s ON s.work_id=w.id)`
+	query := scope + ` SELECT id,kind,title,lifecycle,priority,urgency,created_at,updated_at,terminal_time FROM base WHERE 1=1` + placeholders + cursorSQL + ` ORDER BY ` + orderSQL + ` LIMIT ?`
 	args = append(args, stateArgs...)
 	args = append(args, cursorArgs...)
 	args = append(args, limit+1)
@@ -752,7 +757,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		if terminalOnly {
 			ts = last.TerminalAt
 		}
-		encoded, e := encodeQ3Cursor(q3Cursor{Version: 1, QueryID: "PM1.Q3", Product: req.Product, Project: req.Project, States: states, Order: order, Priority: last.Priority, Timestamp: ts, ID: last.ID})
+		encoded, e := encodeQ3Cursor(q3Cursor{Version: 1, QueryID: "PM1.Q3", Product: req.Product, Project: req.Project, States: states, Order: order, Urgency: last.Urgency, Priority: last.Priority, Timestamp: ts, ID: last.ID})
 		if e != nil {
 			return out, e
 		}
@@ -763,7 +768,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q3", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"priority", "relevant_time", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q3", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"urgency", "priority", "relevant_time", "id"})
 	if err != nil {
 		return out, err
 	}
@@ -802,7 +807,7 @@ func scanWorkItems(ctx context.Context, tx *sql.Tx, query string, args ...any) (
 	var out []WorkItem
 	for rows.Next() {
 		var w WorkItem
-		if err := rows.Scan(&w.ID, &w.Kind, &w.Title, &w.Lifecycle, &w.Priority, &w.CreatedAt, &w.UpdatedAt, &w.TerminalAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Kind, &w.Title, &w.Lifecycle, &w.Priority, &w.Urgency, &w.CreatedAt, &w.UpdatedAt, &w.TerminalAt); err != nil {
 			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "repair the live projection from its event log", err)
 		}
 		w.Terminal = terminalState(w.Lifecycle)
@@ -936,16 +941,16 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 		JOIN product_projects pp ON pp.project_id=wp.project_id
 		WHERE pp.product_id=?` + scopeFilter + `
 	), ranked AS (
-		SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') AS terminal_time,MIN(b.created_at) AS oldest_blocker
+		SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') AS terminal_time,MIN(b.created_at) AS oldest_blocker
 		FROM scoped s
 		JOIN work_items w ON w.id=s.work_id
 		JOIN relations r ON r.work_id_to=w.id AND r.kind='blocks'
 		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')` + workFilter + `
-		GROUP BY w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,w.terminal_time
+		GROUP BY w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,w.terminal_time
 	)
-	SELECT id,kind,title,lifecycle,priority,created_at,updated_at,terminal_time
+	SELECT id,kind,title,lifecycle,priority,urgency,created_at,updated_at,terminal_time
 	FROM ranked
-	ORDER BY priority,oldest_blocker,id
+	ORDER BY urgency ASC,priority,oldest_blocker,id
 	LIMIT ? OFFSET ?`
 	queryArgs = append(queryArgs, limit+1, req.Offset)
 	rows, err := tx.QueryContext(ctx, q, queryArgs...)
@@ -955,7 +960,7 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 	var selected []WorkItem
 	for rows.Next() {
 		var item WorkItem
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -989,7 +994,7 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q4", ResolvedScope{ProductID: req.Product}, []string{"priority", "oldest_blocker", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q4", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "oldest_blocker", "id"})
 	if err != nil {
 		return out, err
 	}
@@ -1041,7 +1046,7 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')
 		WHERE g.depth < ?
 	)
-	SELECT g.root_id,g.parent_id,g.blocker_id,g.depth,b.kind,b.title,b.lifecycle,b.priority,b.created_at,b.updated_at,coalesce(b.terminal_time,'')
+	SELECT g.root_id,g.parent_id,g.blocker_id,g.depth,b.kind,b.title,b.lifecycle,b.priority,b.urgency,b.created_at,b.updated_at,coalesce(b.terminal_time,'')
 	FROM graph g
 	JOIN selected s ON s.id=g.root_id
 	JOIN work_items b ON b.id=g.blocker_id
@@ -1064,9 +1069,9 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 	edgeCapped := false
 	nodeCapped := false
 	for rows.Next() {
-		var rootID, parentID, blockerID, kind, title, lifecycle, createdAt, updatedAt, terminalAt string
+		var rootID, parentID, blockerID, kind, title, lifecycle, urgency, createdAt, updatedAt, terminalAt string
 		var graphDepth, priority int
-		if err := rows.Scan(&rootID, &parentID, &blockerID, &graphDepth, &kind, &title, &lifecycle, &priority, &createdAt, &updatedAt, &terminalAt); err != nil {
+		if err := rows.Scan(&rootID, &parentID, &blockerID, &graphDepth, &kind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &terminalAt); err != nil {
 			return nil, false, false, err
 		}
 		if edgeCount >= edgeLimit {
@@ -1089,7 +1094,7 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 			continue
 		}
 		root.seen[blockerID] = true
-		node := &q4GraphNode{item: WorkItem{ID: blockerID, Kind: kind, Title: title, Lifecycle: lifecycle, Priority: int64(priority), CreatedAt: createdAt, UpdatedAt: updatedAt, TerminalAt: terminalAt, Active: !terminalState(lifecycle), Terminal: terminalState(lifecycle)}, seen: map[string]bool{}}
+		node := &q4GraphNode{item: WorkItem{ID: blockerID, Kind: kind, Title: title, Lifecycle: lifecycle, Priority: int64(priority), Urgency: urgency, CreatedAt: createdAt, UpdatedAt: updatedAt, TerminalAt: terminalAt, Active: !terminalState(lifecycle), Terminal: terminalState(lifecycle)}, seen: map[string]bool{}}
 		parent.children = append(parent.children, node)
 		nodes[rootID+"|"+blockerID] = node
 		nodeCount++
@@ -1138,7 +1143,7 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 		workFilter += " AND w.kind=?"
 		queryArgs = append(queryArgs, req.Kind)
 	}
-	q := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + scopeFilter + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id WHERE w.lifecycle='needed'` + workFilter + ` AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) ORDER BY w.priority,w.created_at DESC,w.id LIMIT ? OFFSET ?`
+	q := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + scopeFilter + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id WHERE w.lifecycle='needed'` + workFilter + ` AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ? OFFSET ?`
 	queryArgs = append(queryArgs, limit+1, req.Offset)
 	out.Items, err = scanWorkItems(ctx, tx, q, queryArgs...)
 	if err != nil {
@@ -1156,12 +1161,12 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 		next := strconv.Itoa(req.Offset + limit)
 		out.NextCursor = &next
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q5", ResolvedScope{ProductID: req.Product}, []string{"priority", "created_at", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q5", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "created_at", "id"})
 	return out, err
 }
 
 func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
-	items, err := scanWorkItems(ctx, tx, `SELECT id,kind,title,lifecycle,priority,created_at,updated_at,coalesce(terminal_time,'') FROM work_items WHERE id=?`, id)
+	items, err := scanWorkItems(ctx, tx, `SELECT id,kind,title,lifecycle,priority,urgency,created_at,updated_at,coalesce(terminal_time,'') FROM work_items WHERE id=?`, id)
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1199,7 +1204,7 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	if req.Cursor != "" {
 		decoded, decodeErr := base64.RawURLEncoding.DecodeString(req.Cursor)
 		var cursor q6Cursor
-		if decodeErr != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.Version != 1 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Order != "priority:asc,updated_at:desc,id:asc" || cursor.Offset < 0 {
+		if decodeErr != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.Version != 1 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Order != "urgency:asc,priority:asc,updated_at:desc,id:asc" || cursor.Offset < 0 {
 			return out, newFailure(KindInvalidCursor, "PM1.Q6", "scope cursor is invalid", false, "restart the scope query")
 		}
 		req.Offset = cursor.Offset
@@ -1284,7 +1289,7 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 			return " AND pp.product_id=?"
 		}
 		return ""
-	}() + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY w.priority,w.updated_at DESC,w.id LIMIT ? OFFSET ?`
+	}() + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY w.urgency ASC,w.priority,w.updated_at DESC,w.id LIMIT ? OFFSET ?`
 	args := []any{req.Project}
 	if req.Product != "" {
 		args = append(args, req.Product)
@@ -1296,14 +1301,14 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
-		encoded, encodeErr := json.Marshal(q6Cursor{Version: 1, Product: req.Product, Project: req.Project, Order: "priority:asc,updated_at:desc,id:asc", Offset: req.Offset + limit})
+		encoded, encodeErr := json.Marshal(q6Cursor{Version: 1, Product: req.Product, Project: req.Project, Order: "urgency:asc,priority:asc,updated_at:desc,id:asc", Offset: req.Offset + limit})
 		if encodeErr != nil {
 			return out, wrapFailure(KindInvariantViolation, "PM1.Q6", "cannot encode scope cursor", false, "restart the scope query", encodeErr)
 		}
 		next := base64.RawURLEncoding.EncodeToString(encoded)
 		out.NextCursor = &next
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q6", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"priority", "updated_at", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q6", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"urgency", "priority", "updated_at", "id"})
 	return out, err
 }
 
@@ -1455,7 +1460,7 @@ func relationSpecs(kinds []string) ([]relationSpec, error) {
 	if len(kinds) == 0 {
 		kinds = []string{"parent", "blocks", "supersedes", "implements"}
 	}
-	valid := map[string]relationSpec{"parent": {"parent", "parent", false}, "child_of": {"child_of", "parent", true}, "blocks": {"blocks", "blocks", false}, "blocked_by": {"blocked_by", "blocks", true}, "depends_on": {"depends_on", "blocks", true}, "supersedes": {"supersedes", "supersedes", false}, "superseded_by": {"superseded_by", "supersedes", true}, "implements": {"implements", "implements", false}, "implemented_by": {"implemented_by", "implements", true}}
+	valid := map[string]relationSpec{"parent": {"parent", "parent", false}, "child_of": {"child_of", "parent", true}, "blocks": {"blocks", "blocks", false}, "blocked_by": {"blocked_by", "blocks", true}, "depends_on": {"depends_on", "blocks", true}, "supersedes": {"supersedes", "supersedes", false}, "superseded_by": {"superseded_by", "supersedes", true}, "implements": {"implements", "implements", false}, "implemented_by": {"implemented_by", "implements", true}, "raised_from": {"raised_from", "raised_from", false}, "raised": {"raised", "raised_from", true}}
 	out := make([]relationSpec, 0, len(kinds))
 	for _, k := range kinds {
 		s, ok := valid[k]

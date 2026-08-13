@@ -114,6 +114,84 @@ func TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof(t *testing.T) {
 	}
 }
 
+func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
+	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	writeManifestFixture(t, repo,
+		manifestFixture{ID: "sqlite", Kind: "decision", Path: "docs/decisions/CD-0100-sqlite.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Storage decision", Summary: "Exact stable ID match", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "newer-text", Kind: "lesson", Path: "docs/lessons/newer.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Newer lesson", Summary: "Uses SQLite safely", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "older-text", Kind: "lesson", Path: "docs/lessons/older.md", Status: "published", Date: "2026-08-09T00:00:00Z", Title: "Older lesson", Summary: "SQLite recovery notes", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+	)
+	commitKnowledgeRepo(t, repo, "structured knowledge ranking")
+	s := openTemp(t)
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, home)
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Home: home})
+	if err != nil || len(first.Items) != 1 || first.Items[0].ID != "sqlite" || first.NextCursor == nil {
+		t.Fatalf("first page = %#v, err %v", first, err)
+	}
+	firstCursor, err := decodeKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil)
+	if err != nil || firstCursor.Version != 2 || firstCursor.MatchClass != 0 {
+		t.Fatalf("first cursor = %#v, err %v", firstCursor, err)
+	}
+	second, err := s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: *first.NextCursor, Home: home})
+	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "newer-text" || second.NextCursor == nil {
+		t.Fatalf("second page = %#v, err %v", second, err)
+	}
+	secondCursor, err := decodeKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil)
+	if err != nil || secondCursor.MatchClass != 1 {
+		t.Fatalf("second cursor = %#v, err %v", secondCursor, err)
+	}
+	third, err := s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: *second.NextCursor, Home: home})
+	if err != nil || len(third.Items) != 1 || third.Items[0].ID != "older-text" || third.NextCursor == nil {
+		t.Fatalf("third page = %#v, err %v", third, err)
+	}
+	fourth, err := s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: *third.NextCursor, Home: home})
+	if err != nil || len(fourth.Items) != 0 || fourth.NextCursor != nil {
+		t.Fatalf("fourth page = %#v, err %v", fourth, err)
+	}
+	legacy, err := encodeKnowledgeCursor(knowledgeCursor{Version: 1, Text: "SQLITE", HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, HeadRef: home.HeadRef, CompletedAt: first.Items[0].CompletedAt, ID: first.Items[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: legacy, Home: home})
+	assertFailureKind(t, err, KindInvalidCursor)
+}
+
+func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.T) {
+	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	writeManifestFixture(t, repo,
+		manifestFixture{ID: "title-match", Kind: "decision", Path: "docs/decisions/CD-0101-title.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "SQLite", Summary: "title", Tags: []string{"title"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "tag-match", Kind: "lesson", Path: "docs/lessons/tag.md", Status: "published", Date: "2026-08-09T00:00:00Z", Title: "Tag lesson", Summary: "tag", Tags: []string{"SQLITE"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", TagIDs: []string{"SQLITE"}}},
+		manifestFixture{ID: "component-match", Kind: "spec", Path: "docs/specs/component.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Component spec", Summary: "component", Tags: []string{"component"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", ComponentIDs: []string{"SQLITE"}}},
+	)
+	commitKnowledgeRepo(t, repo, "structured exact fields")
+	s := openTemp(t)
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, home)
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.QueryQ9(ctx, Q9Request{Text: "sqlite", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(result.Items))
+	for _, item := range result.Items {
+		ids = append(ids, item.ID)
+	}
+	want := []string{"title-match", "tag-match", "component-match"}
+	if !equalStrings(ids, want) {
+		t.Fatalf("exact-field IDs = %#v, want %#v", ids, want)
+	}
+}
+
 func knowledgeProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
 	parts := make([]string, 0, 3)

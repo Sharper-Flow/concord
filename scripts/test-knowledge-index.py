@@ -122,6 +122,40 @@ def test_nul_path_is_rejected_without_traceback() -> None:
     assert any("forbidden or unsafe path" in finding for finding in findings)
 
 
+def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        decisions = root / "docs/decisions"
+        decisions.mkdir(parents=True)
+        later = decisions / "CD-0014-z-note.md"
+        earlier = decisions / "CD-0014-a-decision.md"
+        later.write_text("note\n", encoding="utf-8")
+        earlier.write_text("decision\n", encoding="utf-8")
+        value = {
+            "schema_version": "1.0",
+            "supported_kinds": ["decision"],
+            "indexed_kinds": ["decision"],
+            "records": [{
+                "id": "CD-0014",
+                "kind": "decision",
+                "path": "docs/decisions/CD-0014-a-decision.md",
+                "status": "accepted",
+                "date": "2026-08-10T00:00:00Z",
+                "title": "Decision",
+                "summary": "Summary",
+                "tags": [],
+                "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "component_ids": [], "tag_ids": []},
+                "sha256": "sha256:" + "a" * 64,
+            }],
+        }
+        with mock.patch.object(checker, "ROOT", root):
+            findings = checker.validate(value, check_hashes=False)
+        assert findings == [
+            "manifest: decision CD-0014 has multiple canonical files: "
+            "docs/decisions/CD-0014-a-decision.md, docs/decisions/CD-0014-z-note.md"
+        ]
+
+
 if __name__ == "__main__":
     for name, function in sorted(globals().items()):
         if name.startswith("test_"):

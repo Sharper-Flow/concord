@@ -262,10 +262,20 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         if target.get("status") != expected_status:
             fail(findings, f"{prefix}: successor status is incompatible")
 
-    expected_decisions = {
-        path.stem.split("-", 2)[0] + ("-" + path.stem.split("-", 2)[1] if len(path.stem.split("-", 2)) > 1 else ""): path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "docs/decisions").glob("CD-*.md")
-    }
+    decision_paths: dict[str, list[str]] = {}
+    for path in sorted((ROOT / "docs/decisions").glob("CD-*.md"), key=lambda item: item.as_posix()):
+        match = re.fullmatch(r"(CD-[0-9]{4})(?:-.*)?\.md", path.name)
+        relative = path.relative_to(ROOT).as_posix()
+        if match is None:
+            fail(findings, f"manifest: decision file has a non-canonical name: {relative}")
+            continue
+        decision_paths.setdefault(match.group(1), []).append(relative)
+    expected_decisions: dict[str, str] = {}
+    for identifier, paths_for_id in decision_paths.items():
+        if len(paths_for_id) != 1:
+            fail(findings, f"manifest: decision {identifier} has multiple canonical files: {', '.join(paths_for_id)}")
+            continue
+        expected_decisions[identifier] = paths_for_id[0]
     for identifier, expected_path in expected_decisions.items():
         matches = [record for record in records if isinstance(record, dict) and record.get("id") == identifier]
         if len(matches) != 1:
@@ -276,14 +286,15 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"manifest: decision {identifier} does not map to its exact decision path/kind")
         if record.get("status") not in {"accepted", "superseded"}:
             fail(findings, f"manifest: decision {identifier} has invalid status")
+    discovered_decision_paths = {candidate for candidates in decision_paths.values() for candidate in candidates}
     for record in records:
         if not isinstance(record, dict):
             continue
         path = record.get("path")
         identifier = record.get("id")
-        if isinstance(path, str) and path.startswith("docs/decisions/") and path not in expected_decisions.values():
+        if isinstance(path, str) and path.startswith("docs/decisions/") and path not in discovered_decision_paths:
             fail(findings, f"manifest: extra decision path is forbidden: {path}")
-        if isinstance(identifier, str) and identifier.startswith("CD-") and identifier not in expected_decisions:
+        if isinstance(identifier, str) and identifier.startswith("CD-") and identifier not in decision_paths:
             fail(findings, f"manifest: extra decision ID is forbidden: {identifier}")
     return findings
 

@@ -259,8 +259,12 @@ The JSON corpus is executable through a candidate adapter implementing
   `lesson`, `decision`, `spec`); tags; bounded text; time window; cursor/limit.
 - **Output:** summaries with title, kind, date, tags, related work/component,
   canonical note/decision/spec reference, commit/hash, and index watermark.
-- **Order:** structured exact matches before bounded text matches, then date
-  descending and stable ID.
+- **Text admission and order:** when bounded `text` is present, admit records
+  whose stable ID, title, tag, or component equals `text`, or whose title/summary
+  contains `text`. Case-insensitive exact structured matches rank before
+  case-insensitive title/summary substring-only matches, then date descending
+  and stable ID. Product, Project, component, kind, tag, and time inputs remain
+  conjunctive filters. Without `text`, order is date descending and stable ID.
 - **Oracle:** knowledge is found through one bounded domain query, not repeated
   list→show→search choreography; index lag is explicit.
 - **Authority note:** an indexed answer is `authoritative` only when its watermark

@@ -45,6 +45,7 @@ type KnowledgeItem struct {
 	CommitOID     string   `json:"commit_oid"`
 	ContentHash   string   `json:"content_hash"`
 	ScopeMode     string   `json:"scope_mode"`
+	MatchClass    int      `json:"-"`
 }
 
 type Q9Result struct {
@@ -152,7 +153,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	var cursor *string
 	if len(items) == limit {
 		last := items[len(items)-1]
-		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 1, Product: req.Product, Project: req.Project, Component: req.Component, Kinds: kinds, Tags: tags, Text: req.Text, Since: req.Since, Until: req.Until, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, CompletedAt: last.CompletedAt, ID: last.ID})
+		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 2, Product: req.Product, Project: req.Project, Component: req.Component, Kinds: kinds, Tags: tags, Text: req.Text, Since: req.Since, Until: req.Until, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, MatchClass: last.MatchClass, CompletedAt: last.CompletedAt, ID: last.ID})
 		if err != nil {
 			return out, err
 		}
@@ -174,7 +175,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 func scanKnowledgeItem(rows *sql.Rows) (KnowledgeItem, error) {
 	var item KnowledgeItem
 	var lessonTags, productIDs, projectIDs, componentIDs, tagIDs string
-	if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &componentIDs, &tagIDs); err != nil {
+	if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &componentIDs, &tagIDs, &item.MatchClass); err != nil {
 		return item, wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode a knowledge index row", true, "retry once the database is readable", err)
 	}
 	if json.Unmarshal([]byte(lessonTags), &item.LessonTags) != nil {
@@ -369,6 +370,7 @@ type knowledgeCursor struct {
 	Since, Until                          string
 	Kinds, Tags                           []string
 	HomeProjectID, HomeLocatorID, HeadRef string
+	MatchClass                            int `json:"match_class"`
 	CompletedAt, ID                       string
 }
 
@@ -383,7 +385,7 @@ func encodeKnowledgeCursor(cursor knowledgeCursor) (string, error) {
 func decodeKnowledgeCursor(raw string, req Q9Request, kinds, tags []string) (knowledgeCursor, error) {
 	b, err := base64.RawURLEncoding.DecodeString(raw)
 	var cursor knowledgeCursor
-	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 1 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Component != req.Component || cursor.Text != req.Text || cursor.Since != req.Since || cursor.Until != req.Until || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.CompletedAt == "" || cursor.ID == "" {
+	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 2 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Component != req.Component || cursor.Text != req.Text || cursor.Since != req.Since || cursor.Until != req.Until || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 1 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" {
 		return knowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query", false, "use a cursor returned for the same query and filters")
 	}
 	return cursor, nil
@@ -391,7 +393,7 @@ func decodeKnowledgeCursor(raw string, req Q9Request, kinds, tags []string) (kno
 
 func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string, []any) {
 	where := []string{"aw.home_project_id = ?", "aw.home_locator_id = ?"}
-	args := []any{req.Home.HomeProjectID, req.Home.HomeLocatorID}
+	args := []any{req.Text, req.Home.HomeProjectID, req.Home.HomeLocatorID}
 	if req.Product != "" {
 		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_products p WHERE p.work_id = aw.id AND p.product_id = ?))")
 		args = append(args, req.Product)
@@ -415,11 +417,13 @@ func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string
 		where = append(where, "(EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.tag_id = ?) OR (aw.type <> 'work_note' AND EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) WHERE value = ?)))")
 		args = append(args, tag, tag)
 	}
-	if req.Text != "" {
-		where = append(where, "(aw.title LIKE ? OR aw.summary LIKE ?)")
-		needle := "%" + req.Text + "%"
-		args = append(args, needle, needle)
-	}
+	exactMatch := `(lower(aw.id) = lower(input.text)
+		OR lower(aw.title) = lower(input.text)
+		OR EXISTS (SELECT 1 FROM archived_work_tags exact_tag WHERE exact_tag.work_id = aw.id AND lower(exact_tag.tag_id) = lower(input.text))
+		OR EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) exact_lesson_tag WHERE lower(exact_lesson_tag.value) = lower(input.text))
+		OR EXISTS (SELECT 1 FROM archived_work_components exact_component WHERE exact_component.work_id = aw.id AND lower(exact_component.component_id) = lower(input.text)))`
+	boundedTextMatch := `(instr(lower(aw.title), lower(input.text)) > 0 OR instr(lower(aw.summary), lower(input.text)) > 0)`
+	where = append(where, `(input.text = '' OR `+exactMatch+` OR `+boundedTextMatch+`)`)
 	if req.Since != "" {
 		where = append(where, "aw.completed_at >= ?")
 		args = append(args, req.Since)
@@ -428,18 +432,22 @@ func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string
 		where = append(where, "aw.completed_at <= ?")
 		args = append(args, req.Until)
 	}
+	cursorWhere := ""
 	if req.Cursor != "" {
 		cursor, _ := decodeKnowledgeCursor(req.Cursor, req, kinds, tags)
-		where = append(where, "(aw.completed_at < ? OR (aw.completed_at = ? AND aw.id > ?))")
-		args = append(args, cursor.CompletedAt, cursor.CompletedAt, cursor.ID)
+		cursorWhere = " WHERE (aw.match_class > ? OR (aw.match_class = ? AND (aw.completed_at < ? OR (aw.completed_at = ? AND aw.id > ?))))"
+		args = append(args, cursor.MatchClass, cursor.MatchClass, cursor.CompletedAt, cursor.CompletedAt, cursor.ID)
 	}
 	args = append(args, limit)
-	return `SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
+	return `WITH input(text) AS (VALUES (?)), ranked AS (` +
+		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 ELSE 1 END AS match_class ` +
+		`FROM archived_work aw CROSS JOIN input WHERE ` + strings.Join(where, " AND ") + `) ` +
+		`SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
 		`COALESCE((SELECT json_group_array(product_id) FROM (SELECT product_id FROM archived_work_products WHERE work_id=aw.id ORDER BY product_id)), '[]'),` +
 		`COALESCE((SELECT json_group_array(project_id) FROM (SELECT project_id FROM archived_work_projects WHERE work_id=aw.id ORDER BY project_id)), '[]'),` +
 		`COALESCE((SELECT json_group_array(component_id) FROM (SELECT component_id FROM archived_work_components WHERE work_id=aw.id ORDER BY component_id)), '[]'),` +
-		`COALESCE((SELECT json_group_array(tag_id) FROM (SELECT tag_id FROM archived_work_tags WHERE work_id=aw.id ORDER BY tag_id)), '[]') ` +
-		`FROM archived_work aw WHERE ` + strings.Join(where, " AND ") + ` ORDER BY aw.completed_at DESC, aw.id ASC LIMIT ?`, args
+		`COALESCE((SELECT json_group_array(tag_id) FROM (SELECT tag_id FROM archived_work_tags WHERE work_id=aw.id ORDER BY tag_id)), '[]'),aw.match_class ` +
+		`FROM ranked aw` + cursorWhere + ` ORDER BY aw.match_class ASC, aw.completed_at DESC, aw.id ASC LIMIT ?`, args
 }
 
 func enrichKnowledgeScopes(ctx context.Context, db *sql.DB, item *KnowledgeItem) error {

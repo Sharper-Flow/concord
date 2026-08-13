@@ -404,6 +404,29 @@
       "sha256": "sha256:ca70f98e6306b6aeb280f59405180c061e6c2553458f9fcf7553c94d88f9848a"
     },
     {
+      "id": "CD-0020",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0020-retain-knowledge-index-shape.md",
+      "status": "accepted",
+      "date": "2026-08-13T00:00:00Z",
+      "title": "Retain the manifest-primary knowledge-index shape",
+      "summary": "Retains the Git-authoritative, SQLite-derived knowledge-index shape, bounded Q9/Q10 query boundary, independent code intelligence, and separate conformance repair path.",
+      "tags": [
+        "knowledge-index",
+        "query",
+        "authority",
+        "research"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45"
+    },
+    {
       "id": "agent-lanes-contract",
       "kind": "spec",
       "path": "docs/agent-lanes-contract.md",

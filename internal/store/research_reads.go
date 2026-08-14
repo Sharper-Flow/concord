@@ -192,25 +192,29 @@ func readRevisionTx(ctx context.Context, tx *sql.Tx, pack string, revision int64
 
 func readFindingTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, id string) (ResearchFinding, error) {
 	var f ResearchFinding
-	err := tx.QueryRowContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, pack, revision, id).Scan(&f.PackID, &f.Revision, &f.FindingID, &f.Kind, &f.Statement, &f.Confidence, &f.Freshness, &f.Status)
+	err := tx.QueryRowContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, pack, revision, id).Scan(&f.PackID, &f.Revision, &f.FindingID, &f.Kind, &f.Statement, &f.Confidence, &f.Freshness, &f.Status, &f.Scopes.Mode)
 	if err == sql.ErrNoRows {
 		return f, researchNotFound("finding does not exist")
 	}
 	if err != nil {
 		return f, researchUnavailable("cannot read finding", err)
 	}
+	f.Scopes, err = readResearchFindingScopes(ctx, tx, pack, revision, id, f.Scopes.Mode)
+	if err != nil {
+		return f, err
+	}
 	return f, nil
 }
 
 func readFindingsTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, limit int) ([]ResearchFinding, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status FROM active_research_findings WHERE pack_id=? AND revision=? ORDER BY finding_id LIMIT ?`, pack, revision, limit+1)
+	rows, err := tx.QueryContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings WHERE pack_id=? AND revision=? ORDER BY finding_id LIMIT ?`, pack, revision, limit+1)
 	if err != nil {
 		return nil, researchUnavailable("cannot read findings", err)
 	}
 	var out []ResearchFinding
 	for rows.Next() {
 		var f ResearchFinding
-		if err := rows.Scan(&f.PackID, &f.Revision, &f.FindingID, &f.Kind, &f.Statement, &f.Confidence, &f.Freshness, &f.Status); err != nil {
+		if err := rows.Scan(&f.PackID, &f.Revision, &f.FindingID, &f.Kind, &f.Statement, &f.Confidence, &f.Freshness, &f.Status, &f.Scopes.Mode); err != nil {
 			_ = rows.Close()
 			return nil, researchUnavailable("cannot decode finding", err)
 		}
@@ -251,6 +255,12 @@ func readFindingsTx(ctx context.Context, tx *sql.Tx, pack string, revision int64
 	}
 	if err := rows.Err(); err != nil {
 		return nil, researchUnavailable("cannot read finding sources", err)
+	}
+	for i := range out {
+		out[i].Scopes, err = readResearchFindingScopes(ctx, tx, pack, revision, out[i].FindingID, out[i].Scopes.Mode)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }

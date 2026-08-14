@@ -1464,6 +1464,53 @@ CREATE TRIGGER workflow_impact_notices_guard_update BEFORE UPDATE ON workflow_im
 CREATE TRIGGER workflow_impact_notices_guard_delete BEFORE DELETE ON workflow_impact_notices FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_notices is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+	{
+		Version: 29,
+		Name:    "research_finding_applies_to_scope",
+		SQL: `
+-- Durable knowledge declares what it applies to; active research did not, so a
+-- finding could only say which work item produced it. Promotion at archive was
+-- therefore unassisted judgement. Findings now carry the same scope vocabulary
+-- as durable records: home means it applies to its owner's home broadly,
+-- explicit means it applies to exactly the declared scopes.
+--
+-- Durable knowledge spreads its scope IDs across four tables. One table with a
+-- closed scope_kind is equivalent in strength here (closed enum, composite key,
+-- cascade delete) without adding four more tables to an already table-heavy
+-- subsystem. The declared shape, not the table count, is what has to match.
+ALTER TABLE active_research_findings ADD COLUMN scope_mode TEXT NOT NULL DEFAULT 'home' CHECK(scope_mode IN ('home','explicit'));
+
+CREATE TABLE active_research_finding_scopes (
+    pack_id     TEXT NOT NULL,
+    revision    INTEGER NOT NULL,
+    finding_id  TEXT NOT NULL,
+    scope_kind  TEXT NOT NULL CHECK(scope_kind IN ('product','project','component','tag')),
+    scope_id    TEXT NOT NULL,
+    PRIMARY KEY(pack_id, revision, finding_id, scope_kind, scope_id),
+    FOREIGN KEY(pack_id, revision, finding_id) REFERENCES active_research_findings(pack_id, revision, finding_id) ON DELETE CASCADE,
+    CHECK(length(scope_id) > 0)
+);
+
+CREATE INDEX active_research_finding_scopes_lookup
+    ON active_research_finding_scopes(scope_kind, scope_id, pack_id, revision);
+
+-- The home-implies-empty invariant is structural, matching the strength of the
+-- durable-side check rather than relying on the mutation path to remember it.
+CREATE TRIGGER active_research_finding_scopes_home_guard
+BEFORE INSERT ON active_research_finding_scopes FOR EACH ROW
+WHEN (SELECT scope_mode FROM active_research_findings WHERE pack_id=NEW.pack_id AND revision=NEW.revision AND finding_id=NEW.finding_id) = 'home'
+BEGIN
+    SELECT RAISE(ABORT, 'home scope cannot carry explicit scope IDs');
+END;
+
+CREATE TRIGGER active_research_findings_home_guard_update
+BEFORE UPDATE OF scope_mode ON active_research_findings FOR EACH ROW
+WHEN NEW.scope_mode = 'home' AND EXISTS(SELECT 1 FROM active_research_finding_scopes s WHERE s.pack_id=NEW.pack_id AND s.revision=NEW.revision AND s.finding_id=NEW.finding_id)
+BEGIN
+    SELECT RAISE(ABORT, 'home scope cannot carry explicit scope IDs');
+END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func validateResearchIdentity(identity ResearchMutationIdentity) error {
@@ -327,17 +328,127 @@ func copyResearchRevisionContent(ctx context.Context, tx *sql.Tx, pack string, f
 	if restated {
 		freshness = "'unknown'"
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status)
-        SELECT pack_id,?,finding_id,kind,statement,confidence,`+freshness+`,status FROM active_research_findings WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode)
+        SELECT pack_id,?,finding_id,kind,statement,confidence,`+freshness+`,status,scope_mode FROM active_research_findings WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
 		return researchConstraint("cannot carry research findings into the new revision", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at)
         SELECT pack_id,?,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
 		return researchConstraint("cannot carry research sources into the new revision", err)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_finding_scopes(pack_id,revision,finding_id,scope_kind,scope_id)
+        SELECT pack_id,?,finding_id,scope_kind,scope_id FROM active_research_finding_scopes WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
+		return researchConstraint("cannot carry finding scope into the new revision", err)
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id)
         SELECT pack_id,?,finding_id,source_id FROM active_research_finding_sources WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
 		return researchConstraint("cannot carry research citations into the new revision", err)
 	}
 	return nil
+}
+
+// validateResearchScopes mirrors the durable-knowledge scope invariant in
+// knowledge_manifest.go: mode is closed, and home carries no explicit IDs. An
+// empty mode defaults to home so a caller declaring nothing gets the meaning it
+// intends rather than a rejected write.
+func validateResearchScopes(scopes *ResearchScopes) error {
+	if scopes.Mode == "" {
+		scopes.Mode = "home"
+	}
+	if scopes.Mode != "home" && scopes.Mode != "explicit" {
+		return researchInvalid("scope mode must be home or explicit")
+	}
+	declared := 0
+	for _, pair := range scopes.byKind() {
+		seen := map[string]struct{}{}
+		if len(*pair.values) > 100 {
+			return researchInvalid("scope ID arrays must contain at most 100 entries")
+		}
+		for _, id := range *pair.values {
+			if id == "" || utf8.RuneCountInString(id) > 256 || strings.TrimSpace(id) != id {
+				return researchInvalid("scope IDs must be non-empty, bounded, and clean")
+			}
+			if _, exists := seen[id]; exists {
+				return researchInvalid("scope IDs must be unique within their kind")
+			}
+			seen[id] = struct{}{}
+			declared++
+		}
+	}
+	if scopes.Mode == "home" && declared > 0 {
+		return researchInvalid("home scope cannot carry explicit scope IDs")
+	}
+	if scopes.Mode == "explicit" && declared == 0 {
+		return researchInvalid("explicit scope must declare at least one scope ID")
+	}
+	return nil
+}
+
+// validateResearchScopeReferences validates the two scope kinds Concord owns as
+// entities. Components and tags intentionally remain opaque declared identifiers:
+// durable knowledge uses the same vocabulary, and neither has a canonical entity
+// registry to join yet. Treating those as unknown would be an unvalidated join.
+func validateResearchScopeReferences(ctx context.Context, tx *sql.Tx, scopes ResearchScopes) error {
+	for _, ref := range []struct {
+		table string
+		ids   []string
+	}{
+		{"products", scopes.ProductIDs},
+		{"projects", scopes.ProjectIDs},
+	} {
+		for _, id := range ref.ids {
+			var found int
+			err := tx.QueryRowContext(ctx, `SELECT 1 FROM `+ref.table+` WHERE id=?`, id).Scan(&found)
+			if err == sql.ErrNoRows {
+				return researchInvalid(ref.table[:len(ref.table)-1] + " scope ID does not exist")
+			}
+			if err != nil {
+				return researchUnavailable("cannot validate scope reference", err)
+			}
+		}
+	}
+	return nil
+}
+
+// writeResearchFindingScopes replaces a finding's declared scope wholesale, so an
+// update cannot leave behind a scope the caller no longer claims.
+func writeResearchFindingScopes(ctx context.Context, tx *sql.Tx, pack string, revision int64, findingID string, scopes ResearchScopes) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM active_research_finding_scopes WHERE pack_id=? AND revision=? AND finding_id=?`, pack, revision, findingID); err != nil {
+		return researchUnavailable("cannot clear finding scope", err)
+	}
+	for _, pair := range scopes.byKind() {
+		for _, id := range *pair.values {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_finding_scopes(pack_id,revision,finding_id,scope_kind,scope_id) VALUES(?,?,?,?,?)`, pack, revision, findingID, pair.kind, id); err != nil {
+				return researchConstraint("cannot declare finding scope", err)
+			}
+		}
+	}
+	return nil
+}
+
+// readResearchFindingScopes loads the declared scope for one finding.
+func readResearchFindingScopes(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, pack string, revision int64, findingID, mode string) (ResearchScopes, error) {
+	scopes := ResearchScopes{Mode: mode}
+	rows, err := q.QueryContext(ctx, `SELECT scope_kind, scope_id FROM active_research_finding_scopes WHERE pack_id=? AND revision=? AND finding_id=? ORDER BY scope_kind, scope_id`, pack, revision, findingID)
+	if err != nil {
+		return scopes, researchUnavailable("cannot read finding scope", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind, id string
+		if err := rows.Scan(&kind, &id); err != nil {
+			return scopes, researchUnavailable("cannot scan finding scope", err)
+		}
+		for _, pair := range scopes.byKind() {
+			if pair.kind == kind {
+				*pair.values = append(*pair.values, id)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return scopes, researchUnavailable("cannot read finding scope", err)
+	}
+	return scopes, nil
 }

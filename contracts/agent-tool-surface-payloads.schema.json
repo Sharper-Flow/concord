@@ -924,106 +924,384 @@
     "work_trace_continuity_input": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["work_id", "page"],
+      "required": [
+        "work_id",
+        "page"
+      ],
       "properties": {
-        "work_id": {"$ref": "#/$defs/id"},
-        "page": {"$ref": "#/$defs/page"},
-        "budget": {"$ref": "#/$defs/budget"}
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
       }
     },
     "continuity_checkpoint": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"],
+      "required": [
+        "checkpoint_id",
+        "work_version",
+        "sequence",
+        "step_id",
+        "attempt_epoch",
+        "active_unit",
+        "hypothesis",
+        "diagnosis",
+        "strategy",
+        "touched_refs",
+        "evidence_refs",
+        "pending_questions",
+        "pending_decisions"
+      ],
       "properties": {
-        "checkpoint_id": {"$ref": "#/$defs/id"},
-        "work_version": {"$ref": "#/$defs/version"},
-        "sequence": {"type": "integer", "minimum": 1},
-        "step_id": {"$ref": "#/$defs/short"},
-        "attempt_epoch": {"type": "integer", "minimum": 1},
-        "active_unit": {"type": "string", "minLength": 2, "maxLength": 256},
-        "hypothesis": {"type": "string", "minLength": 2, "maxLength": 4096},
-        "diagnosis": {"type": "string", "minLength": 2, "maxLength": 4096},
-        "strategy": {"type": "string", "minLength": 2, "maxLength": 4096},
-        "touched_refs": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "evidence_refs": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "pending_questions": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "pending_decisions": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+        "checkpoint_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_version": {
+          "$ref": "#/$defs/version"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "step_id": {
+          "$ref": "#/$defs/short"
+        },
+        "attempt_epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "active_unit": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 256
+        },
+        "hypothesis": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "diagnosis": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "strategy": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "touched_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "pending_questions": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "pending_decisions": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
       }
     },
     "continuity_boundary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"],
+      "required": [
+        "boundary_id",
+        "sequence",
+        "kind",
+        "checkpoint_id",
+        "checkpoint_sequence",
+        "summary",
+        "recorded_at"
+      ],
       "properties": {
-        "boundary_id": {"$ref": "#/$defs/id"},
-        "sequence": {"type": "integer", "minimum": 1},
-        "kind": {"const": "summary"},
-        "checkpoint_id": {"$ref": "#/$defs/id"},
-        "checkpoint_sequence": {"type": "integer", "minimum": 1},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 16384},
-        "recorded_at": {"type": "string", "maxLength": 64}
+        "boundary_id": {
+          "$ref": "#/$defs/id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "const": "summary"
+        },
+        "checkpoint_id": {
+          "$ref": "#/$defs/id"
+        },
+        "checkpoint_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "recorded_at": {
+          "type": "string",
+          "maxLength": 64
+        }
       }
     },
     "continuity_operator_decision": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"],
+      "required": [
+        "action_id",
+        "prompt",
+        "header",
+        "choices",
+        "allow_multiple",
+        "allow_custom",
+        "premise_summary",
+        "contract_summary",
+        "decision_context_digest"
+      ],
       "properties": {
-        "action_id": {"$ref": "#/$defs/id"},
-        "prompt": {"$ref": "#/$defs/short"},
-        "header": {"$ref": "#/$defs/short"},
-        "choices": {"type": "array", "maxItems": 8, "items": {"type": "object", "additionalProperties": false, "required": ["id", "label", "description", "action_id"], "properties": {"id": {"$ref": "#/$defs/id"}, "label": {"$ref": "#/$defs/short"}, "description": {"$ref": "#/$defs/short"}, "action_id": {"$ref": "#/$defs/id"}}}},
-        "allow_multiple": {"type": "boolean"},
-        "allow_custom": {"type": "boolean"},
-        "premise_summary": {"$ref": "#/$defs/short"},
-        "contract_summary": {"$ref": "#/$defs/short"},
-        "decision_context_digest": {"$ref": "#/$defs/digest"}
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "prompt": {
+          "$ref": "#/$defs/short"
+        },
+        "header": {
+          "$ref": "#/$defs/short"
+        },
+        "choices": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "description",
+              "action_id"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "label": {
+                "$ref": "#/$defs/short"
+              },
+              "description": {
+                "$ref": "#/$defs/short"
+              },
+              "action_id": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        },
+        "allow_multiple": {
+          "type": "boolean"
+        },
+        "allow_custom": {
+          "type": "boolean"
+        },
+        "premise_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "contract_summary": {
+          "$ref": "#/$defs/short"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        }
       }
     },
     "continuity_failure": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "recoverable", "step_id", "attempt_epoch"],
-      "properties": {"kind": {"$ref": "#/$defs/short"}, "recoverable": {"type": "boolean"}, "step_id": {"$ref": "#/$defs/short"}, "attempt_epoch": {"type": "integer", "minimum": 1}}
+      "required": [
+        "kind",
+        "recoverable",
+        "step_id",
+        "attempt_epoch"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/short"
+        },
+        "recoverable": {
+          "type": "boolean"
+        },
+        "step_id": {
+          "$ref": "#/$defs/short"
+        },
+        "attempt_epoch": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
     },
     "continuity_snapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"],
+      "required": [
+        "work_id",
+        "pinned",
+        "latest_checkpoint",
+        "boundaries",
+        "typed_availability"
+      ],
       "properties": {
-        "work_id": {"$ref": "#/$defs/id"},
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
         "pinned": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["product_identity", "workflow_step", "contract", "spec_mandate", "pending_operator_decision", "latest_checkpoint", "unresolved_failure"],
+          "required": [
+            "product_identity",
+            "workflow_step",
+            "contract",
+            "spec_mandate",
+            "pending_operator_decision",
+            "latest_checkpoint",
+            "unresolved_failure"
+          ],
           "properties": {
-            "product_identity": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-            "workflow_step": {"$ref": "#/$defs/short"},
-            "contract": {"$ref": "#/$defs/workflow_contract"},
-            "spec_mandate": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-            "pending_operator_decision": {"oneOf": [{"$ref": "#/$defs/continuity_operator_decision"}, {"type": "null"}]},
-            "latest_checkpoint": {"oneOf": [{"$ref": "#/$defs/continuity_checkpoint"}, {"type": "null"}]},
-            "unresolved_failure": {"oneOf": [{"$ref": "#/$defs/continuity_failure"}, {"type": "null"}]}
+            "product_identity": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "workflow_step": {
+              "$ref": "#/$defs/short"
+            },
+            "contract": {
+              "$ref": "#/$defs/workflow_contract"
+            },
+            "spec_mandate": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "pending_operator_decision": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/continuity_operator_decision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "latest_checkpoint": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/continuity_checkpoint"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "unresolved_failure": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/continuity_failure"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
           }
         },
-        "latest_checkpoint": {"oneOf": [{"$ref": "#/$defs/continuity_checkpoint"}, {"type": "null"}]},
+        "latest_checkpoint": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/continuity_checkpoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "boundaries": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["count", "items", "next_cursor", "watermark"],
+          "required": [
+            "count",
+            "items",
+            "next_cursor",
+            "watermark"
+          ],
           "properties": {
-            "count": {"type": "integer", "minimum": 0},
-            "items": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/continuity_boundary"}},
-            "next_cursor": {"$ref": "#/$defs/cursor"},
-            "watermark": {"$ref": "#/$defs/id"}
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "items": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/continuity_boundary"
+              }
+            },
+            "next_cursor": {
+              "$ref": "#/$defs/cursor"
+            },
+            "watermark": {
+              "$ref": "#/$defs/id"
+            }
           }
         },
         "typed_availability": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["restart", "reason"],
-          "properties": {"restart": {"const": "unavailable"}, "reason": {"$ref": "#/$defs/short"}}
+          "required": [
+            "restart",
+            "reason"
+          ],
+          "properties": {
+            "restart": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "$ref": "#/$defs/short"
+            }
+          }
         }
       }
     },
@@ -2714,6 +2992,77 @@
           "items": {
             "$ref": "#/$defs/product_row"
           }
+        }
+      }
+    },
+    "work_transition_worktree_claim_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "base_sha",
+        "path",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+        },
+        "base_sha": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "work_transition_worktree_reclaim_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "project_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "default_ref": {
+          "$ref": "#/$defs/short"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
         }
       }
     }

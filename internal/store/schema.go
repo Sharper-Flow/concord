@@ -1511,6 +1511,48 @@ BEGIN
 END;
 		`,
 	},
+	{
+		Version: 30,
+		Name:    "worktree_claims_and_entries",
+		SQL: `
+-- CD-0008 D1: worktree creation is one durable cross-authority operation.
+-- worktree_claims is operational state (like durable_operations): the atomic
+-- claim pinning intent before native git creation, reconciled by op id.
+CREATE TABLE worktree_claims (
+    op_id TEXT NOT NULL PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    set_id TEXT NOT NULL,
+    pinned_branch TEXT NOT NULL,
+    pinned_base_sha TEXT NOT NULL CHECK(length(pinned_base_sha) >= 40 AND length(pinned_base_sha) <= 64),
+    pinned_path TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','verified','reclaimed')),
+    principal_ref TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX worktree_claims_one_active ON worktree_claims(work_id, project_id)
+    WHERE state IN ('pending','verified');
+
+-- worktree_entries is the folded domain state: one verified implementation
+-- worktree per Project per set (CD-0008 D1).
+CREATE TABLE worktree_entries (
+    set_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    claim_op_id TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    base_sha TEXT NOT NULL,
+    path TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('active','reclaimed')),
+    verified_at TEXT NOT NULL,
+    reclaimed_at TEXT,
+    git_facts TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY(set_id, project_id)
+);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

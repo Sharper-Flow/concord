@@ -60,6 +60,22 @@ type lifecycleMutationInput struct {
 	Evidence        []EvidenceRef  `json:"evidence"`
 	Approval        *approvalInput `json:"approval"`
 }
+type worktreeClaimInput struct {
+	WorkID          string `json:"work_id"`
+	ProjectID       string `json:"project_id"`
+	Branch          string `json:"branch"`
+	BaseSHA         string `json:"base_sha"`
+	Path            string `json:"path"`
+	ExpectedVersion int64  `json:"expected_version"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
+type worktreeReclaimInput struct {
+	WorkID          string `json:"work_id"`
+	ProjectID       string `json:"project_id"`
+	DefaultRef      string `json:"default_ref"`
+	ExpectedVersion int64  `json:"expected_version"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
 type actionMutationInput struct {
 	WorkID                string          `json:"work_id"`
 	ExpectedVersion       int64           `json:"expected_version"`
@@ -869,6 +885,46 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
+		}
+	case "concord_work_transition.worktree_claim":
+		var in worktreeClaimInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		versions["work"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.WorkID}
+		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			opID := digest + ":worktree-claim:" + in.ProjectID
+			if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
+				OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
+				Branch: in.Branch, BaseSHA: in.BaseSHA, Path: in.Path,
+				PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+				ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+			}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{opID + ":worktree-created"}, changed, nil
+		}
+	case "concord_work_transition.worktree_reclaim":
+		var in worktreeReclaimInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		versions["work"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.WorkID}
+		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
+				WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
+				PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+				ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+			}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.WorkID + ":" + in.ProjectID + ":worktree-reclaimed"}, changed, nil
 		}
 	case "concord_work_relate.set_memberships":
 		var in membershipsMutationInput

@@ -2757,6 +2757,77 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_worktree_claim_input": {
+      "additionalProperties": false,
+      "properties": {
+        "base_sha": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "branch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
+          "type": "string"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "base_sha",
+        "path",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_worktree_reclaim_input": {
+      "additionalProperties": false,
+      "properties": {
+        "default_ref": {
+          "$ref": "#/$defs/short"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "workflow_contract": {
       "additionalProperties": false,
       "properties": {

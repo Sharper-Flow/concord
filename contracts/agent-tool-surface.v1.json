@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "2.3.0",
+    "version": "2.4.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 8
   },
@@ -71,7 +71,9 @@
       "description": "Apply lifecycle or workflow-defined transitions.",
       "operations": [
         "concord_work_transition.lifecycle",
-        "concord_work_transition.workflow_action"
+        "concord_work_transition.workflow_action",
+        "concord_work_transition.worktree_claim",
+        "concord_work_transition.worktree_reclaim"
       ]
     },
     {
@@ -417,6 +419,46 @@
       }
     },
     {
+      "id": "concord_work_transition.worktree_claim",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_worktree_claim_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_transition.worktree_reclaim",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_worktree_reclaim_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
       "id": "concord_work_relate.set_memberships",
       "tool": "concord_work_relate",
       "kind": "mutation",
@@ -701,6 +743,14 @@
     "work_compact_reconcile_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_reconcile_input",
       "closed": true
+    },
+    "work_transition_worktree_claim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_claim_input",
+      "closed": true
+    },
+    "work_transition_worktree_reclaim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_reclaim_input",
+      "closed": true
     }
   },
   "capabilities": [
@@ -748,6 +798,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:5643b0f69e4d4d0e5567f6540aa0bb9e5477a27f3292edd5413e6586e87bd5a4",
-  "digest": "sha256:a6c8354d4797ea89515f9311a3c5423f549269e3b4f203de1b0976872cf1c6fa"
+  "payload_digest": "sha256:ffc9b1e6d95f52fa570285cb7673b6c6d961c4af9a0b3ad8af2e374bedd27f22",
+  "digest": "sha256:224a5f9d8727a355fdbb9363963c844cef1698bfbc42c0590487a312a72ce16e"
 }

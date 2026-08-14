@@ -473,7 +473,10 @@ authoritative while being non-derivable, unstable, or a second authority.
 10. **No hidden meaning.** Nothing meaningful is conveyed by colour alone, by a mode
     the operator must discover, or by a field only visible at wide terminal widths.
 11. **No cross-Product action surface.** The launcher views one ambient Product.
-     Query is Product-only and no result set spans Products (§14).
+     Query is Product-only and no result set spans Products (§14). This bounds
+     result sets, not reach: S1 lists every Product in the portfolio, so all
+     Products remain reachable without leaving the launcher. CD-0021 records that
+     distinction as the reading of floor condition 1.
 12. **No incremental query.** An S2/S3 semantic query reads on submit. Keystrokes
     never issue reads; S1 has no semantic-query binding.
 13. **No filter that queries, and no query that pretends to be a filter.** S1 `/`

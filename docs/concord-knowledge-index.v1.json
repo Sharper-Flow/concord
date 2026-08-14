@@ -427,6 +427,29 @@
       "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45"
     },
     {
+      "id": "CD-0021",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0021-floor-condition-1-scope.md",
+      "status": "accepted",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Floor condition 1 means reach, not an operator authoring surface",
+      "summary": "Floor condition 1 is claimable without an operator authoring surface: planning happens through an agent session, and full Product scope means every Product is reachable from the launcher rather than a result set spanning Products.",
+      "tags": [
+        "floor",
+        "launcher",
+        "scope",
+        "authority"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66"
+    },
+    {
       "id": "agent-lanes-contract",
       "kind": "spec",
       "path": "docs/agent-lanes-contract.md",

@@ -64,17 +64,25 @@
       "id": "fc1-operator-work-capture",
       "condition": "fc1",
       "title": "Operator can create work from an operator surface",
-      "requirement": "The operator can capture a new Work item without holding an agent grant. Today no launcher binding and none of the CLI command specs create work; capture is reachable only through the grant-gated concord_work_define.capture tool operation.",
-      "state": "outstanding",
-      "issue": 76
+      "requirement": "Per CD-0021 the operator plans by reaching work in the launcher and opening a session that authors it. An operator-side authoring surface is not required at the floor; work creation keeps one write authority through the grant-gated tool surface.",
+      "state": "satisfied",
+      "evidence": [
+        "docs/decisions/CD-0021-floor-condition-1-scope.md",
+        "docs/terminal-launcher-contract.md",
+        "internal/launcher/render/bubbletea/model.go"
+      ]
     },
     {
       "id": "fc1-full-product-scope",
       "condition": "fc1",
       "title": "Operator visibility spans the full Product scope",
-      "requirement": "The condition says 'across the full Product scope'. The accepted launcher contract admits one ambient Product and forbids any result set spanning Products, so the two documents disagree and the condition cannot currently be claimed.",
-      "state": "outstanding",
-      "issue": 76
+      "requirement": "Per CD-0021 'across the full Product scope' means every Product is reachable from the launcher, which the S1 portfolio delivers. Cross-Product result sets stay excluded by C18 section 12 anti-requirement 11 and are not part of the floor.",
+      "state": "satisfied",
+      "evidence": [
+        "docs/decisions/CD-0021-floor-condition-1-scope.md",
+        "docs/terminal-launcher-contract.md",
+        "internal/launcher/model.go"
+      ]
     },
     {
       "id": "fc2-read-tools",

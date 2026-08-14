@@ -32,9 +32,14 @@ Small but no longer `--version`-only:
 - `concord --version`, `concord --help`
 - `concord launcher` — interactive Bubble Tea TUI; TTY-only, does **not** read
   JSON stdin.
-- JSON-stdin commands: `grant`, `invoke`, and operator setup (`client register`
+- JSON-stdin commands: `grant`, `invoke`, worker evidence (`worker-dispatch`,
+  `worker-complete`, `worker-fail`), and operator setup (`client register`
   / `policy-update` / `key-rotate` / `revoke`, `product create`, `project
   create`, `product project-add`, `project locator-add` / `update` / `remove`).
+
+The `worker-*` verbs record CD-0017 worker attempt evidence and are not agent
+callable. The OpenCode adapter appends them through `adapter/opencode/dispatch.ts`
+after a lane spawn; nothing else should call them.
 
 JSON command rules (see `commandSpecs` in `cmd/concord/main.go`):
 

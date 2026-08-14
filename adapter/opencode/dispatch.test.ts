@@ -86,3 +86,96 @@ test("undeclared readback is rejected instead of becoming an implicit fallback",
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("model_identity_mismatch")
 })
+
+test("a successful run records dispatch evidence before completion evidence", async () => {
+  const calls: { argv: string[]; input: string }[] = []
+  const result = await dispatchWorker(packet(), {
+    concordBinary: "concord-test",
+    runner: { async run() { return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("ok")
+  expect(calls.map((call) => call.argv)).toEqual([["concord-test", "worker-dispatch"], ["concord-test", "worker-complete"]])
+
+  const dispatched = JSON.parse(calls[0].input)
+  expect(dispatched.work_id).toBe("work-1")
+  expect(dispatched.attempt_id).toBe("attempt-1")
+  expect(dispatched.lane_id).toBe(lane.id)
+  expect(dispatched.lane_version).toBe(lane.version)
+  expect(dispatched.lane_digest).toBe(lane.digest)
+  expect(dispatched.routing_policy_version).toBe(routingPolicyVersion)
+  expect(dispatched.routing_policy_digest).toBe(routingPolicyManifestDigest)
+  expect(dispatched.resolved_model).toBe(lane.pinned_model)
+  expect(dispatched.resolution_role).toBe("preferred")
+  expect(dispatched.fallback_reason).toBe("")
+  expect(dispatched.packet_schema_version).toBe("1.0")
+  expect(dispatched.report_schema_version).toBe("1.0")
+  expect(typeof dispatched.event_id).toBe("string")
+
+  const completed = JSON.parse(calls[1].input)
+  expect(completed.work_id).toBe("work-1")
+  expect(completed.attempt_id).toBe("attempt-1")
+  expect(completed.readback_model).toBe(lane.pinned_model)
+  expect(completed.report_schema_version).toBe("1.0")
+  expect(completed.event_id).not.toBe(dispatched.event_id)
+})
+
+test("a declared fallback is recorded as fallback evidence, not as a failure", async () => {
+  const fallbackOutput = `${metadata(lane.pinned_model)}\n${JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.2" } }, status: { action: { reason: "account_rate_limit" } } } })}`
+  const calls: { argv: string[]; input: string }[] = []
+  const result = await dispatchWorker(packet(), {
+    runner: { async run() { return { exitCode: 0, stdout: fallbackOutput, stderr: "" } } },
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("fallback")
+  expect(calls).toHaveLength(2)
+  const dispatched = JSON.parse(calls[0].input)
+  const completed = JSON.parse(calls[1].input)
+  expect(dispatched.resolved_model).toBe("zai-coding-plan/glm-5.2")
+  expect(dispatched.resolution_role).toBe("fallback")
+  expect(dispatched.fallback_reason).toBe("rate_limit")
+  expect(completed.readback_model).toBe(dispatched.resolved_model)
+})
+
+test("a run whose evidence cannot be recorded is not reported as a success", async () => {
+  const refuse = async (argv: string[]) => argv[1] === "worker-dispatch" ? { exitCode: 1, stdout: "", stderr: "resolved model is not a declared routing-policy member" } : { exitCode: 0, stdout: "", stderr: "" }
+  const result = await dispatchWorker(packet(), {
+    runner: { async run() { return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+    evidenceRunner: { async run(argv) { return refuse(argv) } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.message).toBe("resolved model is not a declared routing-policy member")
+})
+
+test("a completion that cannot be recorded is not reported as a success", async () => {
+  let recorded = 0
+  const result = await dispatchWorker(packet(), {
+    runner: { async run() { return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+    evidenceRunner: { async run(argv) { recorded++; return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(recorded).toBe(2)
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toBe("worker attempt belongs to a different work item")
+})
+
+test("generic host agents are not dispatchable and never spawn or record", async () => {
+  for (const generic of ["general", "explore", "build", "plan"]) {
+    let spawned = 0
+    let recorded = 0
+    const result = await dispatchWorker({ ...packet(), lane_id: generic }, {
+      runner: { async run() { spawned++; return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+      evidenceRunner: { async run() { recorded++; return { exitCode: 0, stdout: "", stderr: "" } } },
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("invalid_input")
+    expect(spawned).toBe(0)
+    expect(recorded).toBe(0)
+  }
+})
+
+test("the registered lane set is closed and every agent name is Concord-owned", () => {
+  expect(agentLanes.map((entry) => entry.id).sort()).toEqual(["implement", "research", "review", "verify"])
+  for (const entry of agentLanes) expect(`concord-${entry.id}`).toMatch(/^concord-[a-z]+$/)
+})

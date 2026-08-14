@@ -307,3 +307,32 @@ func hasFailureKind(err error, want FailureKind) bool {
 	var failure *Failure
 	return errors.As(err, &failure) && failure.Kind == want
 }
+
+// CD-0017 D4/acceptance: a generic host agent is never a Concord lane. The
+// adapter denies delegation in generated frontmatter, but the store is the
+// authority — an unregistered identifier must fail closed before any mutation.
+func TestGenericHostAgentsAreNotDispatchableLanes(t *testing.T) {
+	s := openTemp(t)
+	definitions := BuiltinLaneDefinitions()
+	registered := make(map[string]struct{}, len(definitions))
+	for _, definition := range definitions {
+		registered[definition.ID] = struct{}{}
+	}
+	for _, generic := range []string{"general", "explore", "build", "plan", "subagent"} {
+		if _, exists := registered[generic]; exists {
+			t.Fatalf("generic host agent %q is registered as a Concord lane", generic)
+		}
+		if _, err := LookupLane(generic, definitions[0].Version, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
+			t.Fatalf("LookupLane(%s) error = %v, want %s", generic, err, KindLaneDefinitionNotRegistered)
+		}
+		event := workerDispatchEvent("worker-generic", "dispatch-generic-"+generic, definitions[0], map[string]any{
+			"lane_id": generic,
+		})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err == nil {
+			t.Fatalf("dispatch of generic host agent %q was accepted", generic)
+		}
+	}
+	if got := countRows(t, s, "worker_attempts"); got != 0 {
+		t.Fatalf("generic dispatch rows = %d, want 0", got)
+	}
+}

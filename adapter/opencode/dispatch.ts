@@ -2,6 +2,9 @@ import { agentLanePacketSchema, agentLanes, routingPolicies, routingPolicyManife
 
 const MAX_OUTPUT_BYTES = 65_536
 const MAX_ERROR_BYTES = 8_192
+const MAX_CLI_INPUT_BYTES = 65_536
+const PACKET_SCHEMA_VERSION = "1.0"
+const REPORT_SCHEMA_VERSION = "1.0"
 const MODEL_PATTERN = /^[a-z][a-z0-9_.-]*\/[^/ ]+$/
 
 export interface DispatchRunner {
@@ -61,9 +64,11 @@ const defaultRunner: DispatchRunner = {
 }
 
 let runner: DispatchRunner = defaultRunner
+let evidenceRunner: DispatchRunner = defaultRunner
 
-export function configureWorkerDispatch(overrides: { runner?: DispatchRunner } = {}): void {
+export function configureWorkerDispatch(overrides: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner } = {}): void {
   runner = overrides.runner ?? defaultRunner
+  evidenceRunner = overrides.evidenceRunner ?? defaultRunner
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,7 +206,24 @@ function hostReportedFallbackExhausted(result: { stdout: string; fallbackExhaust
   return false
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; binary?: string } = {}): Promise<AgentResultEnvelope> {
+function concordBinaryPath(override?: string): string {
+  return override ?? process.env.CONCORD_BIN ?? "concord"
+}
+
+// recordWorkerEvent appends one worker evidence event through the short-lived
+// JSON CLI, the same transport concord.ts uses for every tool invocation. The
+// adapter stays envelope-thin per CD-0017 D2 and never writes the event log
+// directly. Returns a bounded diagnostic on failure, or null on success.
+async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, command: "worker-dispatch" | "worker-complete" | "worker-fail", request: Record<string, unknown>, signal: AbortSignal): Promise<string | null> {
+  const input = JSON.stringify(request)
+  if (Buffer.byteLength(input) > MAX_CLI_INPUT_BYTES) return `${command} request exceeded the bounded CLI input limit`
+  let result: { exitCode: number; stdout: string; stderr: string }
+  try { result = await childRunner.run([binary, command], input, signal) } catch (error) { return String(error).slice(0, MAX_ERROR_BYTES) }
+  if (result.exitCode !== 0) return (result.stderr || result.stdout).slice(0, MAX_ERROR_BYTES) || `${command} failed without diagnostic output`
+  return null
+}
+
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -233,5 +255,41 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   envelope.resolution_role = isFallback ? "fallback" : "preferred"
   envelope.fallback_reason = isFallback ? metadata.fallback_reason ?? "other" : ""
   if (isFallback) envelope.error = { kind: "fallback", retry_safe: false, recovery_action: "reconcile_operation", message: "host resolved a declared fallback model" }
+
+  // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
+  // worker-complete binds to the dispatched attempt row, so the dispatch event
+  // must land first. resolved_model is taken from readback because the host
+  // expresses a fallback as a re-prompted message carrying the fallback model —
+  // there is one model signal, which D5 accepts as legal fallback evidence.
+  // A caller-injected runner controls process execution wholesale, so evidence
+  // defaults to that same transport unless a distinct evidenceRunner is given.
+  const cliRunner = options.evidenceRunner ?? options.runner ?? evidenceRunner
+  const cli = concordBinaryPath(options.concordBinary)
+  const dispatchFailure = await recordWorkerEvent(cliRunner, cli, "worker-dispatch", {
+    event_id: crypto.randomUUID(),
+    work_id: packet.work_id,
+    attempt_id: packet.attempt_id,
+    lane_id: lane.id,
+    lane_version: lane.version,
+    lane_digest: lane.digest,
+    routing_policy_version: routingPolicyVersion,
+    routing_policy_digest: routingPolicyManifestDigest,
+    resolved_model: envelope.resolved_model,
+    resolution_role: envelope.resolution_role,
+    fallback_reason: envelope.fallback_reason,
+    packet_schema_version: PACKET_SCHEMA_VERSION,
+    report_schema_version: REPORT_SCHEMA_VERSION,
+  }, signal)
+  if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
+
+  const completionFailure = await recordWorkerEvent(cliRunner, cli, "worker-complete", {
+    event_id: crypto.randomUUID(),
+    work_id: packet.work_id,
+    attempt_id: packet.attempt_id,
+    readback_model: metadata.readback_model,
+    report_schema_version: REPORT_SCHEMA_VERSION,
+  }, signal)
+  if (completionFailure) return errorEnvelope(lane, packet, "error", "error", completionFailure, "reconcile_operation")
+
   return envelope
 }

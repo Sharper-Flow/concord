@@ -238,7 +238,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 		if fields, fieldErr := workflowActionObject(payload); fieldErr != nil {
 			return result, fieldErr
 		} else if workflowFieldStringDefault(fields, "mode", "summary") == "restart" || workflowFieldStringDefault(fields, "boundary_kind", "summary") == "restart" || fields["restart"] != nil {
-			return result, newFailure(KindUnavailable, "workflow_action", "restart dispatch is unavailable until the registered/versioned typed-agent registry required by Concord issue #57 exists", false, "contact_operator")
+			return result, newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
 		}
 	}
 	actor := eventActor
@@ -406,7 +406,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		boundaryKind := workflowFieldStringDefault(fields, "boundary_kind", "summary")
 		mode := workflowFieldStringDefault(fields, "mode", "summary")
 		if boundaryKind == "restart" || mode == "restart" || fields["restart"] != nil {
-			return nil, newFailure(KindUnavailable, "workflow_action", "restart dispatch is unavailable until the registered/versioned typed-agent registry required by Concord issue #57 exists", false, "contact_operator")
+			return nil, newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
 		}
 		if boundaryKind != "summary" || mode != "summary" || workflowFieldStringDefault(fields, "summary", "") == "" {
 			return nil, newFailure(KindInvalidOperation, "workflow_action", "context boundary currently accepts summary only", false, "use boundary_kind=summary with a completed durable checkpoint")

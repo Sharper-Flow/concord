@@ -83,8 +83,8 @@ Seeing the state of the portfolio without blind spots, across sessions.
 | Read the typed history of one unit of work | Covered | Q7, `internal/store/query.go` |
 | Read the typed relation graph around one unit of work | Covered | Q8, `internal/store/query.go` |
 | Navigate portfolio → Product → work from a terminal surface | Covered | `internal/launcher/model.go`, `internal/launcher/render/bubbletea/` |
-| See the full Product scope from the operator surface | **Not covered** | The accepted launcher contract admits one ambient Product and forbids result sets spanning Products. Tracked as `fc1-full-product-scope` under issue #76. |
-| Create work from the operator surface without holding an agent grant | **Not covered** | No launcher binding and no CLI command creates work. Tracked as `fc1-operator-work-capture` under issue #76. |
+| See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the launcher, which the S1 portfolio delivers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
+| Create work from the operator surface without holding an agent grant | Excluded | Per CD-0021 D1, the operator plans by reaching work in the launcher and opening a session that authors it. The launcher stays read-only and work creation keeps a single write authority. |
 | See which concurrent agent sessions are active and which are blocked on an operator decision | **Not covered** | No session projection. Tracked separately as issue #72. |
 
 ## 3. Implementation changes
@@ -100,11 +100,11 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Absorb a mid-execution discovery without discarding completed work or silently substituting scope | Covered | `link_successor` forward composition, `internal/store/workflow_dispatch.go` |
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
 | Survive a working-window boundary without dropping law, approvals, or position | Covered | CD-0016; `checkpoint_context` and `cross_context_boundary` in `internal/store/workflow_continuity.go` |
-| Restart cleanly into a typed agent after a boundary rather than summarizing | **Not covered** | `restart` boundary mode is explicitly refused pending the typed lane registry. Tracked under issue #57. |
+| Restart cleanly into a typed agent after a boundary rather than summarizing | **Not covered** | The lane registry now exists, so the original blocker is gone; typed restart dispatch was never implemented and still fails closed. Tracked under issue #120. |
 | Cancel work safely, with approval and recorded evidence | Covered | Terminal lifecycle transitions require approval and evidence, `internal/agent/mutations.go` |
 | Delegate a bounded execution attempt to a typed worker, verify which model actually ran, and record that evidence durably | Covered | CD-0017; `internal/store/worker_lanes.go`, `adapter/opencode/dispatch.ts`, and the `worker-dispatch` / `worker-complete` / `worker-fail` evidence verbs in `cmd/concord/main.go` |
-| Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | **Not covered** | No scenario references a lane identifier. Tracked as `fc3-lane-pipeline` under issue #57. |
-| Measure lane prompt behaviour with an evaluation harness | **Not covered** | Tracked as `fc3-lane-behavioral-evals` under issue #57. |
+| Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Covered | `WF48-lane-pipeline-typed-evidence` in `scenarios/workflow-engine.v1.json` dispatches three registered lanes on one workflow and accepts a completed attempt from a distinct owner. |
+| Measure lane prompt behaviour with an evaluation harness | Covered | `adapter/opencode/evals/promptfooconfig.yaml` evaluates every registered lane through its pinned model; `scripts/check-lane-evals.py` fails on drift from the lane registry. |
 | Isolate each unit of work in its own git worktree, and refuse writes to the trunk checkout | **Not covered** | `worktree` appears in Concord only as a grant-binding identity field (`internal/agent/authority.go`), used to scope an agent session. Nothing creates, resumes, cleans up, or firewalls a worktree. The predecessor treats this as a hard safety boundary. |
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Concord coordinates such work through the `static_analysis` workflow type and records its verdict; it does not implement scanners. |
@@ -171,22 +171,23 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 44 |
-| Not covered | 16 |
-| Excluded with reason | 5 |
+| Covered | 46 |
+| Not covered | 12 |
+| Excluded with reason | 7 |
 
 **Total enumerated outcomes: 65.**
 
-The sixteen not-covered entries cluster into six groups:
+The twelve not-covered entries cluster into five groups:
 
 1. **Initiative coordination** — Epic state has folds and validators but no reachable surface (§1, §6).
-2. **Operator surface** — no work capture and no full-Product scope from the launcher (§2, issue #76).
-3. **Research reachability** — the research pack subsystem is implemented and unreachable (§4).
-4. **Worker lane pipeline** — lanes dispatch but no end-to-end evidenced run, no prompt evals, no clean restart (§3, issue #57).
-5. **Isolation and independent verdict** — no worktree lifecycle, no trunk write firewall, no isolated acceptance authority (§3).
-6. **Learning capture** — no wisdom promotion, no post-completion reflection, no spec/implementation drift audit (§1, §4, §6).
+2. **Research reachability** — the research pack subsystem is implemented and unreachable (§4).
+3. **Worker lane pipeline** — the end-to-end evidenced run and the prompt evals landed under issue #57; only clean typed restart remains (§3, issue #120).
+4. **Isolation and independent verdict** — no worktree lifecycle, no trunk write firewall, no isolated acceptance authority (§3).
+5. **Learning capture** — no wisdom promotion, no post-completion reflection, no spec/implementation drift audit (§1, §4, §6).
 
-Groups 1, 3, 5, and 6 have no tracking issue as of this enumeration.
+The operator-surface group is gone: CD-0021 resolved both of its entries as
+deliberate exclusions. Groups 1, 4, and 5 have no dedicated tracking issue and
+are owned by issue #108.
 
 ## Predecessor surfaces consumed as evidence
 

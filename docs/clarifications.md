@@ -343,7 +343,7 @@ re-litigate them silently.
   boundary records own the working state; pinned continuity is re-derived from
   SQLite on every call; summaries are advisory and summary-only boundaries are
   allowed only after a completed durable unit. Clean typed-agent restart is the
-  preferred future path but remains unavailable until issue #57. The canonical
+  preferred future path but remains unavailable until issue #120. The canonical
   read is `concord_work_trace.continuity` on surface 2.3.0.
 
 ---

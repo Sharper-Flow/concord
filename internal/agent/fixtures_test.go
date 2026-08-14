@@ -47,3 +47,20 @@ func TestGeneratedPayloadFixturesAreConsumedByGoValidator(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowCompletionImpactVerdictIsPublicAndRequired(t *testing.T) {
+	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"complete","idempotency_key":"complete-1","fields":{"impact_verdict":"breaking"}}`)
+	if err := ValidatePayloadSchema("work_transition_action_input", valid); err != nil {
+		t.Fatalf("explicit completion impact verdict rejected: %v", err)
+	}
+
+	missing := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"complete","idempotency_key":"complete-1","fields":{}}`)
+	if err := ValidatePayloadSchema("work_transition_action_input", missing); err == nil {
+		t.Fatal("completion without impact verdict accepted")
+	}
+
+	invalid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"complete","idempotency_key":"complete-1","fields":{"impact_verdict":"informational"}}`)
+	if err := ValidatePayloadSchema("work_transition_action_input", invalid); err == nil {
+		t.Fatal("completion with invalid impact verdict accepted")
+	}
+}

@@ -232,6 +232,7 @@ type workflowImpactNoticeRecordedPayload struct {
 	EntityKind            string  `json:"entity_kind"`
 	EntityRef             string  `json:"entity_ref"`
 	TargetWorkID          string  `json:"target_work_id"`
+	EdgeOwnerWorkID       string  `json:"edge_owner_work_id"`
 	EdgeID                string  `json:"edge_id"`
 	OldHash               *string `json:"old_hash"`
 	NewHash               *string `json:"new_hash"`
@@ -269,6 +270,7 @@ type workflowCompletedPayload struct {
 	PremiseConfirmed  bool     `json:"premise_confirmed"`
 	EvidenceCount     int64    `json:"evidence_count"`
 	ChangedRefsDigest string   `json:"changed_refs_digest"`
+	ImpactVerdict     string   `json:"impact_verdict"`
 	Warnings          []string `json:"warnings,omitempty"`
 }
 
@@ -320,13 +322,13 @@ func init() {
 	eventKindRegistry[WorkflowPremiseConfirmed] = workflowRegistration(foldWorkflowPremiseConfirmed)
 	eventKindRegistry[WorkflowSuccessorLinked] = workflowRegistration(foldWorkflowSuccessorLinked)
 	eventKindRegistry[WorkflowImpactDeclared] = workflowRegistration(foldWorkflowImpactDeclared)
-	eventKindRegistry[WorkflowImpactNoticeRecorded] = workflowRegistration(foldWorkflowImpactNoticeRecorded)
+	eventKindRegistry[WorkflowImpactNoticeRecorded] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowImpactNoticeRecordedV1}, Fold: foldWorkflowImpactNoticeRecorded}
 	eventKindRegistry[WorkflowConditionAdded] = workflowRegistration(foldWorkflowConditionAdded)
 	eventKindRegistry[WorkflowConditionResolved] = workflowRegistration(foldWorkflowConditionResolved)
 	eventKindRegistry[WorkflowConditionCancelled] = workflowRegistration(foldWorkflowConditionCancelled)
 	eventKindRegistry[WorkflowContextCheckpointed] = workflowRegistration(foldWorkflowContextCheckpointed)
 	eventKindRegistry[WorkflowContextBoundaryCrossed] = workflowRegistration(foldWorkflowContextBoundaryCrossed)
-	eventKindRegistry[WorkflowCompleted] = workflowRegistration(foldWorkflowCompleted)
+	eventKindRegistry[WorkflowCompleted] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowCompletedV1}, Fold: foldWorkflowCompleted}
 }
 
 // DeriveWorkflowActorRef implements the contract's byte-length-prefixed,
@@ -1299,6 +1301,25 @@ func WorkflowNoticeID(sourceWorkID string, sourceContractVersion int64, entityKi
 	return "notice:" + hex.EncodeToString(sum[:])
 }
 
+func upcastWorkflowImpactNoticeRecordedV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.impact_notice_recorded v1 payload is not a JSON object", false, "repair the stored workflow impact notice")
+	}
+	if _, exists := fields["edge_owner_work_id"]; exists {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.impact_notice_recorded v1 cannot contain edge ownership", false, "use workflow.impact_notice_recorded v2 for edge ownership")
+	}
+	owner, _ := json.Marshal(event.SubjectID)
+	fields["edge_owner_work_id"] = owner
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.impact_notice_recorded v1 payload", false, "repair the stored workflow impact notice", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 2
+	return event, nil
+}
+
 func foldWorkflowImpactNoticeRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowImpactNoticeRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -1307,13 +1328,13 @@ func foldWorkflowImpactNoticeRecorded(ctx context.Context, tx *sql.Tx, event Eve
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if p.SourceContractVersion <= 0 || !workflowString(p.EntityKind, 128) || !workflowString(p.EntityRef, 128) || !workflowString(p.TargetWorkID, 128) || !workflowString(p.EdgeID, 128) || (p.Severity != "breaking" && p.Severity != "non-breaking" && p.Severity != "informational") || p.NoticeID != WorkflowNoticeID(event.SubjectID, p.SourceContractVersion, p.EntityKind, p.EntityRef, p.TargetWorkID, p.Severity) {
+	if p.SourceContractVersion <= 0 || !workflowString(p.EntityKind, 128) || !workflowString(p.EntityRef, 128) || !workflowString(p.TargetWorkID, 128) || !workflowString(p.EdgeOwnerWorkID, 128) || !workflowString(p.EdgeID, 128) || (p.Severity != "breaking" && p.Severity != "non-breaking" && p.Severity != "informational") || p.NoticeID != WorkflowNoticeID(event.SubjectID, p.SourceContractVersion, p.EntityKind, p.EntityRef, p.TargetWorkID, p.Severity) {
 		return newFailure(KindInvariantViolation, "fold_event", "impact notice identity does not match canonical derivation", false, "recompute notice_id from its six identity fields")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_id,old_hash,new_hash,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, p.NoticeID, event.SubjectID, p.SourceContractVersion, p.EntityKind, p.EntityRef, p.TargetWorkID, p.EdgeID, valueOrNil(p.OldHash), valueOrNil(p.NewHash), p.Severity, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, p.NoticeID, event.SubjectID, p.SourceContractVersion, p.EntityKind, p.EntityRef, p.TargetWorkID, p.EdgeOwnerWorkID, p.EdgeID, valueOrNil(p.OldHash), valueOrNil(p.NewHash), p.Severity, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow impact notice")
 }
 
@@ -1414,8 +1435,8 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || p.EvidenceCount > 32 || !workflowDigest(p.ChangedRefsDigest, "sha256:") || !workflowList(p.Warnings, 16, 0) {
-		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata")
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || p.EvidenceCount > 32 || !workflowDigest(p.ChangedRefsDigest, "sha256:") || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {
 		return err
@@ -1438,6 +1459,24 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow is already terminal or missing", false, "complete an active workflow once")
 	}
 	return nil
+}
+
+func upcastWorkflowCompletedV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.completed v1 payload is not a JSON object", false, "repair the stored workflow completion")
+	}
+	if _, exists := fields["impact_verdict"]; exists {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.completed v1 cannot contain an impact verdict", false, "use workflow.completed v2 for an explicit impact verdict")
+	}
+	fields["impact_verdict"] = json.RawMessage(`"non-breaking"`)
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.completed v1 payload", false, "repair the stored workflow completion", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 2
+	return event, nil
 }
 
 func contains(values []string, value string) bool {

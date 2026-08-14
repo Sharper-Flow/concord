@@ -196,15 +196,18 @@ states.
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
 | `workflow.impact_declared` | `work_id`, `edge_id`, `edge_kind` (`modifies`, `depends_on`, `forward_link`), `edge_class` (`hard`, `soft`, `none`), `target_work_id`, `target_kind` (exactly `work_item`, matching the target-work foreign key), `severity` (`breaking`, `non-breaking`, `informational`) |
-| `workflow.impact_notice_recorded` | `work_id`, `notice_id`, `source_contract_version`, `entity_kind`, `entity_ref`, `target_work_id`, `edge_id`, `old_hash` (nullable digest), `new_hash` (nullable digest), `severity` |
+| `workflow.impact_notice_recorded` | `work_id`, `notice_id`, `source_contract_version`, `entity_kind`, `entity_ref`, `target_work_id`, `edge_owner_work_id`, `edge_id`, `old_hash` (nullable digest), `new_hash` (nullable digest), `severity` |
 | `workflow.condition_added` | `work_id`, `condition_id`, `await_type` (`pr_merge`, `ci_result`, `timer`, `human_approval`, `remote_work_state`), `await_ref`, `resolution_authority` |
 | `workflow.condition_resolved` | `work_id`, `condition_id`, `resolution_evidence` (1–32 evidence refs), `resolved_by_event`; the stored `resolution_authority` is exactly `durable_operation:<op_id>`, and every evidence ref must be present in that completed operation's authoritative `evidence_refs` for this work item |
 | `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event`; the event-envelope actor must resolve to an `operator` actor tuple, and every cancellation evidence ref must be present in the stored durable authority operation |
-| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (0–32), `changed_refs_digest` (digest), `warnings` (0–16 staleness-rule IDs) |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (0–32), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
 Upcasters are registered by `(kind, payload_version)`, ordered, deterministic,
 side-effect-free, and run before folding. A newer-than-supported version fails
 closed and does not mutate any projection.
+`workflow.completed` v1 upcasts to `impact_verdict=non-breaking`, and
+`workflow.impact_notice_recorded` v1 upcasts `edge_owner_work_id` to its former
+source-owned edge. Both event kinds are emitted as v2 after migration V28.
 
 ## 5. V15 projections, constraints, and folds
 
@@ -224,7 +227,7 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 | `workflow_checkpoints` | `work_id TEXT`, `checkpoint_id TEXT`, `step_id TEXT`, `step_kind TEXT`, `attempt_epoch INTEGER`, `accepted_inputs_digest TEXT`, `result_evidence_refs TEXT`, `resume_cursor TEXT`, `idempotency_identity TEXT`, `actor_ref TEXT`, `request_id TEXT`, `recorded_at TEXT` | PK `(work_id,checkpoint_id)`; UNIQUE `(work_id,step_id,attempt_epoch)` and `(work_id,idempotency_identity)`; FK work/actor; closed step-kind check |
 | `workflow_external_conditions` | `work_id TEXT`, `condition_id TEXT`, `await_type TEXT`, `await_ref TEXT`, `resolution_authority TEXT`, `condition_state TEXT`, `resolution_evidence TEXT NULL`, `resolved_by_event TEXT NULL`, `cancellation_authority TEXT NULL`, `cancellation_evidence TEXT NULL`, `cancelled_by_event TEXT NULL`, `recorded_at TEXT`, `resolved_at TEXT NULL`, `cancelled_at TEXT NULL` | PK `(work_id,condition_id)`; FK work; checks await type closed, state `open|resolved|cancelled`, and exactly one complete resolution/cancellation shape |
 | `workflow_impact_edges` | `work_id TEXT`, `edge_id TEXT`, `edge_kind TEXT`, `edge_class TEXT`, `target_work_id TEXT`, `target_kind TEXT`, `severity TEXT`, `recorded_at TEXT` | PK `(work_id,edge_id)`; FK source/target work; closed edge/class/severity checks; hard `depends_on` and `forward_link` cycle check in transaction |
-| `workflow_impact_notices` | `notice_id TEXT`, `source_work_id TEXT`, `source_contract_version INTEGER`, `entity_kind TEXT`, `entity_ref TEXT`, `target_work_id TEXT`, `edge_id TEXT`, `old_hash TEXT NULL`, `new_hash TEXT NULL`, `severity TEXT`, `recorded_at TEXT` | PK `notice_id`; UNIQUE `(source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,severity)`; `notice_id` must equal the deterministic derivation in §9; FK source/target work and source edge; closed severity |
+| `workflow_impact_notices` | `notice_id TEXT`, `source_work_id TEXT`, `source_contract_version INTEGER`, `entity_kind TEXT`, `entity_ref TEXT`, `target_work_id TEXT`, `edge_owner_work_id TEXT`, `edge_id TEXT`, `old_hash TEXT NULL`, `new_hash TEXT NULL`, `severity TEXT`, `recorded_at TEXT` | PK `notice_id`; UNIQUE `(source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,severity)`; `notice_id` must equal the deterministic derivation in §9; FK source/target/edge-owner work and dependent-owned edge; closed severity |
 | `workflow_decision_records` | `work_id TEXT`, `question TEXT`, `options_considered TEXT`, `decision TEXT`, `rationale TEXT`, `consequences TEXT`, `inputs TEXT`, `poc_findings TEXT`, `supersedes TEXT NULL`, `superseded_by TEXT NULL`, `recorded_at TEXT` | PK `(work_id,question)`; FK work; checks decision enum and required nonempty fields |
 | `workflow_premise_confirmations` | `work_id TEXT`, `contract_version INTEGER`, `confirmed_by TEXT`, `confirmed_at TEXT` | PK `(work_id,contract_version)`; composite FK contract; FK actor; actor class must be `operator` |
 
@@ -420,22 +423,29 @@ the bounded affected closure and the engine emits one notice per identity:
  target_work_id, severity)
 ```
 
-The notice row additionally stores `edge_id`, `old_hash`, `new_hash`, and
-`recorded_at`. `notice_id` is deterministic: concatenate the prefix `notice-v1\0`
+The notice row additionally stores `edge_owner_work_id`, `edge_id`, `old_hash`,
+`new_hash`, and `recorded_at`. `edge_owner_work_id` is the dependent work that
+declared the inbound edge. `notice_id` is deterministic: concatenate the prefix `notice-v1\0`
 with the six fields in the displayed order, each encoded as
 `field_name=<UTF-8-byte-length>:<UTF-8-value>|`, then set
 `notice_id = "notice:" + hex(SHA-256(canonical_bytes))`. The event carries
 `notice_id`; the fold recomputes it and rejects a mismatch as
 `invariant_violation` before inserting. The unique constraint is the identity
 above; repeating completion or replaying its idempotency key emits no second
-notice. Hard `depends_on` plus
+notice. Completion queries inbound `depends_on` edges; it does not require a spec
+mandate or a forward edge from the source. It records `entity_kind=work_item` and
+`entity_ref=<completed source work>`. The explicit completion verdict supplies the
+notice severity. Hard `depends_on` plus `breaking` blocks downstream execution at
+its consequential boundary. Soft plus breaking, and every non-breaking notice,
+warn without blocking. The static edge severity remains readable for compatibility
+but does not decide completion impact.
 
-For WF29's six values (`work-alpha`, `1`, `spec`, `spec:one`, `work-child`,
-`breaking`), this exact encoding yields
-`notice:3443b8a55c9f3fce4d6188b08b07a45f117cf0c31d8d88481b386f2cfd30ba9e`.
-`breaking` blocks downstream execution at its consequential boundary. Hard
-non-breaking and all soft edges warn. A contract revision emits `breaking` only
-when an active hard dependent consumed the superseded contract; otherwise it warns.
+For WF29's six values (`work-alpha`, `1`, `work_item`, `work-alpha`,
+`work-child`, `breaking`), this exact encoding yields
+`notice:8ea37498e2890b3fef5b65132eb0dfc3e7e4297ce6bb521ea4406c0366535503`.
+A contract revision uses the same reverse-edge direction and emits `breaking`
+when an active hard dependent consumed the superseded contract. It emits
+`non-breaking` for every other inbound dependent.
 
 ## 10. External condition resolution
 

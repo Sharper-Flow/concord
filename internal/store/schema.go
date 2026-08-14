@@ -1421,6 +1421,49 @@ ALTER TABLE workflow_instances ADD COLUMN execution_model TEXT NOT NULL DEFAULT 
     CHECK(length(execution_model) <= 128);
 		`,
 	},
+	{
+		Version: 28,
+		Name:    "workflow_impact_notice_edge_owner",
+		SQL: `
+-- Impact edges are declared by the dependent work. Notice source and edge owner
+-- therefore differ when a completed source notifies reverse dependents.
+DROP TRIGGER workflow_impact_notices_guard_insert;
+DROP TRIGGER workflow_impact_notices_guard_update;
+DROP TRIGGER workflow_impact_notices_guard_delete;
+DROP INDEX workflow_notices_target;
+ALTER TABLE workflow_impact_notices RENAME TO workflow_impact_notices_v28;
+CREATE TABLE workflow_impact_notices (
+    notice_id TEXT PRIMARY KEY,
+    source_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    source_contract_version INTEGER NOT NULL,
+    entity_kind TEXT NOT NULL,
+    entity_ref TEXT NOT NULL,
+    target_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    edge_owner_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    edge_id TEXT NOT NULL,
+    old_hash TEXT,
+    new_hash TEXT,
+    severity TEXT NOT NULL CHECK(severity IN ('breaking','non-breaking','informational')),
+    recorded_at TEXT NOT NULL,
+    UNIQUE(source_work_id, source_contract_version, entity_kind, entity_ref, target_work_id, severity),
+    FOREIGN KEY(edge_owner_work_id, edge_id) REFERENCES workflow_impact_edges(work_id, edge_id) ON DELETE RESTRICT,
+    CHECK(length(notice_id) = 71 AND substr(notice_id,1,7) = 'notice:'),
+    CHECK(source_contract_version > 0),
+    CHECK(length(entity_kind) BETWEEN 2 AND 128),
+    CHECK(length(entity_ref) BETWEEN 2 AND 128),
+    CHECK(length(edge_owner_work_id) BETWEEN 2 AND 128),
+    CHECK(length(edge_id) BETWEEN 2 AND 128)
+);
+INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity,recorded_at)
+SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,source_work_id,edge_id,old_hash,new_hash,severity,recorded_at
+FROM workflow_impact_notices_v28;
+DROP TABLE workflow_impact_notices_v28;
+CREATE INDEX workflow_notices_target ON workflow_impact_notices(target_work_id, severity);
+CREATE TRIGGER workflow_impact_notices_guard_insert BEFORE INSERT ON workflow_impact_notices FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_notices is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_notices_guard_update BEFORE UPDATE ON workflow_impact_notices FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_notices is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_impact_notices_guard_delete BEFORE DELETE ON workflow_impact_notices FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_impact_notices is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

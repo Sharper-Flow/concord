@@ -560,6 +560,7 @@
               "entity_kind",
               "entity_ref",
               "target_work_id",
+              "edge_owner_work_id",
               "edge_id",
               "severity"
             ],
@@ -580,6 +581,9 @@
                 "$ref": "#/$defs/id"
               },
               "target_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "edge_owner_work_id": {
                 "$ref": "#/$defs/id"
               },
               "edge_id": {
@@ -1800,6 +1804,13 @@
                 "event_stream": {},
                 "evidence_refs": {},
                 "hypothesis": {},
+                "impact_verdict": {
+                  "type": "string",
+                  "enum": [
+                    "breaking",
+                    "non-breaking"
+                  ]
+                },
                 "new_contract_version": {},
                 "next_read_expectations": {},
                 "notice_id": {},
@@ -1856,22 +1867,25 @@
       "if": {
         "properties": {
           "action_id": {
-            "const": "confirm_premise"
+            "const": "complete"
           }
-        }
+        },
+        "required": [
+          "action_id"
+        ]
       },
       "then": {
         "required": [
-          "selected_choice",
-          "decision_context_digest"
+          "fields"
         ],
-        "not": {
-          "required": [
-            "fields"
-          ]
-        }
-      },
-      "else": {
+        "properties": {
+          "fields": {
+            "type": "object",
+            "required": [
+              "impact_verdict"
+            ]
+          }
+        },
         "not": {
           "anyOf": [
             {
@@ -1885,6 +1899,42 @@
               ]
             }
           ]
+        }
+      },
+      "else": {
+        "if": {
+          "properties": {
+            "action_id": {
+              "const": "confirm_premise"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "selected_choice",
+            "decision_context_digest"
+          ],
+          "not": {
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        "else": {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "selected_choice"
+                ]
+              },
+              {
+                "required": [
+                  "decision_context_digest"
+                ]
+              }
+            ]
+          }
         }
       }
     },

@@ -37,7 +37,7 @@ on. Non-authoritative snapshots never masquerade as current authority.
 **Implication.** CD-0006 R3 requires declared `modifies` and hard/soft `depends_on`
 edges, completion-time breaking/non-breaking notices, and one bounded downstream
 check at consequential boundaries. Only a declared hard edge plus a breaking change
-blocks. Version stamps supply deterministic fallback. Polling, timers, automatic
+blocks. Soft breaking and every non-breaking notice warn. Version stamps supply deterministic fallback. Polling, timers, automatic
 downstream rewrites, and heuristic authority are forbidden.
 
 This supports Priority 2 (Quality governance) and Priority 3 (Visibility and continuity).

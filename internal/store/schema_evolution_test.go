@@ -212,14 +212,18 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	}
 	for kind := range wantWorkflowKinds {
 		registration := eventKindRegistry[kind]
-		if registration.CurrentVersion != 1 || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
+		wantVersion := 1
+		if kind == WorkflowCompleted || kind == WorkflowImpactNoticeRecorded {
+			wantVersion = 2
+		}
+		if registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
 			t.Fatalf("%s registration lacks v1 fold/upcaster scaffolding: %+v", kind, registration)
 		}
 		event := Event{EventID: "registry-" + kind, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: "work", Actor: "actor:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"work","expected_version":1,"resulting_version":2}`)}
 		if err := event.validate(); err != nil {
 			t.Fatalf("%s subject/payload envelope validation: %v", kind, err)
 		}
-		event.PayloadVersion = 2
+		event.PayloadVersion = wantVersion + 1
 		if err := validateRegisteredEvent(event); err == nil || !strings.Contains(err.Error(), "supported range") {
 			t.Fatalf("%s newer payload version was accepted: %v", kind, err)
 		}

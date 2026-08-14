@@ -171,13 +171,6 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
-	var breakingNotices int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices WHERE target_work_id=? AND severity='breaking'`, request.WorkID).Scan(&breakingNotices); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
-	}
-	if breakingNotices != 0 {
-		return newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
-	}
 	var consequence ActionConsequence
 	declaredAction := false
 	for _, action := range entry.Definition.ActionDefinitions {
@@ -189,6 +182,15 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	}
 	if !declaredAction {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared by the pinned definition", false, "reread_entities")
+	}
+	if workflowImpactBoundary(request.ActionID, consequence) {
+		var breakingNotices int
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, request.WorkID).Scan(&breakingNotices); err != nil {
+			return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
+		}
+		if breakingNotices != 0 {
+			return newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
+		}
 	}
 	if consequence == ActionCrossAuthority || consequence == ActionExternalEffect {
 		var openConditions int
@@ -328,6 +330,10 @@ func workflowActionConsequence(definition WorkflowDefinition, actionID string) A
 	return ""
 }
 
+func workflowImpactBoundary(actionID string, consequence ActionConsequence) bool {
+	return consequence == ActionCrossAuthority || consequence == ActionExternalEffect || actionID == "complete"
+}
+
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest, requireTerminalConditions bool) (RegisteredDefinition, error) {
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
 	if err != nil {
@@ -359,12 +365,14 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
 		}
 	}
-	var breakingNotices int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices WHERE target_work_id=? AND severity='breaking'`, request.WorkID).Scan(&breakingNotices); err != nil {
-		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
-	}
-	if breakingNotices != 0 {
-		return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
+	if workflowImpactBoundary(request.ActionID, workflowActionConsequence(entry.Definition, request.ActionID)) {
+		var breakingNotices int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, request.WorkID).Scan(&breakingNotices); err != nil {
+			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
+		}
+		if breakingNotices != 0 {
+			return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
+		}
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")

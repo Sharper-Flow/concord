@@ -85,9 +85,16 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := event.validate(); err != nil {
 		return err
 	}
+	registration, _ := registeredEventKind(WorkflowCompleted)
+	if event.PayloadVersion != registration.CurrentVersion {
+		return unsupportedEventVersion(event, registration)
+	}
 	var payload workflowCompletedPayload
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
 		return err
+	}
+	if payload.ImpactVerdict != "breaking" && payload.ImpactVerdict != "non-breaking" {
+		return newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
 	}
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
@@ -194,7 +201,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// Clause 7: derive and append every required notice and completion event in
 	// this transaction.  Notice conflicts are returned before the completion
 	// append, so the caller's rollback removes all prior writes.
-	notices, err := completionNoticeEvents(ctx, tx, event.SubjectID, contract.Version, contract.SpecMandate, event)
+	notices, err := completionNoticeEvents(ctx, tx, event.SubjectID, contract.Version, payload.ImpactVerdict, event)
 	if err != nil {
 		return workflowClauseError(err, 7)
 	}
@@ -431,17 +438,17 @@ func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, d
 	return warnings, nil
 }
 
-func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, mandates []string, completion Event) ([]Event, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT edge_id,target_work_id,severity FROM workflow_impact_edges WHERE work_id=? ORDER BY edge_id`, workID)
+func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, impactVerdict string, completion Event) ([]Event, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow impact edges", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	type edge struct{ id, target, severity string }
+	type edge struct{ owner, id, class string }
 	var edges []edge
 	for rows.Next() {
 		var e edge
-		if err := rows.Scan(&e.id, &e.target, &e.severity); err != nil {
+		if err := rows.Scan(&e.owner, &e.id, &e.class); err != nil {
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow impact edge", true, "retry once the database is readable", err)
 		}
 		edges = append(edges, e)
@@ -449,21 +456,32 @@ func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, cont
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	var events []Event
-	for _, e := range edges {
-		for _, mandate := range mandates {
-			noticeID := WorkflowNoticeID(workID, contractVersion, "spec", mandate, e.target, e.severity)
-			var existing int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices WHERE notice_id=?`, noticeID).Scan(&existing); err != nil {
-				return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect impact notice identity", true, "retry once the database is readable", err)
-			}
-			if existing != 0 {
-				continue
-			}
-			payload := map[string]any{"work_id": workID, "expected_version": int64(0), "resulting_version": int64(0), "notice_id": noticeID, "source_contract_version": contractVersion, "entity_kind": "spec", "entity_ref": mandate, "target_work_id": e.target, "edge_id": e.id, "old_hash": nil, "new_hash": nil, "severity": e.severity}
-			raw, _ := json.Marshal(payload)
-			events = append(events, Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt, PayloadVersion: 1, Payload: raw})
+	selected := make(map[string]edge, len(edges))
+	for _, candidate := range edges {
+		current, exists := selected[candidate.owner]
+		if !exists || candidate.class == "hard" && current.class != "hard" || candidate.class == current.class && candidate.id < current.id {
+			selected[candidate.owner] = candidate
 		}
+	}
+	owners := make([]string, 0, len(selected))
+	for owner := range selected {
+		owners = append(owners, owner)
+	}
+	sort.Strings(owners)
+	var events []Event
+	for _, owner := range owners {
+		e := selected[owner]
+		noticeID := WorkflowNoticeID(workID, contractVersion, "work_item", workID, e.owner, impactVerdict)
+		var existing int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices WHERE notice_id=?`, noticeID).Scan(&existing); err != nil {
+			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect impact notice identity", true, "retry once the database is readable", err)
+		}
+		if existing != 0 {
+			continue
+		}
+		payload := map[string]any{"work_id": workID, "expected_version": int64(0), "resulting_version": int64(0), "notice_id": noticeID, "source_contract_version": contractVersion, "entity_kind": "work_item", "entity_ref": workID, "target_work_id": e.owner, "edge_owner_work_id": e.owner, "edge_id": e.id, "old_hash": nil, "new_hash": nil, "severity": impactVerdict}
+		raw, _ := json.Marshal(payload)
+		events = append(events, Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt, PayloadVersion: 2, Payload: raw})
 	}
 	return events, nil
 }

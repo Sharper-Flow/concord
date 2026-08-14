@@ -165,8 +165,9 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 	}
 	completion := workflowEvent("ordered-completion", WorkflowCompleted, "ordered-gate-work", map[string]any{
 		"work_id": "ordered-gate-work", "expected_version": 5, "resulting_version": 6, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actor,
-		"premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64),
+		"premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
+	completion.PayloadVersion = 2
 	err = CompleteWorkflow(context.Background(), s, completion)
 	assertFailureKind(t, err, KindMissingEvidence)
 	assertTableCount(t, s, "domain_events", eventsBefore)
@@ -214,7 +215,8 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: evidence, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "complete-work"): 8}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workflowEventWithActor("complete-terminal", WorkflowCompleted, "complete-work", executor, map[string]any{"work_id": "complete-work", "expected_version": 13, "resulting_version": 14, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": true, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64)})
+	completion := workflowEventWithActor("complete-terminal", WorkflowCompleted, "complete-work", executor, map[string]any{"work_id": "complete-work", "expected_version": 13, "resulting_version": 14, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": true, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking"})
+	completion.PayloadVersion = 2
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatal(err)
 	}
@@ -228,15 +230,38 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("completion replay: %v", err)
 	}
-	assertTableCount(t, s, "workflow_impact_notices", 1)
-	var noticeID string
-	if err := s.DB().QueryRow(`SELECT notice_id FROM workflow_impact_notices WHERE source_work_id='complete-work'`).Scan(&noticeID); err != nil {
-		t.Fatal(err)
-	}
-	wantNotice := WorkflowNoticeID("complete-work", 1, "spec", "spec:one", "complete-work", "breaking")
-	if noticeID != wantNotice {
-		t.Fatalf("notice_id = %q, want %q", noticeID, wantNotice)
-	}
+	assertTableCount(t, s, "workflow_impact_notices", 0)
+}
+
+func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
+	t.Run("direct completion rejects v1", func(t *testing.T) {
+		s, completion := seedCompletionGateCase(t, "completion-v1-refused", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+		completion.PayloadVersion = 1
+		var payload map[string]any
+		if err := json.Unmarshal(completion.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		delete(payload, "impact_verdict")
+		completion.Payload, _ = json.Marshal(payload)
+		assertFailureKind(t, CompleteWorkflow(context.Background(), s, completion), KindUnsupportedPayloadVersion)
+	})
+
+	t.Run("complete action rejects omitted verdict", func(t *testing.T) {
+		s, _ := seedCompletionGateCase(t, "completion-verdict-omitted", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+		var version int64
+		if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='completion-verdict-omitted'`).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := s.DB().BeginTx(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		definition := BuiltinWorkflowDefinitions()[0]
+		actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/completion-verdict-omitted")
+		_, err = workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "completion-verdict-omitted", ExpectedVersion: version, OperationID: "completion-verdict-omitted", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, definition, "release", actorRef, json.RawMessage(`{}`))
+		assertFailureKind(t, err, KindInvalidPayload)
+	})
 }
 
 func TestWorkflowConditionResolutionMustUseStoredAuthority(t *testing.T) {
@@ -381,6 +406,8 @@ type completionGateCase struct {
 	name             string
 	requiredEvidence []string
 	includeSpec      bool
+	emptyMandate     bool
+	omitImpact       bool
 	includeVerdict   bool
 	includePremise   bool
 	verdictKind      string
@@ -550,11 +577,10 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 		t.Fatal(err)
 	}
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/revision-source")
-	edge := workflowEventWithActor("revision-edge", WorkflowImpactDeclared, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "edge_id": "edge:revision", "edge_kind": "depends_on", "edge_class": "hard", "target_work_id": "revision-dependent", "target_kind": "work_item", "severity": "breaking"})
-	if err := applyWorkflowTestOperation(context.Background(), source, Operation{Events: []Event{edge}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}); err != nil {
+	edge := workflowEventWithActor("revision-edge", WorkflowImpactDeclared, "revision-dependent", dependentActor, map[string]any{"work_id": "revision-dependent", "expected_version": 6, "resulting_version": 7, "edge_id": "edge:revision", "edge_kind": "depends_on", "edge_class": "hard", "target_work_id": "revision-source", "target_kind": "work_item", "severity": "informational"})
+	if err := applyWorkflowTestOperation(context.Background(), source, Operation{Events: []Event{edge}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-dependent"): 6}}); err != nil {
 		t.Fatal(err)
 	}
-	sourceVersion++
 	newContract := workflowEventWithActor("revision-new-contract", WorkflowContractApproved, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "contract_version": 2, "premise": "refresh the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:revision-new", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"})
 	if err := applyWorkflowTestOperation(context.Background(), source, Operation{Events: []Event{newContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}); err != nil {
 		t.Fatal(err)
@@ -570,6 +596,71 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	}
 	if severity != "breaking" || entityKind != "workflow_contract" {
 		t.Fatalf("revision notice=%s/%s, want breaking/workflow_contract", severity, entityKind)
+	}
+}
+
+func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testing.T) {
+	for _, testCase := range []struct {
+		name            string
+		edgeClass       string
+		includeContract bool
+		terminal        bool
+	}{
+		{name: "soft active consumed", edgeClass: "soft", includeContract: true},
+		{name: "hard active unconsumed", edgeClass: "hard"},
+		{name: "hard inactive consumed", edgeClass: "hard", includeContract: true, terminal: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			sourceID := "revision-advisory-source-" + strings.ReplaceAll(testCase.name, " ", "-")
+			dependentID := "revision-advisory-dependent-" + strings.ReplaceAll(testCase.name, " ", "-")
+			s, _ := seedCompletionGateCase(t, sourceID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+			seedWork(t, s, dependentID)
+			actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+sourceID)
+			dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/"+dependentID)
+			digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			version := int64(2)
+			events := []Event{
+				workflowEvent("actor-"+dependentID, WorkflowActorRecorded, dependentID, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "actor_ref": dependentActor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/dependent", "session_ref": "session/" + dependentID, "actor_class": "agent"}),
+				workflowEvent("definition-"+dependentID, WorkflowDefinitionSelected, dependentID, map[string]any{"work_id": dependentID, "expected_version": version + 1, "resulting_version": version + 2, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
+			}
+			version += 2
+			if testCase.includeContract {
+				events = append(events, workflowEventWithActor("contract-"+dependentID, WorkflowContractApproved, dependentID, dependentActor, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "consume source", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:dependent", "immutable_subject_ref": "commit:" + dependentID, "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"}))
+				version++
+			}
+			events = append(events, workflowEventWithActor("edge-"+dependentID, WorkflowImpactDeclared, dependentID, dependentActor, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "edge_id": "edge:" + dependentID, "edge_kind": "depends_on", "edge_class": testCase.edgeClass, "target_work_id": sourceID, "target_kind": "work_item", "severity": "informational"}))
+			version++
+			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, dependentID): 2}}); err != nil {
+				t.Fatal(err)
+			}
+			if testCase.terminal {
+				if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, dependentID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var sourceVersion int64
+			if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, sourceID).Scan(&sourceVersion); err != nil {
+				t.Fatal(err)
+			}
+			newContract := workflowEventWithActor("new-contract-"+sourceID, WorkflowContractApproved, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "contract_version": 2, "premise": "refresh", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + sourceID, "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"})
+			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{newContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, sourceID): sourceVersion}}); err != nil {
+				t.Fatal(err)
+			}
+			supersede := workflowEventWithActor("supersede-"+sourceID, WorkflowContractSuperseded, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion + 1, "resulting_version": sourceVersion + 2, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh", "audit_evidence": []string{"evidence:audit"}})
+			if err := SupersedeWorkflowContract(context.Background(), s, supersede); err != nil {
+				t.Fatal(err)
+			}
+			var severity string
+			if err := s.DB().QueryRow(`SELECT severity FROM workflow_impact_notices WHERE source_work_id=? AND target_work_id=?`, sourceID, dependentID).Scan(&severity); err != nil {
+				t.Fatal(err)
+			}
+			if severity != "non-breaking" {
+				t.Fatalf("revision advisory severity = %q", severity)
+			}
+		})
 	}
 }
 
@@ -650,9 +741,15 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 	appendEvent(workflowEvent("gate-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": executor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/" + workID, "actor_class": "agent"}))
 	appendEvent(workflowEvent("gate-operator-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": operator, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/" + workID, "actor_class": "operator"}))
 	appendEvent(workflowEvent("gate-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}))
-	appendEvent(workflowEventWithActor("gate-contract-"+workID, WorkflowContractApproved, workID, executor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": testCase.requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"}))
+	mandate := []string{"spec:one"}
+	if testCase.emptyMandate {
+		mandate = []string{}
+	}
+	appendEvent(workflowEventWithActor("gate-contract-"+workID, WorkflowContractApproved, workID, executor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": testCase.requiredEvidence, "route_conventions": []string{}, "spec_mandate": mandate, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"}))
 	appendEvent(workflowEventWithActor("gate-start-"+workID, WorkflowActionStarted, workID, executor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "gate-operation-" + workID, "actor_ref": executor}))
-	appendEvent(workflowEvent("gate-impact-"+workID, WorkflowImpactDeclared, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "edge_id": "edge:" + workID, "edge_kind": "modifies", "edge_class": "none", "target_work_id": workID, "target_kind": "work_item", "severity": "breaking"}))
+	if !testCase.omitImpact {
+		appendEvent(workflowEvent("gate-impact-"+workID, WorkflowImpactDeclared, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "edge_id": "edge:" + workID, "edge_kind": "modifies", "edge_class": "none", "target_work_id": workID, "target_kind": "work_item", "severity": "breaking"}))
+	}
 	if testCase.openCondition {
 		seedWorkflowAuthority(t, s, "gate-condition-"+workID, workID, "principal/condition", "request/condition", []string{"evidence:condition"})
 		appendEvent(workflowEvent("gate-condition-"+workID, WorkflowConditionAdded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "condition_id": "condition:gate", "await_type": "ci_result", "await_ref": "run:gate", "resolution_authority": "durable_operation:gate-condition-" + workID}))
@@ -675,12 +772,15 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		t.Fatal(err)
 	}
 	if testCase.conflictNotice {
-		noticeID := WorkflowNoticeID(workID, 1, "spec", "spec:one", workID, "breaking")
+		dependentID := workID + "-dependent"
+		seedImpactDependent(t, s, dependentID, workID, "hard")
+		noticeID := WorkflowNoticeID(workID, 1, "work_item", workID, dependentID, "non-breaking")
 		if _, err := s.DB().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "notice-event:"+noticeID, "work.intent_revised", string(SubjectWorkItem), workID, executor, "2026-08-09T00:00:00Z", 1, `{}`); err != nil {
 			t.Fatal(err)
 		}
 	}
-	completion := workflowEventWithActor("gate-completion-"+workID, WorkflowCompleted, workID, executor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": testCase.includePremise, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64)})
+	completion := workflowEventWithActor("gate-completion-"+workID, WorkflowCompleted, workID, executor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": testCase.includePremise, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking"})
+	completion.PayloadVersion = 2
 	return s, completion
 }
 
@@ -805,14 +905,14 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 		"workflow_checkpoints":           {"work_id", "checkpoint_id", "step_id", "step_kind", "attempt_epoch", "accepted_inputs_digest", "result_evidence_refs", "resume_cursor", "idempotency_identity", "actor_ref", "request_id", "recorded_at"},
 		"workflow_external_conditions":   {"work_id", "condition_id", "await_type", "await_ref", "resolution_authority", "condition_state", "resolution_evidence", "resolved_by_event", "cancellation_authority", "cancellation_evidence", "cancelled_by_event", "recorded_at", "resolved_at", "cancelled_at"},
 		"workflow_impact_edges":          {"work_id", "edge_id", "edge_kind", "edge_class", "target_work_id", "target_kind", "severity", "recorded_at"},
-		"workflow_impact_notices":        {"notice_id", "source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "edge_id", "old_hash", "new_hash", "severity", "recorded_at"},
+		"workflow_impact_notices":        {"notice_id", "source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "edge_owner_work_id", "edge_id", "old_hash", "new_hash", "severity", "recorded_at"},
 		"workflow_decision_records":      {"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"},
 		"workflow_premise_confirmations": {"work_id", "contract_version", "confirmed_by", "confirmed_at"},
 	}
 	expectedForeignKeys := map[string][]string{
 		"workflow_instances": {"work_items", "workflow_actors"}, "workflow_contracts": {"work_items", "workflow_actors", "workflow_contracts", "workflow_contracts"},
 		"workflow_candidate_sets": {"workflow_contracts", "workflow_contracts", "workflow_actors"}, "workflow_actors": {}, "workflow_checkpoints": {"work_items", "workflow_actors"},
-		"workflow_external_conditions": {"work_items"}, "workflow_impact_edges": {"work_items", "work_items"}, "workflow_impact_notices": {"work_items", "work_items", "workflow_impact_edges", "workflow_impact_edges"},
+		"workflow_external_conditions": {"work_items"}, "workflow_impact_edges": {"work_items", "work_items"}, "workflow_impact_notices": {"work_items", "work_items", "work_items", "workflow_impact_edges", "workflow_impact_edges"},
 		"workflow_decision_records": {"work_items"}, "workflow_premise_confirmations": {"workflow_contracts", "workflow_contracts", "workflow_actors"},
 	}
 	expectedUniqueKeys := map[string][][]string{

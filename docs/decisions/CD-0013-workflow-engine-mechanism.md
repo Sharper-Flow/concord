@@ -109,8 +109,8 @@ The projections defined by this decision:
 - `workflow_impact_edges(work_id, edge_id, edge_kind, edge_class, target_work_id,
   target_kind, severity, recorded_at)`;
 - `workflow_impact_notices(notice_id, source_work_id, source_contract_version,
-  entity_kind, entity_ref, target_work_id, edge_id, old_hash, new_hash, severity,
-  recorded_at)`;
+  entity_kind, entity_ref, target_work_id, edge_owner_work_id, edge_id, old_hash,
+  new_hash, severity, recorded_at)`;
 - `workflow_decision_records(work_id, question, options_considered, decision,
   rationale, consequences, inputs, poc_findings, supersedes, superseded_by,
   recorded_at)`;
@@ -151,17 +151,24 @@ The workflow engine emits the following new typed events, all with
 - `workflow.impact_declared` — `edge_kind`, `edge_class`, `target_work_id`,
   `severity`;
 - `workflow.impact_notice_recorded` — `source_contract_version`, `entity_kind`,
-  `entity_ref`, `target_work_id`, `edge_id`, `old_hash`, `new_hash`, `severity`;
+  `entity_ref`, `target_work_id`, `edge_owner_work_id`, `edge_id`, `old_hash`,
+  `new_hash`, `severity`;
 - `workflow.condition_added` — `await_type`, `await_ref`,
   `resolution_authority`;
 - `workflow.condition_resolved` — `condition_id`, `resolution_evidence`,
   `resolved_by_event`;
 - `workflow.completed` — `terminal_state`, `final_verdict_kind`,
   `verdict_actor_ref`, `premise_confirmed`, `evidence_count`,
-  `changed_refs_digest`.
+  `changed_refs_digest`, `impact_verdict` (`breaking` or `non-breaking`).
 
 Each event records `payload_version=1` on first emission; upcasters govern future
 schema evolution under CD-0008 D6.
+
+The R3 correction raises `workflow.completed` and
+`workflow.impact_notice_recorded` to payload version 2. Historical completion
+v1 events upcast to `impact_verdict=non-breaking`. Historical notice v1 events
+upcast `edge_owner_work_id` to their former source-owned edge. New completion
+actions must supply the verdict explicitly.
 
 ### D4. Outcome predicates use a closed union, never an expression language
 
@@ -294,12 +301,18 @@ source contract state that produced it, so the identity is:
 Every component of that identity, plus `edge_id`, `old_hash`, and `new_hash`, is
 carried on the event, so the projection is fully derivable by replay and its unique
 constraint matches the identity exactly. Recomputing the same completion produces
-the same identity and therefore no duplicate row.
+the same identity and therefore no duplicate row. `edge_owner_work_id` records the
+dependent that declared the inbound edge. Completion notices use
+`entity_kind=work_item` and `entity_ref=<completed source work>`; they do not depend
+on a spec mandate. The completion event owns the `breaking|non-breaking` verdict.
+The edge's `hard|soft` class controls blocking; its stored severity remains legacy
+declaration metadata and does not classify the delivered change.
 
 Hard `depends_on` + `breaking` blocks downstream execution at the consequential
 boundary; hard `depends_on` + `non-breaking` and all soft edges warn only. End-state
 revision through `workflow.contract_superseded` reuses the same machinery and emits a
-`breaking` notice when an active `hard depends_on` was on the prior contract.
+`breaking` notice when an active `hard depends_on` was on the prior contract and a
+`non-breaking` notice for every other inbound dependent.
 
 ### D8. Composition is forward-link only
 
@@ -481,10 +494,11 @@ The implementation acceptance suite must exercise:
 
 ### Impact propagation
 
-29. Declared `modifies` and hard `depends_on` edges produce exactly one notice per
+29. Each inbound hard or soft `depends_on` edge produces exactly one notice per
     declared identity — `(source_work_id, source_contract_version, entity_kind,
-    entity_ref, target_work_id, severity)` — at completion, and recomputing the
-    same completion produces no duplicate row.
+    entity_ref, target_work_id, severity)` — at completion. The notice records
+    the dependent as `edge_owner_work_id`, and recomputing the same completion
+    produces no duplicate row.
 30. Hard `depends_on` + `breaking` blocks downstream execution at the consequential
     boundary; everything else warns.
 31. End-state revision emits a breaking notice when an active hard dependent

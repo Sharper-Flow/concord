@@ -194,6 +194,7 @@ type runtime struct {
 	Envelope        CallEnvelope
 	Tool, Operation string
 	Budget          budgetInput
+	Reader          Grant
 }
 
 // WorkflowContractVersion remains the durable workflow payload contract. The
@@ -283,7 +284,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if identityErr != nil {
 			return coreError(base, "unauthorized", identityErr.Error(), "contact_operator", false), nil
 		}
-		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget}
+		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: identityGrant}
 		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, request.Input, identityGrant, op); replayErr != nil || handled {
 			if replayErr != nil {
 				return failureEnvelope(base, replayErr), nil
@@ -319,7 +320,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if err := validateRequestedScope(ctx, s, env, grant, request); err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget}
+	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: grant}
 	if op.Kind != OperationRead {
 		return r.mutate(ctx, base, request.Input, grant, op)
 	}
@@ -1231,13 +1232,28 @@ func (r runtime) q4(base Envelope, q store.Q4Result) (Envelope, error) {
 }
 func (r runtime) q6(base Envelope, q store.Q6Result) (Envelope, error) {
 	if q.Work != nil {
-		return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"work": summary(*q.Work), "memberships": func() []map[string]string {
+		payload := map[string]any{"work": summary(*q.Work), "memberships": func() []map[string]string {
 			out := []map[string]string{}
 			for _, p := range q.Work.Projects {
 				out = append(out, map[string]string{"project_id": p.ID, "role": p.Role})
 			}
 			return out
-		}(), "items": []workSummary{}})
+		}(), "items": []workSummary{}}
+		verdict, redacted, verdictErr := r.verdictFor(q.Work.ID)
+		if verdictErr != nil {
+			return failureEnvelope(base, verdictErr), nil
+		}
+		if verdict != nil && !redacted {
+			payload["verdict"] = verdict
+		}
+		envelope, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
+		if err != nil {
+			return envelope, err
+		}
+		if redacted {
+			envelope.Omissions = append(envelope.Omissions, Notice{Kind: "redacted", SourceID: q.Work.ID, Details: map[string]any{"field": "verdict", "reason": "executing_actor_verdict_read_scope"}})
+		}
+		return envelope, nil
 	}
 	items := []workSummary{}
 	for _, w := range q.Items {
@@ -1245,6 +1261,26 @@ func (r runtime) q6(base Envelope, q store.Q6Result) (Envelope, error) {
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
 }
+
+// verdictFor applies CD-0023: the recorded verdict of a terminal work item
+// is readable by every authority except the actor recorded as executing it.
+// redacted is true when the reader is that executing actor; the omission is
+// the caller's to record.
+func (r runtime) verdictFor(workID string) (*store.WorkflowReadVerdict, bool, error) {
+	verdict, err := store.ReadWorkflowVerdict(context.Background(), r.Store, workID)
+	if err != nil || verdict == nil {
+		return nil, false, err
+	}
+	agentRef, sessionRef, found, err := store.WorkflowExecutingIdentity(context.Background(), r.Store, workID)
+	if err != nil || !found {
+		return verdict, false, err
+	}
+	if r.Reader.AgentRef == agentRef && r.Reader.SessionRef == sessionRef {
+		return nil, true, nil
+	}
+	return verdict, false, nil
+}
+
 func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 	events := make([]map[string]any, 0, len(q.Events))
 	for _, e := range q.Events {

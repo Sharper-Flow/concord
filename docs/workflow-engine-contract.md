@@ -34,7 +34,7 @@ durable workflow state and never from advisory summary text.
 The two actions are added to every built-in definition and step by one owning
 definition builder, with strict payload fields and no approval. The explicit
 continuity read does not automatically inject pinned context into current
-OpenCode calls; future typed-agent injection belongs to issue #57.
+OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
 ## 1. Common representation and bounds
 

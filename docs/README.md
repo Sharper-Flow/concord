@@ -65,7 +65,7 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`decisions/CD-0013-workflow-engine-mechanism.md`](./decisions/CD-0013-workflow-engine-mechanism.md) | **Accepted CD-0013:** workflow definitions as code-defined versioned registry, workflow state as work-item-subject events with typed projections, closed outcome-predicate union, executing-identity evaluator distinctness, entity-keyed impact notices, forward-link-only composition, and a completion gate binding evidence, conditions, spec mandate, verdict, and premise confirmation in one transaction. |
 | [`decisions/CD-0014-terminal-launcher-rendering.md`](./decisions/CD-0014-terminal-launcher-rendering.md) | **Accepted CD-0014:** Bubble Tea v2 behind an isolated launcher adapter, Product-only query scope, no autonomous state polling, exact dependency/license inventory, and tcell v3 fallback/reopen rules. |
 | [`decisions/CD-0015-typed-law-relations.md`](./decisions/CD-0015-typed-law-relations.md) | **Accepted CD-0015:** Git-authoritative typed law relations, derived SQLite projection, and bounded workflow conflict checks with an explicit amendment path. |
-| [`decisions/CD-0016-context-continuity.md`](./decisions/CD-0016-context-continuity.md) | **Accepted CD-0016:** durable context checkpoints and boundaries, derived pinned continuity, summary-only fallback, and closed restart unavailability until #57. |
+| [`decisions/CD-0016-context-continuity.md`](./decisions/CD-0016-context-continuity.md) | **Accepted CD-0016:** durable context checkpoints and boundaries, derived pinned continuity, summary-only fallback, and closed restart unavailability until #120. |
 | [`decisions/CD-0017-typed-workers-and-model-routing.md`](./decisions/CD-0017-typed-workers-and-model-routing.md) | **Accepted CD-0017:** Concord-owned typed lane registry with capability-class model routing, pinned preferred dispatch, recorded declared fallback resolution and readback identity evidence, workflow-declared reviewer/model distinctness, and a hard worker authority boundary preserving R1/CD-0013. |
 | [`decisions/CD-0018-declared-urgency-and-provenance.md`](./decisions/CD-0018-declared-urgency-and-provenance.md) | **Accepted CD-0018:** closed two-band urgency enum (`standard` / `expedite`) prepended to ranking with `priority` retained as within-band tiebreak, and a typed non-blocking acyclic `raised_from` provenance relation; no assignment, claim, or parallel-safety mechanism. |
 | [`decisions/CD-0019-predecessor-strength-preservation.md`](./decisions/CD-0019-predecessor-strength-preservation.md) | **Accepted CD-0019:** six predecessor strengths (specs, narrative artifacts, knowledge index, conformance, triage, reflection) preservation-mandated, each research-informed in its Concord shape rather than inherited; umbrella mandate binding existing partial treatments. |
@@ -142,7 +142,7 @@ and work discovered mid-execution forward-links rather than substituting.
 CD-0016 gives Priority 3's continuity requirement a durable mechanism: bounded
 workflow checkpoints and boundaries, pinned state derived from authority, and a
 canonical continuity read. Summary prose is never an authority source, and
-typed-agent restart remains unavailable until issue #57.
+typed-agent restart remains unavailable until issue #120.
 The ordered decisions, current non-authorizing leans, evidence plans,
 dependencies, and decision artifacts live in
 [`clarifications.md`](./clarifications.md) under the Product-memory and minimal

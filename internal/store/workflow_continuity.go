@@ -196,7 +196,7 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 	}
 	out.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	out.RestartAvailable = false
-	out.RestartUnavailableReason = "typed-agent registry #57 is not implemented; restart dispatch fails closed"
+	out.RestartUnavailableReason = "typed restart dispatch is not implemented; restart fails closed pending issue #120"
 	return out, nil
 }
 

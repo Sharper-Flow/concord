@@ -1060,6 +1060,9 @@
           "type": "integer",
           "minimum": 1
         },
+        "worker_attempt_id": {
+          "$ref": "#/$defs/id"
+        },
         "accepted_inputs_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$",

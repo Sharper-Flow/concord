@@ -83,8 +83,13 @@ A worker run is a **bounded execution attempt of one workflow step** — the pos
 never record step transitions, verdicts, or completion, and never spawn nested
 workflow authority. Durable workflow authority remains with the owning Concord
 workflow; a worker result can complete a gate only when the owning workflow
-transition explicitly permits that typed effect. This preserves R1 and CD-0013 by
-construction: the prohibition binds authority, not labor.
+transition explicitly permits that typed effect. The owning actor uses the declared
+`accept_worker_result` action, bound to the exact completed attempt and its current
+step epoch. The workflow fold rechecks successful model readback and requires the
+owning actor to differ from the recorded executor before advancing. Workers cannot
+invoke another advancing action once a worker attempt is dispatched in the current
+step window. This preserves R1 and CD-0013 by construction: the prohibition binds
+authority, not labor.
 
 ### D5. Dispatch and result evidence identity
 
@@ -102,6 +107,10 @@ The typed dispatch failure is `resolved ≠ readback`, or `resolved ∉` the dec
 resolution set. A fallback event recorded through readback — `resolved` is a
 declared fallback member and `readback == resolved` — is legal evidence; an
 unrecorded model change is a defect.
+
+`worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
+item and make one transition from `dispatched`. Both terminal states are immutable;
+a later terminal event cannot replace failure with success or success with failure.
 
 ### D6. Reviewer/model distinctness is structurally available and workflow-declared
 

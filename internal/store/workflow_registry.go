@@ -490,12 +490,17 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		builtinImplementation(), builtinBreakFix(), builtinResearch(), builtinArchitectureSpike(), builtinOpsRunbook(), builtinStaticAnalysis(), builtinGenericOneOff(),
+		builtinWorkflowV2(builtinImplementation()), builtinWorkflowV2(builtinBreakFix()), builtinWorkflowV2(builtinResearch()), builtinWorkflowV2(builtinArchitectureSpike()), builtinWorkflowV2(builtinOpsRunbook()), builtinWorkflowV2(builtinStaticAnalysis()), builtinWorkflowV2(builtinGenericOneOff()),
 	}
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	registry := NewWorkflowDefinitionRegistry()
+	for _, definition := range builtinWorkflowV1Definitions() {
+		if _, err := registry.Register(definition); err != nil {
+			panic(err)
+		}
+	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if _, err := registry.Register(definition); err != nil {
 			panic(err)
@@ -525,6 +530,35 @@ func BuiltinWorkflowDefinitionForRef(ref string) (RegisteredDefinition, error) {
 		}
 	}
 	return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
+}
+
+func builtinWorkflowV1Definitions() []WorkflowDefinition {
+	return []WorkflowDefinition{
+		builtinImplementation(), builtinBreakFix(), builtinResearch(), builtinArchitectureSpike(), builtinOpsRunbook(), builtinStaticAnalysis(), builtinGenericOneOff(),
+	}
+}
+
+func builtinWorkflowV2(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	definition.Version = 2
+	if definition.WorkKind == WorkKindResearch {
+		return definition
+	}
+	acceptance := WorkflowActionDefinition{
+		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone,
+		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
+			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
+			{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
+		}},
+	}
+	definition.AvailableActions = append(definition.AvailableActions, acceptance.ID)
+	definition.ActionDefinitions = append(definition.ActionDefinitions, acceptance)
+	for i := range definition.StepGraph.Steps {
+		if definition.StepGraph.Steps[i].Kind == WorkflowStepExternalEffect {
+			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, acceptance.ID)
+		}
+	}
+	return definition
 }
 
 func validWorkKind(kind WorkKind) bool {

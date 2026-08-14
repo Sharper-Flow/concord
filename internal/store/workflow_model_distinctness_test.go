@@ -155,10 +155,7 @@ func TestCompletionActorDistinctReadsExecutionModelFromTheInstance(t *testing.T)
 			s := openTemp(t)
 			seedWork(t, s, "d6-work")
 			seedWorkflowLaw(t, s)
-			digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-			if err != nil {
-				t.Fatal(err)
-			}
+			digest := legacyImplementationDigest(t)
 			executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/exec")
 			reviewer := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/review")
 			setup := []Event{

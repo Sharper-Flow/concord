@@ -64,3 +64,22 @@ func TestWorkflowCompletionImpactVerdictIsPublicAndRequired(t *testing.T) {
 		t.Fatal("completion with invalid impact verdict accepted")
 	}
 }
+
+func TestWorkerResultAcceptanceBindingIsPublicAndRequired(t *testing.T) {
+	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_id":"attempt-1","attempt_epoch":1}}`)
+	if err := ValidatePayloadSchema("work_transition_action_input", valid); err != nil {
+		t.Fatalf("explicit worker result binding rejected: %v", err)
+	}
+
+	for name, input := range map[string]json.RawMessage{
+		"missing attempt": json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_epoch":1}}`),
+		"missing epoch":   json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_id":"attempt-1"}}`),
+		"invalid epoch":   json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_id":"attempt-1","attempt_epoch":0}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidatePayloadSchema("work_transition_action_input", input); err == nil {
+				t.Fatal("invalid worker result acceptance input was accepted")
+			}
+		})
+	}
+}

@@ -971,17 +971,15 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if request.ActorRef != "" && request.ActorRef != actorRef {
 		return workflowObservation{}, fmt.Errorf("%s actor_ref does not match authenticated fixture actor", name)
 	}
-	definition := BuiltinWorkflowDefinitions()[0]
-	for _, candidate := range BuiltinWorkflowDefinitions() {
-		if candidate.Ref == request.DefinitionPin.Ref {
-			definition = candidate
-			break
-		}
+	registry := BuiltinWorkflowRegistry()
+	registered, ok := registry.Lookup(request.DefinitionPin.Ref, request.DefinitionPin.Version)
+	if !ok {
+		return workflowObservation{}, fmt.Errorf("%s pinned workflow definition is unavailable: %s@%d", name, request.DefinitionPin.Ref, request.DefinitionPin.Version)
 	}
-	registered, err := BuiltinWorkflowRegistry().Register(definition)
-	if err != nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.DefinitionPin.Ref, Version: request.DefinitionPin.Version, Digest: request.DefinitionPin.Digest}); err != nil {
 		return workflowObservation{}, err
 	}
+	definition := registered.Definition
 	if err := replayWorkflowCorpusSetup(ctx, s, setup, registered, actorRef, action != string(corpusActionCapture)); err != nil {
 		return workflowObservation{}, err
 	}

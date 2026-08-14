@@ -3,8 +3,18 @@ package store
 import (
 	"context"
 	"strings"
+	"testing"
 	"time"
 )
+
+func legacyImplementationDigest(t *testing.T) string {
+	t.Helper()
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	if !ok {
+		t.Fatal("legacy implementation definition is not registered")
+	}
+	return definition.Digest
+}
 
 // applyWorkflowTestOperation models the owning workflow route for white-box
 // fold tests. Production callers must use the dispatcher or initialization and

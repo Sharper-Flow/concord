@@ -295,7 +295,8 @@ func seedLegacyWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvelo
 	changedRef := `{"entity_kind":"work_item","id":"work-1","version":5}`
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
-	_, err := s.DB().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", store.BuiltinWorkflowDefinitions()[0].Ref, 1, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), contractVersion)
+	definition := store.BuiltinWorkflowDefinitions()[0]
+	_, err := s.DB().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Ref, definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), contractVersion)
 	if err != nil {
 		t.Fatal(err)
 	}

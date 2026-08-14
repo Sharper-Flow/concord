@@ -136,9 +136,9 @@ func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, Work
 	seedWork(t, s, workID)
 	executor := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:executor", SessionRef: "session:executor", ActorClass: ActorAgent}
 	evaluator := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:evaluator", SessionRef: "session:evaluator", ActorClass: ActorOperator}
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	if !ok {
+		t.Fatal("legacy implementation definition is not registered")
 	}
 	tx, err := s.DB().BeginTx(context.Background(), nil)
 	if err != nil {

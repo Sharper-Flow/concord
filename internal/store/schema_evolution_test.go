@@ -213,7 +213,7 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	for kind := range wantWorkflowKinds {
 		registration := eventKindRegistry[kind]
 		wantVersion := 1
-		if kind == WorkflowCompleted || kind == WorkflowImpactNoticeRecorded {
+		if kind == WorkflowCompleted || kind == WorkflowImpactNoticeRecorded || kind == WorkflowActionCompleted {
 			wantVersion = 2
 		}
 		if registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
@@ -237,6 +237,24 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 		if !ok || registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
 			t.Fatalf("%s registration lacks expected fold/upcaster scaffolding: %+v", kind, registration)
 		}
+	}
+}
+
+func TestWorkflowActionCompletedV1UpcastsWithoutWorkerAttemptIdentity(t *testing.T) {
+	event := Event{EventID: "legacy-action-completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: "legacy-work", Actor: "actor:legacy", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"legacy-work","expected_version":1,"resulting_version":2,"step_id":"execution","action_id":"record_proposal","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":[],"actor_ref":"actor:legacy"}`)}
+	upcasted, err := upcastEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upcasted.PayloadVersion != 2 {
+		t.Fatalf("upcast payload version=%d, want 2", upcasted.PayloadVersion)
+	}
+	var payload workflowActionCompletedPayload
+	if err := json.Unmarshal(upcasted.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.WorkerAttemptID != "" {
+		t.Fatalf("legacy action completion acquired worker attempt identity %q", payload.WorkerAttemptID)
 	}
 }
 

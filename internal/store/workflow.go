@@ -127,6 +127,7 @@ type workflowActionCompletedPayload struct {
 	ActionID           string   `json:"action_id,omitempty"`
 	StepID             string   `json:"step_id"`
 	AttemptEpoch       int64    `json:"attempt_epoch"`
+	WorkerAttemptID    string   `json:"worker_attempt_id,omitempty"`
 	ResultEvidenceRefs []string `json:"result_evidence_refs"`
 	ChangedRefs        []string `json:"changed_refs"`
 	ActorRef           string   `json:"actor_ref"`
@@ -315,7 +316,7 @@ func init() {
 	eventKindRegistry[WorkflowActorRecorded] = workflowRegistration(foldWorkflowActorRecorded)
 	eventKindRegistry[WorkflowActionStarted] = workflowRegistration(foldWorkflowActionStarted)
 	eventKindRegistry[WorkflowActionCheckpointed] = workflowRegistration(foldWorkflowActionCheckpointed)
-	eventKindRegistry[WorkflowActionCompleted] = workflowRegistration(foldWorkflowActionCompleted)
+	eventKindRegistry[WorkflowActionCompleted] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowActionCompletedV1}, Fold: foldWorkflowActionCompleted}
 	eventKindRegistry[WorkflowActionFailed] = workflowRegistration(foldWorkflowActionFailed)
 	eventKindRegistry[WorkflowEvidenceBound] = workflowRegistration(foldWorkflowEvidenceBound)
 	eventKindRegistry[WorkflowVerdictRecorded] = workflowRegistration(foldWorkflowVerdictRecorded)
@@ -790,6 +791,42 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := ValidateWorkflowActorModel(p.ExecutionModel); err != nil {
 		return newFailure(KindInvalidPayload, "fold_event", "action_started has an invalid readback model identity", false, "supply a bounded readback model identity")
 	}
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if entry.Definition.Version >= 2 {
+		var currentStep string
+		if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep); err != nil {
+			return workflowProjectionError(err, "cannot read the current workflow step")
+		}
+		if currentStep == "start" {
+			currentStep = entry.Definition.StepGraph.StartStep
+		}
+		if p.ActorRef != event.Actor {
+			return newFailure(KindUnauthorized, "fold_event", "action start actor must match the authenticated event actor", false, "start the workflow action through the authenticated workflow actor")
+		}
+		if p.StepID != currentStep {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "action start does not match the pinned current workflow step", false, "start the pinned current workflow step")
+		}
+		if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "action start is not declared on the pinned current workflow step", false, "start a declared action on the current workflow step")
+		}
+		latestEpoch, found, err := latestWorkflowActionStartEpoch(ctx, tx, event.SubjectID, p.StepID, event.Seq)
+		if err != nil {
+			return err
+		}
+		wantEpoch := int64(1)
+		if found {
+			if latestEpoch >= 2147483647 {
+				return newFailure(KindIllegalLifecycleTransition, "fold_event", "workflow action start epoch is exhausted", false, "start a successor workflow")
+			}
+			wantEpoch = latestEpoch + 1
+		}
+		if p.AttemptEpoch != wantEpoch {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", fmt.Sprintf("workflow action start epoch %d is not the next epoch %d for step %q", p.AttemptEpoch, wantEpoch, p.StepID), false, "use the next per-step workflow action start epoch")
+		}
+	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
@@ -824,6 +861,36 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.StepKind != "internal_sqlite" && p.StepKind != "cross_authority" && p.StepKind != "external_effect" && p.StepKind != "human_checkpoint" {
 		return newFailure(KindInvalidPayload, "fold_event", "checkpoint step kind is not closed", false, "use a closed workflow step kind")
 	}
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if entry.Definition.Version >= 2 {
+		var currentStep, executionActor string
+		if err := tx.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &executionActor); err != nil {
+			return workflowProjectionError(err, "cannot read the current workflow checkpoint authority")
+		}
+		if currentStep == "start" {
+			currentStep = entry.Definition.StepGraph.StartStep
+		}
+		step := workflowStep(entry.Definition, currentStep)
+		if p.ActorRef != event.Actor {
+			return newFailure(KindUnauthorized, "fold_event", "checkpoint actor must match the authenticated event actor", false, "checkpoint through the authenticated workflow actor")
+		}
+		if p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the pinned current workflow step kind", false, "checkpoint the pinned current workflow step and kind")
+		}
+		_, latestEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
+		if err != nil {
+			return err
+		}
+		if !found || p.AttemptEpoch != latestEpoch {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
+		}
+		if executionActor == "" || p.ActorRef != executionActor {
+			return newFailure(KindUnauthorized, "fold_event", "checkpoint actor is not the current workflow executor", false, "checkpoint through the current workflow executor")
+		}
+	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
@@ -846,7 +913,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if evidence == nil {
 		evidence = []string{}
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_checkpoints(work_id,checkpoint_id,step_id,step_kind,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpointID, p.StepID, p.StepKind, p.AttemptEpoch, digest, workflowJSON(evidence), p.ResumeCursor, idem, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_checkpoints(work_id,checkpoint_id,step_id,step_kind,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpointID, p.StepID, p.StepKind, p.AttemptEpoch, digest, workflowJSON(evidence), p.ResumeCursor, idem, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow checkpoint")
 	}
@@ -1044,24 +1111,56 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
+	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
+	}
+	if p.ActionID != "accept_worker_result" && p.WorkerAttemptID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for accept_worker_result", false, "omit worker_attempt_id for ordinary action completion")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	_, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
-	if err != nil || p.ActionID == "" || !workflowActionAdvancesStep(p.ActionID) {
-		return err
-	}
+	var entry RegisteredDefinition
+	var currentStep string
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
 	if err != nil {
 		return err
 	}
-	if next := workflowNextStep(entry.Definition, p.StepID); next != "" {
+	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the current workflow step", true, "retry once the workflow instance is readable", err)
+	}
+	if currentStep == "start" {
+		currentStep = entry.Definition.StepGraph.StartStep
+	}
+	if entry.Definition.Version >= 2 && p.ActorRef != event.Actor {
+		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
+	}
+	if entry.Definition.Version >= 2 && (p.ActionID == "" || p.StepID != currentStep || !definitionStepAllows(entry.Definition, currentStep, p.ActionID)) {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+	}
+	if p.ActionID != "" {
+		if entry.Definition.Version >= 2 && workflowActionAdvancesStep(p.ActionID) {
+			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, event.SubjectID, currentStep, p.ActionID); err != nil {
+				return err
+			}
+		}
+		if p.ActionID == "accept_worker_result" {
+			if entry.Definition.Version < 2 {
+				return newFailure(KindIllegalLifecycleTransition, "fold_event", "accept_worker_result requires a version 2 workflow definition", false, "use the pinned workflow definition")
+			}
+			if err := validateAcceptedWorkerResult(ctx, tx, event, p, entry.Definition, currentStep); err != nil {
+				return err
+			}
+		}
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	if err != nil || p.ActionID == "" || !workflowActionAdvancesStep(p.ActionID) {
+		return err
+	}
+	if next := workflowNextStep(entry.Definition, currentStep); next != "" {
 		_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=? WHERE work_id=?`, next, event.SubjectID)
 	}
 	return err
@@ -1069,6 +1168,123 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 
 func workflowActionAdvancesStep(action string) bool {
 	return !strings.HasPrefix(action, "start_") && !strings.HasPrefix(action, "run_") && !strings.HasPrefix(action, "rollback_") && !strings.HasPrefix(action, "checkpoint_") && action != "bind_evidence" && action != "declare_impact" && action != "link_successor" && action != "record_decision" && action != "record_verdict" && action != "accept_decision" && action != "cleanup_run" && action != "complete"
+}
+
+func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string) error {
+	startSeq, _, found, err := latestWorkflowActionStart(ctx, tx, workID, stepID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	var dispatched int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_id=? AND subject_type=? AND kind=? AND seq>?`, workID, string(SubjectWorkItem), WorkerDispatched, startSeq).Scan(&dispatched); err != nil {
+		return workflowProjectionError(err, "cannot inspect worker dispatches for the current workflow attempt")
+	}
+	if dispatched != 0 && actionID != "accept_worker_result" {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt")
+	}
+	return nil
+}
+
+func latestWorkflowActionStart(ctx context.Context, tx *sql.Tx, workID, stepID string) (int64, int64, bool, error) {
+	return latestWorkflowActionStartAt(ctx, tx, workID, stepID, 0)
+}
+
+func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {
+	_, epoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
+	return epoch, found, err
+}
+
+func workflowActionStartEpochForDispatch(ctx context.Context, tx *sql.Tx, workID, stepID string, starting bool) (int64, error) {
+	latestEpoch, found, err := latestWorkflowActionStartEpoch(ctx, tx, workID, stepID, 0)
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		return 1, nil
+	}
+	if starting {
+		if latestEpoch >= 2147483647 {
+			return 0, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action start epoch is exhausted", false, "start a successor workflow")
+		}
+		return latestEpoch + 1, nil
+	}
+	return latestEpoch, nil
+}
+
+func latestWorkflowActionStartAt(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, int64, bool, error) {
+	query := `SELECT seq,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`
+	args := []any{string(SubjectWorkItem), workID, WorkflowActionStarted, stepID}
+	if beforeSeq > 0 {
+		query += ` AND seq<?`
+		args = append(args, beforeSeq)
+	}
+	query += ` ORDER BY seq DESC LIMIT 1`
+	var seq int64
+	var raw string
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&seq, &raw); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, workflowProjectionError(err, "cannot inspect the latest workflow action start")
+	}
+	var payload workflowActionStartedPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return 0, 0, false, newFailure(KindInvariantViolation, "fold_event", "workflow action start payload is malformed", false, "rebuild workflow projections from the event log")
+	}
+	return seq, payload.AttemptEpoch, true, nil
+}
+
+func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) error {
+	step := workflowStep(definition, currentStep)
+	if step == nil || step.Kind != WorkflowStepExternalEffect {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "accept_worker_result is only valid on an external-effect step", false, "accept a worker result on the pinned external-effect step")
+	}
+	if payload.WorkerAttemptID == "" {
+		return newFailure(KindInvalidPayload, "fold_event", "accept_worker_result requires worker_attempt_id", false, "supply the completed worker attempt identity")
+	}
+	startSeq, startEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
+	if err != nil {
+		return err
+	}
+	if !found || payload.AttemptEpoch != startEpoch {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker result attempt epoch does not match the latest workflow action start", false, "accept the current workflow attempt")
+	}
+	var attemptWorkID, lifecycle, readback, resolved string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model,resolved_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback, &resolved); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt does not exist", false, "dispatch the worker attempt before accepting its result")
+		}
+		return workflowProjectionError(err, "cannot read worker attempt projection")
+	}
+	if attemptWorkID != event.SubjectID {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "accept the exact worker attempt for this work item")
+	}
+	var dispatchedSeq int64
+	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, WorkerDispatched, payload.WorkerAttemptID).Scan(&dispatchedSeq); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt dispatch event does not exist", false, "dispatch the worker attempt before accepting its result")
+		}
+		return workflowProjectionError(err, "cannot read worker attempt dispatch")
+	}
+	if dispatchedSeq <= startSeq {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "accept a worker attempt dispatched after the current action start")
+	}
+	if lifecycle != "completed" {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt is not completed", false, "accept only a completed worker attempt")
+	}
+	if readback == "" || readback != resolved {
+		return newFailure(KindModelIdentityMismatch, "fold_event", "worker readback model does not match the resolved model", false, "accept only a model-verified worker result")
+	}
+	if payload.ActorRef != event.Actor {
+		return newFailure(KindUnauthorized, "fold_event", "accepting actor must match the authenticated event actor", false, "accept the worker result through the authenticated workflow owner")
+	}
+	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func workflowNextStep(definition WorkflowDefinition, current string) string {
@@ -1094,6 +1310,35 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	if !contains([]string{"unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"}, p.FailureKind) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_failed failure kind is not closed", false, "use a TS7 typed error kind")
 	}
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if entry.Definition.Version >= 2 {
+		var currentStep, executionActor string
+		if err := tx.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &executionActor); err != nil {
+			return workflowProjectionError(err, "cannot read the current workflow failure authority")
+		}
+		if currentStep == "start" {
+			currentStep = entry.Definition.StepGraph.StartStep
+		}
+		if p.ActorRef != event.Actor {
+			return newFailure(KindUnauthorized, "fold_event", "action failure actor must match the authenticated event actor", false, "fail the workflow action through the authenticated workflow actor")
+		}
+		if p.StepID != currentStep {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "action failure does not match the pinned current workflow step", false, "fail the pinned current workflow step")
+		}
+		_, latestEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
+		if err != nil {
+			return err
+		}
+		if !found || p.AttemptEpoch != latestEpoch {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "action failure does not match the latest workflow action start epoch", false, "fail the current workflow action attempt")
+		}
+		if executionActor == "" || p.ActorRef != executionActor {
+			return newFailure(KindUnauthorized, "fold_event", "action failure actor is not the current workflow executor", false, "fail the workflow action through the current workflow executor")
+		}
+	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
@@ -1104,7 +1349,7 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	if p.Recoverable {
 		state = "running"
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, state, event.SubjectID)
+	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, state, event.SubjectID)
 	return err
 }
 
@@ -1148,6 +1393,15 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if p.VerdictActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "verdict actor must match the authenticated event actor", false, "record the verdict through the authenticated evaluator invocation")
+	}
+	var definitionVersion int64
+	if err := tx.QueryRowContext(ctx, `SELECT definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&definitionVersion); err != nil {
+		return workflowProjectionError(err, "cannot read pinned workflow definition version")
+	}
+	if definitionVersion >= 2 {
+		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, p.VerdictActorRef, p.VerdictModel, false, "fold_event"); err != nil {
+			return err
+		}
 	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
@@ -1320,6 +1574,28 @@ func upcastWorkflowImpactNoticeRecordedV1(event Event) (Event, error) {
 	return event, nil
 }
 
+func upcastWorkflowActionCompletedV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed v1 payload is not a JSON object", false, "repair the stored workflow action completion")
+	}
+	if _, exists := fields["worker_attempt_id"]; exists {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed v1 cannot contain worker_attempt_id", false, "use workflow.action_completed v2 for worker result acceptance")
+	}
+	var payload workflowActionCompletedPayload
+	if err := decodeWorkflowPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	payload.WorkerAttemptID = ""
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.action_completed v1 payload", false, "repair the stored workflow action completion", err)
+	}
+	event.Payload = encoded
+	event.PayloadVersion = 2
+	return event, nil
+}
+
 func foldWorkflowImpactNoticeRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowImpactNoticeRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -1437,6 +1713,18 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || p.EvidenceCount > 32 || !workflowDigest(p.ChangedRefsDigest, "sha256:") || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
+	}
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if entry.Definition.Version >= 2 {
+		if err := requireActor(ctx, tx, event.Actor); err != nil {
+			return err
+		}
+		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, event.Actor, "", false, "fold_event"); err != nil {
+			return err
+		}
 	}
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {
 		return err

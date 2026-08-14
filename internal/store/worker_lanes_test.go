@@ -127,6 +127,108 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	}
 }
 
+func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
+	t.Run("failed then completed", func(t *testing.T) {
+		s := openTemp(t)
+		lane := BuiltinLaneDefinitions()[0]
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-failed-first", "terminal-failed-first-attempt", lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		failed := workerFailedEvent("terminal-failed-first", "terminal-failed-first-failed", "terminal-failed-first-attempt", lane.PinnedModel)
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failed}}); err != nil {
+			t.Fatal(err)
+		}
+		before := workerProjectionSnapshot(t, s)
+		beforeEvents := countRows(t, s, "domain_events")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-failed-first", "terminal-failed-first-completed", "terminal-failed-first-attempt", lane.PinnedModel), KindProjectionConflict, before, beforeEvents)
+	})
+	t.Run("completed then failed", func(t *testing.T) {
+		s := openTemp(t)
+		lane := BuiltinLaneDefinitions()[0]
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-completed-first", "terminal-completed-first-attempt", lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-completed-first", "terminal-completed-first-completed", "terminal-completed-first-attempt", lane.PinnedModel)}}); err != nil {
+			t.Fatal(err)
+		}
+		before := workerProjectionSnapshot(t, s)
+		beforeEvents := countRows(t, s, "domain_events")
+		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-completed-first", "terminal-completed-first-failed", "terminal-completed-first-attempt", lane.PinnedModel), KindProjectionConflict, before, beforeEvents)
+	})
+	t.Run("duplicate completed event identity differs", func(t *testing.T) {
+		s := openTemp(t)
+		lane := BuiltinLaneDefinitions()[0]
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-duplicate", "terminal-duplicate-attempt", lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-duplicate", "terminal-duplicate-first", "terminal-duplicate-attempt", lane.PinnedModel)}}); err != nil {
+			t.Fatal(err)
+		}
+		before := workerProjectionSnapshot(t, s)
+		beforeEvents := countRows(t, s, "domain_events")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-duplicate", "terminal-duplicate-second", "terminal-duplicate-attempt", lane.PinnedModel), KindProjectionConflict, before, beforeEvents)
+	})
+	t.Run("foreign completed subject", func(t *testing.T) {
+		s := openTemp(t)
+		lane := BuiltinLaneDefinitions()[0]
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-foreign-owner", "terminal-foreign-attempt", lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		before := workerProjectionSnapshot(t, s)
+		beforeEvents := countRows(t, s, "domain_events")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-foreign-subject", "terminal-foreign-completed", "terminal-foreign-attempt", lane.PinnedModel), KindInvalidOperation, before, beforeEvents)
+	})
+	t.Run("foreign failed subject", func(t *testing.T) {
+		s := openTemp(t)
+		lane := BuiltinLaneDefinitions()[0]
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-foreign-failed-owner", "terminal-foreign-failed-attempt", lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		before := workerProjectionSnapshot(t, s)
+		beforeEvents := countRows(t, s, "domain_events")
+		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-foreign-failed-subject", "terminal-foreign-failed-event", "terminal-foreign-failed-attempt", lane.PinnedModel), KindInvalidOperation, before, beforeEvents)
+	})
+	t.Run("model mismatch is terminal", func(t *testing.T) {
+		s := openTemp(t)
+		lane := BuiltinLaneDefinitions()[1]
+		attemptID := "terminal-model-mismatch-attempt"
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-model-mismatch", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-model-mismatch", "terminal-model-mismatch-event", attemptID, "openai/fallback-model")}}); err != nil {
+			t.Fatal(err)
+		}
+		before := workerProjectionSnapshot(t, s)
+		beforeEvents := countRows(t, s, "domain_events")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-model-mismatch", "terminal-model-recovery", attemptID, lane.PinnedModel), KindProjectionConflict, before, beforeEvents)
+		var state, failureKind string
+		if err := s.DB().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &failureKind); err != nil {
+			t.Fatal(err)
+		}
+		if state != "failed" || failureKind != string(KindModelIdentityMismatch) {
+			t.Fatalf("model mismatch terminal state=%q failure=%q", state, failureKind)
+		}
+	})
+}
+
+func assertRejectedWorkerTerminal(t *testing.T, s *Store, event Event, wantKind FailureKind, beforeProjection string, beforeEvents int) {
+	t.Helper()
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
+	if !hasFailureKind(err, wantKind) {
+		t.Fatalf("terminal event failure=%v, want %s", err, wantKind)
+	}
+	if after := workerProjectionSnapshot(t, s); after != beforeProjection {
+		t.Fatalf("rejected terminal event changed worker projection:\n%s\nwant\n%s", after, beforeProjection)
+	}
+	if got := countRows(t, s, "domain_events"); got != beforeEvents {
+		t.Fatalf("rejected terminal event count=%d, want %d", got, beforeEvents)
+	}
+}
+
+func workerFailedEvent(workID, eventID, attemptID, model string) Event {
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: "bounded worker error"})}
+}
+
 func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[2]

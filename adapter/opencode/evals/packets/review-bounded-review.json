@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "attempt_id": "attempt:eval-review-bounded-review",
+  "lane_id": "review",
+  "lane_version": 1,
+  "lane_digest": "sha256:b71b048949a3da7fcb7b06d8aa957f800921f39b98a63990478e69cbd876fc23",
+  "work_id": "work:eval-harness",
+  "step_id": "execution",
+  "inputs": {
+    "task": "Review the diff on this attempt against its stated contract and report findings with severity.",
+    "context": "The change adds one validator script and wires it into an existing checker.",
+    "constraints": [
+      "Classify each finding by severity.",
+      "Name the checks you ran."
+    ]
+  }
+}

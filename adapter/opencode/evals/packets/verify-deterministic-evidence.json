@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "attempt_id": "attempt:eval-verify-deterministic-evidence",
+  "lane_id": "verify",
+  "lane_version": 1,
+  "lane_digest": "sha256:27aa54758f4c90542c1e7d0da567e68bd79f8476cf50fa1590849be29a8a7f4c",
+  "work_id": "work:eval-harness",
+  "step_id": "execution",
+  "inputs": {
+    "task": "Run the repository JSON validators and report commands, exit codes, and failure classification.",
+    "context": "Verification runs against a clean checkout.",
+    "constraints": [
+      "Report exit codes verbatim.",
+      "Do not edit any file."
+    ]
+  }
+}

@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "2.4.0"
-const ManifestDigest = "sha256:a9b72eeefc634036f003eced81653f147e4f8797a7d6114c2afa88451648a50a"
+const ManifestVersion = "3.0.0"
+const ManifestDigest = "sha256:fdbf664b4ebc95fe8027883e71984294e4ca0ffdf91c7e95065a7432f1a0bfe2"
 
 type OperationKind string
 
@@ -49,6 +49,13 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_knowledge.resolve_note", Tool: "concord_knowledge", Operation: "resolve_note", Kind: OperationKind("read"), QueryID: "PM1.Q10", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_define.capture", Tool: "concord_work_define", Operation: "capture", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_define.revise_intent", Tool: "concord_work_define", Operation: "revise_intent", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_epic.create", Tool: "concord_work_epic", Operation: "create", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_epic.add_entry", Tool: "concord_work_epic", Operation: "add_entry", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_epic.remove_entry", Tool: "concord_work_epic", Operation: "remove_entry", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_epic.reorder_entry", Tool: "concord_work_epic", Operation: "reorder_entry", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_epic.change_requiredness", Tool: "concord_work_epic", Operation: "change_requiredness", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_epic.revise_narrative", Tool: "concord_work_epic", Operation: "revise_narrative", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_epic.entries", Tool: "concord_work_epic", Operation: "entries", Kind: OperationKind("read"), QueryID: "C21.EpicEntries", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_transition.lifecycle", Tool: "concord_work_transition", Operation: "lifecycle", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Approval: ApprovalClass("conditional"), Availability: Availability("always")},
 	{ID: "concord_work_transition.workflow_action", Tool: "concord_work_transition", Operation: "workflow_action", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Approval: ApprovalClass("conditional"), Availability: Availability("workflow_definition")},
 	{ID: "concord_work_transition.worktree_claim", Tool: "concord_work_transition", Operation: "worktree_claim", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Approval: ApprovalClass("none"), Availability: Availability("always")},
@@ -86,6 +93,14 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_failure":                     {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
 	"continuity_operator_decision":           {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
 	"continuity_snapshot":                    {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}},
+	"epic_add_entry_input":                   {Required: []string{"epic_work_id", "child_work_id", "expected_version", "position", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "position", "required", "idempotency_key"}},
+	"epic_change_requiredness_input":         {Required: []string{"epic_work_id", "child_work_id", "expected_version", "required", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "required", "idempotency_key"}},
+	"epic_create_input":                      {Required: []string{"title", "value_statement", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "project_ids", "priority", "urgency", "tags", "component_id", "external_ref", "idempotency_key"}},
+	"epic_entries_input":                     {Required: []string{"epic_work_id"}, Properties: []string{"epic_work_id", "budget"}},
+	"epic_entries_result":                    {Required: []string{"entries", "narrative"}, Properties: []string{"narrative", "entries"}},
+	"epic_remove_entry_input":                {Required: []string{"epic_work_id", "child_work_id", "expected_version", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "idempotency_key"}},
+	"epic_reorder_entry_input":               {Required: []string{"epic_work_id", "child_work_id", "expected_version", "position", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "position", "idempotency_key"}},
+	"epic_revise_narrative_input":            {Required: []string{"epic_work_id", "expected_version", "narrative", "reason", "idempotency_key"}, Properties: []string{"epic_work_id", "expected_version", "narrative", "reason", "idempotency_key"}},
 	"evidence":                               {Required: []string{"kind", "authority", "locator_kind", "locator"}, Properties: []string{"kind", "authority", "locator_kind", "locator", "version", "digest"}},
 	"field":                                  {Required: []string{"name", "value"}, Properties: []string{"name", "value"}},
 	"knowledge_page":                         {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "watermark"}},

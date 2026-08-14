@@ -77,10 +77,14 @@ Binding: [`../agent-call-context-contract.md`](../agent-call-context-contract.md
 
 ### D6. OpenCode adapter and transport
 
-One globally installed `concord.ts` module exports all eight tools and invokes the
+One globally installed `concord.ts` module initially exported eight tools and invokes the
 short-lived Go CLI over argv + JSON stdin/stdout. No plugin hooks, MCP daemon, FFI,
 TypeScript domain logic, or provider proxy. Signed client bootstrap protects grant
 issuance. Current OpenCode `ToolContext.ask` is pinned, tested, and fail-closed.
+
+CD-0024 amends the current static surface to nine tools at 3.0.0 by adding the
+accepted Epic route. The original v2 eight-tool selection remains historical evidence;
+the major-version boundary and narrow TS9 exception are owned by CD-0024.
 
 Binding: [`../agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md).
 

@@ -522,6 +522,262 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "string"
     },
+    "epic_add_entry_input": {
+      "additionalProperties": false,
+      "properties": {
+        "child_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epic_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "position": {
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "required": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "epic_work_id",
+        "child_work_id",
+        "expected_version",
+        "position",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "epic_change_requiredness_input": {
+      "additionalProperties": false,
+      "properties": {
+        "child_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epic_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "epic_work_id",
+        "child_work_id",
+        "expected_version",
+        "required",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "epic_create_input": {
+      "additionalProperties": false,
+      "properties": {
+        "component_id": {
+          "$ref": "#/$defs/id"
+        },
+        "external_ref": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "priority": {
+          "maximum": 100,
+          "minimum": -100,
+          "type": "integer"
+        },
+        "project_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "tags": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "urgency": {
+          "$ref": "#/$defs/urgency"
+        },
+        "value_statement": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "title",
+        "value_statement",
+        "project_ids",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "epic_entries_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "epic_work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "epic_work_id"
+      ],
+      "type": "object"
+    },
+    "epic_entries_result": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "child_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "epic_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "position": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "epic_work_id",
+              "child_work_id",
+              "position",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "narrative": {
+          "maxLength": 16384,
+          "type": "string"
+        }
+      },
+      "required": [
+        "entries",
+        "narrative"
+      ],
+      "type": "object"
+    },
+    "epic_remove_entry_input": {
+      "additionalProperties": false,
+      "properties": {
+        "child_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epic_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "epic_work_id",
+        "child_work_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "epic_reorder_entry_input": {
+      "additionalProperties": false,
+      "properties": {
+        "child_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epic_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "position": {
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epic_work_id",
+        "child_work_id",
+        "expected_version",
+        "position",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "epic_revise_narrative_input": {
+      "additionalProperties": false,
+      "properties": {
+        "epic_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "narrative": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "epic_work_id",
+        "expected_version",
+        "narrative",
+        "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "evidence": {
       "additionalProperties": false,
       "properties": {

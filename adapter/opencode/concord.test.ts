@@ -20,9 +20,9 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const adapter = await import("./concord")
 
-test("exports exactly the eight generated tool names", () => {
+test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1])
-  expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "work_transition", "work_relate", "work_compact"])
+  expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "work_epic", "work_transition", "work_relate", "work_compact"])
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
 

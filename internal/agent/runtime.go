@@ -171,6 +171,10 @@ type relationInput struct {
 	Depth         int         `json:"depth"`
 	Budget        budgetInput `json:"budget"`
 }
+type epicEntriesInput struct {
+	EpicWorkID string      `json:"epic_work_id"`
+	Budget     budgetInput `json:"budget"`
+}
 type knowledgeSearchInput struct {
 	ProductID string      `json:"product_id"`
 	ProjectID string      `json:"project_id"`
@@ -456,7 +460,7 @@ func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
 		return mutationWorkIdentity{}, err
 	}
 	var result mutationWorkIdentity
-	for _, field := range []string{"work_id", "from_work_id", "to_work_id", "predecessor_id", "successor_id", "replacement_successor_id"} {
+	for _, field := range []string{"work_id", "epic_work_id", "child_work_id", "from_work_id", "to_work_id", "predecessor_id", "successor_id", "replacement_successor_id"} {
 		if value, ok := fields[field]; ok {
 			var id string
 			if json.Unmarshal(value, &id) == nil && id != "" {
@@ -628,6 +632,10 @@ func mapFailureKind(kind store.FailureKind) string {
 	case store.KindIllegalLifecycleTransition:
 		return "invalid_transition"
 	case store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
+		return "invalid_relation"
+	case store.KindEpicScopeViolation:
+		return "invariant_violation"
+	case store.KindEpicEntryConflict:
 		return "invalid_relation"
 	case store.KindMembershipInvariant, store.KindMembershipConflict:
 		return "invariant_violation"
@@ -879,6 +887,37 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return failureEnvelope(base, err), nil
 		}
 		return r.q8(base, q)
+	case "concord_work_epic.entries":
+		var in epicEntriesInput
+		if err := decodeStrict(input, &in); err != nil {
+			return base, err
+		}
+		var kind string
+		if err := r.Store.DB().QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, in.EpicWorkID).Scan(&kind); err == sql.ErrNoRows {
+			return coreError(base, "unknown_scope", "Epic does not exist", "reread_entities", false), nil
+		} else if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		if kind != "epic" {
+			return coreError(base, "invariant_violation", "entry read target is not an Epic", "reread_entities", false), nil
+		}
+		products, err := r.Store.ProductsForWorkIDs(ctx, []string{in.EpicWorkID})
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		if len(products[in.EpicWorkID]) != 1 {
+			return coreError(base, "invariant_violation", "Epic does not derive exactly one Product", "resolve_ambiguity", false), nil
+		}
+		entries, err := r.Store.ReadEpicEntries(ctx, in.EpicWorkID)
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		var narrative string
+		if err := r.Store.DB().QueryRowContext(ctx, `SELECT narrative FROM work_items WHERE id=?`, in.EpicWorkID).Scan(&narrative); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		meta := store.ResultMeta{QueryID: queryID, ContractVersion: "C21/1.0", ResolvedScope: store.ResolvedScope{ProductID: products[in.EpicWorkID][0], WorkID: in.EpicWorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"position", "child_work_id"}}
+		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"entries": entries, "narrative": narrative})
 	case "concord_knowledge.search":
 		var in knowledgeSearchInput
 		if err := decodeStrict(input, &in); err != nil {

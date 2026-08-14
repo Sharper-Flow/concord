@@ -64,7 +64,7 @@ Turning intent into durable, reviewable commitment before implementation.
 | Triage a defect before committing to a fix shape | Covered | `break_fix` workflow definition (reproduce → diagnose → repair → verify), `internal/store/workflow_registry.go` |
 | Declare which laws a unit of work is mandated by, and which it amends | Covered | CD-0015; `spec_mandate` / `law_modifies` in `internal/store/workflow_completion.go` |
 | Block planning and completion on unknown laws or unresolved law conflicts | Covered | CD-0015; `internal/store/workflow_completion.go` |
-| Frame an initiative that spans several units of work, with a narrative and an ordered entry set | **Not covered** | Event kinds, folds, validators, and event builders exist in `internal/store/epic.go`, but no mutation API reaches them, the eight agent operations in `contracts/agent-tool-surface.v1.json` contain no Epic operation, and no CLI command creates one. State can only be produced by hand-appending events. |
+| Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Covered | `concord_work_epic.create`, entry mutations, narrative revision, and bounded `entries` read in `internal/agent/mutations.go`, `internal/agent/runtime.go`, and `contracts/agent-tool-surface.v1.json`; `TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead` proves the reachable event and read path. |
 | Track lightweight future work that is not yet ready to start | Excluded | CD-0009 rejects additional trackable kinds. Early-lifecycle work items carry this, and a separate backlog entity would reintroduce the trackable proliferation the decision closes. |
 | Audit drift between recorded law and current implementation | **Not covered** | No runtime path. The predecessor provides this as a standing capability. |
 
@@ -151,7 +151,7 @@ Knowledge that outlives the change that produced it.
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
 | Preserve the provenance link between a unit of work and its external tracking record | Covered | `external_ref` on capture, `internal/agent/mutations.go` |
 | Capture a per-change learning and promote the durable ones to project scope | **Not covered** | The predecessor accumulates wisdom entries across changes. Concord's canonical notes are per-work-item and are not promoted or aggregated. |
-| Preserve provenance when an item is promoted into an initiative | **Not covered** | Follows the Epic gap in §1. |
+| Preserve provenance when an item is promoted into an initiative | Covered | `concord_work_epic.add_entry` folds the typed `parent` relation and ordered `epic_entries` projection through `store.EpicEntryEvent`; the scoped agent boundary test verifies removal clears the relation without changing the child. |
 
 ## 7. Cross-cutting
 
@@ -171,23 +171,27 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 48 |
-| Not covered | 10 |
+| Covered | 50 |
+| Not covered | 8 |
 | Excluded with reason | 7 |
 
 **Total enumerated outcomes: 65.**
 
-The ten not-covered entries cluster into five groups:
+The eight not-covered entries cluster into four groups:
 
-1. **Initiative coordination** — Epic state has folds and validators but no reachable surface (§1, §6).
-2. **Research reachability** — the research pack subsystem is implemented and unreachable (§4).
-3. **Worker lane pipeline** — the end-to-end evidenced run and the prompt evals landed under issue #57; only clean typed restart remains (§3, issue #120).
-4. **Isolation and independent verdict** — resolved: worktree lifecycle and the trunk write firewall under issue #124, verdict read scope under issue #125 (CD-0023).
-5. **Learning capture** — no wisdom promotion, no post-completion reflection, no spec/implementation drift audit (§1, §4, §6).
+1. **Session continuity** — active-session visibility is tracked by issue #72 and
+   clean typed restart by issue #120 (§2, §3).
+2. **Research reachability** — the research pack subsystem is implemented and
+   unreachable; issue #131 owns its deliberate floor exclusion (§4).
+3. **Learning capture** — no wisdom promotion, post-completion reflection, or
+   spec/implementation drift audit; issue #129 owns the durable learning path
+   (§1, §4, §6).
+4. **Shared-resource coordination** — a durable cross-repository claim is tracked
+   by issue #88 (§5).
 
-The operator-surface and isolation groups are gone: CD-0021 resolved the
-former as deliberate exclusions, and issues #124 and #125 covered the latter.
-Groups 1, 2, and 5 remain, owned by issue #108.
+The operator-surface and isolation groups are gone: CD-0021 resolved the former as
+deliberate exclusions; issues #124 and #125 covered the latter; and CD-0024 makes
+initiative coordination reachable.
 
 ## Predecessor surfaces consumed as evidence
 

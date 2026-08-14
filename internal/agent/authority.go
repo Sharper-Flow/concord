@@ -105,7 +105,7 @@ func validTrustedPolicy(policy TrustedClientPolicy) bool {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
-		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope") {
+		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_epic", "cross_scope") {
 			return false
 		}
 	}
@@ -245,7 +245,7 @@ func validSignedRequests(a SignedAssertion) bool {
 		}
 	}
 	for _, capability := range a.RequestedCapabilities {
-		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope") {
+		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_epic", "cross_scope") {
 			return false
 		}
 	}

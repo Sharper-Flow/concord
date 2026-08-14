@@ -155,7 +155,7 @@ fails consequential mutations closed—never approval prose or `approved: true`.
 
 ### Allowed
 
-- register eight tools and generated strict schemas;
+- register the generated static tool set and strict schemas (nine tools at surface 3.0.0);
 - capture documented OpenCode execution context;
 - hold an ephemeral core grant in memory;
 - serialize one canonical request and parse one canonical response;

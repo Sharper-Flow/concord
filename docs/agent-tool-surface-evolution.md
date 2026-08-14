@@ -16,7 +16,7 @@ normative JSON Schema IR. The IR has closed sections for `surface`, `envelope`,
 `deprecations`, and `generation`. It owns:
 
 - surface and envelope versions;
-- eight tool identities, descriptions, and closed operations;
+- the v2 eight-tool identities and the v3 Epic addition, with closed operations;
 - strict input/result schema references;
 - capability/consequence classifications;
 - context, idempotency, pagination, and output-bound metadata;
@@ -30,8 +30,9 @@ manifest. Every generated file embeds manifest version/digest. A hand-edited
 TypeScript/Go/docs copy is never another authority. CI validates the manifest against
 its IR schema and fails on missing coverage or generated/documentation drift.
 
-The manifest is an installer/build/test artifact—not a ninth agent tool. Concord v1
-keeps TS2's static eight-tool surface. There is no `catalog`, `describe`, `invoke`,
+The manifest is an installer/build/test artifact—not an agent tool. Concord v2 kept
+TS2's static eight-tool surface; the operator-approved Epic amendment below moves
+the current static surface to nine tools. There is no `catalog`, `describe`, `invoke`,
 tool-search, or progressive-discovery tool.
 
 ## 2. Contract identity and negotiation
@@ -40,7 +41,7 @@ The surface uses semantic `MAJOR.MINOR.PATCH` versioning:
 
 - **PATCH:** implementation correction with no model-visible schema, description,
   result, permission, or semantic change.
-- **MINOR:** compatible refinement inside the same eight tool/operation identities,
+- **MINOR:** compatible refinement inside the same established tool/operation identities,
   such as an optional field or description improvement, only when negotiated old
   clients can receive a lossless old representation.
 - **MAJOR:** add/remove/rename a tool or operation; change required fields, meaning,
@@ -141,6 +142,27 @@ retain their existing operation and idempotency identities and are projected int
 the `2.0.0` envelope on replay; no event history is rewritten. A client that
 supports an unknown major, an unknown error classification, or a mismatched
 manifest digest fails closed before any domain call.
+
+### Epic 3.0.0 amendment
+
+**Operator approval:** 2026-08-14, GitHub issue #128; CD-0024. **TS9 evidence:** the accepted
+CD-0009 Epic model had event folds, invariant checks, and bounded reads but no
+reachable agent or operator surface; `docs/predecessor-operational-coverage.md`
+therefore recorded initiative framing and promotion provenance as not covered. The
+new `concord_work_epic` surface is the minimal bounded route to those accepted
+outcomes. A v2 adapter cannot express that ninth tool or its closed operations, so
+an additive minor would be dishonest.
+
+Surface `3.0.0` adds `concord_work_epic` with create, entry, narrative, and bounded
+entries-read operations. It is a MAJOR change. The core supports only `3.0.0` for
+new grants; a `2.x` adapter fails bootstrap before a domain call and must upgrade its
+generated adapter, manifest digest, and signed surface range to `3.0.0-3.0.0` before
+requesting a fresh grant. No alias, tool hiding, digest override, or version-dependent
+meaning is offered.
+
+Existing work/domain events and durable workflow operations accepted under `1.x` or
+`2.x` remain readable and recoverable under the current envelope. The upgrade changes
+only the model-visible invocation contract; it does not rewrite durable history.
 - Permanent aliases, silent redirects, and one name with version-dependent meaning
   are forbidden.
 
@@ -165,7 +187,7 @@ This preserves in-flight recoverability without keeping every old tool model-vis
 
 ## 6. Discovery
 
-V1 discovery is OpenCode's static registration of the eight generated exports.
+Discovery is OpenCode's static registration of the generated exports.
 Agents do not search for Concord tools at runtime.
 
 The canonical manifest may be read by installers, generators, conformance tests, and
@@ -209,6 +231,9 @@ At minimum test:
 | current adapter, old durable operation | current | Operation remains readable/recoverable under current envelope. |
 | `1.x` adapter | `2.0.0` core | Bootstrap fails `incompatible_contract`; no tool executes. |
 | `2.0.0` adapter, durable workflow action accepted by `1.x` | `2.0.0` core | Replay uses the original idempotency identity and returns the typed `2.0.0` envelope. |
+| `2.3.0` adapter | `3.0.0` core | Bootstrap fails before a domain call; adapter upgrades generated manifest/digest and requests a fresh `3.0.0` grant. |
+| `3.0.0` adapter | `3.0.0` core | Matching digest negotiates `3.0.0`; Epic operations are available only when `work_epic` is granted. |
+| `3.0.0` adapter, durable operation accepted under `2.x` | `3.0.0` core | Historic operation remains readable/recoverable with its original contract version; no event is rewritten. |
 
 Compatibility tests validate strict schema rejection of unknown fields/variants and
 ensure fail-closed responses never become `ok`.

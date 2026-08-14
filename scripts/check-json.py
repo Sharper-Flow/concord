@@ -81,6 +81,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"floor readiness drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    lane_eval_checker = ROOT / "scripts/check-lane-evals.py"
+    if lane_eval_checker.is_file():
+        checked = subprocess.run([sys.executable, str(lane_eval_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"lane eval drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     for finding in findings[:MAX_FINDINGS]:
         print(finding)
     if len(findings) > MAX_FINDINGS:

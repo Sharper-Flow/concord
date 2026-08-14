@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "attempt_id": "attempt:eval-implement-bounded-task",
+  "lane_id": "implement",
+  "lane_version": 1,
+  "lane_digest": "sha256:84f204c2145897411b16e16f5d6d099ee792213042aecb01f59059090636de85",
+  "work_id": "work:eval-harness",
+  "step_id": "execution",
+  "inputs": {
+    "task": "Add a doc comment to one exported function in internal/version and report verification.",
+    "context": "The change is scoped to a single package.",
+    "constraints": [
+      "Touch only internal/version.",
+      "Report the verification command you ran."
+    ]
+  }
+}

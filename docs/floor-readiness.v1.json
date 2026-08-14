@@ -196,9 +196,13 @@
       "id": "fc3-lane-behavioral-evals",
       "condition": "fc3",
       "title": "Lane prompt behaviour is measured by an evaluation harness",
-      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. Lane agent definitions exist as prose; no harness, fixture, or eval configuration is present in the repository.",
-      "state": "outstanding",
-      "issue": 57
+      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness evaluates every registered lane through its pinned model, and a deterministic validator fails when the harness drifts from the lane registry.",
+      "state": "satisfied",
+      "evidence": [
+        "adapter/opencode/evals/promptfooconfig.yaml",
+        "adapter/opencode/evals/packets",
+        "scripts/check-lane-evals.py"
+      ]
     },
     {
       "id": "fc3-worker-authority-boundary",

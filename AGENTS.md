@@ -160,7 +160,7 @@ the validator to make a check pass.
 | `internal/portfolio/`, `internal/workflowcorpus/` | Read projections and conformance coverage. |
 | `contracts/` | Public JSON schemas + manifest (generated-code inputs). |
 | `scenarios/` | Synthetic acceptance scenarios and fixtures. |
-| `adapter/opencode/` | Implemented TypeScript custom-tool adapter (`concord.ts` hand-written + generated contracts). |
+| `adapter/opencode/` | Implemented TypeScript custom-tool adapter (`concord.ts` hand-written + generated contracts); `agents/` holds lane prose and `evals/` the advisory CD-0017 D7 prompt-eval harness. |
 | `docs/` | Constitutional Product law and design evidence. |
 | `workflows/`, `skills/` | Reserved (README only); `skills/` is packaged into releases. |
 | `scripts/` | Validators, codegen, release/install tooling, and their tests. |

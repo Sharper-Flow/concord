@@ -58,6 +58,10 @@ type ProjectResolution struct {
 	ProjectID  string
 	Repository HostRepository
 	Locators   []ProjectLocator
+	// MainWorktree reports that the resolved working tree is the repository's
+	// main checkout rather than a linked worktree (CD-0008 D1). It is false
+	// when no resolver ran, so the zero value never blocks a grant.
+	MainWorktree bool
 }
 
 // ScopeVersion is a structural membership watermark. It changes only when the
@@ -250,6 +254,10 @@ func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktre
 	if err != nil {
 		return ProjectResolution{}, err
 	}
+	mainWorktree, err := resolveMainWorktree(ctx, runner, canonical)
+	if err != nil {
+		return ProjectResolution{}, err
+	}
 	remoteOut, remoteErr := runner.Run(ctx, canonical, "config", "--get", "remote.origin.url")
 	remote := ""
 	if remoteErr == nil && strings.TrimSpace(string(remoteOut)) != "" {
@@ -276,7 +284,7 @@ func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktre
 		ids[l.ProjectID] = true
 	}
 	if len(ids) == 0 {
-		return ProjectResolution{Repository: host}, newFailure(KindUnknownScope, "resolve_project", "git repository has no known Project locator", false, "register a canonical_path or git_remote locator")
+		return ProjectResolution{Repository: host, MainWorktree: mainWorktree}, newFailure(KindUnknownScope, "resolve_project", "git repository has no known Project locator", false, "register a canonical_path or git_remote locator")
 	}
 	if len(ids) != 1 {
 		candidates := make([]string, 0, len(ids))
@@ -286,13 +294,51 @@ func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktre
 		sort.Strings(candidates)
 		f := newFailure(KindAmbiguousScope, "resolve_project", "git repository matches multiple Projects", false, "remove the conflicting locator or select one stable Project")
 		f.CandidateIDs = candidates
-		return ProjectResolution{Repository: host, Locators: locators}, f
+		return ProjectResolution{Repository: host, Locators: locators, MainWorktree: mainWorktree}, f
 	}
 	var id string
 	for candidate := range ids {
 		id = candidate
 	}
-	return ProjectResolution{ProjectID: id, Repository: host, Locators: locators}, nil
+	return ProjectResolution{ProjectID: id, Repository: host, Locators: locators, MainWorktree: mainWorktree}, nil
+}
+
+// resolveMainWorktree reports whether the working tree at root is the
+// repository's main checkout rather than a linked worktree (CD-0008 D1).
+// git-dir and git-common-dir identify the same directory only in the main
+// working tree; a linked worktree keeps its own git-dir under the common one.
+// Both outputs may be relative to root, so they are resolved and symlink
+// normalized before comparison. The probe fails closed: if git cannot report
+// the topology, resolution itself fails.
+func resolveMainWorktree(ctx context.Context, runner GitRunner, root string) (bool, error) {
+	gitDirOut, gitDirErr := runner.Run(ctx, root, "rev-parse", "--git-dir")
+	commonDirOut, commonDirErr := runner.Run(ctx, root, "rev-parse", "--git-common-dir")
+	if gitDirErr != nil || commonDirErr != nil {
+		return false, newFailure(KindGitUnreachable, "resolve_project", "cannot determine worktree topology", true, "run the client from a reachable git worktree")
+	}
+	same := func(raw string) (string, error) {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			return "", newFailure(KindGitUnreachable, "resolve_project", "git reported an empty worktree path", true, "run the client from a reachable git worktree")
+		}
+		if !filepath.IsAbs(value) {
+			value = filepath.Join(root, value)
+		}
+		resolved, err := filepath.EvalSymlinks(value)
+		if err != nil {
+			return "", newFailure(KindGitUnreachable, "resolve_project", "git worktree path is not reachable", true, "run the client from a reachable git worktree")
+		}
+		return resolved, nil
+	}
+	gitDir, err := same(string(gitDirOut))
+	if err != nil {
+		return false, err
+	}
+	commonDir, err := same(string(commonDirOut))
+	if err != nil {
+		return false, err
+	}
+	return gitDir == commonDir, nil
 }
 
 func (s *Store) matchProjectLocators(ctx context.Context, kind LocatorKind, normalized string) ([]ProjectLocator, error) {

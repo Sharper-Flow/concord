@@ -162,9 +162,13 @@
       "id": "fc3-lane-pipeline",
       "condition": "fc3",
       "title": "Research, implementation, and review lanes complete an end-to-end synthetic workflow",
-      "requirement": "A synthetic scenario drives the three lanes through one workflow producing typed evidence. No file under scenarios/ currently references a lane identifier.",
-      "state": "outstanding",
-      "issue": 57
+      "requirement": "A synthetic scenario drives the registered lanes through one workflow producing typed worker evidence, and only a distinct owner accepts a completed attempt.",
+      "state": "satisfied",
+      "evidence": [
+        "scenarios/workflow-engine.v1.json",
+        "internal/store/workflow_conformance_test.go",
+        "contracts/workflow-engine-scenarios.schema.json"
+      ]
     },
     {
       "id": "fc3-reviewer-model-distinctness",

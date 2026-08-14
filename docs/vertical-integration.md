@@ -106,13 +106,28 @@ Product-aware**. Vertical integration could make them cohesive and Product-scope
 
 Until one of these fires, **product-scoping is the answer.**
 
+### Triggers are evaluated per tool
+
+The spectrum, the lean, and the decision triggers above apply to all three tools,
+but each tool reaches its trigger on its own evidence. As of 2026-08-14 the
+clarification entries are split accordingly: lgrep and vision share
+[`clarifications.md`](./clarifications.md) C8, and episode has its own entry C20
+owned by issue #46.
+
+The practical difference: episode consumes predecessor wisdom and reflection
+state, so its probe window is bounded by the accepted Product-at-a-time
+retirement in [`priorities.md`](./priorities.md). lgrep and vision index and host
+things that outlive that retirement, so no deadline applies to them. A measured
+need against one tool is not evidence about the others.
+
 ---
 
 ## Relationship to other docs
 
 | Doc | Link |
 |---|---|
-| [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision / episode ownership, scoped separately from the launcher/interface decision (R1). |
+| [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the launcher/interface decision (R1). |
+| [`clarifications.md`](./clarifications.md) C20 | Open question about episode ownership; owned by issue #46. |
 | `clarifications.md` R1 | Resolved launcher/interface direction: terminal launcher primary; ZLauncher is bootstrap only. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |

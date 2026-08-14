@@ -24,8 +24,8 @@ repo/package is chosen and separately authorized; release remains subject to TS9
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
 mechanics; CD-0009 fixes Epic/research work identity and active-pack retention. Open
-clarifications remain open; acceptance of these records does not close C8–C10 or
-other explicitly deferred questions.
+clarifications remain open; acceptance of these records does not close C8–C10,
+C20, or other explicitly deferred questions.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -350,12 +350,34 @@ re-litigate them silently.
 
 ## 🟡 Medium — resolve as they come up
 
-### C8. lgrep / vision / episode
+### C8. lgrep / vision
 - **Question:** Confirm *product-scoping first*, or seriously evaluate
   owning/swallowing now? (`vertical-integration.md`)
 - **Lean:** product-scoping first; revisit only on measured need.
 - **Direction (2026-07-25):** 🟡 unchanged. See `vertical-integration.md` for
   the resolved launcher/interface boundary.
+- **Scope (2026-08-14):** narrowed to lgrep and vision. Both are general-purpose
+  beyond Concord and neither has a recorded integration pain that orchestration
+  cannot resolve, so they share one decision trigger. episode moved to C20
+  because its evidence and trigger diverged; the split changes neither lean.
+
+### C20. episode ownership and the memory-territory boundary
+- **Question:** Does episode stay external and product-scoped, or does Concord
+  own the agent-memory territory? (`vertical-integration.md`)
+- **Lean:** unchanged from C8 — product-scoping first; revisit only on measured
+  need.
+- **Why it is separate from C8:** episode's decision trigger is owned by issue
+  #46, which fires on a specific product-scoping probe outcome and additionally
+  requires a promotion-receiving contract. lgrep and vision have no analogue for
+  either. episode also ingests predecessor wisdom and reflection state, so its
+  probe window is bounded by the accepted Product-at-a-time retirement in
+  [`priorities.md`](./priorities.md), while lgrep and vision are unaffected by
+  that retirement. Keeping one entry for all three meant #46 could not fire
+  without implying a direction change for the other two.
+- **Adjacent, already resolved:** agent context continuity is settled inside
+  Concord's own authority by CD-0016 (C19). C20 is about durable decision
+  memory, not the continuity projections, and does not reopen C19.
+- **Direction (2026-08-14):** 🟡 unchanged. Owner: issue #46.
 
 ### C9. Capability-placement rubric enforcement
 - **Question:** Structural (blocks misplaced capabilities) or advisory + recorded?
@@ -561,5 +583,5 @@ accepted agent surface; C14/C15 fix Product-row and resource ownership projectio
 CD-0006/CD-0007/CD-0008 fix root policy, public-migration boundaries, evidence
 binding, unreadable-record isolation, and execution mechanics. PM1 remains the shared
 query/read-tool corpus. No storage table or CLI command automatically earns a tool.
-Remaining open clarifications resolve through their own evidence gates; C5 and
-C8–C10 remain deferred, and the replacement-relation home remains open.
+Remaining open clarifications resolve through their own evidence gates; C5,
+C8–C10, and C20 remain deferred, and the replacement-relation home remains open.

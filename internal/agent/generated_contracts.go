@@ -7,7 +7,7 @@ import (
 )
 
 const ManifestVersion = "2.4.0"
-const ManifestDigest = "sha256:224a5f9d8727a355fdbb9363963c844cef1698bfbc42c0590487a312a72ce16e"
+const ManifestDigest = "sha256:a9b72eeefc634036f003eced81653f147e4f8797a7d6114c2afa88451648a50a"
 
 type OperationKind string
 
@@ -127,7 +127,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relate_supersede_input":            {Required: []string{"predecessor_id", "successor_id", "predecessor_expected_version", "successor_expected_version", "reason", "idempotency_key"}, Properties: []string{"predecessor_id", "successor_id", "predecessor_expected_version", "successor_expected_version", "reason", "idempotency_key", "approval", "evidence"}},
 	"work_relate_unlink_input":               {Required: []string{"relation_id", "expected_versions", "reason", "idempotency_key"}, Properties: []string{"relation_id", "expected_versions", "reason", "idempotency_key", "approval"}},
 	"work_relation_graph":                    {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
-	"work_scope":                             {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor"}},
+	"work_scope":                             {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor", "verdict"}},
 	"work_summary":                           {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at"}},
 	"work_trace_continuity_input":            {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "page", "budget"}},
 	"work_trace_history_input":               {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "direction", "event_kinds", "page", "budget"}},

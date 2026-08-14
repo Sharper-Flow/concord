@@ -108,7 +108,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Isolate each unit of work in its own git worktree, and refuse writes to the trunk checkout | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; `internal/agent/authority.go` refuses mutating grants bound to the main checkout. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`.
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Concord coordinates such work through the `static_analysis` workflow type and records its verdict; it does not implement scanners. |
-| Obtain an acceptance verdict from an authority the implementing agent cannot read or influence | **Not covered** | The predecessor provides externally-isolated conformance. Concord has conditions and external awaits but no isolated verdict authority. |
+| Obtain an acceptance verdict from an authority the implementing agent cannot read or influence | Covered | CD-0013 D5 and CD-0017 D4 hold the influence half; CD-0023 read-scopes the recorded verdict so every session except the recorded executing actor audits it (`internal/agent/verdict_scope_test.go`). |
 
 ## 4. Research and investigation
 
@@ -171,23 +171,23 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 47 |
-| Not covered | 11 |
+| Covered | 48 |
+| Not covered | 10 |
 | Excluded with reason | 7 |
 
 **Total enumerated outcomes: 65.**
 
-The eleven not-covered entries cluster into five groups:
+The ten not-covered entries cluster into five groups:
 
 1. **Initiative coordination** — Epic state has folds and validators but no reachable surface (§1, §6).
 2. **Research reachability** — the research pack subsystem is implemented and unreachable (§4).
 3. **Worker lane pipeline** — the end-to-end evidenced run and the prompt evals landed under issue #57; only clean typed restart remains (§3, issue #120).
-4. **Isolation and independent verdict** — worktree lifecycle and the trunk write firewall landed under issue #124; only the isolated acceptance authority remains (§3, issue #125).
+4. **Isolation and independent verdict** — resolved: worktree lifecycle and the trunk write firewall under issue #124, verdict read scope under issue #125 (CD-0023).
 5. **Learning capture** — no wisdom promotion, no post-completion reflection, no spec/implementation drift audit (§1, §4, §6).
 
-The operator-surface group is gone: CD-0021 resolved both of its entries as
-deliberate exclusions. Groups 1, 4, and 5 have no dedicated tracking issue and
-are owned by issue #108; group 4's remainder is tracked as issue #125.
+The operator-surface and isolation groups are gone: CD-0021 resolved the
+former as deliberate exclusions, and issues #124 and #125 covered the latter.
+Groups 1, 2, and 5 remain, owned by issue #108.
 
 ## Predecessor surfaces consumed as evidence
 

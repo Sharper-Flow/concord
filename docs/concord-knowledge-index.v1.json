@@ -247,27 +247,6 @@
       "sha256": "sha256:5a941685adaa38f552a84804e91b238efe78fedbdd29e7af50b4478f5233d559"
     },
     {
-      "id": "PM1",
-      "kind": "spec",
-      "path": "docs/product-memory-query-contract.md",
-      "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Product memory query contract",
-      "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
-      "tags": [
-        "pm1",
-        "queries"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "component_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:7b47d6b439b734ca7becb486bbb1d39a3c0b3983b05366e757d687cc06847e77"
-    },
-    {
       "id": "CD-0014",
       "kind": "decision",
       "path": "docs/decisions/CD-0014-terminal-launcher-rendering.md",
@@ -473,17 +452,17 @@
       "sha256": "sha256:c0fc3925debfaabc824a8f10249ac235f347751b0db0142f4ff52cf98fa83da5"
     },
     {
-      "id": "agent-lanes-contract",
-      "kind": "spec",
-      "path": "docs/agent-lanes-contract.md",
+      "id": "CD-0023",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0023-verdict-read-scope.md",
       "status": "accepted",
-      "date": "2026-08-11T00:00:00Z",
-      "title": "Agent lane contract",
-      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, pinned models, budgets, lifecycle states, and evidence obligations.",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Verdict read scope for the executing actor",
+      "summary": "Recorded verdicts become readable, read-scoped results: every session except the recorded executing actor audits an acceptance; influence stays with CD-0013 D5.",
       "tags": [
-        "typed-workers",
-        "lane-registry",
-        "agents"
+        "verdicts",
+        "read-scope",
+        "agent-surface"
       ],
       "scopes": {
         "mode": "home",
@@ -492,21 +471,19 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:6b89edd732d1655dbfdd4186fdb00a37fbcd5eca999812ca44ad056975a7ec72"
+      "sha256": "sha256:90f0743875136bd79b47e2cd1db241a8ef9020c6a1d9027bcf733408feb5a57f"
     },
     {
-      "id": "routing-policy-contract",
+      "id": "PM1",
       "kind": "spec",
-      "path": "docs/routing-policy-contract.md",
+      "path": "docs/product-memory-query-contract.md",
       "status": "accepted",
-      "date": "2026-08-11T00:00:00Z",
-      "title": "Worker routing policy",
-      "summary": "Generated CD-0017 routing policy binding capability classes to pinned preferred models and ordered declared fallback resolution sets.",
+      "date": "2026-08-06T00:00:00Z",
+      "title": "Product memory query contract",
+      "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
       "tags": [
-        "typed-workers",
-        "model-routing",
-        "fallback",
-        "agents"
+        "pm1",
+        "queries"
       ],
       "scopes": {
         "mode": "home",
@@ -515,7 +492,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e0cf80d25e1d384d5267b7e0de6c4fda83b17acdfe8afbbed4a23a30317e45cd"
+      "sha256": "sha256:7b47d6b439b734ca7becb486bbb1d39a3c0b3983b05366e757d687cc06847e77"
     },
     {
       "id": "PM3",
@@ -583,27 +560,6 @@
       "sha256": "sha256:063007af2110827e6f3f1816fbd79e39b08f3f3d4d0f7dd5b73344593ac92a8a"
     },
     {
-      "id": "workflow-engine-contract",
-      "kind": "spec",
-      "path": "docs/workflow-engine-contract.md",
-      "status": "accepted",
-      "date": "2026-08-08T00:00:00Z",
-      "title": "Workflow engine contract",
-      "summary": "Defines the machine-readable workflow engine implementation contract.",
-      "tags": [
-        "workflow",
-        "contract"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "component_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:6c4f9ab549efec3b0dc7df42a97e83df6d54da56c1e18db5f5486969f31dd79f"
-    },
-    {
       "id": "TS3",
       "kind": "spec",
       "path": "docs/agent-read-tool-contract.md",
@@ -667,6 +623,72 @@
         "tag_ids": []
       },
       "sha256": "sha256:348ef42c5debee51f2870c477243ac9ef451cf98fb3d0d45f6f98494ccbc103d"
+    },
+    {
+      "id": "agent-lanes-contract",
+      "kind": "spec",
+      "path": "docs/agent-lanes-contract.md",
+      "status": "accepted",
+      "date": "2026-08-11T00:00:00Z",
+      "title": "Agent lane contract",
+      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, pinned models, budgets, lifecycle states, and evidence obligations.",
+      "tags": [
+        "typed-workers",
+        "lane-registry",
+        "agents"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:6b89edd732d1655dbfdd4186fdb00a37fbcd5eca999812ca44ad056975a7ec72"
+    },
+    {
+      "id": "routing-policy-contract",
+      "kind": "spec",
+      "path": "docs/routing-policy-contract.md",
+      "status": "accepted",
+      "date": "2026-08-11T00:00:00Z",
+      "title": "Worker routing policy",
+      "summary": "Generated CD-0017 routing policy binding capability classes to pinned preferred models and ordered declared fallback resolution sets.",
+      "tags": [
+        "typed-workers",
+        "model-routing",
+        "fallback",
+        "agents"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:e0cf80d25e1d384d5267b7e0de6c4fda83b17acdfe8afbbed4a23a30317e45cd"
+    },
+    {
+      "id": "workflow-engine-contract",
+      "kind": "spec",
+      "path": "docs/workflow-engine-contract.md",
+      "status": "accepted",
+      "date": "2026-08-08T00:00:00Z",
+      "title": "Workflow engine contract",
+      "summary": "Defines the machine-readable workflow engine implementation contract.",
+      "tags": [
+        "workflow",
+        "contract"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:6c4f9ab549efec3b0dc7df42a97e83df6d54da56c1e18db5f5486969f31dd79f"
     }
   ]
 }

@@ -2339,6 +2339,54 @@ const GeneratedPayloadSchemaDocument = `{
         "next_cursor": {
           "$ref": "#/$defs/cursor"
         },
+        "verdict": {
+          "additionalProperties": false,
+          "description": "CD-0023: recorded acceptance verdict. Absent with a redaction omission when the reader is the recorded executing actor.",
+          "properties": {
+            "completed_at": {
+              "maxLength": 40,
+              "minLength": 20,
+              "type": "string"
+            },
+            "final_verdict_kind": {
+              "enum": [
+                "ok",
+                "outcome_mismatch",
+                "insufficient_evidence"
+              ],
+              "type": "string"
+            },
+            "impact_verdict": {
+              "enum": [
+                "breaking",
+                "non-breaking"
+              ],
+              "type": "string"
+            },
+            "terminal_state": {
+              "enum": [
+                "completed",
+                "cancelled",
+                "superseded"
+              ],
+              "type": "string"
+            },
+            "verdict_actor_ref": {
+              "maxLength": 70,
+              "minLength": 70,
+              "pattern": "^actor:[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "terminal_state",
+            "final_verdict_kind",
+            "verdict_actor_ref",
+            "impact_verdict",
+            "completed_at"
+          ],
+          "type": "object"
+        },
         "work": {
           "$ref": "#/$defs/work_summary"
         }

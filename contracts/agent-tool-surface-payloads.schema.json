@@ -1638,6 +1638,54 @@
         },
         "next_cursor": {
           "$ref": "#/$defs/cursor"
+        },
+        "verdict": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "terminal_state",
+            "final_verdict_kind",
+            "verdict_actor_ref",
+            "impact_verdict",
+            "completed_at"
+          ],
+          "properties": {
+            "terminal_state": {
+              "type": "string",
+              "enum": [
+                "completed",
+                "cancelled",
+                "superseded"
+              ]
+            },
+            "final_verdict_kind": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "outcome_mismatch",
+                "insufficient_evidence"
+              ]
+            },
+            "verdict_actor_ref": {
+              "type": "string",
+              "minLength": 70,
+              "maxLength": 70,
+              "pattern": "^actor:[0-9a-f]{64}$"
+            },
+            "impact_verdict": {
+              "type": "string",
+              "enum": [
+                "breaking",
+                "non-breaking"
+              ]
+            },
+            "completed_at": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 40
+            }
+          },
+          "description": "CD-0023: recorded acceptance verdict. Absent with a redaction omission when the reader is the recorded executing actor."
         }
       },
       "anyOf": [

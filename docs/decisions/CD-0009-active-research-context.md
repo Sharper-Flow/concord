@@ -104,6 +104,11 @@ active_research_findings
 - confidence                   # low | medium | high
 - freshness                    # current | stale | unknown
 - status                       # active | contradicted | superseded
+- scope_mode                   # home | explicit; see CD-0022
+
+active_research_finding_scopes
+- pack_id + revision + finding_id + scope_kind + scope_id
+- scope_kind                   # product | project | component | tag
 
 active_research_sources
 - pack_id + revision + source_id
@@ -127,7 +132,9 @@ active_research_consumers
 ```
 
 All enum values are closed and schema-validated. Finding/source links use composite
-foreign keys. Pack/revision IDs are generated and never intentionally reused, but no
+foreign keys. CD-0022 adds the durable-knowledge applies-to vocabulary at finding
+level: `home` carries no explicit scopes and `explicit` carries declared Product,
+Project, component, and tag scopes. Pack/revision IDs are generated and never intentionally reused, but no
 permanent tombstone or deleted-ID registry remains after deletion.
 
 ## D4. Authority and mutation boundary

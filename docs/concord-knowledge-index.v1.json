@@ -160,7 +160,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1e094537e7a0b853d98a940faebf5d70db03f43524255b13237522c4815fcaa2"
+      "sha256": "sha256:d8aa2aad6a91590fba610755b0fb05e4b62f0cf55330148c530e34c6e9621896"
     },
     {
       "id": "CD-0010",
@@ -448,6 +448,29 @@
         "tag_ids": []
       },
       "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66"
+    },
+    {
+      "id": "CD-0022",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0022-active-research-finding-scope.md",
+      "status": "accepted",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Active research findings carry applies-to scope",
+      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, component, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "tags": [
+        "research",
+        "scope",
+        "knowledge",
+        "retention"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c0fc3925debfaabc824a8f10249ac235f347751b0db0142f4ff52cf98fa83da5"
     },
     {
       "id": "agent-lanes-contract",

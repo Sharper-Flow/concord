@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -920,4 +921,66 @@ func revisionByNumber(t *testing.T, pack ResearchPack, revision int64) ResearchR
 	}
 	t.Fatalf("revision %d absent from pack", revision)
 	return ResearchRevision{}
+}
+
+// Active research findings use the same applies-to vocabulary as durable knowledge.
+// Owner work says where the research was found; this scope says what one finding
+// applies to, which can be a different component, project, or tag.
+func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner")
+	pack, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
+		Identity: researchIdentity("scope-pack"), OwnerWorkID: "owner", Freshness: ResearchCurrent,
+		Revision: ResearchRevisionInput{Question: "q", ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`), Method: "m"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit := ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}, ProjectIDs: []string{"project"}, ComponentIDs: []string{"api"}, TagIDs: []string{"security"}}
+	if _, err := AddResearchFinding(ctx, s, ResearchFindingRequest{Identity: researchIdentity("scoped-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "scoped", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, Scopes: explicit}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("scope-append"), PackID: pack.PackID, ExpectedVersion: 2, Revision: ResearchRevisionInput{Question: "q", ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`), Method: "m"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadCompleteResearchPack(ctx, s, pack.PackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, revision := range got.Revisions {
+		if len(revision.Findings) != 1 || !reflect.DeepEqual(revision.Findings[0].Scopes, explicit) {
+			t.Fatalf("revision %d scope=%+v, want %+v", revision.Revision, revision.Findings, explicit)
+		}
+	}
+
+	// Switching an explicit finding back to home must delete its old rows before
+	// the structural home guard permits the mode change.
+	if _, err := UpdateResearchFinding(ctx, s, ResearchFindingRequest{Identity: researchIdentity("scope-home-update"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "scoped", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, Scopes: ResearchScopes{Mode: "home"}}}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := ReadCompleteResearchPack(ctx, s, pack.PackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scopes := revisionByNumber(t, updated, 2).Findings[0].Scopes; scopes.Mode != "home" || len(scopes.ProductIDs)+len(scopes.ProjectIDs)+len(scopes.ComponentIDs)+len(scopes.TagIDs) != 0 {
+		t.Fatalf("updated scope=%+v, want empty home scope", scopes)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		scope ResearchScopes
+	}{
+		{"home with IDs", ResearchScopes{Mode: "home", ProductIDs: []string{"product"}}},
+		{"explicit empty", ResearchScopes{Mode: "explicit"}},
+		{"unknown product", ResearchScopes{Mode: "explicit", ProductIDs: []string{"missing"}}},
+		{"duplicate component", ResearchScopes{Mode: "explicit", ComponentIDs: []string{"api", "api"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := AddResearchFinding(ctx, s, ResearchFindingRequest{Identity: researchIdentity("invalid-scope-" + tc.name), PackID: pack.PackID, ExpectedVersion: 4, Finding: ResearchFinding{FindingID: "bad-" + tc.name, Kind: FindingObservation, Statement: "bad", Confidence: ConfidenceLow, Freshness: ResearchCurrent, Status: FindingActive, Scopes: tc.scope}})
+			if err == nil {
+				t.Fatal("scope validation accepted invalid scope")
+			}
+		})
+	}
 }

@@ -203,6 +203,9 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 	if req.Finding.PackID != req.PackID {
 		return out, researchInvalid("finding pack_id does not match request")
 	}
+	if err := validateResearchScopes(&req.Finding.Scopes); err != nil {
+		return out, err
+	}
 	digest, err := canonicalRequestDigest(req)
 	if err != nil {
 		return out, err
@@ -226,6 +229,10 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 	}
 	pack, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion)
 	if err != nil {
+		_ = tx.Rollback()
+		return out, err
+	}
+	if err := validateResearchScopeReferences(ctx, tx, req.Finding.Scopes); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -253,9 +260,15 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 		return out, researchUnavailable("cannot inspect finding", err)
 	}
 	if update {
-		_, err = tx.ExecContext(ctx, `UPDATE active_research_findings SET kind=?,statement=?,confidence=?,freshness=?,status=? WHERE pack_id=? AND revision=? AND finding_id=?`, req.Finding.Kind, req.Finding.Statement, req.Finding.Confidence, req.Finding.Freshness, req.Finding.Status, req.PackID, revision, req.Finding.FindingID)
+		// Clear scope before changing mode: the database guard makes home with any
+		// explicit row structurally impossible, including during an update.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM active_research_finding_scopes WHERE pack_id=? AND revision=? AND finding_id=?`, req.PackID, revision, req.Finding.FindingID); err != nil {
+			_ = tx.Rollback()
+			return out, researchUnavailable("cannot clear finding scope", err)
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE active_research_findings SET kind=?,statement=?,confidence=?,freshness=?,status=?,scope_mode=? WHERE pack_id=? AND revision=? AND finding_id=?`, req.Finding.Kind, req.Finding.Statement, req.Finding.Confidence, req.Finding.Freshness, req.Finding.Status, req.Finding.Scopes.Mode, req.PackID, revision, req.Finding.FindingID)
 	} else {
-		_, err = tx.ExecContext(ctx, `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status) VALUES(?,?,?,?,?,?,?,?)`, req.PackID, revision, req.Finding.FindingID, req.Finding.Kind, req.Finding.Statement, req.Finding.Confidence, req.Finding.Freshness, req.Finding.Status)
+		_, err = tx.ExecContext(ctx, `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES(?,?,?,?,?,?,?,?,?)`, req.PackID, revision, req.Finding.FindingID, req.Finding.Kind, req.Finding.Statement, req.Finding.Confidence, req.Finding.Freshness, req.Finding.Status, req.Finding.Scopes.Mode)
 	}
 	if err != nil {
 		_ = tx.Rollback()
@@ -268,6 +281,10 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 	if _, err := tx.ExecContext(ctx, `DELETE FROM active_research_finding_sources WHERE pack_id=? AND revision=? AND finding_id=?`, req.PackID, revision, req.Finding.FindingID); err != nil {
 		_ = tx.Rollback()
 		return out, researchUnavailable("cannot clear finding citations", err)
+	}
+	if err := writeResearchFindingScopes(ctx, tx, req.PackID, revision, req.Finding.FindingID, req.Finding.Scopes); err != nil {
+		_ = tx.Rollback()
+		return out, err
 	}
 	for _, sourceID := range req.Finding.SourceIDs {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,?,?,?)`, req.PackID, revision, req.Finding.FindingID, sourceID); err != nil {

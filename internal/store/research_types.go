@@ -65,6 +65,36 @@ type ResearchFinding struct {
 	Freshness  ResearchFreshness     `json:"freshness"`
 	Status     ResearchFindingStatus `json:"status"`
 	SourceIDs  []string              `json:"source_ids,omitempty"`
+	Scopes     ResearchScopes        `json:"scopes"`
+}
+
+// ResearchScopes declares what a finding applies to, using the same vocabulary as
+// durable knowledge records so one scope shape spans active and durable knowledge.
+// Mode home means the finding applies to its owner's home broadly and carries no
+// explicit IDs; explicit means it applies to exactly the declared scopes.
+type ResearchScopes struct {
+	Mode         string   `json:"mode"`
+	ProductIDs   []string `json:"product_ids,omitempty"`
+	ProjectIDs   []string `json:"project_ids,omitempty"`
+	ComponentIDs []string `json:"component_ids,omitempty"`
+	TagIDs       []string `json:"tag_ids,omitempty"`
+}
+
+// byKind pairs each scope list with its stored scope_kind, so writers and readers
+// share one ordering and cannot disagree about which list a kind belongs to.
+func (s *ResearchScopes) byKind() []struct {
+	kind   string
+	values *[]string
+} {
+	return []struct {
+		kind   string
+		values *[]string
+	}{
+		{"product", &s.ProductIDs},
+		{"project", &s.ProjectIDs},
+		{"component", &s.ComponentIDs},
+		{"tag", &s.TagIDs},
+	}
 }
 
 type ResearchSource struct {

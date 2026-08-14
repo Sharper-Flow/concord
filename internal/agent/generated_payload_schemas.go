@@ -2489,27 +2489,50 @@ const GeneratedPayloadSchemaDocument = `{
     "work_transition_action_input": {
       "additionalProperties": false,
       "else": {
-        "not": {
-          "anyOf": [
-            {
-              "required": [
-                "selected_choice"
-              ]
-            },
-            {
-              "required": [
-                "decision_context_digest"
-              ]
+        "else": {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "selected_choice"
+                ]
+              },
+              {
+                "required": [
+                  "decision_context_digest"
+                ]
+              }
+            ]
+          }
+        },
+        "if": {
+          "properties": {
+            "action_id": {
+              "const": "confirm_premise"
             }
+          }
+        },
+        "then": {
+          "not": {
+            "required": [
+              "fields"
+            ]
+          },
+          "required": [
+            "selected_choice",
+            "decision_context_digest"
           ]
         }
       },
       "if": {
         "properties": {
           "action_id": {
-            "const": "confirm_premise"
+            "const": "complete"
           }
-        }
+        },
+        "required": [
+          "action_id"
+        ]
       },
       "properties": {
         "action_id": {
@@ -2569,6 +2592,13 @@ const GeneratedPayloadSchemaDocument = `{
                 "event_stream": {},
                 "evidence_refs": {},
                 "hypothesis": {},
+                "impact_verdict": {
+                  "enum": [
+                    "breaking",
+                    "non-breaking"
+                  ],
+                  "type": "string"
+                },
                 "mode": {},
                 "new_contract_version": {},
                 "next_read_expectations": {},
@@ -2632,13 +2662,29 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "then": {
         "not": {
-          "required": [
-            "fields"
+          "anyOf": [
+            {
+              "required": [
+                "selected_choice"
+              ]
+            },
+            {
+              "required": [
+                "decision_context_digest"
+              ]
+            }
           ]
         },
+        "properties": {
+          "fields": {
+            "required": [
+              "impact_verdict"
+            ],
+            "type": "object"
+          }
+        },
         "required": [
-          "selected_choice",
-          "decision_context_digest"
+          "fields"
         ]
       },
       "type": "object"
@@ -2830,6 +2876,9 @@ const GeneratedPayloadSchemaDocument = `{
               "edge_id": {
                 "$ref": "#/$defs/id"
               },
+              "edge_owner_work_id": {
+                "$ref": "#/$defs/id"
+              },
               "entity_kind": {
                 "$ref": "#/$defs/short"
               },
@@ -2859,6 +2908,7 @@ const GeneratedPayloadSchemaDocument = `{
               "entity_kind",
               "entity_ref",
               "target_work_id",
+              "edge_owner_work_id",
               "edge_id",
               "severity"
             ],

@@ -220,9 +220,14 @@
       "id": "fc4-r3-conformance",
       "condition": "fc4",
       "title": "Impact propagation matches accepted CD-0006 R3",
-      "requirement": "R3 requires reverse-edge computation at completion, notices keyed by entity, a breaking verdict, and blocking only on hard edge plus breaking change. Shipped behaviour diverges on each of those points.",
-      "state": "outstanding",
-      "issue": 75
+      "requirement": "Completion computes inbound dependents, records work-item-keyed notices with an explicit breaking verdict, and blocks only hard plus breaking while advisory combinations remain non-blocking.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/workflow_impact_propagation_test.go",
+        "internal/store/workflow_completion.go",
+        "internal/store/workflow_preflight.go",
+        "scenarios/workflow-engine.v1.json"
+      ]
     },
     {
       "id": "fc4-workflow-staleness",

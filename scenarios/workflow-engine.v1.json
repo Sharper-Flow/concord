@@ -223,7 +223,7 @@
             "evidence-verification",
             "evidence-review"
           ],
-            "relations": []
+          "relations": []
         },
         "event_history": [
           {
@@ -984,7 +984,8 @@
             "project-1"
           ],
           "contract_version": 1,
-          "premise": "fixture premise"
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking"
         },
         "idempotency": {
           "key": "wf04-weaker-delivery-key",
@@ -1302,7 +1303,8 @@
             "project-1"
           ],
           "contract_version": 1,
-          "premise": "fixture premise"
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking"
         },
         "idempotency": {
           "key": "wf05-stronger-delivery-key",
@@ -1622,7 +1624,8 @@
             "project-1"
           ],
           "contract_version": 1,
-          "premise": "fixture premise"
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking"
         },
         "idempotency": {
           "key": "wf06-absence-removal-key",
@@ -1862,7 +1865,7 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-           "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
+          "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
         },
         "expected_version": 7,
         "action_id": "revise_candidates",
@@ -2091,7 +2094,7 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-           "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
+          "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
         },
         "expected_version": 6,
         "action_id": "supersede_contract",
@@ -2522,7 +2525,7 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-           "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
+          "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
         },
         "expected_version": 5,
         "action_id": "link_successor",
@@ -3115,7 +3118,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                   "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -3187,7 +3190,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
             },
             "expected_version": 6,
             "action_id": "record_verdict",
@@ -3322,7 +3325,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                   "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -3394,7 +3397,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
             },
             "expected_version": 6,
             "action_id": "record_verdict",
@@ -3529,7 +3532,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                   "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -3601,7 +3604,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
             },
             "expected_version": 6,
             "action_id": "record_verdict",
@@ -3700,7 +3703,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "record_verdict",
@@ -4390,7 +4393,7 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-           "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
+          "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
         },
         "expected_version": 10,
         "action_id": "complete",
@@ -4409,7 +4412,8 @@
             "project-1"
           ],
           "contract_version": 1,
-          "premise": "fixture premise"
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking"
         },
         "idempotency": {
           "key": "wf16-research-no-change-key",
@@ -4789,7 +4793,7 @@
         "definition_pin": {
           "ref": "workflow.architecture_spike",
           "version": 1,
-           "digest": "sha256:3682687bb2106f764ae4a381f8dac6539da0d4e883ec9dd5ab17c18555709634"
+          "digest": "sha256:3682687bb2106f764ae4a381f8dac6539da0d4e883ec9dd5ab17c18555709634"
         },
         "expected_version": 13,
         "action_id": "complete",
@@ -4806,7 +4810,8 @@
             "project-1"
           ],
           "contract_version": 1,
-          "premise": "fixture premise"
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking"
         },
         "idempotency": {
           "key": "wf17-spike-insufficient-evidence-key",
@@ -5110,7 +5115,8 @@
             "project-1"
           ],
           "contract_version": 1,
-          "premise": "fixture premise"
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking"
         },
         "idempotency": {
           "key": "wf18-premise-unconfirmed-key",
@@ -5432,7 +5438,8 @@
             "project-1"
           ],
           "contract_version": 1,
-          "premise": "fixture premise"
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking"
         },
         "idempotency": {
           "key": "wf19-completion-one-transaction-key",
@@ -5828,7 +5835,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-            "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
+          "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
         },
         "expected_version": 5,
         "action_id": "complete_external_step",
@@ -6050,7 +6057,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-            "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
+          "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
         },
         "expected_version": 6,
         "action_id": "rebuild_after_interrupt",
@@ -6438,7 +6445,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-            "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
+          "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
         },
         "expected_version": 5,
         "action_id": "complete_external_step",
@@ -6623,7 +6630,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-            "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
+          "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
         },
         "expected_version": 5,
         "action_id": "takeover_attempt",
@@ -6950,7 +6957,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-            "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
+          "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
         },
         "expected_version": 11,
         "action_id": "resolve_conditions",
@@ -7176,7 +7183,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-            "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
+          "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
         },
         "expected_version": 6,
         "action_id": "derive_ready",
@@ -7385,7 +7392,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-            "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
+          "digest": "sha256:be381092b6c4eb2187d87bfe0aecc75d46b5f504778cd142f42d8593ae448434"
         },
         "expected_version": 6,
         "action_id": "explicit_resolve",
@@ -7450,13 +7457,13 @@
     {
       "id": "WF29-impact-notice-identity",
       "scenario_number": 29,
-      "mechanism": "declared edges produce one notice per exact six-part identity",
+      "mechanism": "completion propagates its verdict to reverse dependents with one exact six-part notice identity",
       "initial_state": {
         "work": "work-alpha",
         "source_contract_version": 1,
         "edge": "depends_on",
-        "entity_kind": "spec",
-        "entity_ref": "spec:one",
+        "entity_kind": "work_item",
+        "entity_ref": "work-alpha",
         "target_work_id": "work-child",
         "severity": "breaking"
       },
@@ -7485,17 +7492,23 @@
             "target": "state",
             "path": "impact_notices.0.entity_kind",
             "op": "eq",
-            "value": "spec"
+            "value": "work_item"
           },
           {
             "target": "state",
             "path": "impact_notices.0.entity_ref",
             "op": "eq",
-            "value": "spec:one"
+            "value": "work-alpha"
           },
           {
             "target": "state",
             "path": "impact_notices.0.target_work_id",
+            "op": "eq",
+            "value": "work-child"
+          },
+          {
+            "target": "state",
+            "path": "impact_notices.0.edge_owner_work_id",
             "op": "eq",
             "value": "work-child"
           },
@@ -7509,7 +7522,7 @@
             "target": "state",
             "path": "impact_notices.0.notice_id",
             "op": "eq",
-            "value": "notice:3443b8a55c9f3fce4d6188b08b07a45f117cf0c31d8d88481b386f2cfd30ba9e"
+            "value": "notice:8ea37498e2890b3fef5b65132eb0dfc3e7e4297ce6bb521ea4406c0366535503"
           },
           {
             "target": "effects",
@@ -7742,9 +7755,9 @@
             }
           },
           {
-            "event_id": "work-alpha-edge:wf29",
+            "event_id": "work-child-edge:wf29",
             "kind": "workflow.impact_declared",
-            "work_id": "work-alpha",
+            "work_id": "work-child",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
@@ -7752,10 +7765,10 @@
               "edge_id": "edge:wf29",
               "edge_kind": "depends_on",
               "edge_class": "hard",
-              "target_work_id": "work-child",
+              "target_work_id": "work-alpha",
               "target_kind": "work_item",
-              "severity": "breaking",
-              "work_id": "work-alpha",
+              "severity": "informational",
+              "work_id": "work-child",
               "expected_version": 6,
               "resulting_version": 7
             }
@@ -7775,8 +7788,8 @@
               "producer_watermark": "work-alpha-evidence-1-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-alpha",
-              "expected_version": 7,
-              "resulting_version": 8
+              "expected_version": 6,
+              "resulting_version": 7
             }
           },
           {
@@ -7794,8 +7807,8 @@
               "producer_watermark": "work-alpha-evidence-2-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-alpha",
-              "expected_version": 8,
-              "resulting_version": 9
+              "expected_version": 7,
+              "resulting_version": 8
             }
           },
           {
@@ -7813,8 +7826,8 @@
               "producer_watermark": "work-alpha-evidence-3-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-alpha",
-              "expected_version": 9,
-              "resulting_version": 10
+              "expected_version": 8,
+              "resulting_version": 9
             }
           },
           {
@@ -7832,8 +7845,8 @@
               "session_ref": "session-reviewer",
               "actor_class": "operator",
               "work_id": "work-alpha",
-              "expected_version": 10,
-              "resulting_version": 11
+              "expected_version": 9,
+              "resulting_version": 10
             }
           },
           {
@@ -7853,8 +7866,8 @@
               ],
               "incomparable_with_approved": false,
               "work_id": "work-alpha",
-              "expected_version": 11,
-              "resulting_version": 12
+              "expected_version": 10,
+              "resulting_version": 11
             }
           },
           {
@@ -7868,13 +7881,13 @@
               "contract_version": 1,
               "confirming_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
               "work_id": "work-alpha",
-              "expected_version": 12,
-              "resulting_version": 13
+              "expected_version": 11,
+              "resulting_version": 12
             }
           }
         ],
         "projection": {
-          "version": 13,
+          "version": 12,
           "state": "running",
           "current_step": "complete",
           "lifecycle": "running"
@@ -7888,17 +7901,18 @@
           "version": 1,
           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
-        "expected_version": 13,
+        "expected_version": 12,
         "action_id": "complete",
         "fields": {
           "payload": {
             "work": "work-alpha",
             "source_contract_version": 1,
             "edge": "depends_on",
-            "entity_kind": "spec",
-            "entity_ref": "spec:one",
+            "entity_kind": "work_item",
+            "entity_ref": "work-alpha",
             "target_work_id": "work-child",
-            "severity": "breaking"
+            "severity": "breaking",
+            "impact_verdict": "breaking"
           },
           "relation": "depends_on",
           "title": "WF29-impact-notice-identity title",
@@ -7911,11 +7925,12 @@
           "source_work_id": "work-alpha",
           "source_contract_version": 1,
           "edge_kind": "depends_on",
-          "entity_kind": "spec",
-          "entity_ref": "spec:one",
+          "entity_kind": "work_item",
+          "entity_ref": "work-alpha",
           "target_work_id": "work-child",
           "severity": "breaking",
-          "notice_id": "notice:3443b8a55c9f3fce4d6188b08b07a45f117cf0c31d8d88481b386f2cfd30ba9e"
+          "notice_id": "notice:8ea37498e2890b3fef5b65132eb0dfc3e7e4297ce6bb521ea4406c0366535503",
+          "impact_verdict": "breaking"
         },
         "idempotency": {
           "key": "wf29-impact-notice-identity-key",
@@ -7956,6 +7971,12 @@
             "path": "impact_notices.count",
             "op": "eq",
             "value": 1
+          },
+          {
+            "target": "state",
+            "path": "notice.severity",
+            "op": "eq",
+            "value": "breaking"
           }
         ]
       }
@@ -8235,7 +8256,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 7,
         "action_id": "start_downstream",
@@ -8293,7 +8314,1094 @@
             "value": "invariant_violation"
           }
         ]
-      }
+      },
+      "cases": [
+        {
+          "id": "WF30-hard-breaking",
+          "initial_state": {
+            "source": "work-alpha",
+            "target": "work-child",
+            "edge": "hard depends_on",
+            "severity": "breaking"
+          },
+          "action": "start_downstream",
+          "expected": {
+            "assertions": [
+              {
+                "target": "communication",
+                "path": "error.kind",
+                "op": "eq",
+                "value": "invariant_violation"
+              },
+              {
+                "target": "result",
+                "path": "related_work_id",
+                "op": "eq",
+                "value": "work-child"
+              },
+              {
+                "target": "effects",
+                "path": "workflow.action_started",
+                "op": "absent"
+              }
+            ]
+          },
+          "setup": {
+            "fixture_refs": {
+              "work_item": "work-alpha",
+              "actors": [
+                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+              ],
+              "definitions": [
+                "workflow.implementation"
+              ],
+              "evidence": [
+                "evidence-verification",
+                "evidence-review"
+              ],
+              "relations": [
+                "relation-alpha-child"
+              ]
+            },
+            "event_history": [
+              {
+                "event_id": "work-child-created",
+                "kind": "work.created",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "WF30-hard-breaking child",
+                  "priority": 1,
+                  "work_id": "work-child"
+                }
+              },
+              {
+                "event_id": "work-child-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-child",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-child-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-child",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-child-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-child-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-child",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-child-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:child",
+                    "immutable_subject_ref": "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-child",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "WF30-hard-breaking-child-approve-completed",
+                "kind": "workflow.action_completed",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "work_id": "work-child",
+                  "expected_version": 6,
+                  "resulting_version": 7,
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "result_evidence_refs": [],
+                  "changed_refs": [
+                    "work-child"
+                  ],
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+                }
+              },
+              {
+                "event_id": "work-alpha-created",
+                "kind": "work.created",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "work-alpha fixture",
+                  "priority": 1,
+                  "work_id": "work-alpha"
+                }
+              },
+              {
+                "event_id": "work-alpha-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-alpha",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-alpha-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-alpha",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-alpha-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "release",
+                  "action_id": "complete",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-alpha-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-alpha",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "WF30-hard-breaking-edge",
+                "kind": "workflow.impact_declared",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "edge_id": "edge:WF30-hard-breaking",
+                  "edge_kind": "depends_on",
+                  "edge_class": "hard",
+                  "target_work_id": "work-alpha",
+                  "target_kind": "work_item",
+                  "severity": "breaking",
+                  "work_id": "work-child",
+                  "expected_version": 7,
+                  "resulting_version": 8
+                }
+              },
+              {
+                "event_id": "WF30-hard-breaking-notice",
+                "kind": "workflow.impact_notice_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "notice_id": "notice:8ea37498e2890b3fef5b65132eb0dfc3e7e4297ce6bb521ea4406c0366535503",
+                  "source_contract_version": 1,
+                  "entity_kind": "work_item",
+                  "entity_ref": "work-alpha",
+                  "target_work_id": "work-child",
+                  "edge_owner_work_id": "work-child",
+                  "edge_id": "edge:WF30-hard-breaking",
+                  "old_hash": null,
+                  "new_hash": null,
+                  "severity": "breaking",
+                  "work_id": "work-alpha",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              }
+            ],
+            "projection": {
+              "version": 6,
+              "state": "running",
+              "current_step": "complete",
+              "lifecycle": "running"
+            },
+            "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "definition_pin": {
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+            },
+            "expected_version": 5,
+            "action_id": "start_downstream",
+            "fields": {
+              "payload": {
+                "source": "work-alpha",
+                "target": "work-child",
+                "edge": "hard depends_on",
+                "severity": "breaking",
+                "entity_kind": "work_item",
+                "entity_ref": "work-alpha",
+                "source_contract_version": 1,
+                "target_work_id": "work-child"
+              },
+              "relation": "relation-alpha-child",
+              "title": "WF30-breaking-dependent-block title",
+              "value_statement": "fixture value statement",
+              "project_ids": [
+                "project-1"
+              ],
+              "successor_work_id": "work-child",
+              "relation_data": {
+                "kind": "forward_link",
+                "class": "hard"
+              }
+            },
+            "idempotency": {
+              "key": "wf30-breaking-dependent-block-key",
+              "request_id": "wf30-breaking-dependent-block-request",
+              "operation_id": "wf30-breaking-dependent-block-operation",
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "grant": {
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "capability": "workflow_action",
+              "scope": "project-1"
+            },
+            "approval": {
+              "required": false,
+              "approval_ref": null
+            },
+            "operation": {
+              "op_id": "wf30-breaking-dependent-block-operation",
+              "attempt_epoch": 1,
+              "step_id": "complete",
+              "step_kind": "internal_sqlite",
+              "state": "pending"
+            }
+          },
+          "observations": {
+            "expected_reads": [
+              {
+                "target": "communication",
+                "path": "error.kind",
+                "op": "eq",
+                "value": "invariant_violation"
+              }
+            ]
+          }
+        },
+        {
+          "id": "WF30-soft-breaking",
+          "initial_state": {
+            "source": "work-alpha",
+            "target": "work-child",
+            "edge": "hard depends_on",
+            "severity": "breaking"
+          },
+          "action": "start_downstream",
+          "expected": {
+            "assertions": [
+              {
+                "target": "communication",
+                "path": "error",
+                "op": "absent"
+              },
+              {
+                "target": "communication",
+                "path": "outcome",
+                "op": "eq",
+                "value": "ok"
+              },
+              {
+                "target": "result",
+                "path": "related_work_id",
+                "op": "eq",
+                "value": "work-child"
+              },
+              {
+                "target": "effects",
+                "path": "workflow.action_started",
+                "op": "absent"
+              }
+            ]
+          },
+          "setup": {
+            "fixture_refs": {
+              "work_item": "work-alpha",
+              "actors": [
+                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+              ],
+              "definitions": [
+                "workflow.implementation"
+              ],
+              "evidence": [
+                "evidence-verification",
+                "evidence-review"
+              ],
+              "relations": [
+                "relation-alpha-child"
+              ]
+            },
+            "event_history": [
+              {
+                "event_id": "work-child-created",
+                "kind": "work.created",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "WF30-soft-breaking child",
+                  "priority": 1,
+                  "work_id": "work-child"
+                }
+              },
+              {
+                "event_id": "work-child-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-child",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-child-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-child",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-child-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-child-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-child",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-child-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:child",
+                    "immutable_subject_ref": "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-child",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "WF30-soft-breaking-child-approve-completed",
+                "kind": "workflow.action_completed",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "work_id": "work-child",
+                  "expected_version": 6,
+                  "resulting_version": 7,
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "result_evidence_refs": [],
+                  "changed_refs": [
+                    "work-child"
+                  ],
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+                }
+              },
+              {
+                "event_id": "work-alpha-created",
+                "kind": "work.created",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "work-alpha fixture",
+                  "priority": 1,
+                  "work_id": "work-alpha"
+                }
+              },
+              {
+                "event_id": "work-alpha-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-alpha",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-alpha-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-alpha",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-alpha-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "release",
+                  "action_id": "complete",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-alpha-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-alpha",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "WF30-soft-breaking-edge",
+                "kind": "workflow.impact_declared",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "edge_id": "edge:WF30-soft-breaking",
+                  "edge_kind": "depends_on",
+                  "edge_class": "soft",
+                  "target_work_id": "work-alpha",
+                  "target_kind": "work_item",
+                  "severity": "breaking",
+                  "work_id": "work-child",
+                  "expected_version": 7,
+                  "resulting_version": 8
+                }
+              },
+              {
+                "event_id": "WF30-soft-breaking-notice",
+                "kind": "workflow.impact_notice_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "notice_id": "notice:8ea37498e2890b3fef5b65132eb0dfc3e7e4297ce6bb521ea4406c0366535503",
+                  "source_contract_version": 1,
+                  "entity_kind": "work_item",
+                  "entity_ref": "work-alpha",
+                  "target_work_id": "work-child",
+                  "edge_owner_work_id": "work-child",
+                  "edge_id": "edge:WF30-soft-breaking",
+                  "old_hash": null,
+                  "new_hash": null,
+                  "severity": "breaking",
+                  "work_id": "work-alpha",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              }
+            ],
+            "projection": {
+              "version": 6,
+              "state": "running",
+              "current_step": "complete",
+              "lifecycle": "running"
+            },
+            "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "definition_pin": {
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+            },
+            "expected_version": 5,
+            "action_id": "start_downstream",
+            "fields": {
+              "payload": {
+                "source": "work-alpha",
+                "target": "work-child",
+                "edge": "soft depends_on",
+                "severity": "breaking",
+                "entity_kind": "work_item",
+                "entity_ref": "work-alpha",
+                "source_contract_version": 1,
+                "target_work_id": "work-child"
+              },
+              "relation": "relation-alpha-child",
+              "title": "WF30-breaking-dependent-block title",
+              "value_statement": "fixture value statement",
+              "project_ids": [
+                "project-1"
+              ],
+              "successor_work_id": "work-child",
+              "relation_data": {
+                "kind": "forward_link",
+                "class": "hard"
+              }
+            },
+            "idempotency": {
+              "key": "wf30-breaking-dependent-block-key",
+              "request_id": "wf30-breaking-dependent-block-request",
+              "operation_id": "wf30-breaking-dependent-block-operation",
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "grant": {
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "capability": "workflow_action",
+              "scope": "project-1"
+            },
+            "approval": {
+              "required": false,
+              "approval_ref": null
+            },
+            "operation": {
+              "op_id": "wf30-breaking-dependent-block-operation",
+              "attempt_epoch": 1,
+              "step_id": "complete",
+              "step_kind": "internal_sqlite",
+              "state": "pending"
+            }
+          },
+          "observations": {
+            "expected_reads": [
+              {
+                "target": "communication",
+                "path": "error",
+                "op": "absent"
+              }
+            ]
+          }
+        },
+        {
+          "id": "WF30-hard-non-breaking",
+          "initial_state": {
+            "source": "work-alpha",
+            "target": "work-child",
+            "edge": "hard depends_on",
+            "severity": "breaking"
+          },
+          "action": "start_downstream",
+          "expected": {
+            "assertions": [
+              {
+                "target": "communication",
+                "path": "error",
+                "op": "absent"
+              },
+              {
+                "target": "communication",
+                "path": "outcome",
+                "op": "eq",
+                "value": "ok"
+              },
+              {
+                "target": "result",
+                "path": "related_work_id",
+                "op": "eq",
+                "value": "work-child"
+              },
+              {
+                "target": "effects",
+                "path": "workflow.action_started",
+                "op": "absent"
+              }
+            ]
+          },
+          "setup": {
+            "fixture_refs": {
+              "work_item": "work-alpha",
+              "actors": [
+                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+              ],
+              "definitions": [
+                "workflow.implementation"
+              ],
+              "evidence": [
+                "evidence-verification",
+                "evidence-review"
+              ],
+              "relations": [
+                "relation-alpha-child"
+              ]
+            },
+            "event_history": [
+              {
+                "event_id": "work-child-created",
+                "kind": "work.created",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "WF30-hard-non-breaking child",
+                  "priority": 1,
+                  "work_id": "work-child"
+                }
+              },
+              {
+                "event_id": "work-child-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-child",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-child-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-child",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-child-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-child-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-child",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-child-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:child",
+                    "immutable_subject_ref": "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-child",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "WF30-hard-non-breaking-child-approve-completed",
+                "kind": "workflow.action_completed",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "work_id": "work-child",
+                  "expected_version": 6,
+                  "resulting_version": 7,
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "result_evidence_refs": [],
+                  "changed_refs": [
+                    "work-child"
+                  ],
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+                }
+              },
+              {
+                "event_id": "work-alpha-created",
+                "kind": "work.created",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "work-alpha fixture",
+                  "priority": 1,
+                  "work_id": "work-alpha"
+                }
+              },
+              {
+                "event_id": "work-alpha-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-alpha",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-alpha-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-alpha",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-alpha-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "release",
+                  "action_id": "complete",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-alpha-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-alpha",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "WF30-hard-non-breaking-edge",
+                "kind": "workflow.impact_declared",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "edge_id": "edge:WF30-hard-non-breaking",
+                  "edge_kind": "depends_on",
+                  "edge_class": "hard",
+                  "target_work_id": "work-alpha",
+                  "target_kind": "work_item",
+                  "severity": "non-breaking",
+                  "work_id": "work-child",
+                  "expected_version": 7,
+                  "resulting_version": 8
+                }
+              },
+              {
+                "event_id": "WF30-hard-non-breaking-notice",
+                "kind": "workflow.impact_notice_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "notice_id": "notice:4459169226ca34dafa46f731b4e00ca24a44ac187f5986f27ea71fd481ef9d68",
+                  "source_contract_version": 1,
+                  "entity_kind": "work_item",
+                  "entity_ref": "work-alpha",
+                  "target_work_id": "work-child",
+                  "edge_owner_work_id": "work-child",
+                  "edge_id": "edge:WF30-hard-non-breaking",
+                  "old_hash": null,
+                  "new_hash": null,
+                  "severity": "non-breaking",
+                  "work_id": "work-alpha",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              }
+            ],
+            "projection": {
+              "version": 6,
+              "state": "running",
+              "current_step": "complete",
+              "lifecycle": "running"
+            },
+            "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "definition_pin": {
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+            },
+            "expected_version": 5,
+            "action_id": "start_downstream",
+            "fields": {
+              "payload": {
+                "source": "work-alpha",
+                "target": "work-child",
+                "edge": "hard depends_on",
+                "severity": "non-breaking",
+                "entity_kind": "work_item",
+                "entity_ref": "work-alpha",
+                "source_contract_version": 1,
+                "target_work_id": "work-child"
+              },
+              "relation": "relation-alpha-child",
+              "title": "WF30-breaking-dependent-block title",
+              "value_statement": "fixture value statement",
+              "project_ids": [
+                "project-1"
+              ],
+              "successor_work_id": "work-child",
+              "relation_data": {
+                "kind": "forward_link",
+                "class": "hard"
+              }
+            },
+            "idempotency": {
+              "key": "wf30-breaking-dependent-block-key",
+              "request_id": "wf30-breaking-dependent-block-request",
+              "operation_id": "wf30-breaking-dependent-block-operation",
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "grant": {
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "capability": "workflow_action",
+              "scope": "project-1"
+            },
+            "approval": {
+              "required": false,
+              "approval_ref": null
+            },
+            "operation": {
+              "op_id": "wf30-breaking-dependent-block-operation",
+              "attempt_epoch": 1,
+              "step_id": "complete",
+              "step_kind": "internal_sqlite",
+              "state": "pending"
+            }
+          },
+          "observations": {
+            "expected_reads": [
+              {
+                "target": "communication",
+                "path": "error",
+                "op": "absent"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "id": "WF31-end-state-revision-impact",
@@ -8573,7 +9681,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 7,
         "action_id": "supersede_contract",
@@ -8638,7 +9746,1410 @@
             "value": "breaking"
           }
         ]
-      }
+      },
+      "cases": [
+        {
+          "id": "WF31-hard-active-consumed",
+          "initial_state": {
+            "source": "work-alpha",
+            "dependent_consumed_prior_contract": true,
+            "edge": "hard depends_on"
+          },
+          "action": "supersede_contract",
+          "expected": {
+            "assertions": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "breaking"
+              },
+              {
+                "target": "effects",
+                "path": "workflow.impact_notice_recorded",
+                "op": "nonempty"
+              }
+            ]
+          },
+          "setup": {
+            "fixture_refs": {
+              "work_item": "work-alpha",
+              "actors": [
+                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+              ],
+              "definitions": [
+                "workflow.implementation"
+              ],
+              "evidence": [
+                "evidence-verification",
+                "evidence-review"
+              ],
+              "relations": [
+                "relation-alpha-child"
+              ]
+            },
+            "event_history": [
+              {
+                "event_id": "work-child-created",
+                "kind": "work.created",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "break_fix",
+                  "title": "work-child fixture",
+                  "priority": 1,
+                  "work_id": "work-child"
+                }
+              },
+              {
+                "event_id": "work-child-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-child",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-child-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.break_fix",
+                  "version": 1,
+                  "digest": "sha256:2eb0df0837729463afbd2fae14ffa63201d50083b2733010f7d185b70d6a086a",
+                  "work_kind": "break_fix",
+                  "work_id": "work-child",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-child-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-child-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-child",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-child-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:child",
+                    "immutable_subject_ref": "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-child",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "work-alpha-created",
+                "kind": "work.created",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "work-alpha fixture",
+                  "priority": 1,
+                  "work_id": "work-alpha"
+                }
+              },
+              {
+                "event_id": "work-alpha-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-alpha",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-alpha-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-alpha",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-alpha-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-alpha-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-alpha",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-alpha-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:workflow",
+                    "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification",
+                    "review"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-alpha",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "WF31-hard-active-consumed-edge",
+                "kind": "workflow.impact_declared",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "edge_id": "edge:WF31-hard-active-consumed",
+                  "edge_kind": "depends_on",
+                  "edge_class": "hard",
+                  "target_work_id": "work-alpha",
+                  "target_kind": "work_item",
+                  "severity": "informational",
+                  "work_id": "work-child",
+                  "expected_version": 6,
+                  "resulting_version": 7
+                }
+              }
+            ],
+            "projection": {
+              "version": 7,
+              "state": "planned",
+              "current_step": "planning",
+              "lifecycle": "planned"
+            },
+            "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "definition_pin": {
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+            },
+            "expected_version": 6,
+            "action_id": "supersede_contract",
+            "fields": {
+              "payload": {
+                "source": "work-alpha",
+                "dependent_consumed_prior_contract": true,
+                "edge": "hard depends_on"
+              },
+              "relation": "relation-alpha-child",
+              "title": "WF31-end-state-revision-impact title",
+              "value_statement": "fixture value statement",
+              "project_ids": [
+                "project-1"
+              ],
+              "contract_version": 1,
+              "premise": "fixture premise",
+              "new_contract_version": 2,
+              "supersede_reason": "end-state revision",
+              "audit_evidence": [
+                "evidence-review"
+              ],
+              "source_work_id": "work-alpha",
+              "source_contract_version": 2,
+              "dependent_work_id": "work-child",
+              "consumed_contract_version": 1,
+              "edge_kind": "depends_on",
+              "edge_class": "hard"
+            },
+            "idempotency": {
+              "key": "wf31-end-state-revision-impact-key",
+              "request_id": "wf31-end-state-revision-impact-request",
+              "operation_id": "wf31-end-state-revision-impact-operation",
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "grant": {
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "capability": "workflow_action",
+              "scope": "project-1"
+            },
+            "approval": {
+              "required": false,
+              "approval_ref": null
+            },
+            "operation": {
+              "op_id": "wf31-end-state-revision-impact-operation",
+              "attempt_epoch": 1,
+              "step_id": "planning",
+              "step_kind": "internal_sqlite",
+              "state": "pending"
+            }
+          },
+          "observations": {
+            "expected_reads": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "breaking"
+              }
+            ]
+          }
+        },
+        {
+          "id": "WF31-soft-active-consumed",
+          "initial_state": {
+            "source": "work-alpha",
+            "dependent_consumed_prior_contract": true,
+            "edge": "hard depends_on"
+          },
+          "action": "supersede_contract",
+          "expected": {
+            "assertions": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "non-breaking"
+              },
+              {
+                "target": "effects",
+                "path": "workflow.impact_notice_recorded",
+                "op": "nonempty"
+              }
+            ]
+          },
+          "setup": {
+            "fixture_refs": {
+              "work_item": "work-alpha",
+              "actors": [
+                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+              ],
+              "definitions": [
+                "workflow.implementation"
+              ],
+              "evidence": [
+                "evidence-verification",
+                "evidence-review"
+              ],
+              "relations": [
+                "relation-alpha-child"
+              ]
+            },
+            "event_history": [
+              {
+                "event_id": "work-child-created",
+                "kind": "work.created",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "break_fix",
+                  "title": "work-child fixture",
+                  "priority": 1,
+                  "work_id": "work-child"
+                }
+              },
+              {
+                "event_id": "work-child-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-child",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-child-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.break_fix",
+                  "version": 1,
+                  "digest": "sha256:2eb0df0837729463afbd2fae14ffa63201d50083b2733010f7d185b70d6a086a",
+                  "work_kind": "break_fix",
+                  "work_id": "work-child",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-child-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-child-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-child",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-child-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:child",
+                    "immutable_subject_ref": "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-child",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "work-alpha-created",
+                "kind": "work.created",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "work-alpha fixture",
+                  "priority": 1,
+                  "work_id": "work-alpha"
+                }
+              },
+              {
+                "event_id": "work-alpha-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-alpha",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-alpha-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-alpha",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-alpha-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-alpha-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-alpha",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-alpha-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:workflow",
+                    "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification",
+                    "review"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-alpha",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "WF31-soft-active-consumed-edge",
+                "kind": "workflow.impact_declared",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "edge_id": "edge:WF31-soft-active-consumed",
+                  "edge_kind": "depends_on",
+                  "edge_class": "soft",
+                  "target_work_id": "work-alpha",
+                  "target_kind": "work_item",
+                  "severity": "informational",
+                  "work_id": "work-child",
+                  "expected_version": 6,
+                  "resulting_version": 7
+                }
+              }
+            ],
+            "projection": {
+              "version": 7,
+              "state": "planned",
+              "current_step": "planning",
+              "lifecycle": "planned"
+            },
+            "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "definition_pin": {
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+            },
+            "expected_version": 6,
+            "action_id": "supersede_contract",
+            "fields": {
+              "payload": {
+                "source": "work-alpha",
+                "dependent_consumed_prior_contract": true,
+                "edge": "hard depends_on"
+              },
+              "relation": "relation-alpha-child",
+              "title": "WF31-end-state-revision-impact title",
+              "value_statement": "fixture value statement",
+              "project_ids": [
+                "project-1"
+              ],
+              "contract_version": 1,
+              "premise": "fixture premise",
+              "new_contract_version": 2,
+              "supersede_reason": "end-state revision",
+              "audit_evidence": [
+                "evidence-review"
+              ],
+              "source_work_id": "work-alpha",
+              "source_contract_version": 2,
+              "dependent_work_id": "work-child",
+              "consumed_contract_version": 1,
+              "edge_kind": "depends_on",
+              "edge_class": "soft"
+            },
+            "idempotency": {
+              "key": "wf31-end-state-revision-impact-key",
+              "request_id": "wf31-end-state-revision-impact-request",
+              "operation_id": "wf31-end-state-revision-impact-operation",
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "grant": {
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "capability": "workflow_action",
+              "scope": "project-1"
+            },
+            "approval": {
+              "required": false,
+              "approval_ref": null
+            },
+            "operation": {
+              "op_id": "wf31-end-state-revision-impact-operation",
+              "attempt_epoch": 1,
+              "step_id": "planning",
+              "step_kind": "internal_sqlite",
+              "state": "pending"
+            }
+          },
+          "observations": {
+            "expected_reads": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "non-breaking"
+              }
+            ]
+          }
+        },
+        {
+          "id": "WF31-hard-active-unconsumed",
+          "initial_state": {
+            "source": "work-alpha",
+            "dependent_consumed_prior_contract": true,
+            "edge": "hard depends_on"
+          },
+          "action": "supersede_contract",
+          "expected": {
+            "assertions": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "non-breaking"
+              },
+              {
+                "target": "effects",
+                "path": "workflow.impact_notice_recorded",
+                "op": "nonempty"
+              }
+            ]
+          },
+          "setup": {
+            "fixture_refs": {
+              "work_item": "work-alpha",
+              "actors": [
+                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+              ],
+              "definitions": [
+                "workflow.implementation"
+              ],
+              "evidence": [
+                "evidence-verification",
+                "evidence-review"
+              ],
+              "relations": [
+                "relation-alpha-child"
+              ]
+            },
+            "event_history": [
+              {
+                "event_id": "work-child-created",
+                "kind": "work.created",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "break_fix",
+                  "title": "work-child fixture",
+                  "priority": 1,
+                  "work_id": "work-child"
+                }
+              },
+              {
+                "event_id": "work-child-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-child",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-child-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.break_fix",
+                  "version": 1,
+                  "digest": "sha256:2eb0df0837729463afbd2fae14ffa63201d50083b2733010f7d185b70d6a086a",
+                  "work_kind": "break_fix",
+                  "work_id": "work-child",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-child-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-child-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-child",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-alpha-created",
+                "kind": "work.created",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "work-alpha fixture",
+                  "priority": 1,
+                  "work_id": "work-alpha"
+                }
+              },
+              {
+                "event_id": "work-alpha-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-alpha",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-alpha-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-alpha",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-alpha-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-alpha-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-alpha",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-alpha-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:workflow",
+                    "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification",
+                    "review"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-alpha",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "WF31-hard-active-unconsumed-edge",
+                "kind": "workflow.impact_declared",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "edge_id": "edge:WF31-hard-active-unconsumed",
+                  "edge_kind": "depends_on",
+                  "edge_class": "hard",
+                  "target_work_id": "work-alpha",
+                  "target_kind": "work_item",
+                  "severity": "informational",
+                  "work_id": "work-child",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              }
+            ],
+            "projection": {
+              "version": 7,
+              "state": "planned",
+              "current_step": "planning",
+              "lifecycle": "planned"
+            },
+            "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "definition_pin": {
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+            },
+            "expected_version": 6,
+            "action_id": "supersede_contract",
+            "fields": {
+              "payload": {
+                "source": "work-alpha",
+                "dependent_consumed_prior_contract": true,
+                "edge": "hard depends_on"
+              },
+              "relation": "relation-alpha-child",
+              "title": "WF31-end-state-revision-impact title",
+              "value_statement": "fixture value statement",
+              "project_ids": [
+                "project-1"
+              ],
+              "contract_version": 1,
+              "premise": "fixture premise",
+              "new_contract_version": 2,
+              "supersede_reason": "end-state revision",
+              "audit_evidence": [
+                "evidence-review"
+              ],
+              "source_work_id": "work-alpha",
+              "source_contract_version": 2,
+              "dependent_work_id": "work-child",
+              "consumed_contract_version": 1,
+              "edge_kind": "depends_on",
+              "edge_class": "hard"
+            },
+            "idempotency": {
+              "key": "wf31-end-state-revision-impact-key",
+              "request_id": "wf31-end-state-revision-impact-request",
+              "operation_id": "wf31-end-state-revision-impact-operation",
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "grant": {
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "capability": "workflow_action",
+              "scope": "project-1"
+            },
+            "approval": {
+              "required": false,
+              "approval_ref": null
+            },
+            "operation": {
+              "op_id": "wf31-end-state-revision-impact-operation",
+              "attempt_epoch": 1,
+              "step_id": "planning",
+              "step_kind": "internal_sqlite",
+              "state": "pending"
+            }
+          },
+          "observations": {
+            "expected_reads": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "non-breaking"
+              }
+            ]
+          }
+        },
+        {
+          "id": "WF31-hard-inactive-consumed",
+          "initial_state": {
+            "source": "work-alpha",
+            "dependent_consumed_prior_contract": true,
+            "edge": "hard depends_on"
+          },
+          "action": "supersede_contract",
+          "expected": {
+            "assertions": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "non-breaking"
+              },
+              {
+                "target": "effects",
+                "path": "workflow.impact_notice_recorded",
+                "op": "nonempty"
+              }
+            ]
+          },
+          "setup": {
+            "fixture_refs": {
+              "work_item": "work-alpha",
+              "actors": [
+                "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+              ],
+              "definitions": [
+                "workflow.implementation"
+              ],
+              "evidence": [
+                "evidence-verification",
+                "evidence-review"
+              ],
+              "relations": [
+                "relation-alpha-child"
+              ]
+            },
+            "event_history": [
+              {
+                "event_id": "work-child-created",
+                "kind": "work.created",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "break_fix",
+                  "title": "work-child fixture",
+                  "priority": 1,
+                  "work_id": "work-child"
+                }
+              },
+              {
+                "event_id": "work-child-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-child",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-child-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.break_fix",
+                  "version": 1,
+                  "digest": "sha256:2eb0df0837729463afbd2fae14ffa63201d50083b2733010f7d185b70d6a086a",
+                  "work_kind": "break_fix",
+                  "work_id": "work-child",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-child-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-child-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-child",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-child-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:child",
+                    "immutable_subject_ref": "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-child",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "work-alpha-created",
+                "kind": "work.created",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "work_kind": "implementation",
+                  "title": "work-alpha fixture",
+                  "priority": 1,
+                  "work_id": "work-alpha"
+                }
+              },
+              {
+                "event_id": "work-alpha-actor",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-engineer",
+                  "session_ref": "session-executor",
+                  "actor_class": "agent",
+                  "work_id": "work-alpha",
+                  "expected_version": 2,
+                  "resulting_version": 3
+                }
+              },
+              {
+                "event_id": "work-alpha-definition",
+                "kind": "workflow.definition_selected",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "ref": "workflow.implementation",
+                  "version": 1,
+                  "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+                  "work_kind": "implementation",
+                  "work_id": "work-alpha",
+                  "expected_version": 3,
+                  "resulting_version": 4
+                }
+              },
+              {
+                "event_id": "work-alpha-started",
+                "kind": "workflow.action_started",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "step_id": "planning",
+                  "action_id": "approve_contract",
+                  "attempt_epoch": 1,
+                  "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "idempotency_identity": "work-alpha-setup",
+                  "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                  "work_id": "work-alpha",
+                  "expected_version": 4,
+                  "resulting_version": 5
+                }
+              },
+              {
+                "event_id": "work-alpha-contract-1",
+                "kind": "workflow.contract_approved",
+                "work_id": "work-alpha",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "premise": "fixture premise",
+                  "outcome_kind": "check",
+                  "outcome_payload": {
+                    "kind": "check",
+                    "check_ref": "check:workflow",
+                    "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "expected_result": "pass"
+                  },
+                  "required_evidence": [
+                    "verification",
+                    "review"
+                  ],
+                  "route_conventions": [
+                    "route:workflow"
+                  ],
+                  "spec_mandate": [],
+                  "rigor_class": "prototype_internal",
+                  "consequence_class": "internal_sqlite",
+                  "work_id": "work-alpha",
+                  "expected_version": 5,
+                  "resulting_version": 6
+                }
+              },
+              {
+                "event_id": "WF31-hard-inactive-consumed-edge",
+                "kind": "workflow.impact_declared",
+                "work_id": "work-child",
+                "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "edge_id": "edge:WF31-hard-inactive-consumed",
+                  "edge_kind": "depends_on",
+                  "edge_class": "hard",
+                  "target_work_id": "work-alpha",
+                  "target_kind": "work_item",
+                  "severity": "informational",
+                  "work_id": "work-child",
+                  "expected_version": 6,
+                  "resulting_version": 7
+                }
+              },
+              {
+                "event_id": "WF31-hard-inactive-consumed-operator",
+                "kind": "workflow.actor_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+                  "principal_ref": "principal:operator",
+                  "client_ref": "client:concord-1",
+                  "agent_ref": "agent-reviewer",
+                  "session_ref": "session-reviewer",
+                  "actor_class": "operator",
+                  "work_id": "work-child",
+                  "expected_version": 7,
+                  "resulting_version": 8
+                }
+              },
+              {
+                "event_id": "WF31-hard-inactive-consumed-verdict",
+                "kind": "workflow.verdict_recorded",
+                "work_id": "work-child",
+                "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 1,
+                "payload": {
+                  "contract_version": 1,
+                  "predicate_id": "predicate:WF31-hard-inactive-consumed",
+                  "verdict_kind": "ok",
+                  "verdict_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+                  "evaluation_evidence": [
+                    "evidence-review"
+                  ],
+                  "incomparable_with_approved": false,
+                  "work_id": "work-child",
+                  "expected_version": 8,
+                  "resulting_version": 9
+                }
+              },
+              {
+                "event_id": "WF31-hard-inactive-consumed-completed",
+                "kind": "workflow.completed",
+                "work_id": "work-child",
+                "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+                "occurred_at": "2026-08-09T00:00:00Z",
+                "payload_version": 2,
+                "payload": {
+                  "terminal_state": "completed",
+                  "final_verdict_kind": "ok",
+                  "verdict_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+                  "premise_confirmed": false,
+                  "evidence_count": 0,
+                  "changed_refs_digest": "sha256:5a30335b65e1d1581c189b162e51be9b63e4702ad5a0033eee5894529dce52db",
+                  "impact_verdict": "non-breaking",
+                  "work_id": "work-child",
+                  "expected_version": 9,
+                  "resulting_version": 10
+                }
+              }
+            ],
+            "projection": {
+              "version": 7,
+              "state": "planned",
+              "current_step": "planning",
+              "lifecycle": "planned"
+            },
+            "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "definition_pin": {
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+            },
+            "expected_version": 6,
+            "action_id": "supersede_contract",
+            "fields": {
+              "payload": {
+                "source": "work-alpha",
+                "dependent_consumed_prior_contract": true,
+                "edge": "hard depends_on"
+              },
+              "relation": "relation-alpha-child",
+              "title": "WF31-end-state-revision-impact title",
+              "value_statement": "fixture value statement",
+              "project_ids": [
+                "project-1"
+              ],
+              "contract_version": 1,
+              "premise": "fixture premise",
+              "new_contract_version": 2,
+              "supersede_reason": "end-state revision",
+              "audit_evidence": [
+                "evidence-review"
+              ],
+              "source_work_id": "work-alpha",
+              "source_contract_version": 2,
+              "dependent_work_id": "work-child",
+              "consumed_contract_version": 1,
+              "edge_kind": "depends_on",
+              "edge_class": "hard"
+            },
+            "idempotency": {
+              "key": "wf31-end-state-revision-impact-key",
+              "request_id": "wf31-end-state-revision-impact-request",
+              "operation_id": "wf31-end-state-revision-impact-operation",
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "grant": {
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "capability": "workflow_action",
+              "scope": "project-1"
+            },
+            "approval": {
+              "required": false,
+              "approval_ref": null
+            },
+            "operation": {
+              "op_id": "wf31-end-state-revision-impact-operation",
+              "attempt_epoch": 1,
+              "step_id": "planning",
+              "step_kind": "internal_sqlite",
+              "state": "pending"
+            }
+          },
+          "observations": {
+            "expected_reads": [
+              {
+                "target": "state",
+                "path": "notice.severity",
+                "op": "eq",
+                "value": "non-breaking"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "id": "WF32-forward-successor-completes",
@@ -8976,7 +11487,7 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-            "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
+          "digest": "sha256:0626450edd39b29e5ebbe95da05132b057939441a092479b5301753616240acc"
         },
         "expected_version": 10,
         "action_id": "link_and_complete",
@@ -8990,6 +11501,7 @@
           "project_ids": [
             "project-1"
           ],
+          "impact_verdict": "non-breaking",
           "successor_work_id": "work-child",
           "relation": "relation-beta-child",
           "relation_data": {
@@ -9124,7 +11636,7 @@
         "definition_pin": {
           "ref": "workflow.architecture_spike",
           "version": 1,
-           "digest": "sha256:3682687bb2106f764ae4a381f8dac6539da0d4e883ec9dd5ab17c18555709634"
+          "digest": "sha256:3682687bb2106f764ae4a381f8dac6539da0d4e883ec9dd5ab17c18555709634"
         },
         "expected_version": 4,
         "action_id": "link_successor",
@@ -9236,7 +11748,7 @@
         },
         "event_history": [
           {
-          "event_id": "wf34-generic-forward-any-family-created",
+            "event_id": "wf34-generic-forward-any-family-created",
             "kind": "work.created",
             "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
@@ -9273,9 +11785,9 @@
       "request": {
         "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
         "definition_pin": {
-            "ref": "workflow.generic_one_off",
+          "ref": "workflow.generic_one_off",
           "version": 1,
-             "digest": "sha256:7c41b7ef47f9f0b6923e8862686dbad0789b3252e4f8132c750bf25197146851"
+          "digest": "sha256:7c41b7ef47f9f0b6923e8862686dbad0789b3252e4f8132c750bf25197146851"
         },
         "expected_version": 4,
         "action_id": "link_successor",
@@ -9410,7 +11922,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "rebuild",
@@ -9554,7 +12066,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "reconstruct_subject",
@@ -9720,7 +12232,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-               "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "start_execution",
@@ -9846,7 +12358,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "start_execution",
@@ -9979,7 +12491,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "unknown-action",
@@ -10112,7 +12624,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "complete",
@@ -10136,6 +12648,7 @@
           ],
           "contract_version": 1,
           "premise": "fixture premise",
+          "impact_verdict": "non-breaking",
           "complete_gate_prerequisites": {
             "contract": true,
             "evidence": [
@@ -10275,7 +12788,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":2,"resulting_version":3,"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","principal_ref":"principal:operator","client_ref":"client:concord-1","agent_ref":"agent-engineer","session_ref":"session-executor","actor_class":"agent"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 2,
+              "resulting_version": 3,
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "actor_class": "agent"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-definition",
@@ -10284,7 +12807,15 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":3,"resulting_version":4,"ref":"workflow.implementation","version":1,"digest":"sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37","work_kind":"implementation"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 3,
+              "resulting_version": 4,
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+              "work_kind": "implementation"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-proposal",
@@ -10293,7 +12824,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":4,"resulting_version":5,"step_id":"proposal","action_id":"record_proposal","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 4,
+              "resulting_version": 5,
+              "step_id": "proposal",
+              "action_id": "record_proposal",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-discovery",
@@ -10302,7 +12845,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":5,"resulting_version":6,"step_id":"discovery","action_id":"record_discovery","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 5,
+              "resulting_version": 6,
+              "step_id": "discovery",
+              "action_id": "record_discovery",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-design",
@@ -10311,7 +12866,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":6,"resulting_version":7,"step_id":"design","action_id":"record_design","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 6,
+              "resulting_version": 7,
+              "step_id": "design",
+              "action_id": "record_design",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-planning",
@@ -10320,7 +12887,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":7,"resulting_version":8,"step_id":"planning","action_id":"approve_contract","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 7,
+              "resulting_version": 8,
+              "step_id": "planning",
+              "action_id": "approve_contract",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-execution-start",
@@ -10329,7 +12908,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":8,"resulting_version":9,"step_id":"execution","action_id":"start_execution","attempt_epoch":1,"accepted_inputs_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","idempotency_identity":"wf41-execution","actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 8,
+              "resulting_version": 9,
+              "step_id": "execution",
+              "action_id": "start_execution",
+              "attempt_epoch": 1,
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "idempotency_identity": "wf41-execution",
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-execution",
@@ -10338,7 +12927,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":9,"resulting_version":10,"step_id":"execution","action_id":"record_report","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 9,
+              "resulting_version": 10,
+              "step_id": "execution",
+              "action_id": "record_report",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-acceptance",
@@ -10347,7 +12948,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":10,"resulting_version":11,"step_id":"acceptance","action_id":"confirm_premise","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 10,
+              "resulting_version": 11,
+              "step_id": "acceptance",
+              "action_id": "confirm_premise",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-contract",
@@ -10356,7 +12969,28 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":11,"resulting_version":12,"contract_version":1,"premise":"fixture premise","outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:corpus","immutable_subject_ref":"commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_result":"pass"},"required_evidence":["verification","review"],"route_conventions":[],"spec_mandate":[],"rigor_class":"prototype_internal","consequence_class":"internal_sqlite"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 11,
+              "resulting_version": 12,
+              "contract_version": 1,
+              "premise": "fixture premise",
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:corpus",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              },
+              "required_evidence": [
+                "verification",
+                "review"
+              ],
+              "route_conventions": [],
+              "spec_mandate": [],
+              "rigor_class": "prototype_internal",
+              "consequence_class": "internal_sqlite"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-evidence-verification",
@@ -10365,7 +12999,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":12,"resulting_version":13,"evidence_kind":"verification","immutable_subject_ref":"evidence-verification","producer_id":"principal:operator","producer_run_ref":"wf41-verification","producer_watermark":"wf41-verification-request","observed_at":"2026-08-09T00:00:00Z"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 12,
+              "resulting_version": 13,
+              "evidence_kind": "verification",
+              "immutable_subject_ref": "evidence-verification",
+              "producer_id": "principal:operator",
+              "producer_run_ref": "wf41-verification",
+              "producer_watermark": "wf41-verification-request",
+              "observed_at": "2026-08-09T00:00:00Z"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-evidence-review",
@@ -10374,7 +13018,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":13,"resulting_version":14,"evidence_kind":"review","immutable_subject_ref":"evidence-review","producer_id":"principal:operator","producer_run_ref":"wf41-review","producer_watermark":"wf41-review-request","observed_at":"2026-08-09T00:00:00Z"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 13,
+              "resulting_version": 14,
+              "evidence_kind": "review",
+              "immutable_subject_ref": "evidence-review",
+              "producer_id": "principal:operator",
+              "producer_run_ref": "wf41-review",
+              "producer_watermark": "wf41-review-request",
+              "observed_at": "2026-08-09T00:00:00Z"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-evaluator",
@@ -10383,7 +13037,17 @@
             "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":14,"resulting_version":15,"actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc","principal_ref":"principal:operator","client_ref":"client:concord-1","agent_ref":"agent-reviewer","session_ref":"session-reviewer","actor_class":"operator"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 14,
+              "resulting_version": 15,
+              "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-reviewer",
+              "session_ref": "session-reviewer",
+              "actor_class": "operator"
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-verdict",
@@ -10392,7 +13056,19 @@
             "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":15,"resulting_version":16,"contract_version":1,"predicate_id":"predicate:wf41","verdict_kind":"ok","verdict_actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc","evaluation_evidence":["evidence-review"],"incomparable_with_approved":false}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 15,
+              "resulting_version": 16,
+              "contract_version": 1,
+              "predicate_id": "predicate:wf41",
+              "verdict_kind": "ok",
+              "verdict_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+              "evaluation_evidence": [
+                "evidence-review"
+              ],
+              "incomparable_with_approved": false
+            }
           },
           {
             "event_id": "wf41-staleness-warning-recorded-premise",
@@ -10401,7 +13077,13 @@
             "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":16,"resulting_version":17,"contract_version":1,"confirming_actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 16,
+              "resulting_version": 17,
+              "contract_version": 1,
+              "confirming_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+            }
           }
         ],
         "projection": {
@@ -10417,7 +13099,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "complete",
@@ -10441,6 +13123,7 @@
           ],
           "contract_version": 1,
           "premise": "fixture premise",
+          "impact_verdict": "non-breaking",
           "complete_gate_prerequisites": {
             "contract": true,
             "evidence": [
@@ -10579,7 +13262,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "concurrent_reads_and_writes",
@@ -10730,7 +13413,7 @@
         "definition_pin": {
           "ref": "workflow.break_fix",
           "version": 1,
-           "digest": "sha256:2eb0df0837729463afbd2fae14ffa63201d50083b2733010f7d185b70d6a086a"
+          "digest": "sha256:2eb0df0837729463afbd2fae14ffa63201d50083b2733010f7d185b70d6a086a"
         },
         "expected_version": 4,
         "action_id": "derive_ready",
@@ -10851,7 +13534,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":2,"resulting_version":3,"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","principal_ref":"principal:operator","client_ref":"client:concord-1","agent_ref":"agent-engineer","session_ref":"session-executor","actor_class":"agent"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 2,
+              "resulting_version": 3,
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "actor_class": "agent"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-definition",
@@ -10860,7 +13553,15 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":3,"resulting_version":4,"ref":"workflow.implementation","version":1,"digest":"sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37","work_kind":"implementation"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 3,
+              "resulting_version": 4,
+              "ref": "workflow.implementation",
+              "version": 1,
+              "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
+              "work_kind": "implementation"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-proposal",
@@ -10869,7 +13570,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":4,"resulting_version":5,"step_id":"proposal","action_id":"record_proposal","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 4,
+              "resulting_version": 5,
+              "step_id": "proposal",
+              "action_id": "record_proposal",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-discovery",
@@ -10878,7 +13591,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":5,"resulting_version":6,"step_id":"discovery","action_id":"record_discovery","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 5,
+              "resulting_version": 6,
+              "step_id": "discovery",
+              "action_id": "record_discovery",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-design",
@@ -10887,7 +13612,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":6,"resulting_version":7,"step_id":"design","action_id":"record_design","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 6,
+              "resulting_version": 7,
+              "step_id": "design",
+              "action_id": "record_design",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-planning",
@@ -10896,7 +13633,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":7,"resulting_version":8,"step_id":"planning","action_id":"approve_contract","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 7,
+              "resulting_version": 8,
+              "step_id": "planning",
+              "action_id": "approve_contract",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-execution-start",
@@ -10905,7 +13654,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":8,"resulting_version":9,"step_id":"execution","action_id":"start_execution","attempt_epoch":1,"accepted_inputs_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","idempotency_identity":"wf44-execution","actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 8,
+              "resulting_version": 9,
+              "step_id": "execution",
+              "action_id": "start_execution",
+              "attempt_epoch": 1,
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "idempotency_identity": "wf44-execution",
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-execution",
@@ -10914,7 +13673,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":9,"resulting_version":10,"step_id":"execution","action_id":"record_report","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 9,
+              "resulting_version": 10,
+              "step_id": "execution",
+              "action_id": "record_report",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-acceptance",
@@ -10923,7 +13694,19 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":10,"resulting_version":11,"step_id":"acceptance","action_id":"confirm_premise","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":["work-alpha"],"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 10,
+              "resulting_version": 11,
+              "step_id": "acceptance",
+              "action_id": "confirm_premise",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-contract",
@@ -10932,7 +13715,28 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":11,"resulting_version":12,"contract_version":1,"premise":"fixture premise","outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:corpus","immutable_subject_ref":"commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_result":"pass"},"required_evidence":["verification","review"],"route_conventions":[],"spec_mandate":[],"rigor_class":"prototype_internal","consequence_class":"internal_sqlite"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 11,
+              "resulting_version": 12,
+              "contract_version": 1,
+              "premise": "fixture premise",
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:corpus",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              },
+              "required_evidence": [
+                "verification",
+                "review"
+              ],
+              "route_conventions": [],
+              "spec_mandate": [],
+              "rigor_class": "prototype_internal",
+              "consequence_class": "internal_sqlite"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-evidence-verification",
@@ -10941,7 +13745,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":12,"resulting_version":13,"evidence_kind":"verification","immutable_subject_ref":"evidence-verification","producer_id":"principal:operator","producer_run_ref":"wf44-verification","producer_watermark":"wf44-verification-request","observed_at":"2026-08-09T00:00:00Z"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 12,
+              "resulting_version": 13,
+              "evidence_kind": "verification",
+              "immutable_subject_ref": "evidence-verification",
+              "producer_id": "principal:operator",
+              "producer_run_ref": "wf44-verification",
+              "producer_watermark": "wf44-verification-request",
+              "observed_at": "2026-08-09T00:00:00Z"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-evidence-review",
@@ -10950,7 +13764,17 @@
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":13,"resulting_version":14,"evidence_kind":"review","immutable_subject_ref":"evidence-review","producer_id":"principal:operator","producer_run_ref":"wf44-review","producer_watermark":"wf44-review-request","observed_at":"2026-08-09T00:00:00Z"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 13,
+              "resulting_version": 14,
+              "evidence_kind": "review",
+              "immutable_subject_ref": "evidence-review",
+              "producer_id": "principal:operator",
+              "producer_run_ref": "wf44-review",
+              "producer_watermark": "wf44-review-request",
+              "observed_at": "2026-08-09T00:00:00Z"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-evaluator",
@@ -10959,7 +13783,17 @@
             "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":14,"resulting_version":15,"actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc","principal_ref":"principal:operator","client_ref":"client:concord-1","agent_ref":"agent-reviewer","session_ref":"session-reviewer","actor_class":"operator"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 14,
+              "resulting_version": 15,
+              "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-reviewer",
+              "session_ref": "session-reviewer",
+              "actor_class": "operator"
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-verdict",
@@ -10968,7 +13802,19 @@
             "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":15,"resulting_version":16,"contract_version":1,"predicate_id":"predicate:wf44","verdict_kind":"ok","verdict_actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc","evaluation_evidence":["evidence-review"],"incomparable_with_approved":false}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 15,
+              "resulting_version": 16,
+              "contract_version": 1,
+              "predicate_id": "predicate:wf44",
+              "verdict_kind": "ok",
+              "verdict_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+              "evaluation_evidence": [
+                "evidence-review"
+              ],
+              "incomparable_with_approved": false
+            }
           },
           {
             "event_id": "wf44-unrelated-unreadable-premise",
@@ -10977,7 +13823,13 @@
             "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
-            "payload": {"work_id":"work-alpha","expected_version":16,"resulting_version":17,"contract_version":1,"confirming_actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"}
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 16,
+              "resulting_version": 17,
+              "contract_version": 1,
+              "confirming_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+            }
           }
         ],
         "projection": {
@@ -10993,7 +13845,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "complete",
@@ -11009,9 +13861,13 @@
           ],
           "contract_version": 1,
           "premise": "fixture premise",
+          "impact_verdict": "non-breaking",
           "complete_gate_prerequisites": {
             "contract": true,
-            "evidence": ["evidence-verification", "evidence-review"],
+            "evidence": [
+              "evidence-verification",
+              "evidence-review"
+            ],
             "verdict": true,
             "premise_confirmation": true
           }
@@ -11155,7 +14011,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "repair_and_rebuild",
@@ -11309,7 +14165,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "replay",
@@ -11360,7 +14216,9 @@
                 "action_id": "record_proposal",
                 "attempt_epoch": 1,
                 "result_evidence_refs": [],
-                "changed_refs": ["work-alpha"],
+                "changed_refs": [
+                  "work-alpha"
+                ],
                 "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
               }
             },
@@ -11371,7 +14229,11 @@
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "occurred_at": "2026-08-09T00:00:01Z",
               "payload_version": 99,
-              "payload": {"work_kind":"implementation","title":"future event","priority":1}
+              "payload": {
+                "work_kind": "implementation",
+                "title": "future event",
+                "priority": 1
+              }
             }
           ]
         },
@@ -11497,7 +14359,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-           "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
+          "digest": "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37"
         },
         "expected_version": 4,
         "action_id": "complete",
@@ -11514,6 +14376,7 @@
           ],
           "contract_version": 1,
           "premise": "fixture premise",
+          "impact_verdict": "non-breaking",
           "evidence_refs": [
             "evidence-verification"
           ]

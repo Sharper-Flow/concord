@@ -174,7 +174,9 @@ keyed by entity. Downstream checks notices only at consequential boundaries
 (plan→exec, merge, ship) via one bounded query. Block only on declared hard edge
 + breaking change; everything else warns. Version-stamp freshness at boundaries
 as deterministic fallback. Heuristics may suggest overlap but never author
-blocking edges. No polling, timers, or automatic downstream rewrites.
+blocking edges. The completion verdict classifies the delivered change; the edge
+class records whether each dependent treats that change as hard or soft. No
+polling, timers, or automatic downstream rewrites.
 
 Research: [`research/R3-impact-propagation.md`](../research/R3-impact-propagation.md).
 

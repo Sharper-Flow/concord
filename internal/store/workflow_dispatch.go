@@ -634,7 +634,19 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	if err != nil {
 		return Event{}, err
 	}
-	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": workflowFieldStringDefault(fields, "final_verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "premise_confirmed": workflowFieldBool(fields, "premise_confirmed"), "evidence_count": int64(0), "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID})}
+	impactVerdict := workflowFieldStringDefault(fields, "impact_verdict", "")
+	if impactVerdict == "" {
+		if payloadFields, ok := fields["payload"]; ok {
+			var nested map[string]json.RawMessage
+			if json.Unmarshal(payloadFields, &nested) == nil {
+				impactVerdict = workflowFieldStringDefault(nested, "impact_verdict", "")
+			}
+		}
+	}
+	if impactVerdict != "breaking" && impactVerdict != "non-breaking" {
+		return Event{}, newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
+	}
+	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": workflowFieldStringDefault(fields, "final_verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "premise_confirmed": workflowFieldBool(fields, "premise_confirmed"), "evidence_count": int64(0), "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
 	if payloadFields, ok := fields["payload"]; ok {
 		var nested map[string]json.RawMessage
 		if json.Unmarshal(payloadFields, &nested) == nil {
@@ -657,7 +669,11 @@ func workflowTypedEvent(id, kind, workID, actor string, now time.Time, expected 
 	values["expected_version"] = expected
 	values["resulting_version"] = expected + 1
 	raw, _ := json.Marshal(values)
-	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now.UTC(), PayloadVersion: 1, Payload: raw}
+	payloadVersion := 1
+	if registration, ok := registeredEventKind(kind); ok {
+		payloadVersion = registration.CurrentVersion
+	}
+	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now.UTC(), PayloadVersion: payloadVersion, Payload: raw}
 }
 
 func workflowActionObject(raw json.RawMessage) (map[string]json.RawMessage, error) {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // ReplaceWorkflowOutcome is the semantic outcome-revision boundary. Outcome
@@ -33,9 +34,9 @@ func ReplaceWorkflowCheckTx(ctx context.Context, tx *sql.Tx, registry Definition
 }
 
 // SupersedeWorkflowContract applies a contract revision and its consequential
-// dependent notices in one owning transaction. A consumed active hard
-// dependent receives a breaking notice; unconsumed dependents do not receive a
-// fabricated impact.
+// reverse-dependent notices in one owning transaction. A consumed active hard
+// dependent receives a breaking notice; every other declared dependent receives
+// an advisory non-breaking notice.
 func SupersedeWorkflowContract(ctx context.Context, s *Store, event Event) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "supersede_workflow_contract", "store is not open", false, "open the authority database")
@@ -63,15 +64,15 @@ func SupersedeWorkflowContract(ctx context.Context, s *Store, event Event) error
 		return rollback(err)
 	}
 	version := *payload.ResultingVersion
-	rows, err := tx.QueryContext(ctx, `SELECT edge_id,target_work_id,severity FROM workflow_impact_edges WHERE work_id=? AND edge_kind='depends_on' AND edge_class='hard' ORDER BY edge_id`, event.SubjectID)
+	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, event.SubjectID)
 	if err != nil {
 		return rollback(wrapFailure(KindUnavailable, "supersede_workflow_contract", "cannot inspect hard dependents", true, "retry once the database is readable", err))
 	}
-	type dependent struct{ edgeID, target, severity string }
+	type dependent struct{ workID, edgeID, edgeClass string }
 	var dependents []dependent
 	for rows.Next() {
 		var item dependent
-		if err := rows.Scan(&item.edgeID, &item.target, &item.severity); err != nil {
+		if err := rows.Scan(&item.workID, &item.edgeID, &item.edgeClass); err != nil {
 			rows.Close()
 			return rollback(wrapFailure(KindUnavailable, "supersede_workflow_contract", "cannot read hard dependent", true, "retry once the database is readable", err))
 		}
@@ -82,21 +83,35 @@ func SupersedeWorkflowContract(ctx context.Context, s *Store, event Event) error
 		return rollback(wrapFailure(KindUnavailable, "supersede_workflow_contract", "cannot scan hard dependents", true, "retry once the database is readable", err))
 	}
 	rows.Close()
-	for _, item := range dependents {
+	selected := make(map[string]dependent, len(dependents))
+	for _, candidate := range dependents {
+		current, exists := selected[candidate.workID]
+		if !exists || candidate.edgeClass == "hard" && current.edgeClass != "hard" || candidate.edgeClass == current.edgeClass && candidate.edgeID < current.edgeID {
+			selected[candidate.workID] = candidate
+		}
+	}
+	owners := make([]string, 0, len(selected))
+	for owner := range selected {
+		owners = append(owners, owner)
+	}
+	sort.Strings(owners)
+	for _, owner := range owners {
+		item := selected[owner]
 		var consumed, active int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=?`, item.target, payload.PreviousContractVersion).Scan(&consumed); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=?`, item.workID, payload.PreviousContractVersion).Scan(&consumed); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "supersede_workflow_contract", "cannot inspect dependent contract consumption", true, "retry once the database is readable", err))
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, item.target).Scan(&active); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, item.workID).Scan(&active); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "supersede_workflow_contract", "cannot inspect dependent lifecycle", true, "retry once the database is readable", err))
 		}
-		if consumed == 0 || active == 0 {
-			continue
+		severity := "non-breaking"
+		if item.edgeClass == "hard" && consumed != 0 && active != 0 {
+			severity = "breaking"
 		}
-		noticeID := WorkflowNoticeID(event.SubjectID, payload.NewContractVersion, "workflow_contract", fmt.Sprintf("contract:%d", payload.PreviousContractVersion), item.target, "breaking")
-		noticePayload := map[string]any{"work_id": event.SubjectID, "expected_version": version, "resulting_version": version + 1, "notice_id": noticeID, "source_contract_version": payload.NewContractVersion, "entity_kind": "workflow_contract", "entity_ref": fmt.Sprintf("contract:%d", payload.PreviousContractVersion), "target_work_id": item.target, "edge_id": item.edgeID, "old_hash": nil, "new_hash": nil, "severity": "breaking"}
+		noticeID := WorkflowNoticeID(event.SubjectID, payload.NewContractVersion, "workflow_contract", fmt.Sprintf("contract:%d", payload.PreviousContractVersion), item.workID, severity)
+		noticePayload := map[string]any{"work_id": event.SubjectID, "expected_version": version, "resulting_version": version + 1, "notice_id": noticeID, "source_contract_version": payload.NewContractVersion, "entity_kind": "workflow_contract", "entity_ref": fmt.Sprintf("contract:%d", payload.PreviousContractVersion), "target_work_id": item.workID, "edge_owner_work_id": item.workID, "edge_id": item.edgeID, "old_hash": nil, "new_hash": nil, "severity": severity}
 		raw, _ := json.Marshal(noticePayload)
-		notice := Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 1, Payload: raw}
+		notice := Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 2, Payload: raw}
 		if _, err := appendEvent(ctx, tx, notice, true); err != nil {
 			return rollback(newFailure(KindOperationConflict, "supersede_workflow_contract", "dependent impact notice conflicted", false, "reconcile_operation"))
 		}

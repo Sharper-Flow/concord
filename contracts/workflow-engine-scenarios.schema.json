@@ -271,6 +271,9 @@
         "severity": {
           "$ref": "#/$defs/jsonValue"
         },
+        "impact_verdict": {
+          "$ref": "#/$defs/jsonValue"
+        },
         "source": {
           "$ref": "#/$defs/jsonValue"
         },
@@ -1140,6 +1143,9 @@
         "target_work_id": {
           "$ref": "#/$defs/id"
         },
+        "edge_owner_work_id": {
+          "$ref": "#/$defs/id"
+        },
         "target_kind": {
           "const": "work_item"
         },
@@ -1247,6 +1253,12 @@
           "pattern": "^sha256:[0-9a-f]{64}$",
           "minLength": 71,
           "maxLength": 71
+        },
+        "impact_verdict": {
+          "enum": [
+            "breaking",
+            "non-breaking"
+          ]
         },
         "warnings": {
           "type": "array",
@@ -1816,6 +1828,12 @@
             "breaking",
             "non-breaking",
             "informational"
+          ]
+        },
+        "impact_verdict": {
+          "enum": [
+            "breaking",
+            "non-breaking"
           ]
         },
         "notice_id": {

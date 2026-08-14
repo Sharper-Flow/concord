@@ -49,6 +49,7 @@ type WorkflowReadNotice struct {
 	EntityKind            string  `json:"entity_kind"`
 	EntityRef             string  `json:"entity_ref"`
 	TargetWorkID          string  `json:"target_work_id"`
+	EdgeOwnerWorkID       string  `json:"edge_owner_work_id"`
 	EdgeID                string  `json:"edge_id"`
 	OldHash               *string `json:"old_hash,omitempty"`
 	NewHash               *string `json:"new_hash,omitempty"`
@@ -171,13 +172,13 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.BlockingConditions = append(out.BlockingConditions, ready.BlockingConditions...)
 	out.UnreadableConditions = append(out.UnreadableConditions, ready.UnknownConditions...)
 
-	rows, err = s.db.QueryContext(ctx, `SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_id,old_hash,new_hash,severity FROM workflow_impact_notices WHERE target_work_id=? OR source_work_id=? ORDER BY recorded_at,notice_id LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
+	rows, err = s.db.QueryContext(ctx, `SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity FROM workflow_impact_notices WHERE target_work_id=? OR source_work_id=? ORDER BY recorded_at,notice_id LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow impact notices", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var notice WorkflowReadNotice
-		if err := rows.Scan(&notice.NoticeID, &notice.SourceWorkID, &notice.SourceContractVersion, &notice.EntityKind, &notice.EntityRef, &notice.TargetWorkID, &notice.EdgeID, &notice.OldHash, &notice.NewHash, &notice.Severity); err != nil {
+		if err := rows.Scan(&notice.NoticeID, &notice.SourceWorkID, &notice.SourceContractVersion, &notice.EntityKind, &notice.EntityRef, &notice.TargetWorkID, &notice.EdgeOwnerWorkID, &notice.EdgeID, &notice.OldHash, &notice.NewHash, &notice.Severity); err != nil {
 			rows.Close()
 			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow impact notice", true, "retry once the database is readable", err)
 		}

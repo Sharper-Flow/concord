@@ -262,6 +262,10 @@ func executeCorpusFencedAction(ctx context.Context, s *Store, workID string, bef
 }
 
 func executeCorpusCompletionFault(ctx context.Context, s *Store, workID string, beforeSeq int64, request workflowCorpusRequest, actor WorkflowActor) (workflowObservation, error) {
+	impactVerdict, err := corpusImpactVerdict(request.Fields)
+	if err != nil {
+		return workflowObservation{}, err
+	}
 	tx, err := s.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return workflowObservation{}, err
@@ -270,7 +274,7 @@ func executeCorpusCompletionFault(ctx context.Context, s *Store, workID string, 
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
-	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForCorpus(actor), "premise_confirmed": false, "evidence_count": 0, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID})}
+	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForCorpus(actor), "premise_confirmed": false, "evidence_count": 0, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict}
 	event := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, actorRefForCorpus(actor), corpusNow, request.ExpectedVersion, payload)
 	completionErr := CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event)
 	_ = leaveFold(ctx, tx)
@@ -282,6 +286,10 @@ func executeCorpusCompletionFault(ctx context.Context, s *Store, workID string, 
 }
 
 func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, beforeSeq int64, request workflowCorpusRequest, actor WorkflowActor, setup workflowCorpusSetup, fixtures workflowCorpusFixtures) (workflowObservation, error) {
+	impactVerdict, err := corpusImpactVerdict(request.Fields)
+	if err != nil {
+		return workflowObservation{}, err
+	}
 	tx, err := s.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return workflowObservation{}, err
@@ -312,7 +320,7 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
-	completion := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, actorRef, corpusNow, result.ResultingVersion, map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForLatestVerdict(ctx, tx, workID), "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID})})
+	completion := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, actorRef, corpusNow, result.ResultingVersion, map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForLatestVerdict(ctx, tx, workID), "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict})
 	err = CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), completion)
 	_ = leaveFold(ctx, tx)
 	if err == nil {
@@ -329,6 +337,25 @@ func cloneCorpusFields(fields map[string]any) map[string]any {
 		clone[key] = value
 	}
 	return clone
+}
+
+func corpusImpactVerdict(fields map[string]any) (string, error) {
+	verdict, ok := fields["impact_verdict"].(string)
+	if !ok || (verdict != "breaking" && verdict != "non-breaking") {
+		return "", workflowScenarioGap{"completion-producing corpus action requires impact_verdict breaking or non-breaking"}
+	}
+	return verdict, nil
+}
+
+func TestCorpusImpactVerdictRejectsOmissionAndInvalidValue(t *testing.T) {
+	for _, fields := range []map[string]any{{}, {"impact_verdict": "informational"}} {
+		if _, err := corpusImpactVerdict(fields); err == nil {
+			t.Fatalf("invalid corpus impact verdict accepted: %#v", fields)
+		}
+	}
+	if verdict, err := corpusImpactVerdict(map[string]any{"impact_verdict": "breaking"}); err != nil || verdict != "breaking" {
+		t.Fatalf("explicit breaking corpus verdict rejected: verdict=%q err=%v", verdict, err)
+	}
 }
 
 func corpusRelatedWorkID(setup workflowCorpusSetup, request workflowCorpusRequest, fixtures workflowCorpusFixtures, workID string) (string, error) {
@@ -719,6 +746,11 @@ func executeWorkflowScenario(t *testing.T, name string, initial map[string]any, 
 	// production dispatcher owns its semantics.
 	if _, ok := workflowCorpusActions[workflowCorpusAction(action)]; !ok {
 		return workflowObservation{}, workflowScenarioGap{fmt.Sprintf("action %q is not in the typed corpus action union", action)}
+	}
+	if action == string(corpusActionComplete) || action == string(corpusActionLinkAndComplete) {
+		if _, err := corpusImpactVerdict(request.Fields); err != nil {
+			return workflowObservation{}, err
+		}
 	}
 	return executeStructuredWorkflowAction(t, name, initial, action, setup, request, fixtures)
 }
@@ -1885,7 +1917,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		observation.State["resolved"] = map[string]any{"await_types": awaitTypes}
 		notices := make([]any, len(projection.ImpactNotices))
 		for i, notice := range projection.ImpactNotices {
-			notices[i] = map[string]any{"notice_id": notice.NoticeID, "source_work_id": notice.SourceWorkID, "source_contract_version": notice.SourceContractVersion, "entity_kind": notice.EntityKind, "entity_ref": notice.EntityRef, "target_work_id": notice.TargetWorkID, "edge_id": notice.EdgeID, "severity": notice.Severity}
+			notices[i] = map[string]any{"notice_id": notice.NoticeID, "source_work_id": notice.SourceWorkID, "source_contract_version": notice.SourceContractVersion, "entity_kind": notice.EntityKind, "entity_ref": notice.EntityRef, "target_work_id": notice.TargetWorkID, "edge_owner_work_id": notice.EdgeOwnerWorkID, "edge_id": notice.EdgeID, "severity": notice.Severity}
 		}
 		noticeView := map[string]any{"count": len(notices), "items": notices}
 		for i, item := range notices {

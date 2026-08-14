@@ -310,6 +310,49 @@ func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testin
 	}
 }
 
+func TestMigrateV27ToV28PreservesImpactNoticesWithSourceOwnedEdges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v27.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:27] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-13T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO work_items(id,kind,title,lifecycle,urgency,priority,version,created_at,updated_at) VALUES
+('legacy-source','task','Source','needed','standard',1,1,'now','now'),
+('legacy-target','task','Target','needed','standard',1,1,'now','now');
+INSERT INTO workflow_impact_edges(work_id,edge_id,edge_kind,edge_class,target_work_id,target_kind,severity,recorded_at)
+VALUES('legacy-source','edge:legacy','depends_on','hard','legacy-target','work_item','breaking','now');
+INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_id,old_hash,new_hash,severity,recorded_at)
+VALUES(?,'legacy-source',1,'spec','spec:one','legacy-target','edge:legacy',NULL,NULL,'breaking','now');
+DELETE FROM fold_guard`, WorkflowNoticeID("legacy-source", 1, "spec", "spec:one", "legacy-target", "breaking")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var owner string
+	if err := db.QueryRowContext(ctx, `SELECT edge_owner_work_id FROM workflow_impact_notices WHERE source_work_id='legacy-source'`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "legacy-source" {
+		t.Fatalf("migrated edge owner = %q, want legacy-source", owner)
+	}
+}
+
 func TestMigrateIsIdempotent(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

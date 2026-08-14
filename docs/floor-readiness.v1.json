@@ -279,24 +279,29 @@
       "condition": "fc6",
       "title": "Predecessor operational territory is enumerated",
       "requirement": "An authorizing artifact names the operational capabilities the predecessor provides, described by territory rather than by command shape, so Concord coverage can be judged against it.",
-      "state": "outstanding",
-      "issue": 78
+      "state": "satisfied",
+      "evidence": [
+        "docs/predecessor-operational-coverage.md"
+      ]
     },
     {
       "id": "fc6-operational-coverage",
       "condition": "fc6",
       "title": "Concord covers that territory without loss",
       "requirement": "Every enumerated predecessor capability resolves to covered, not covered, or deliberately excluded with a reason.",
-      "state": "unmeasured",
-      "reason": "Coverage cannot be assessed before the enumeration in fc6-predecessor-surface-enumeration exists. Recorded as unknown rather than absent, because neither state has been established."
+      "state": "outstanding",
+      "issue": 108
     },
     {
       "id": "fc6-consumed-surface-stability",
       "condition": "fc6",
       "title": "Predecessor surfaces consumed as evidence are stable enough to rely on",
       "requirement": "Any predecessor surface Concord consumes as evidence is identified, and its stability is assessed against the reliance placed on it.",
-      "state": "unmeasured",
-      "reason": "No inventory identifies which predecessor surfaces Concord currently consumes as evidence, so the reliance being asserted has not been established."
+      "state": "satisfied",
+      "evidence": [
+        "docs/predecessor-operational-coverage.md",
+        "docs/decisions/CD-0010-pre-readiness-development-authority.md"
+      ]
     }
   ]
 }

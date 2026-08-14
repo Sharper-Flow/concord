@@ -20,6 +20,13 @@
 > first-usable floor and never has.
 > [`floor-readiness.md`](./floor-readiness.md) and its validated manifest own
 > that record; this document remains non-authorizing capability evidence.
+> **Coverage authority:** whether Concord can produce a given predecessor outcome
+> today is owned by
+> [`predecessor-operational-coverage.md`](./predecessor-operational-coverage.md),
+> which is organized by operational territory and authorizing for floor condition
+> 6. This inventory records capability *lineage* only. Where the two disagree
+> about whether something exists, the coverage document wins — its evidence paths
+> are checked.
 
 ## How to read this
 

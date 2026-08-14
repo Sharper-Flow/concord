@@ -101,6 +101,11 @@ type RecoveryAction struct {
 	Kind         string   `json:"kind"`
 	RequiredRefs []string `json:"required_refs,omitempty"`
 }
+
+// MaxNotices bounds each notice collection on an envelope. Producers that merge
+// notices from more than one stage must respect it before validation runs.
+const MaxNotices = 16
+
 type TypedError struct {
 	Kind            string         `json:"kind"`
 	RetrySafe       bool           `json:"retry_safe"`
@@ -279,7 +284,7 @@ func (e Envelope) Validate() error {
 	if err := validateOperation(e.Tool, e.Operation, e.QueryID); err != nil {
 		return err
 	}
-	if len(e.SourceVersionWatermark) > 32 || len(e.OrderingKeys) > 16 || len(e.Omissions) > 16 || len(e.Warnings) > 16 || len(e.EvidenceRefs) > 32 {
+	if len(e.SourceVersionWatermark) > 32 || len(e.OrderingKeys) > 16 || len(e.Omissions) > MaxNotices || len(e.Warnings) > MaxNotices || len(e.EvidenceRefs) > 32 {
 		return errors.New("envelope bound exceeded")
 	}
 	if err := validateEnvelopeCollections(e); err != nil {

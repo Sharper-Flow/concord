@@ -128,8 +128,11 @@
       "condition": "fc2",
       "title": "Scope-version freshness behaves as TS5 section 3 specifies",
       "requirement": "An outdated but semantically unchanged scope permits a read with an explicit refreshed version, while a mutation on outdated scope fails before any effect. Ownership change or new ambiguity fails all Product-scoped calls.",
-      "state": "unmeasured",
-      "reason": "The grant validation path was confirmed to run on every invocation, but the specific read-refresh versus mutation-reject split described in TS5 section 3 was not audited against the implementation in the pass that produced this manifest."
+      "state": "satisfied",
+      "evidence": [
+        "internal/agent/context_freshness_test.go",
+        "internal/agent/runtime.go"
+      ]
     },
     {
       "id": "fc3-workflow-types",
@@ -271,8 +274,10 @@
       "condition": "fc5",
       "title": "Schema and workflow changes are safe for in-flight work",
       "requirement": "A schema or workflow-definition change lands without corrupting or stranding work already in progress, and historical events remain readable across the change.",
-      "state": "unmeasured",
-      "reason": "Migration and upcaster machinery exists, but no audit in the pass that produced this manifest confirmed that an in-flight work item survives a schema or definition change end to end."
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/inflight_evolution_test.go"
+      ]
     },
     {
       "id": "fc6-predecessor-surface-enumeration",

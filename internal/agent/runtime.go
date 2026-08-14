@@ -1026,9 +1026,21 @@ func applyMeta(base Envelope, meta store.ResultMeta, scope *Scope) Envelope {
 	base.OrderingKeys = meta.OrderingKeys
 	base.NextCursor = meta.NextCursor
 	base.Omissions = notices(meta.Omissions)
-	base.Warnings = notices(meta.Warnings)
+	// Dispatch-level notices are recorded on the base envelope before the read
+	// runs — TS5 §3's context_refreshed is the load-bearing case. Replacing the
+	// slice here would drop the only signal that a stale read was refreshed, so
+	// query warnings are appended within the envelope's bounded notice budget.
+	base.Warnings = boundedNotices(base.Warnings, notices(meta.Warnings))
 	base.SourceVersionWatermark = []Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: strconv.FormatInt(meta.SourceVersionWatermark, 10)}}
 	return base
+}
+
+func boundedNotices(existing, added []Notice) []Notice {
+	out := append(append(make([]Notice, 0, len(existing)+len(added)), existing...), added...)
+	if len(out) > MaxNotices {
+		return out[:MaxNotices]
+	}
+	return out
 }
 func parseTime(v string) time.Time { t, _ := time.Parse(time.RFC3339Nano, v); return t }
 func notices(values []string) []Notice {

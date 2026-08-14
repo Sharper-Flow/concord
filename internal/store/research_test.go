@@ -804,3 +804,120 @@ func TestEpicRejectsNestedAndCrossProductEntries(t *testing.T) {
 func operationEventForResearch(id, kind string, subject SubjectType, subjectID string, payload map[string]any) (Event, error) {
 	return Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: "test", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(payload)}, nil
 }
+
+// A consumed revision is immutable, so a researcher who learns one more thing must
+// append a successor. That successor previously arrived empty, making the only
+// legal path to adding one finding a full re-entry of every finding already
+// gathered. Content now carries forward, and freshness follows whether the brief
+// was actually restated.
+func TestAppendRevisionCarriesContentForward(t *testing.T) {
+	ctx := context.Background()
+
+	seed := func(t *testing.T) (*Store, ResearchPack) {
+		t.Helper()
+		s := openTemp(t)
+		seedResearchWork(t, s, "owner", "consumer")
+		pack, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
+			Identity:    researchIdentity("seed-pack"),
+			OwnerWorkID: "owner",
+			Freshness:   ResearchCurrent,
+			Revision:    ResearchRevisionInput{Question: "does it hold?", ScopeIn: json.RawMessage(`["a"]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`["proven"]`), Method: "read the source"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := AddResearchSource(ctx, s, ResearchSourceRequest{Identity: researchIdentity("seed-source"), PackID: pack.PackID, ExpectedVersion: 1, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.invalid/doc", Title: "Doc", PublisherOrAuthor: "Example", AccessedAt: "2026-01-01T00:00:00Z"}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := AddResearchFinding(ctx, s, ResearchFindingRequest{Identity: researchIdentity("seed-finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "it holds", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
+			t.Fatal(err)
+		}
+		return s, pack
+	}
+
+	sameBrief := ResearchRevisionInput{Question: "does it hold?", ScopeIn: json.RawMessage(`["a"]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`["proven"]`), Method: "read the source"}
+
+	t.Run("unchanged brief preserves assessed freshness", func(t *testing.T) {
+		s, pack := seed(t)
+		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-same"), PackID: pack.PackID, ExpectedVersion: 3, Revision: sameBrief}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReadCompleteResearchPack(ctx, s, pack.PackID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rev := revisionByNumber(t, got, 2)
+		if len(rev.Findings) != 1 || rev.Findings[0].FindingID != "f1" {
+			t.Fatalf("findings=%+v, want the prior finding carried forward", rev.Findings)
+		}
+		if rev.Findings[0].Freshness != ResearchCurrent {
+			t.Fatalf("freshness=%q, want the assessed freshness preserved", rev.Findings[0].Freshness)
+		}
+		if len(rev.Findings[0].SourceIDs) != 1 || rev.Findings[0].SourceIDs[0] != "s1" {
+			t.Fatalf("citations=%v, want the citation link carried forward", rev.Findings[0].SourceIDs)
+		}
+		if len(rev.Sources) != 1 || rev.Sources[0].SourceID != "s1" {
+			t.Fatalf("sources=%+v, want the prior source carried forward", rev.Sources)
+		}
+
+	})
+
+	t.Run("restated brief degrades copied findings to unknown", func(t *testing.T) {
+		s, pack := seed(t)
+		restated := sameBrief
+		restated.Question = "does it still hold after the rewrite?"
+		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-restated"), PackID: pack.PackID, ExpectedVersion: 3, Revision: restated}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReadCompleteResearchPack(ctx, s, pack.PackID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rev := revisionByNumber(t, got, 2)
+		if len(rev.Findings) != 1 {
+			t.Fatalf("findings=%+v, want the prior finding carried forward", rev.Findings)
+		}
+		if rev.Findings[0].Freshness != ResearchUnknown {
+			t.Fatalf("freshness=%q, want unknown under a restated brief", rev.Findings[0].Freshness)
+		}
+		if rev.Findings[0].Statement != "it holds" || rev.Findings[0].Confidence != ConfidenceHigh {
+			t.Fatalf("finding=%+v, want content preserved apart from freshness", rev.Findings[0])
+		}
+		// Pack freshness stays untouched: it is pack-scoped while consumers pin
+		// exact revisions, so a restatement must not reach consumers of older ones.
+		if got.Freshness != ResearchCurrent {
+			t.Fatalf("pack freshness=%q, want the pinned-consumer guarantee preserved", got.Freshness)
+		}
+	})
+
+	t.Run("the pinned revision is untouched", func(t *testing.T) {
+		s, pack := seed(t)
+		if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true, AcceptedAt: "2026-01-01T00:00:00Z"}}); err != nil {
+			t.Fatal(err)
+		}
+		restated := sameBrief
+		restated.Question = "a different question entirely"
+		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-after-bind"), PackID: pack.PackID, ExpectedVersion: 4, Revision: restated}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReadCompleteResearchPack(ctx, s, pack.PackID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pinned := revisionByNumber(t, got, 1)
+		if len(pinned.Findings) != 1 || pinned.Findings[0].Freshness != ResearchCurrent {
+			t.Fatalf("pinned revision=%+v, want the consumer's content unchanged", pinned.Findings)
+		}
+	})
+}
+
+func revisionByNumber(t *testing.T, pack ResearchPack, revision int64) ResearchRevision {
+	t.Helper()
+	for _, r := range pack.Revisions {
+		if r.Revision == revision {
+			return r
+		}
+	}
+	t.Fatalf("revision %d absent from pack", revision)
+	return ResearchRevision{}
+}

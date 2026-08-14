@@ -127,6 +127,14 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err != nil {
 		return err
 	}
+	if definition.Version >= 2 {
+		if err := requireActor(ctx, tx, event.Actor); err != nil {
+			return err
+		}
+		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, event.Actor, "", false, "complete_workflow"); err != nil {
+			return err
+		}
+	}
 
 	// Clause 1: durable, event-folded evidence bound to the approved contract.
 	if err := verifyCompletionEvidence(ctx, tx, event.SubjectID, contract.RequiredEvidence, definition.RequiredEvidenceKinds); err != nil {
@@ -376,13 +384,17 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 // run, not of the actor identity; the verdict model travels on the verdict
 // event for the same reason.
 func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
+	return workflowActorsDistinct(ctx, tx, workID, verdictActor, verdictModel, requireModelDistinct, "complete_workflow")
+}
+
+func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	var executing WorkflowActor
 	if err := tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model); err != nil {
-		return newFailure(KindUnauthorized, "complete_workflow", "executing actor tuple is incomplete", false, "contact_operator")
+		return newFailure(KindUnauthorized, operation, "executing actor tuple is incomplete", false, "contact_operator")
 	}
 	var verdict WorkflowActor
 	if err := tx.QueryRowContext(ctx, `SELECT actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, verdictActor).Scan(&verdict.ActorRef, &verdict.PrincipalRef, &verdict.ClientRef, &verdict.AgentRef, &verdict.SessionRef, &verdict.ActorClass); err != nil {
-		return newFailure(KindUnauthorized, "complete_workflow", "verdict actor tuple is incomplete", false, "contact_operator")
+		return newFailure(KindUnauthorized, operation, "verdict actor tuple is incomplete", false, "contact_operator")
 	}
 	verdict.Model = verdictModel
 	if err := ValidateDistinctWorkflowActors(executing, verdict, requireModelDistinct); err != nil {

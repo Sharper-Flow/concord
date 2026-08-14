@@ -214,24 +214,27 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	var resolvedModel string
-	if err := tx.QueryRowContext(ctx, `SELECT resolved_model FROM worker_attempts WHERE attempt_id=?`, payload.AttemptID).Scan(&resolvedModel); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before worker.completed")
-		}
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read worker dispatch projection", true, "retry once the database is readable", err)
+	var workID, lifecycle, resolvedModel string
+	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle, &resolvedModel); err != nil {
+		return err
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	if resolvedModel != payload.ReadbackModel {
-		_, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=?`, payload.ReadbackModel, string(KindModelIdentityMismatch), "resolved model differs from host readback model", now, payload.AttemptID)
+		result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, string(KindModelIdentityMismatch), "resolved model differs from host readback model", now, payload.AttemptID, workID)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot record worker model identity mismatch", true, "retry once the database is writable", err)
 		}
+		if err := verifyWorkerTerminalUpdate(result, "cannot verify worker model identity mismatch", "record worker.dispatched before worker.completed"); err != nil {
+			return err
+		}
 		return nil
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=?`, payload.ReadbackModel, now, payload.AttemptID)
+	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, now, payload.AttemptID, workID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot complete worker attempt projection", true, "retry once the database is writable", err)
+	}
+	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker completion projection", "record worker.dispatched before worker.completed"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -241,15 +244,47 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
+	var workID, lifecycle, resolvedModel string
+	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle, &resolvedModel); err != nil {
+		return err
+	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=?`, payload.ReadbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID)
+	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID, workID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot fail worker attempt projection", true, "retry once the database is writable", err)
 	}
-	if affected, err := result.RowsAffected(); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot verify worker attempt projection", true, "retry once the database is readable", err)
-	} else if affected == 0 {
-		return newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before worker.failed")
+	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker failure projection", "record worker.dispatched before worker.failed"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, attemptID string, workID, lifecycle, resolvedModel *string) error {
+	if event.SubjectType != SubjectWorkItem {
+		return newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,resolved_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(workID, lifecycle, resolvedModel); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before the terminal worker event")
+		}
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read worker attempt projection", true, "retry once the database is readable", err)
+	}
+	if *workID != event.SubjectID {
+		return newFailure(KindInvalidOperation, "fold_event", "worker terminal event subject does not own the worker attempt", false, "use the attempt's owning work item as the event subject")
+	}
+	if *lifecycle != "dispatched" {
+		return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already terminal", false, "use a new attempt identity")
+	}
+	return nil
+}
+
+func verifyWorkerTerminalUpdate(result sql.Result, unavailableDetail, missingDetail string) error {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", unavailableDetail, true, "retry once the worker attempt projection is readable", err)
+	}
+	if affected != 1 {
+		return newFailure(KindProjectionConflict, "fold_event", "worker attempt terminal transition was not uniquely applied", false, missingDetail)
 	}
 	return nil
 }

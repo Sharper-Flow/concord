@@ -2490,37 +2490,60 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "else": {
         "else": {
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "selected_choice"
-                ]
-              },
-              {
-                "required": [
-                  "decision_context_digest"
-                ]
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            }
+          },
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "confirm_premise"
               }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "fields"
+              ]
+            },
+            "required": [
+              "selected_choice",
+              "decision_context_digest"
             ]
           }
         },
         "if": {
           "properties": {
             "action_id": {
-              "const": "confirm_premise"
+              "const": "accept_worker_result"
             }
           }
         },
         "then": {
-          "not": {
-            "required": [
-              "fields"
-            ]
+          "properties": {
+            "fields": {
+              "required": [
+                "attempt_id",
+                "attempt_epoch"
+              ],
+              "type": "object"
+            }
           },
           "required": [
-            "selected_choice",
-            "decision_context_digest"
+            "fields"
           ]
         }
       },
@@ -2570,7 +2593,14 @@ const GeneratedPayloadSchemaDocument = `{
               "properties": {
                 "active_unit": {},
                 "added": {},
-                "attempt_epoch": {},
+                "attempt_epoch": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "attempt_id": {
+                  "$ref": "#/$defs/id"
+                },
                 "audit_evidence": {},
                 "boundary_kind": {},
                 "boundary_sequence": {},

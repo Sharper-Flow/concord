@@ -138,8 +138,11 @@ The workflow engine emits the following new typed events, all with
   `accepted_inputs_digest`, `idempotency_identity`, `actor_ref`;
 - `workflow.action_checkpointed` — `step_id`, `step_kind`, `attempt_epoch`,
   `checkpoint_payload`, `resume_cursor`, `actor_ref`, `request_id`;
-- `workflow.action_completed` — `step_id`, `attempt_epoch`, `result_evidence_refs`,
-  `changed_refs`, `actor_ref`;
+- `workflow.action_completed` v2 — `step_id`, `attempt_epoch`,
+  `result_evidence_refs`, `changed_refs`, `actor_ref`, and optional
+  `worker_attempt_id`; v1 upcasts with no worker attempt identity. V2 built-in
+  external-effect steps advance a dispatched worker attempt only through the
+  declared `accept_worker_result` action, whose actor differs from the executor;
 - `workflow.action_failed` — `step_id`, `attempt_epoch`, `failure_kind`,
   `recoverable`, `actor_ref`;
 - `workflow.evidence_bound` — `evidence_kind`, `immutable_subject_ref`,

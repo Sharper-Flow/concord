@@ -36,10 +36,7 @@ func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
 	seedWork(t, s, "workflow-work")
 	seedWorkflowAuthority(t, s, "condition-authority", "workflow-work", "principal/resolver", "request:condition", []string{"approval:one"})
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/1")
-	implementationDigest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	implementationDigest := legacyImplementationDigest(t)
 	base := int64(2)
 	events := []Event{
 		workflowEvent("actor", WorkflowActorRecorded, "workflow-work", map[string]any{
@@ -138,10 +135,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 	s := openTemp(t)
 	seedWork(t, s, "ordered-gate-work")
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/executor")
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := legacyImplementationDigest(t)
 	events := []Event{
 		workflowEvent("ordered-actor", WorkflowActorRecorded, "ordered-gate-work", map[string]any{
 			"work_id": "ordered-gate-work", "expected_version": 2, "resulting_version": 3, "actor_ref": actor,
@@ -168,7 +162,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 		"premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
 	completion.PayloadVersion = 2
-	err = CompleteWorkflow(context.Background(), s, completion)
+	err := CompleteWorkflow(context.Background(), s, completion)
 	assertFailureKind(t, err, KindMissingEvidence)
 	assertTableCount(t, s, "domain_events", eventsBefore)
 	assertTableCount(t, s, "workflow_impact_notices", 0)
@@ -187,10 +181,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	seedWorkflowLaw(t, s)
 	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/complete")
 	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/review")
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := legacyImplementationDigest(t)
 	events := []Event{
 		workflowEvent("complete-executor", WorkflowActorRecorded, "complete-work", map[string]any{"work_id": "complete-work", "expected_version": 2, "resulting_version": 3, "actor_ref": executor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/complete", "actor_class": "agent"}),
 		workflowEvent("complete-operator", WorkflowActorRecorded, "complete-work", map[string]any{"work_id": "complete-work", "expected_version": 3, "resulting_version": 4, "actor_ref": operator, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/review", "actor_class": "operator"}),
@@ -559,10 +550,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	source, _ := seedCompletionGateCase(t, "revision-source", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	seedWork(t, source, "revision-dependent")
 	dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/revision-dependent")
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := legacyImplementationDigest(t)
 	dependentEvents := []Event{
 		workflowEvent("revision-dependent-actor", WorkflowActorRecorded, "revision-dependent", map[string]any{"work_id": "revision-dependent", "expected_version": 2, "resulting_version": 3, "actor_ref": dependentActor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/dependent", "session_ref": "session/revision-dependent", "actor_class": "agent"}),
 		workflowEvent("revision-dependent-definition", WorkflowDefinitionSelected, "revision-dependent", map[string]any{"work_id": "revision-dependent", "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
@@ -617,10 +605,7 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 			seedWork(t, s, dependentID)
 			actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+sourceID)
 			dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/"+dependentID)
-			digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-			if err != nil {
-				t.Fatal(err)
-			}
+			digest := legacyImplementationDigest(t)
 			version := int64(2)
 			events := []Event{
 				workflowEvent("actor-"+dependentID, WorkflowActorRecorded, dependentID, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "actor_ref": dependentActor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/dependent", "session_ref": "session/" + dependentID, "actor_class": "agent"}),
@@ -728,10 +713,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 	seedWorkflowLaw(t, s)
 	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+workID)
 	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/"+workID)
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := legacyImplementationDigest(t)
 	version := int64(2)
 	events := make([]Event, 0, 12)
 	appendEvent := func(event Event) {

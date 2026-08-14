@@ -189,9 +189,12 @@
       "id": "fc3-worker-authority-boundary",
       "condition": "fc3",
       "title": "Worker runs demonstrably create no nested workflow authority",
-      "requirement": "CD-0017 D4 forbids workers recording step transitions, verdicts, or completion. The worker attempt projection is structurally free of those fields, but no negative test asserts the prohibition.",
-      "state": "outstanding",
-      "issue": 57
+      "requirement": "CD-0017 D4 forbids workers recording step transitions, verdicts, or completion. Worker attempts remain authority-free; negative tests prove self-transition, self-verdict, self-completion, stale-attempt acceptance, failed-attempt acceptance, and model-mismatch acceptance are refused without mutation.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/worker_authority_boundary_test.go",
+        "internal/store/workflow.go"
+      ]
     },
     {
       "id": "fc4-authority-explicit",

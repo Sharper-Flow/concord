@@ -199,10 +199,7 @@ func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, workID)
 		actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/law-boundary")
-		digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-		if err != nil {
-			t.Fatal(err)
-		}
+		digest := legacyImplementationDigest(t)
 		events := []Event{
 			workflowEvent("law-boundary-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/runner", "session_ref": "session/law-boundary", "actor_class": "agent"}),
 			workflowEvent("law-boundary-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),

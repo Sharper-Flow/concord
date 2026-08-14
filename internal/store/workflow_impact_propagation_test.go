@@ -139,10 +139,7 @@ func seedImpactDependent(t *testing.T, s *Store, dependentID, sourceID, edgeClas
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := legacyImplementationDigest(t)
 	events := []Event{
 		workflowEvent("actor-"+dependentID, WorkflowActorRecorded, dependentID, map[string]any{"work_id": dependentID, "expected_version": 2, "resulting_version": 3, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"}),
 		workflowEvent("definition-"+dependentID, WorkflowDefinitionSelected, dependentID, map[string]any{"work_id": dependentID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),

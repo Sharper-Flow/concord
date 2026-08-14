@@ -244,6 +244,10 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	actor := eventActor
 	events := []Event{}
 	versionCursor := request.ExpectedVersion
+	workflowActionEpoch, epochErr := workflowActionStartEpochForDispatch(ctx, tx, request.WorkID, currentStep, actionIsFenced(request.ActionID))
+	if epochErr != nil {
+		return result, epochErr
+	}
 	if actorNeedsRecord {
 		events = append(events, workflowTypedEvent(request.OperationID+":actor", WorkflowActorRecorded, request.WorkID, actorRef, request.Now, versionCursor, map[string]any{"actor_ref": actorRef, "principal_ref": request.Actor.PrincipalRef, "client_ref": request.Actor.ClientRef, "agent_ref": request.Actor.AgentRef, "session_ref": request.Actor.SessionRef, "actor_class": string(request.Actor.ActorClass)}))
 		versionCursor++
@@ -256,7 +260,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 		resultVersion := versionCursor + 1
 		startPayload, _ := json.Marshal(map[string]any{
 			"work_id": request.WorkID, "expected_version": versionCursor, "resulting_version": resultVersion,
-			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": 1,
+			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": workflowActionEpoch,
 			"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity, "actor_ref": actor,
 		})
 		events = append(events, Event{EventID: request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: startPayload})
@@ -267,7 +271,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 		checkpointPayload, _ := json.Marshal(map[string]any{"action_id": request.ActionID, "fields": json.RawMessage(payload)})
 		checkpoint, _ := json.Marshal(map[string]any{
 			"work_id": request.WorkID, "expected_version": versionCursor + int64(len(events)-int(versionCursor-request.ExpectedVersion)), "resulting_version": resultVersion,
-			"step_id": currentStep, "step_kind": string(step.Kind), "attempt_epoch": 1,
+			"step_id": currentStep, "step_kind": string(step.Kind), "attempt_epoch": workflowActionEpoch,
 			"checkpoint_payload": json.RawMessage(checkpointPayload), "resume_cursor": "", "actor_ref": actor,
 			"request_id": request.RequestID, "checkpoint_id": request.OperationID + ":checkpoint",
 			"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity,
@@ -309,12 +313,19 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	// generic completion after it would make the checkpoint immediately stale.
 	if request.ActionID != "checkpoint_context" && request.ActionID != "cross_context_boundary" {
 		resultVersion := request.ExpectedVersion + int64(len(events)) + 1
-		completed, _ := json.Marshal(map[string]any{
-			"work_id": request.WorkID, "expected_version": resultVersion - 1, "resulting_version": resultVersion,
-			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": 1, "result_evidence_refs": evidenceRefs,
+		fields, fieldsErr := workflowActionObject(payload)
+		if fieldsErr != nil {
+			return result, fieldsErr
+		}
+		completionValues := map[string]any{
+			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": workflowActionEpoch, "result_evidence_refs": evidenceRefs,
 			"changed_refs": []string{request.WorkID}, "actor_ref": actor,
-		})
-		events = append(events, Event{EventID: request.OperationID + ":completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: completed})
+		}
+		if request.ActionID == "accept_worker_result" {
+			completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
+			completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
+		}
+		events = append(events, workflowTypedEvent(request.OperationID+":completed", WorkflowActionCompleted, request.WorkID, actor, request.Now, resultVersion-1, completionValues))
 	}
 
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})

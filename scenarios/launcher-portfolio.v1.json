@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "surface_version": "2.3.0",
+  "surface_version": "3.0.0",
   "contract": "C14/C18",
   "operation": "concord_product_view.portfolio",
   "cases": [

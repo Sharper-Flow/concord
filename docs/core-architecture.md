@@ -58,7 +58,7 @@ catalog. Go-core is greenfield Concord code.
 
 ### TypeScript owns only the accepted TS6 adapter boundary
 
-- Registration of the eight generated custom-tool declarations exposed to OpenCode.
+- Registration of the generated custom-tool declarations exposed to OpenCode (nine at surface 3.0.0).
 - Zod-facing input/output schemas that map to the Go core's typed contract.
 - OpenCode context propagation: session identity, worktree resolution,
   permission-prompt bridging.
@@ -132,7 +132,7 @@ This table records accepted architecture decisions that previously remained open
 | Question | Why deferred | Where tracked |
 |---|---|---|
 | **Product-memory membership** | **Resolved by PM5:** many-to-many role-only memberships, one canonical work identity, optional singular primary, derived cross-Product scope. | [`product-memory-membership.md`](./product-memory-membership.md). |
-| **Minimal agent tool surface** | **Resolved by CD-0005:** eight tools, hidden verified context, `concord.ts` adapter, strict envelope, evolution, and measured stewardship. | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md). |
+| **Minimal agent tool surface** | **Resolved by CD-0005 and CD-0023:** current nine tools, hidden verified context, `concord.ts` adapter, strict envelope, evolution, and measured stewardship. | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md). |
 | **Evidence-resolution architecture** | **Resolved by CD-0008 D2:** immutable-subject binding records the attributable producer proof that authorized a transition; the producer remains verdict authority and current re-resolution is typed when unavailable. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2; [`design-constraints.md`](./design-constraints.md) Research backlog item 6. |
 | **Validation-failure isolation** | **Resolved by CD-0008 D3:** unreadable records contribute unknown; typed degraded omissions are allowed for independently provable positive reads, while safety conclusions fail closed only over their bounded dependency/touch closure. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3; [`design-constraints.md`](./design-constraints.md) Research backlog item 7. |
 | **Migrations / schema evolution** | **Resolved by CD-0008 D6:** typed ordered upcasters, projection schema versions, deterministic replay tests, fail-closed newer versions, pinned active workflow versions, point-in-time reconstruction, and falsifier-driven snapshots. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D6; CD-0002 §7. |

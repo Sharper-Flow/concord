@@ -147,18 +147,18 @@ def validate(manifest: dict) -> str:
     expected_top = {"$schema", "schema_version", "surface", "envelope", "tools", "operations", "schemas", "capabilities", "consequences", "bounds", "deprecations", "generation", "payload_digest", "digest"}
     if set(manifest) != expected_top:
         fail("manifest has unknown or missing top-level sections")
-    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != 8:
+    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != 9:
         fail("manifest schema or tool count is invalid")
     capabilities = set(manifest.get("capabilities", []))
     consequences = set(manifest.get("consequences", []))
     tools = manifest.get("tools", [])
-    if len(tools) != 8 or len({t.get("id") for t in tools}) != 8:
-        fail("manifest must contain exactly eight unique tools")
+    if len(tools) != 9 or len({t.get("id") for t in tools}) != 9:
+        fail("manifest must contain exactly nine unique tools")
     for tool in tools:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    expected_operations = 23 if manifest.get("surface", {}).get("version") == "2.3.0" else (22 if manifest.get("surface", {}).get("version") in {"2.1.0", "2.2.0"} else 21)
+    expected_operations = 30 if manifest.get("surface", {}).get("version") == "3.0.0" else (23 if manifest.get("surface", {}).get("version") == "2.3.0" else (22 if manifest.get("surface", {}).get("version") in {"2.1.0", "2.2.0"} else 21))
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}

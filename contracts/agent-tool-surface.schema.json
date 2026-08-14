@@ -14,7 +14,7 @@
       "properties": {
         "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
         "name": {"const": "concord-agent-tool-surface"},
-        "tool_count": {"const": 8}
+        "tool_count": {"const": 9}
       }
     },
     "envelope": {
@@ -29,7 +29,7 @@
       }
     },
     "tools": {
-      "type": "array", "minItems": 8, "maxItems": 8, "uniqueItems": true,
+      "type": "array", "minItems": 9, "maxItems": 9, "uniqueItems": true,
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["id", "description", "operations"],
@@ -41,7 +41,7 @@
       }
     },
     "operations": {
-      "type": "array", "minItems": 23, "maxItems": 23,
+      "type": "array", "minItems": 30, "maxItems": 30,
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["id", "tool", "kind", "query_id", "input_schema", "result_schema", "capability", "consequence", "approval", "metadata"],
@@ -50,10 +50,10 @@
           "tool": {"type": "string"},
           "kind": {"enum": ["read", "mutation"]},
           "availability": {"enum": ["always", "workflow_definition"]},
-          "query_id": {"type": ["string", "null"], "pattern": "^(PM1\\.Q([1-9]|10)|C14\\.ProductRows|C19\\.Continuity)$"},
+          "query_id": {"type": ["string", "null"], "pattern": "^(PM1\\.Q([1-9]|10)|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"},
           "input_schema": {"type": "string", "pattern": "^#/schemas/[a-z0-9_]+$"},
           "result_schema": {"type": "string", "pattern": "^#/schemas/[a-z0-9_]+$"},
-          "capability": {"enum": ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope"]},
+      "capability": {"enum": ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_epic", "cross_scope"]},
           "consequence": {"enum": ["read", "intent", "lifecycle", "workflow_action", "scope", "relation", "supersession", "publication", "recovery"]},
           "approval": {"enum": ["none", "conditional", "required"]},
           "metadata": {"$ref": "#/$defs/metadata"}
@@ -63,7 +63,7 @@
     "schemas": {
       "type": "object", "additionalProperties": {"$ref": "#/$defs/schemaRef"}, "minProperties": 2
     },
-    "capabilities": {"type": "array", "items": {"enum": ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope"]}, "uniqueItems": true, "minItems": 6, "maxItems": 6},
+    "capabilities": {"type": "array", "items": {"enum": ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_epic", "cross_scope"]}, "uniqueItems": true, "minItems": 7, "maxItems": 7},
     "consequences": {"type": "array", "items": {"enum": ["read", "intent", "lifecycle", "workflow_action", "scope", "relation", "supersession", "publication", "recovery"]}, "uniqueItems": true, "minItems": 9, "maxItems": 9},
     "bounds": {"$ref": "#/$defs/bounds"},
     "deprecations": {"type": "array", "items": {"$ref": "#/$defs/deprecation"}},

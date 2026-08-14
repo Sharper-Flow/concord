@@ -75,7 +75,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bb67297f7ecb6e4b4e324de85fdfac3d0ed31f783bc86221a179d885d0eadbcf"
+      "sha256": "sha256:92fee835f8ea8ba29b7e96dc7e32294f1cf340064cbf3e0f5b8d5468d8686f06"
     },
     {
       "id": "CD-0006",
@@ -471,6 +471,29 @@
         "tag_ids": []
       },
       "sha256": "sha256:c0fc3925debfaabc824a8f10249ac235f347751b0db0142f4ff52cf98fa83da5"
+    },
+    {
+      "id": "CD-0023",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0023-epic-agent-surface-and-ts9-exception.md",
+      "status": "accepted",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Epic agent surface and narrow TS9 exception",
+      "summary": "Makes the accepted Epic model reachable through a fail-closed 3.0.0 agent-surface major, using one explicit deterministic-evidence exception to TS9 while preserving future model-trial requirements.",
+      "tags": [
+        "epic",
+        "agent-surface",
+        "ts9",
+        "migration"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:9ea18892cefdc4941bc6f08c09c85a3b5c127d1c148973a669ebff76a7c05f5d"
     },
     {
       "id": "agent-lanes-contract",

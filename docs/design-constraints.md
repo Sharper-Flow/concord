@@ -88,8 +88,8 @@ This supports Priority 3 (Visibility and continuity).
 **Requirement.** The primary operator surface is a **Product-first terminal launcher**. Any additional interface (web, TUI, etc.) is optional and must not become the design center.
 
 **Implication.** The launcher is the canonical human entry point. Agents interact
-with the same durable Product memory through the **accepted CD-0005 eight-tool
-surface** and `concord.ts` adapter. Grid/table views are secondary projections.
+with the same durable Product memory through the **CD-0005 surface as amended by
+CD-0023** and `concord.ts` adapter. Grid/table views are secondary projections.
 
 **Direction.** Terminal-first, Product-scoped navigation; optional web/TUI grid views later; no IDE-specific integrations. The interface is simple enough that an agent can scaffold or extend views without fighting a heavy frontend stack.
 
@@ -113,8 +113,8 @@ This supports Priority 1 and Priority 3 without compromising the operating envel
 
 **Requirement.** Concord must be **capable of supporting non-OpenCode clients**, but the primary path is optimized for OpenCode on the local machine.
 
-**Implication.** The canonical agent interaction model is CD-0005's eight-tool
-surface. TS6 selects one custom-tool module over plugin/MCP; future clients require
+**Implication.** The canonical agent interaction model is CD-0005's static surface,
+currently nine tools under CD-0023. TS6 selects one custom-tool module over plugin/MCP; future clients require
 TS8/TS9 evidence. No IDE-specific integration is built.
 
 **Direction.** Use CD-0005 and [`capability-placement.md`](./capability-placement.md):

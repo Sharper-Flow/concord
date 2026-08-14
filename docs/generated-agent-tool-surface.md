@@ -1,8 +1,8 @@
 # Generated Concord agent tool surface
 
-Source manifest: `2.3.0` / `sha256:a6c8354d4797ea89515f9311a3c5423f549269e3b4f203de1b0976872cf1c6fa`
-Payload schema digest: `sha256:5643b0f69e4d4d0e5567f6540aa0bb9e5477a27f3292edd5413e6586e87bd5a4`
-Supported surface versions: `2.3.0`; envelope schema: `1.0`
+Source manifest: `3.0.0` / `sha256:9368b450c751d5e9c64102eb7381b94d6db49db8ab6f97841c641a1383be6422`
+Payload schema digest: `sha256:e8849bed9f938b974b4111a3b6455655e6858fb708fa9bd1fb5b6ae644d9c047`
+Supported surface versions: `3.0.0`; envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
@@ -20,6 +20,13 @@ Supported surface versions: `2.3.0`; envelope schema: `1.0`
 | `concord_knowledge.resolve_note` | `read` | `PM1.Q10` | `product_read` | `read` | `always` |
 | `concord_work_define.capture` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_define.revise_intent` | `mutation` | `—` | `work_define` | `intent` | `always` |
+| `concord_work_epic.create` | `mutation` | `—` | `work_epic` | `intent` | `always` |
+| `concord_work_epic.add_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.remove_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.reorder_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.change_requiredness` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.revise_narrative` | `mutation` | `—` | `work_epic` | `intent` | `always` |
+| `concord_work_epic.entries` | `read` | `C21.EpicEntries` | `product_read` | `read` | `always` |
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |
 | `concord_work_relate.set_memberships` | `mutation` | `—` | `work_relate` | `scope` | `always` |

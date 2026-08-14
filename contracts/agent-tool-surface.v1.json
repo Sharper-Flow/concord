@@ -2,9 +2,9 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "2.3.0",
+    "version": "3.0.0",
     "name": "concord-agent-tool-surface",
-    "tool_count": 8
+    "tool_count": 9
   },
   "envelope": {
     "schema_version": "1.0",
@@ -64,6 +64,19 @@
       "operations": [
         "concord_work_define.capture",
         "concord_work_define.revise_intent"
+      ]
+    },
+    {
+      "id": "concord_work_epic",
+      "description": "Create and coordinate Product-scoped Epics.",
+      "operations": [
+        "concord_work_epic.create",
+        "concord_work_epic.add_entry",
+        "concord_work_epic.remove_entry",
+        "concord_work_epic.reorder_entry",
+        "concord_work_epic.change_requiredness",
+        "concord_work_epic.revise_narrative",
+        "concord_work_epic.entries"
       ]
     },
     {
@@ -376,6 +389,146 @@
       }
     },
     {
+      "id": "concord_work_epic.create",
+      "tool": "concord_work_epic",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/epic_create_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_epic",
+      "consequence": "intent",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_epic.add_entry",
+      "tool": "concord_work_epic",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/epic_add_entry_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_epic",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_epic.remove_entry",
+      "tool": "concord_work_epic",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/epic_remove_entry_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_epic",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_epic.reorder_entry",
+      "tool": "concord_work_epic",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/epic_reorder_entry_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_epic",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_epic.change_requiredness",
+      "tool": "concord_work_epic",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/epic_change_requiredness_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_epic",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_epic.revise_narrative",
+      "tool": "concord_work_epic",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/epic_revise_narrative_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_epic",
+      "consequence": "intent",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_epic.entries",
+      "tool": "concord_work_epic",
+      "kind": "read",
+      "query_id": "C21.EpicEntries",
+      "input_schema": "#/schemas/epic_entries_input",
+      "result_schema": "#/schemas/epic_entries_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
       "id": "concord_work_transition.lifecycle",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -666,6 +819,38 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_revise_input",
       "closed": true
     },
+    "epic_create_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_create_input",
+      "closed": true
+    },
+    "epic_add_entry_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_add_entry_input",
+      "closed": true
+    },
+    "epic_remove_entry_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_remove_entry_input",
+      "closed": true
+    },
+    "epic_reorder_entry_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_reorder_entry_input",
+      "closed": true
+    },
+    "epic_change_requiredness_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_change_requiredness_input",
+      "closed": true
+    },
+    "epic_revise_narrative_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_revise_narrative_input",
+      "closed": true
+    },
+    "epic_entries_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_entries_input",
+      "closed": true
+    },
+    "epic_entries_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/epic_entries_result",
+      "closed": true
+    },
     "work_transition_lifecycle_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_lifecycle_input",
       "closed": true
@@ -709,6 +894,7 @@
     "work_transition",
     "work_relate",
     "work_compact",
+    "work_epic",
     "cross_scope"
   ],
   "consequences": [
@@ -748,6 +934,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:5643b0f69e4d4d0e5567f6540aa0bb9e5477a27f3292edd5413e6586e87bd5a4",
-  "digest": "sha256:a6c8354d4797ea89515f9311a3c5423f549269e3b4f203de1b0976872cf1c6fa"
+  "payload_digest": "sha256:e8849bed9f938b974b4111a3b6455655e6858fb708fa9bd1fb5b6ae644d9c047",
+  "digest": "sha256:9368b450c751d5e9c64102eb7381b94d6db49db8ab6f97841c641a1383be6422"
 }

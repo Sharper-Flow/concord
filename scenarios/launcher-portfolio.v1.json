@@ -1,33 +1,76 @@
 {
   "schema_version": "1.0",
-  "surface_version": "2.3.0",
+  "surface_version": "2.4.0",
   "contract": "C14/C18",
   "operation": "concord_product_view.portfolio",
   "cases": [
     {
       "id": "active-quiet-duplicate",
-      "rows": ["active", "quiet", "duplicate-a", "duplicate-b"],
-      "assertions": ["five_c14_groups", "stable_name_suffix"]
+      "rows": [
+        "active",
+        "quiet",
+        "duplicate-a",
+        "duplicate-b"
+      ],
+      "assertions": [
+        "five_c14_groups",
+        "stable_name_suffix"
+      ]
     },
     {
       "id": "focus-priority",
-      "rows": ["approval-required", "active-problem", "blocked", "in-progress", "ready"],
-      "assertions": ["approval_required_wins", "deterministic_priority_then_time_then_id"]
+      "rows": [
+        "approval-required",
+        "active-problem",
+        "blocked",
+        "in-progress",
+        "ready"
+      ],
+      "assertions": [
+        "approval_required_wins",
+        "deterministic_priority_then_time_then_id"
+      ]
     },
     {
       "id": "coverage-states",
-      "rows": ["degraded", "unreachable", "stale-blocked"],
-      "assertions": ["unavailable_counts_are_not_zero", "typed_focus_absence"]
+      "rows": [
+        "degraded",
+        "unreachable",
+        "stale-blocked"
+      ],
+      "assertions": [
+        "unavailable_counts_are_not_zero",
+        "typed_focus_absence"
+      ]
     },
     {
       "id": "launcher-session",
-      "events": ["s1_entry", "move", "scroll", "filter_edit", "filter_paste", "filter_clear", "help", "refresh", "select", "back", "quit"],
-      "assertions": ["only_entry_and_refresh_read", "no_durable_effects", "s2_not_implemented"]
+      "events": [
+        "s1_entry",
+        "move",
+        "scroll",
+        "filter_edit",
+        "filter_paste",
+        "filter_clear",
+        "help",
+        "refresh",
+        "select",
+        "back",
+        "quit"
+      ],
+      "assertions": [
+        "only_entry_and_refresh_read",
+        "no_durable_effects",
+        "s2_not_implemented"
+      ]
     },
     {
       "id": "first-run",
       "database": "absent",
-      "assertions": ["typed_first_run", "filesystem_unchanged"]
+      "assertions": [
+        "typed_first_run",
+        "filesystem_unchanged"
+      ]
     }
   ]
 }

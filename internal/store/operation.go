@@ -127,6 +127,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.created":                    {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkCreatedV1}, Fold: foldWorkCreated},
 	"work.intent_revised":             {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkIntentRevised},
 	"work.memberships_replaced":       {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkMembershipsReplaced},
+	"work.worktree_created":           {CurrentVersion: 1, MinSupported: 1, Fold: foldWorktreeCreated},
+	"work.worktree_reclaimed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldWorktreeReclaimed},
 	"work.transitioned":               {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkTransitioned},
 	"work.superseded":                 {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkSuperseded},
 	"work.reopened":                   {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkReopened},

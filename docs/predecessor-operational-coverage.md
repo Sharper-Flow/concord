@@ -105,7 +105,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Delegate a bounded execution attempt to a typed worker, verify which model actually ran, and record that evidence durably | Covered | CD-0017; `internal/store/worker_lanes.go`, `adapter/opencode/dispatch.ts`, and the `worker-dispatch` / `worker-complete` / `worker-fail` evidence verbs in `cmd/concord/main.go` |
 | Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Covered | `WF48-lane-pipeline-typed-evidence` in `scenarios/workflow-engine.v1.json` dispatches three registered lanes on one workflow and accepts a completed attempt from a distinct owner. |
 | Measure lane prompt behaviour with an evaluation harness | Covered | `adapter/opencode/evals/promptfooconfig.yaml` evaluates every registered lane through its pinned model; `scripts/check-lane-evals.py` fails on drift from the lane registry. |
-| Isolate each unit of work in its own git worktree, and refuse writes to the trunk checkout | **Not covered** | `worktree` appears in Concord only as a grant-binding identity field (`internal/agent/authority.go`), used to scope an agent session. Nothing creates, resumes, cleans up, or firewalls a worktree. The predecessor treats this as a hard safety boundary. |
+| Isolate each unit of work in its own git worktree, and refuse writes to the trunk checkout | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; `internal/agent/authority.go` refuses mutating grants bound to the main checkout. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`.
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Concord coordinates such work through the `static_analysis` workflow type and records its verdict; it does not implement scanners. |
 | Obtain an acceptance verdict from an authority the implementing agent cannot read or influence | **Not covered** | The predecessor provides externally-isolated conformance. Concord has conditions and external awaits but no isolated verdict authority. |
@@ -171,23 +171,23 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 46 |
-| Not covered | 12 |
+| Covered | 47 |
+| Not covered | 11 |
 | Excluded with reason | 7 |
 
 **Total enumerated outcomes: 65.**
 
-The twelve not-covered entries cluster into five groups:
+The eleven not-covered entries cluster into five groups:
 
 1. **Initiative coordination** — Epic state has folds and validators but no reachable surface (§1, §6).
 2. **Research reachability** — the research pack subsystem is implemented and unreachable (§4).
 3. **Worker lane pipeline** — the end-to-end evidenced run and the prompt evals landed under issue #57; only clean typed restart remains (§3, issue #120).
-4. **Isolation and independent verdict** — no worktree lifecycle, no trunk write firewall, no isolated acceptance authority (§3).
+4. **Isolation and independent verdict** — worktree lifecycle and the trunk write firewall landed under issue #124; only the isolated acceptance authority remains (§3, issue #125).
 5. **Learning capture** — no wisdom promotion, no post-completion reflection, no spec/implementation drift audit (§1, §4, §6).
 
 The operator-surface group is gone: CD-0021 resolved both of its entries as
 deliberate exclusions. Groups 1, 4, and 5 have no dedicated tracking issue and
-are owned by issue #108.
+are owned by issue #108; group 4's remainder is tracked as issue #125.
 
 ## Predecessor surfaces consumed as evidence
 

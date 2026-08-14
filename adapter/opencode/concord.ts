@@ -4,7 +4,7 @@ import { contractOperations, canonicalAssertion, manifestDigest, manifestVersion
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 
 const ADAPTER_VERSION = "2.3.0"
-const SURFACE_RANGE = "2.1.0-2.3.0"
+const SURFACE_RANGE = "2.1.0-2.4.0"
 const ENVELOPE_VERSIONS = "1.0"
 const MAX_STDERR = 8192
 const GRANT_TTL_MS = 50 * 60 * 1000

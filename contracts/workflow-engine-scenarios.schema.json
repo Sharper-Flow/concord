@@ -90,8 +90,8 @@
     },
     "scenarios": {
       "type": "array",
-      "minItems": 47,
-      "maxItems": 47,
+      "minItems": 48,
+      "maxItems": 48,
       "items": {
         "$ref": "#/$defs/scenario"
       }
@@ -121,6 +121,9 @@
       "maxProperties": 64,
       "additionalProperties": false,
       "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/jsonValue"
+        },
         "work": {
           "$ref": "#/$defs/jsonValue"
         },
@@ -799,6 +802,81 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 32
+        },
+        "lane_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "lane_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "capability_class": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "routing_policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "routing_policy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "resolved_model": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "resolution_role": {
+          "enum": [
+            "preferred",
+            "fallback"
+          ]
+        },
+        "fallback_reason": {
+          "enum": [
+            "",
+            "rate_limit",
+            "provider_unavailable",
+            "budget_exhausted",
+            "other"
+          ]
+        },
+        "readback_model": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "packet_schema_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "report_schema_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "execution_model": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128
+        },
         "work_kind": {
           "enum": [
             "implementation",
@@ -1312,7 +1390,10 @@
             "workflow.condition_added",
             "workflow.condition_resolved",
             "workflow.condition_cancelled",
-            "workflow.completed"
+            "workflow.completed",
+            "worker.dispatched",
+            "worker.completed",
+            "worker.failed"
           ]
         },
         "work_id": {
@@ -2051,8 +2132,8 @@
         },
         "targets": {
           "type": "array",
-          "minItems": 5,
-          "maxItems": 5,
+          "minItems": 6,
+          "maxItems": 6,
           "uniqueItems": true,
           "items": {
             "enum": [
@@ -2060,7 +2141,8 @@
               "result",
               "communication",
               "effects",
-              "authority"
+              "authority",
+              "worker_attempts"
             ]
           }
         },
@@ -2133,7 +2215,8 @@
             "result",
             "communication",
             "effects",
-            "authority"
+            "authority",
+            "worker_attempts"
           ]
         },
         "path": {
@@ -2245,7 +2328,7 @@
         "scenario_number": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 47
+          "maximum": 48
         },
         "mechanism": {
           "$ref": "#/$defs/short"

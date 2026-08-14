@@ -169,11 +169,12 @@ type workflowAssertion struct {
 }
 
 type workflowObservation struct {
-	State         map[string]any
-	Result        map[string]any
-	Communication map[string]any
-	Effects       map[string]any
-	Authority     map[string]any
+	State          map[string]any
+	Result         map[string]any
+	Communication  map[string]any
+	Effects        map[string]any
+	Authority      map[string]any
+	WorkerAttempts map[string]any
 }
 
 type workflowScenarioGap struct{ detail string }
@@ -428,6 +429,7 @@ const (
 	corpusActionRebuild               workflowCorpusAction = "rebuild"
 	corpusActionReconstruct           workflowCorpusAction = "reconstruct_subject"
 	corpusActionStartExecution        workflowCorpusAction = "start_execution"
+	corpusActionAcceptWorkerResult    workflowCorpusAction = "accept_worker_result"
 	corpusActionWorkflowAction        workflowCorpusAction = "workflow_action"
 	corpusActionConcurrent            workflowCorpusAction = "concurrent_reads_and_writes"
 	corpusActionRepair                workflowCorpusAction = "repair_and_rebuild"
@@ -435,7 +437,7 @@ const (
 )
 
 var workflowCorpusActions = map[workflowCorpusAction]struct{}{
-	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionReplaceOutcome: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionTakeover: {}, corpusActionResolveConditions: {}, corpusActionDeriveReady: {}, corpusActionExplicitResolve: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
+	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionReplaceOutcome: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionTakeover: {}, corpusActionResolveConditions: {}, corpusActionDeriveReady: {}, corpusActionExplicitResolve: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
 }
 
 func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
@@ -707,15 +709,15 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	if len(corpus.Scenarios) != 47 {
-		t.Fatalf("scenario count=%d, want 47", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 48 {
+		t.Fatalf("scenario count=%d, want 48", len(corpus.Scenarios))
 	}
 	return corpus
 }
 
 func workflowScenarioIDs() []string {
 	return []string{
-		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-closed-condition-resolvers", "WF27-condition-block-relation", "WF28-no-polling-authority", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding",
+		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-closed-condition-resolvers", "WF27-condition-block-relation", "WF28-no-polling-authority", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence",
 	}
 }
 
@@ -763,7 +765,7 @@ func assertWorkflowObservation(t *testing.T, name string, index int, observation
 }
 
 func workflowObservationAssertionError(observation workflowObservation, assertion workflowAssertion) error {
-	targets := map[string]any{"state": observation.State, "result": observation.Result, "communication": observation.Communication, "effects": observation.Effects, "authority": observation.Authority}
+	targets := map[string]any{"state": observation.State, "result": observation.Result, "communication": observation.Communication, "effects": observation.Effects, "authority": observation.Authority, "worker_attempts": observation.WorkerAttempts}
 	target, knownTarget := targets[assertion.Target]
 	if !knownTarget {
 		return fmt.Errorf("unsupported target %q", assertion.Target)
@@ -1197,6 +1199,18 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	payload := json.RawMessage(`{}`)
 	if len(request.Fields) != 0 {
 		payload, err = json.Marshal(request.Fields)
+		if err != nil {
+			return workflowObservation{}, err
+		}
+	}
+	// accept_worker_result declares exactly attempt_id and attempt_epoch, so it
+	// takes the nested action payload rather than the whole corpus field bag.
+	if action == string(corpusActionAcceptWorkerResult) {
+		nested, ok := request.Fields["payload"].(map[string]any)
+		if !ok {
+			return workflowObservation{}, workflowScenarioGap{"accept_worker_result requires a nested action payload"}
+		}
+		payload, err = json.Marshal(nested)
 		if err != nil {
 			return workflowObservation{}, err
 		}
@@ -1668,6 +1682,15 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 				return err
 			}
 		}
+		// CD-0017 D4/D5: a worker attempt carries no workflow authority and does
+		// not advance the work version, so worker evidence replays without an
+		// expected-version fence. The store still validates the typed payload.
+		if input.Kind == WorkerDispatched || input.Kind == WorkerCompleted || input.Kind == WorkerFailed {
+			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
+				return fmt.Errorf("setup event %s (%s): %w", input.EventID, input.Kind, err)
+			}
+			continue
+		}
 		expected, ok := workflowCorpusInt(input.Payload["expected_version"])
 		if !ok {
 			return workflowScenarioGap{"workflow setup event lacks expected_version"}
@@ -1794,7 +1817,7 @@ func workflowFailureObservationKind(err error) string {
 // assertions compare authoritative before/after state rather than an
 // in-memory assertion object.
 func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSeq int64, actionErr error, result map[string]any) (workflowObservation, error) {
-	observation := workflowObservation{State: map[string]any{}, Result: result, Communication: map[string]any{}, Effects: map[string]any{}, Authority: map[string]any{}}
+	observation := workflowObservation{State: map[string]any{}, Result: result, Communication: map[string]any{}, Effects: map[string]any{}, Authority: map[string]any{}, WorkerAttempts: map[string]any{}}
 	if actionErr != nil {
 		var failure *Failure
 		if failureAs(actionErr, &failure) {
@@ -1828,6 +1851,9 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if err := s.DB().QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &workVersion); err == nil {
 		observation.State["work"] = map[string]any{"lifecycle": lifecycle, "version": workVersion}
 		observation.State[workID] = map[string]any{"version": workVersion}
+	}
+	if err := observeWorkerAttempts(ctx, s, workID, &observation); err != nil {
+		return workflowObservation{}, err
 	}
 	projection, readErr := ReadWorkflow(ctx, s, workID)
 	if readErr == nil {
@@ -2103,4 +2129,36 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		}
 	}
 	return observation, nil
+}
+
+// observeWorkerAttempts exposes the CD-0017 D5 worker attempt evidence to the
+// scenario corpus. Every dispatched attempt carries its registered lane
+// identity, the declared routing resolution, and the readback executing model,
+// so a scenario can assert typed lane evidence rather than response wording.
+func observeWorkerAttempts(ctx context.Context, s *Store, workID string, observation *workflowObservation) error {
+	rows, err := s.DB().QueryContext(ctx, `SELECT attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at, attempt_id`, workID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	lanes := []any{}
+	for rows.Next() {
+		var attemptID, laneID, laneDigest, capability, policyVersion, policyDigest, resolved, role, reason, readback, lifecycle string
+		var laneVersion int64
+		if err := rows.Scan(&attemptID, &laneID, &laneVersion, &laneDigest, &capability, &policyVersion, &policyDigest, &resolved, &role, &reason, &readback, &lifecycle); err != nil {
+			return err
+		}
+		observation.WorkerAttempts[attemptID] = map[string]any{
+			"lane_id": laneID, "lane_version": laneVersion, "lane_digest": laneDigest,
+			"capability_class": capability, "routing_policy_version": policyVersion, "routing_policy_digest": policyDigest,
+			"resolved_model": resolved, "resolution_role": role, "fallback_reason": reason,
+			"readback_model": readback, "lifecycle_state": lifecycle,
+		}
+		lanes = append(lanes, laneID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	observation.WorkerAttempts["lanes"] = lanes
+	return nil
 }

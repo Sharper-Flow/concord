@@ -411,14 +411,14 @@ def check_workflow_contracts() -> list[str]:
         scenarios = corpus["scenarios"]
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append("scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
-        if len(scenarios) != 47:
-            findings.append(f"scenarios/workflow-engine.v1.json: expected 47 scenarios, got {len(scenarios)}")
+        if len(scenarios) != 48:
+            findings.append(f"scenarios/workflow-engine.v1.json: expected 48 scenarios, got {len(scenarios)}")
         ids = [item.get("id") for item in scenarios]
         numbers = [item.get("scenario_number") for item in scenarios]
         if len(set(ids)) != len(ids) or any(not isinstance(item, str) or not item for item in ids):
             findings.append("scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
-        if numbers != list(range(1, 48)):
-            findings.append("scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..47")
+        if numbers != list(range(1, 49)):
+            findings.append("scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..48")
         targets = set(contract.get("targets", []))
         ops = set(contract.get("ops", []))
         nested_ids: list[str] = []

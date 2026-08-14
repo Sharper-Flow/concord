@@ -309,7 +309,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	}
 	if err := validateRuntimeScope(ctx, s, env, grant, op.Kind); err != nil {
 		var stale *runtimeFailure
-		if errors.As(err, &stale) && stale.kind == "stale_context" && op.Kind == OperationRead && equalStrings(stale.Candidates, grant.CandidateProducts) {
+		if errors.As(err, &stale) && stale.Refreshable && op.Kind == OperationRead && equalStrings(stale.Candidates, grant.CandidateProducts) {
 			base.Warnings = append(base.Warnings, Notice{Kind: "context_refreshed"})
 			env.ScopeVersion = stale.CurrentScopeVersion
 		} else {
@@ -513,6 +513,7 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 		f := newRuntimeFailure("stale_context", "scope version is stale", "refresh_context", kind == OperationRead)
 		f.Candidates = candidates
 		f.CurrentScopeVersion = version
+		f.Refreshable = true
 		return f
 	}
 	if env.SelectedProductID == "" {
@@ -523,8 +524,24 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 		}
 		return nil
 	}
-	if !contains(candidates, env.SelectedProductID) || !contains(grant.ProductScope, env.SelectedProductID) {
-		return newRuntimeFailure("unauthorized", "selected Product is outside resolved scope", "contact_operator", false)
+	// TS5 §3 separates a context failure from an authorization failure, and the
+	// two carry different recovery contracts. A selected Product the ambient
+	// Project no longer resolves to is context the caller can re-resolve itself;
+	// a Product outside the grant is not. Reporting the first as unauthorized
+	// escalates a self-recoverable condition to the operator.
+	if !contains(candidates, env.SelectedProductID) {
+		if len(candidates) > 1 {
+			f := newRuntimeFailure("ambiguous_scope", "selected Product no longer owns the ambient Project", "resolve_ambiguity", false)
+			f.Candidates = candidates
+			return f
+		}
+		f := newRuntimeFailure("stale_context", "selected Product no longer owns the ambient Project", "refresh_context", false)
+		f.Candidates = candidates
+		f.CurrentScopeVersion = version
+		return f
+	}
+	if !contains(grant.ProductScope, env.SelectedProductID) {
+		return newRuntimeFailure("unauthorized", "selected Product is outside grant scope", "contact_operator", false)
 	}
 	return nil
 }
@@ -534,6 +551,11 @@ type runtimeFailure struct {
 	retry                   bool
 	Candidates              []string
 	CurrentScopeVersion     string
+	// Refreshable marks the one stale_context cause a read may proceed through
+	// under TS5 §3: the scope version moved while the resolved scope did not.
+	// Every other stale_context describes scope the caller must actually change,
+	// so refreshing the version alone would carry an invalid selection forward.
+	Refreshable bool
 }
 
 func (f *runtimeFailure) Error() string { return f.message }

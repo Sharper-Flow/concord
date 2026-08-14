@@ -134,12 +134,26 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 		_ = tx.Rollback()
 		return out, err
 	}
+	priorRevision, err := readRevisionTx(ctx, tx, req.PackID, pack.CurrentRevision)
+	if err != nil {
+		_ = tx.Rollback()
+		return out, err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	newRevision := pack.CurrentRevision + 1
 	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES(?,?,?,?,?,?,?,?)`, req.PackID, newRevision, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now); err != nil {
 		_ = tx.Rollback()
 		return out, researchConstraint("cannot append research revision", err)
 	}
+	restated := researchBriefRestated(priorRevision, revision)
+	if err := copyResearchRevisionContent(ctx, tx, req.PackID, pack.CurrentRevision, newRevision, restated); err != nil {
+		_ = tx.Rollback()
+		return out, err
+	}
+	// Pack freshness is deliberately not touched by the restatement. It is
+	// pack-scoped while consumers pin exact revisions, so degrading it here would
+	// leak a new revision's uncertainty onto consumers of an older revision and
+	// silently change context that CD-0009 D5 guarantees is stable once pinned.
 	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET current_revision=?, freshness='current', expected_version=?, updated_at=? WHERE pack_id=? AND expected_version=?`, newRevision, req.ExpectedVersion+1, now, req.PackID, req.ExpectedVersion); err != nil {
 		_ = tx.Rollback()
 		return out, researchUnavailable("cannot advance research pack", err)
@@ -246,6 +260,20 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 	if err != nil {
 		_ = tx.Rollback()
 		return out, researchConstraint("cannot write finding", err)
+	}
+	// Citations are declared on the finding and are the only write path into
+	// active_research_finding_sources. They are replaced wholesale so an update
+	// cannot leave a link the caller no longer claims; the composite foreign key
+	// refuses a source that is absent from this revision.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM active_research_finding_sources WHERE pack_id=? AND revision=? AND finding_id=?`, req.PackID, revision, req.Finding.FindingID); err != nil {
+		_ = tx.Rollback()
+		return out, researchUnavailable("cannot clear finding citations", err)
+	}
+	for _, sourceID := range req.Finding.SourceIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,?,?,?)`, req.PackID, revision, req.Finding.FindingID, sourceID); err != nil {
+			_ = tx.Rollback()
+			return out, researchConstraint("cannot cite a source that is absent from this revision", err)
+		}
 	}
 	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
 		_ = tx.Rollback()

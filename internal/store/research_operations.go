@@ -299,3 +299,45 @@ func researchConstraint(detail string, err error) error {
 func researchUnavailable(detail string, err error) error {
 	return wrapFailure(KindUnavailable, "research_mutation", detail, true, "retry once the database is readable and writable", err)
 }
+
+// researchBriefRestated reports whether an appended revision changes the research
+// brief rather than merely opening a mutable successor. Consumed revisions are
+// immutable, so a researcher who learns one more thing must append; that case
+// leaves the brief identical and must not be treated as a new question. Scope
+// bodies are canonicalized on input, so comparing them as text is exact.
+func researchBriefRestated(prior ResearchRevision, next ResearchRevisionInput) bool {
+	return prior.Question != next.Question ||
+		prior.ScopeIn != string(next.ScopeIn) ||
+		prior.ScopeOut != string(next.ScopeOut) ||
+		prior.DoneWhen != string(next.DoneWhen) ||
+		prior.Method != next.Method
+}
+
+// copyResearchRevisionContent carries findings, sources, and their citation links
+// into a successor revision. Without it an append yields an empty revision, so the
+// only legal way to add one finding to a consumed revision would discard every
+// finding already gathered.
+//
+// When the brief is restated, copied findings degrade to unknown freshness. That
+// is not staleness: nobody has yet assessed whether they survive the new question,
+// and unknown is the state that says exactly that. An unchanged brief preserves
+// each finding's assessed freshness, because nothing about it was reopened.
+func copyResearchRevisionContent(ctx context.Context, tx *sql.Tx, pack string, from, to int64, restated bool) error {
+	freshness := "freshness"
+	if restated {
+		freshness = "'unknown'"
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status)
+        SELECT pack_id,?,finding_id,kind,statement,confidence,`+freshness+`,status FROM active_research_findings WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
+		return researchConstraint("cannot carry research findings into the new revision", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at)
+        SELECT pack_id,?,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
+		return researchConstraint("cannot carry research sources into the new revision", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id)
+        SELECT pack_id,?,finding_id,source_id FROM active_research_finding_sources WHERE pack_id=? AND revision=?`, to, pack, from); err != nil {
+		return researchConstraint("cannot carry research citations into the new revision", err)
+	}
+	return nil
+}

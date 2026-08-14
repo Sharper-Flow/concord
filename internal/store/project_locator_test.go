@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,15 +12,37 @@ import (
 )
 
 type locatorGitStub struct {
-	root   string
-	remote string
-	args   [][]string
+	root         string
+	remote       string
+	gitDir       string
+	commonDir    string
+	failTopology bool
+	args         [][]string
 }
 
 func (g *locatorGitStub) Run(_ context.Context, dir string, args ...string) ([]byte, error) {
 	g.args = append(g.args, append([]string{dir}, args...))
 	if args[0] == "rev-parse" {
-		return []byte(g.root + "\n"), nil
+		switch args[1] {
+		case "--show-toplevel":
+			return []byte(g.root + "\n"), nil
+		case "--git-dir":
+			if g.failTopology {
+				return nil, errors.New("git-dir probe failed")
+			}
+			if g.gitDir != "" {
+				return []byte(g.gitDir + "\n"), nil
+			}
+			return []byte(g.root + "\n"), nil
+		case "--git-common-dir":
+			if g.failTopology {
+				return nil, errors.New("git-common-dir probe failed")
+			}
+			if g.commonDir != "" {
+				return []byte(g.commonDir + "\n"), nil
+			}
+			return []byte(g.root + "\n"), nil
+		}
 	}
 	return []byte(g.remote + "\n"), nil
 }
@@ -109,4 +133,55 @@ func TestProjectLocatorResolutionRejectsUnknownAndAmbiguousRemote(t *testing.T) 
 	if _, err := NormalizeProjectLocator(LocatorCanonicalPath, "../outside"); err == nil {
 		t.Fatal("relative path should be rejected when it is not resolvable")
 	}
+}
+
+func TestResolveProjectDistinguishesMainAndLinkedWorktrees(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-wt"), locatorProjectEvent("project-wt"), locatorMembershipEvent("product-wt", "project-wt")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-wt"): 0, VersionRef(SubjectProject, "project-wt"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	for _, dir := range []string{filepath.Join(root, ".git"), filepath.Join(root, ".git", "worktrees", "feature")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.AddProjectLocator(ctx, "project-wt", ProjectLocator{ID: "path-wt", Kind: LocatorCanonicalPath, Value: root}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name      string
+		gitDir    string
+		commonDir string
+		main      bool
+	}{
+		{"absolute main", filepath.Join(root, ".git"), filepath.Join(root, ".git"), true},
+		{"absolute linked", filepath.Join(root, ".git", "worktrees", "feature"), filepath.Join(root, ".git"), false},
+		{"relative main", ".git", ".git", true},
+		{"relative linked", ".git/worktrees/feature", ".git", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &locatorGitStub{root: root, remote: "ssh://git@github.com/owner/repo", gitDir: tc.gitDir, commonDir: tc.commonDir}
+			resolved, err := s.ResolveProjectWithRunner(ctx, filepath.Join(root, "sub"), root, stub)
+			if err != nil {
+				t.Fatalf("resolve err=%v", err)
+			}
+			if resolved.MainWorktree != tc.main {
+				t.Fatalf("MainWorktree=%v want %v", resolved.MainWorktree, tc.main)
+			}
+			if resolved.ProjectID != "project-wt" {
+				t.Fatalf("ProjectID=%q", resolved.ProjectID)
+			}
+		})
+	}
+
+	t.Run("topology probe fails closed", func(t *testing.T) {
+		stub := &locatorGitStub{root: root, remote: "ssh://git@github.com/owner/repo", failTopology: true}
+		if _, err := s.ResolveProjectWithRunner(ctx, root, root, stub); err == nil {
+			t.Fatal("expected resolution to fail when git cannot report worktree topology")
+		}
+	})
 }

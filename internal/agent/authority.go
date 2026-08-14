@@ -380,6 +380,15 @@ func (s *Service) IssueGrant(ctx context.Context, req GrantRequest) (Grant, erro
 		if !subset(requestedProjects, policyProjects) {
 			return out, errors.New("resolved Project is outside trusted client policy")
 		}
+		// CD-0008 D1: the main checkout stays on the default branch, so it
+		// never carries mutation authority. Reads from trunk remain valid.
+		if resolvedProject.MainWorktree {
+			for _, capability := range requestedCaps {
+				if capability != "product_read" {
+					return out, errors.New("mutating authority requires a linked worktree; the main checkout is read-only")
+				}
+			}
+		}
 		scopeSnapshot = map[string]any{"project_id": resolvedProject.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM agent_nonce_replay WHERE expires_at < ?`, now.Add(-s.skew()).Format(time.RFC3339Nano)); err != nil {

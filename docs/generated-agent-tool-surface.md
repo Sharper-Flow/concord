@@ -1,8 +1,8 @@
 # Generated Concord agent tool surface
 
-Source manifest: `2.4.0` / `sha256:a9b72eeefc634036f003eced81653f147e4f8797a7d6114c2afa88451648a50a`
-Payload schema digest: `sha256:96600ee0dced26e8706b1c109841c81709a50c8cf1a5dc1ee61e73332acc70a5`
-Supported surface versions: `2.4.0`; envelope schema: `1.0`
+Source manifest: `3.0.0` / `sha256:fdbf664b4ebc95fe8027883e71984294e4ca0ffdf91c7e95065a7432f1a0bfe2`
+Payload schema digest: `sha256:7241bc90477072e34e5fd573a202752af7ad23e30c9dd8a95d3c37274edfc5b8`
+Supported surface versions: `3.0.0`; envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
@@ -20,6 +20,13 @@ Supported surface versions: `2.4.0`; envelope schema: `1.0`
 | `concord_knowledge.resolve_note` | `read` | `PM1.Q10` | `product_read` | `read` | `always` |
 | `concord_work_define.capture` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_define.revise_intent` | `mutation` | `—` | `work_define` | `intent` | `always` |
+| `concord_work_epic.create` | `mutation` | `—` | `work_epic` | `intent` | `always` |
+| `concord_work_epic.add_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.remove_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.reorder_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.change_requiredness` | `mutation` | `—` | `work_epic` | `relation` | `always` |
+| `concord_work_epic.revise_narrative` | `mutation` | `—` | `work_epic` | `intent` | `always` |
+| `concord_work_epic.entries` | `read` | `C21.EpicEntries` | `product_read` | `read` | `always` |
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |
 | `concord_work_transition.worktree_claim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |

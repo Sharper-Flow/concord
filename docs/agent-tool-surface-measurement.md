@@ -3,7 +3,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS9; binding launch/maintenance evidence contract for the accepted
-> eight-tool surface.
+> surface. CD-0024 records one narrow 3.0.0 Epic exception.
 > **Binding inputs:** accepted PM1 corpus and TS1–TS8 job, budget, tool, context,
 > adapter, envelope, and evolution contracts.
 > **Does not decide:** model/provider support list, release automation, Product fields
@@ -11,8 +11,9 @@
 
 ## 1. Decision
 
-Concord ships the accepted eight-tool static surface only after a recorded launch
-baseline. After launch, surface review is **triggered by evidence**, never by a
+Concord shipped the v2 eight-tool static surface only after a recorded launch
+baseline. The current 3.0.0 surface is governed by CD-0024's narrow exception.
+After launch, surface review is **triggered by evidence**, never by a
 calendar cleanup ritual.
 
 No tool/operation is added, split, merged, removed, aliased, or hidden through
@@ -26,6 +27,16 @@ discovery unless:
 
 Tool count, low usage, fewer calls, schema tokens, or platform precedent alone never
 authorize a surface change.
+
+### CD-0024 Epic exception
+
+CD-0024 is the sole exception to the paired supported-model-trial requirement: the
+2.3.0-to-3.0.0 Epic reachability change may ship on its named accepted outcome,
+deterministic agent-boundary evidence, generated contract drift checks, fail-closed
+major bootstrap, durable replay proof, migration guidance, and explicit operator
+approval. It makes no model-selection or task-success claim and does not authorize a
+second exception. Any later model-visible surface change must first establish this
+runner and evaluate the 3.0.0 baseline under the normal sections 4.1–4.3 rules.
 
 ## 2. Two evidence planes
 

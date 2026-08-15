@@ -79,7 +79,11 @@ func NegotiateSurfaceVersion(supportedRange string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	supported := []SemVer{{Major: 2, Minor: 0, Patch: 0}, {Major: 2, Minor: 1, Patch: 0}, {Major: 2, Minor: 2, Patch: 0}, {Major: 2, Minor: 3, Patch: 0}, {Major: 2, Minor: 4, Patch: 0}}
+	// Surface 3.0.0 adds a model-visible tool and operations. A 2.x adapter pins
+	// a different manifest digest and has no lossless representation for them,
+	// so the major boundary fails at grant bootstrap instead of pretending to
+	// negotiate an identity the current core cannot safely serve.
+	supported := []SemVer{{Major: 3, Minor: 0, Patch: 0}}
 	var selected *SemVer
 	for _, candidate := range supported {
 		if r.Contains(candidate) && (selected == nil || candidate.Compare(*selected) > 0) {

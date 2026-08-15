@@ -43,7 +43,7 @@
           "const": "concord-agent-tool-surface"
         },
         "tool_count": {
-          "const": 8
+          "const": 9
         }
       }
     },
@@ -87,8 +87,8 @@
     },
     "tools": {
       "type": "array",
-      "minItems": 8,
-      "maxItems": 8,
+      "minItems": 9,
+      "maxItems": 9,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -119,8 +119,8 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 25,
-      "maxItems": 25,
+      "minItems": 32,
+      "maxItems": 32,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -161,7 +161,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q([1-9]|10)|C14\\.ProductRows|C19\\.Continuity)$"
+            "pattern": "^(PM1\\.Q([1-9]|10)|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
           },
           "input_schema": {
             "type": "string",
@@ -178,6 +178,7 @@
               "work_transition",
               "work_relate",
               "work_compact",
+              "work_epic",
               "cross_scope"
             ]
           },
@@ -223,12 +224,13 @@
           "work_transition",
           "work_relate",
           "work_compact",
+          "work_epic",
           "cross_scope"
         ]
       },
       "uniqueItems": true,
-      "minItems": 6,
-      "maxItems": 6
+      "minItems": 7,
+      "maxItems": 7
     },
     "consequences": {
       "type": "array",

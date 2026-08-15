@@ -200,6 +200,32 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 	}
 }
 
+// The Epic tool is a model-visible major change. A v2 adapter cannot receive a
+// lossless static tool set, so bootstrap must fail before it can create a grant
+// or reach any domain operation.
+func TestEpicMajorRefusesV2GrantBeforeIssuance(t *testing.T) {
+	db := openAgentDB(t)
+	service := NewService(db)
+	service.Now = fixedTime
+	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
+	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	request := grantRequest(privateKey, "v2-major-boundary-nonce")
+	request.Assertion.SurfaceRange = "2.3.0-2.3.0"
+	request.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(request.Assertion))
+	if _, err := service.IssueGrant(context.Background(), request); err == nil {
+		t.Fatal("v2 adapter received a v3 Epic grant")
+	}
+	var grants int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM agent_grants`).Scan(&grants); err != nil {
+		t.Fatal(err)
+	}
+	if grants != 0 {
+		t.Fatalf("v2 bootstrap persisted %d grant(s)", grants)
+	}
+}
+
 func TestGrantUseLimitIsAtomicInsideCallerTransaction(t *testing.T) {
 	db := openAgentDB(t)
 	service := NewService(db)

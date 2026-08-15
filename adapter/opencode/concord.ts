@@ -3,8 +3,8 @@ import { tool, type ToolContext } from "@opencode-ai/plugin"
 import { contractOperations, canonicalAssertion, manifestDigest, manifestVersion, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 
-const ADAPTER_VERSION = "2.3.0"
-const SURFACE_RANGE = "2.1.0-2.4.0"
+const ADAPTER_VERSION = "3.0.0"
+const SURFACE_RANGE = "3.0.0-3.0.0"
 const ENVELOPE_VERSIONS = "1.0"
 const MAX_STDERR = 8192
 const GRANT_TTL_MS = 50 * 60 * 1000
@@ -236,6 +236,7 @@ export const work_browse = tool({ description: "Concord work browse", args: args
 export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: any, context: ToolContext) => invoke("concord_work_trace", args, context) })
 export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: any, context: ToolContext) => invoke("concord_knowledge", args, context) })
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: any, context: ToolContext) => invoke("concord_work_define", args, context) })
+export const work_epic = tool({ description: "Concord work epic", args: argsSchema("concord_work_epic"), execute: (args: any, context: ToolContext) => invoke("concord_work_epic", args, context) })
 export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: any, context: ToolContext) => invoke("concord_work_transition", args, context) })
 export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: any, context: ToolContext) => invoke("concord_work_relate", args, context) })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: any, context: ToolContext) => invoke("concord_work_compact", args, context) })

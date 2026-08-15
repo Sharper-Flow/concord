@@ -140,6 +140,25 @@ type researchSourceInput struct {
 	PublishedAt       string `json:"published_at"`
 	AccessedAt        string `json:"accessed_at"`
 }
+type lessonPublishInput struct {
+	WorkID         string             `json:"work_id"`
+	LessonID       string             `json:"lesson_id"`
+	Title          string             `json:"title"`
+	Summary        string             `json:"summary"`
+	Content        string             `json:"content"`
+	Tags           []string           `json:"tags"`
+	Scopes         *lessonScopesInput `json:"scopes"`
+	Evidence       []string           `json:"evidence"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	Approval       *approvalInput     `json:"approval"`
+}
+type lessonScopesInput struct {
+	Mode         string   `json:"mode"`
+	ProductIDs   []string `json:"product_ids"`
+	ProjectIDs   []string `json:"project_ids"`
+	ComponentIDs []string `json:"component_ids"`
+	TagIDs       []string `json:"tag_ids"`
+}
 type researchBindingInput struct {
 	PackID   string `json:"pack_id"`
 	Revision int64  `json:"revision"`
@@ -791,7 +810,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		return r.mutateWorkflowAction(ctx, base, raw, grant)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
-	if r.Tool == "concord_work_compact" {
+	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {
 		return r.mutateCompaction(ctx, base, raw, digest, op)
 	}
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "scope_version": r.Envelope.ScopeVersion}
@@ -1155,6 +1174,45 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), []string{in.PackID}, changed, nil
+		}
+	case "concord_work_compact.lesson_publish":
+		var in lessonPublishInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		if in.Approval != nil {
+			approval = in.Approval.ApprovalRef
+		}
+		requiresApproval = true
+		consequence = "publication"
+		scope["work_ids"] = []string{in.WorkID}
+		var workVersion int64
+		if err := r.Store.DB().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, in.WorkID).Scan(&workVersion); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		versions["work"] = workVersion
+		// The knowledge home and work-version reads happen before the
+		// mutation transaction opens: the effect's transaction holds the
+		// write lock, and a second connection's read would deadlock.
+		lessonHome, homeErr := r.Store.ResolveCompactionHome(ctx, in.WorkID)
+		if homeErr != nil {
+			return failureEnvelope(base, homeErr), nil
+		}
+		intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_published_lesson"}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			scopes := store.KnowledgeRecordScopes{Mode: "home"}
+			if in.Scopes != nil {
+				scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, ComponentIDs: in.Scopes.ComponentIDs, TagIDs: in.Scopes.TagIDs}
+			}
+			published, pubErr := store.PublishLessonRecord(ctx, lessonHome, store.LessonPublication{
+				LessonID: in.LessonID, Title: in.Title, Summary: in.Summary, Content: in.Content,
+				Tags: in.Tags, Scopes: scopes, Evidence: in.Evidence, Now: r.Authority.now(),
+			})
+			if pubErr != nil {
+				return nil, nil, nil, pubErr
+			}
+			changed := []ChangedRef{{EntityKind: "lesson", ID: published.Record.ID, Version: strconv.FormatInt(workVersion, 10)}}
+			return mutationPayload(changed, intents), []string{published.Record.ID}, changed, nil
 		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput

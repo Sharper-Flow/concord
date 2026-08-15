@@ -1,0 +1,257 @@
+package store
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path"
+	"sort"
+	"strings"
+	"time"
+)
+
+// CD-0026: a lesson is captured per change and promoted by scope. Publishing
+// writes the lesson markdown, appends its manifest record, and commits both
+// through the repository's git authority in one commit. The manifest — not a
+// parallel event stream — remains the lesson's durable backing (CD-0020), so
+// no new event kind or projection table is introduced; resolve_note verifies
+// against the manifest immediately, and the next index rebuild picks the
+// record up for search.
+
+const (
+	lessonManifestPath = "docs/concord-knowledge-index.v1.json"
+	maxLessonContent   = 32768
+	maxLessonTags      = 8
+	maxLessonEvidence  = 32
+)
+
+// LessonPublication is one separately accepted durable lesson (CD-0009 D7).
+type LessonPublication struct {
+	LessonID string
+	Title    string
+	Summary  string
+	Content  string
+	Tags     []string
+	Scopes   KnowledgeRecordScopes
+	// Evidence names implementation paths this lesson's guidance rests on;
+	// the offline validator fails when they rot (drift audit).
+	Evidence []string
+	Now      time.Time
+}
+
+// PublishedLesson is the verified result of a lesson publication.
+type PublishedLesson struct {
+	Record    KnowledgeRecord
+	Note      VerifiedNote
+	CommitOID string
+}
+
+func (req LessonPublication) record(contentSHA string, date, notePath string) KnowledgeRecord {
+	scopes := req.Scopes
+	if scopes.Mode == "" {
+		scopes.Mode = "home"
+	}
+	// The strict manifest parser requires every scope list to be present
+	// (empty, never null).
+	scopes.ProductIDs = nonNilIDs(scopes.ProductIDs)
+	scopes.ProjectIDs = nonNilIDs(scopes.ProjectIDs)
+	scopes.ComponentIDs = nonNilIDs(scopes.ComponentIDs)
+	scopes.TagIDs = nonNilIDs(scopes.TagIDs)
+	tags := nonNilIDs(req.Tags)
+	return KnowledgeRecord{
+		ID: req.LessonID, Kind: "lesson", Path: notePath, Status: "published",
+		Date: date, Title: req.Title, Summary: req.Summary, Tags: tags,
+		Scopes: scopes, SHA256: contentSHA, Evidence: req.Evidence,
+	}
+}
+
+func nonNilIDs(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+func validateLessonPublication(req LessonPublication) error {
+	if len(req.LessonID) < 2 || len(req.LessonID) > 128 || strings.ContainsAny(req.LessonID, " \t\n") {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson id must be a bounded non-space identifier", false, "supply a stable lesson id")
+	}
+	if len(req.Title) < 1 || len(req.Title) > 256 || len(req.Summary) < 1 || len(req.Summary) > 1024 {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson title or summary is outside bounds", false, "supply a bounded title and summary")
+	}
+	if len(req.Content) < 1 || len(req.Content) > maxLessonContent {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson content is empty or exceeds the bounded size", false, "supply bounded lesson content")
+	}
+	if len(req.Tags) > maxLessonTags {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson carries too many tags", false, "supply at most eight tags")
+	}
+	for _, tag := range req.Tags {
+		if len(tag) < 1 || len(tag) > 32 {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson tags must be bounded", false, "supply bounded tags")
+		}
+	}
+	if len(req.Evidence) > maxLessonEvidence {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson carries too many evidence paths", false, "supply at most thirty-two evidence paths")
+	}
+	for _, evidence := range req.Evidence {
+		if len(evidence) < 1 || len(evidence) > 512 || strings.HasPrefix(evidence, "/") || strings.Contains(evidence, "..") {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "evidence must be bounded repository-relative paths", false, "supply relative evidence paths")
+		}
+	}
+	if err := validateLessonScopes(req.Scopes); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateLessonScopes mirrors the durable-knowledge scope rule: home carries
+// no explicit IDs; explicit carries at least one.
+func validateLessonScopes(scopes KnowledgeRecordScopes) error {
+	if scopes.Mode == "" {
+		scopes.Mode = "home"
+	}
+	counts := len(scopes.ProductIDs) + len(scopes.ProjectIDs) + len(scopes.ComponentIDs) + len(scopes.TagIDs)
+	switch scopes.Mode {
+	case "home":
+		if counts != 0 {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "home scope cannot carry explicit scope IDs", false, "use explicit scope mode to declare IDs")
+		}
+	case "explicit":
+		if counts == 0 {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "explicit scope must declare at least one scope ID", false, "declare the Product, Project, component, or tag scopes")
+		}
+	default:
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "scope mode must be home or explicit", false, "supply home or explicit")
+	}
+	return nil
+}
+
+// PublishLessonRecord publishes one accepted lesson through the git
+// knowledge authority. It is idempotent: when the manifest already carries
+// the exact record, the committed lesson verifies and is returned without a
+// new commit. It performs no SQLite writes.
+func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPublication) (PublishedLesson, error) {
+	out := PublishedLesson{}
+	if home.RepoPath == "" {
+		return out, newFailure(KindInvalidNoteProof, "publish_lesson", "lesson publication requires the git home", false, "publish through a registered knowledge home")
+	}
+	if err := validateLessonPublication(req); err != nil {
+		return out, err
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	date := now.UTC().Format("2006-01-02T00:00:00Z")
+	sum := sha256.Sum256([]byte(req.Content))
+	contentSHA := "sha256:" + hex.EncodeToString(sum[:])
+
+	notePath := "docs/lessons/" + now.UTC().Format("2006-01-02") + "-" + slugifyKnowledgeTitle(req.Title) + ".md"
+	fullNotePath := path.Join(home.RepoPath, notePath)
+	manifestFullPath := path.Join(home.RepoPath, lessonManifestPath)
+
+	// Existing manifest governs idempotency and conflicts.
+	manifestBytes, readErr := os.ReadFile(manifestFullPath)
+	if readErr != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read the knowledge manifest", true, "restore the git knowledge home", readErr)
+	}
+	manifest, parseErr := parseKnowledgeManifest(manifestBytes)
+	if parseErr != nil {
+		return out, parseErr
+	}
+	for _, existing := range manifest.Records {
+		if existing.ID == req.LessonID {
+			if existing.Kind == "lesson" && existing.Path == notePath && existing.SHA256 == contentSHA {
+				commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
+				if err != nil {
+					return out, err
+				}
+				out.Record = existing
+				out.Note = manifestRecordNote(existing, strings.TrimSpace(string(commit)))
+				out.CommitOID = strings.TrimSpace(string(commit))
+				return out, nil
+			}
+			return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson id is already claimed by a different record", false, "choose a new lesson id or supersede the existing lesson")
+		}
+		if existing.Path == notePath && existing.SHA256 != contentSHA {
+			return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson path is already claimed by different content", false, "retitle the lesson")
+		}
+	}
+
+	record := req.record(contentSHA, date, notePath)
+	if err := validateKnowledgeRecord(record, map[string]bool{"work_note": true, "decision": true, "spec": true, "lesson": true, "research": true}, map[string]bool{"work_note": true, "decision": true, "spec": true, "lesson": true}); err != nil {
+		return out, err
+	}
+
+	if err := os.MkdirAll(path.Dir(fullNotePath), 0o755); err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson directory", true, "restore write access to the git home", err)
+	}
+	if err := os.WriteFile(fullNotePath, []byte(req.Content), 0o644); err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson draft", true, "restore write access to the git home", err)
+	}
+
+	// Append the record and rewrite the manifest preserving its canonical
+	// formatting: root order as authored, record keys sorted, indent two.
+	manifest.Records = append(manifest.Records, record)
+	sort.SliceStable(manifest.Records, func(i, j int) bool { return manifest.Records[i].ID < manifest.Records[j].ID })
+	updated, err := marshalKnowledgeManifest(manifest)
+	if err != nil {
+		return out, err
+	}
+	if err := os.WriteFile(manifestFullPath, updated, 0o644); err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the knowledge manifest", true, "restore write access to the git home", err)
+	}
+
+	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, lessonManifestPath); err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot stage the lesson", true, "restore git write access and retry", err)
+	}
+	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord lesson "+req.LessonID, "--", notePath, lessonManifestPath); err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot commit the lesson", true, "complete the native git commit and reconcile", err)
+	}
+	commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
+	if err != nil {
+		return out, err
+	}
+	oid := strings.TrimSpace(string(commit))
+	out.Record = record
+	out.Note = manifestRecordNote(record, oid)
+	out.CommitOID = oid
+	return out, nil
+}
+
+// marshalKnowledgeManifest renders the manifest with the formatting the
+// offline validator and authored file already use: two-space indent, record
+// keys sorted, one trailing newline.
+func marshalKnowledgeManifest(manifest KnowledgeManifest) ([]byte, error) {
+	root := map[string]any{
+		"schema_version":  manifest.SchemaVersion,
+		"supported_kinds": manifest.SupportedKinds,
+		"indexed_kinds":   manifest.IndexedKinds,
+	}
+	records := make([]any, 0, len(manifest.Records))
+	for _, record := range manifest.Records {
+		entry := map[string]any{
+			"id": record.ID, "kind": record.Kind, "path": record.Path, "status": record.Status,
+			"date": record.Date, "title": record.Title, "summary": record.Summary,
+			"tags": record.Tags, "scopes": record.Scopes, "sha256": record.SHA256,
+		}
+		if record.Successor != "" {
+			entry["successor"] = record.Successor
+		}
+		if len(record.LawRelations) > 0 {
+			entry["law_relations"] = record.LawRelations
+		}
+		if len(record.Evidence) > 0 {
+			entry["evidence"] = record.Evidence
+		}
+		records = append(records, entry)
+	}
+	root["records"] = records
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the knowledge manifest", false, "repair the manifest record", err)
+	}
+	return append(out, '\n'), nil
+}

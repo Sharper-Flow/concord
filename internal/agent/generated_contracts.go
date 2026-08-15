@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "3.1.0"
-const ManifestDigest = "sha256:965e0324544bb3683eb477808c4468c7ff682fc109df37a90f5f0cedf769996f"
+const ManifestVersion = "3.2.0"
+const ManifestDigest = "sha256:80da398f83f01c07558f301bb640d0556bdc2951d46568fde13e717cbfc72e0a"
 
 type OperationKind string
 
@@ -73,6 +73,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_relate.restore_superseded", Tool: "concord_work_relate", Operation: "restore_superseded", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("required"), Availability: Availability("always")},
 	{ID: "concord_work_compact.publish", Tool: "concord_work_compact", Operation: "publish", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_compact"), Approval: ApprovalClass("required"), Availability: Availability("always")},
 	{ID: "concord_work_compact.reconcile", Tool: "concord_work_compact", Operation: "reconcile", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_compact"), Approval: ApprovalClass("conditional"), Availability: Availability("always")},
+	{ID: "concord_work_compact.lesson_publish", Tool: "concord_work_compact", Operation: "lesson_publish", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_compact"), Approval: ApprovalClass("required"), Availability: Availability("always")},
 }
 
 func ValidateContractOperation(tool, operation string) (ContractOperation, bool) {
@@ -111,6 +112,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"field":                                      {Required: []string{"name", "value"}, Properties: []string{"name", "value"}},
 	"knowledge_page":                             {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "watermark"}},
 	"knowledge_resolve_input":                    {Required: []string{}, Properties: []string{"work_id", "knowledge_id"}},
+	"knowledge_scopes_input":                     {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}},
 	"knowledge_search_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "page", "budget"}},
 	"mutation_result":                            {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id"}},
 	"operator_choice":                            {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
@@ -144,6 +146,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_browse_list_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_ids", "work_ids", "lifecycle", "kind", "component_id", "tag_ids", "priority_min", "priority_max", "detail", "terminal_since", "page", "budget"}},
 	"work_browse_ready_input":                    {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kind", "page", "budget"}},
 	"work_browse_scope_input":                    {Required: []string{"product_id"}, Properties: []string{"product_id", "project_id", "work_id", "page", "budget", "one_of"}},
+	"work_compact_lesson_publish_input":          {Required: []string{"work_id", "lesson_id", "title", "summary", "content", "idempotency_key"}, Properties: []string{"work_id", "lesson_id", "title", "summary", "content", "tags", "scopes", "evidence", "idempotency_key", "approval"}},
 	"work_compact_publish_input":                 {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence"}},
 	"work_compact_reconcile_input":               {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence"}},
 	"work_define_capture_input":                  {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "approval"}},

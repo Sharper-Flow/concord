@@ -1,8 +1,8 @@
 # Generated Concord agent tool surface
 
-Source manifest: `3.1.0` / `sha256:965e0324544bb3683eb477808c4468c7ff682fc109df37a90f5f0cedf769996f`
-Payload schema digest: `sha256:655877a88b190afc57111c64aa666159fea7c0e454dd6968699d0c096e90d7af`
-Supported surface versions: `3.1.0`; envelope schema: `1.0`
+Source manifest: `3.2.0` / `sha256:80da398f83f01c07558f301bb640d0556bdc2951d46568fde13e717cbfc72e0a`
+Payload schema digest: `sha256:531988639586dc543991a063abb9953ff2eab84be4411454981275d068e4a180`
+Supported surface versions: `3.2.0`; envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
@@ -44,3 +44,4 @@ Supported surface versions: `3.1.0`; envelope schema: `1.0`
 | `concord_work_relate.restore_superseded` | `mutation` | `—` | `work_relate` | `supersession` | `always` |
 | `concord_work_compact.publish` | `mutation` | `—` | `work_compact` | `publication` | `always` |
 | `concord_work_compact.reconcile` | `mutation` | `—` | `work_compact` | `recovery` | `always` |
+| `concord_work_compact.lesson_publish` | `mutation` | `—` | `work_compact` | `publication` | `always` |

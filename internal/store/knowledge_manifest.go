@@ -67,6 +67,11 @@ type KnowledgeRecord struct {
 	Successor    string                `json:"successor,omitempty"`
 	SHA256       string                `json:"sha256"`
 	LawRelations []KnowledgeRelation   `json:"law_relations,omitempty"`
+	// Evidence names implementation paths (scenarios, tests, code) that
+	// carry this record's guidance. The offline validator fails when an
+	// evidence path no longer exists — the structural law/implementation
+	// drift audit (CD-0026).
+	Evidence []string `json:"evidence,omitempty"`
 }
 
 // KnowledgeRelation is authored in the Git knowledge manifest. It is never a
@@ -298,6 +303,14 @@ func validateManifestKindList(values []string, field string) (map[string]bool, e
 }
 
 func validateKnowledgeRecord(record KnowledgeRecord, supported, indexed map[string]bool) error {
+	if len(record.Evidence) > 32 {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many evidence paths", false, "supply at most thirty-two evidence paths")
+	}
+	for _, evidence := range record.Evidence {
+		if len(evidence) < 1 || len(evidence) > 512 || strings.HasPrefix(evidence, "/") || strings.Contains(evidence, "..") {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "evidence must be bounded repository-relative paths", false, "supply relative evidence paths")
+		}
+	}
 	if record.ID == "" || utf8.RuneCountInString(record.ID) > maxManifestID || strings.TrimSpace(record.ID) != record.ID {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record ID is empty, oversized, or not clean", false, "use a bounded stable ID")
 	}

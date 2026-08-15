@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
 ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "records"}
-ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations"}
+ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence"}
 ALLOWED_SCOPES = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 KINDS = {"work_note", "lesson", "decision", "spec", "research"}
 RECORD_KINDS = {"lesson", "decision", "spec"}
@@ -94,7 +94,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         unknown = set(record) - ALLOWED_RECORD
         if unknown:
             fail(findings, f"{prefix}: unknown fields: {sorted(unknown)}")
-        required = ALLOWED_RECORD - {"successor", "law_relations"}
+        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence"}
         missing = required - set(record)
         if missing:
             fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
@@ -181,6 +181,22 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
 
         if not isinstance(record["sha256"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", record["sha256"]):
             fail(findings, f"{prefix}: invalid sha256 proof")
+
+        # CD-0026 drift audit: evidence paths must stay reachable. A decision
+        # or lesson whose named implementation evidence rots is surfaced here,
+        # before the recorded law and the current implementation drift apart
+        # silently.
+        evidence = record.get("evidence", [])
+        if not isinstance(evidence, list) or len(evidence) > 32 or any(
+            not isinstance(item, str) or not (1 <= len(item) <= 512) or item.startswith("/") or ".." in item
+            for item in evidence
+        ):
+            fail(findings, f"{prefix}: invalid evidence paths")
+        else:
+            for item in evidence:
+                target = ROOT / item
+                if target.is_symlink() or not target.is_file():
+                    fail(findings, f"{prefix}: dangling evidence path: {item}")
         target = ROOT / path if isinstance(path, str) else ROOT / "missing"
         if isinstance(path, str) and (target.is_symlink() or not target.is_file()):
             fail(findings, f"{prefix}: dangling path: {path}")

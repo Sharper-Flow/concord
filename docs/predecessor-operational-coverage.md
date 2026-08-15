@@ -66,7 +66,7 @@ Turning intent into durable, reviewable commitment before implementation.
 | Block planning and completion on unknown laws or unresolved law conflicts | Covered | CD-0015; `internal/store/workflow_completion.go` |
 | Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Covered | `concord_work_epic.create`, entry mutations, narrative revision, and bounded `entries` read in `internal/agent/mutations.go`, `internal/agent/runtime.go`, and `contracts/agent-tool-surface.v1.json`; `TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead` proves the reachable event and read path. |
 | Track lightweight future work that is not yet ready to start | Excluded | CD-0009 rejects additional trackable kinds. Early-lifecycle work items carry this, and a separate backlog entity would reintroduce the trackable proliferation the decision closes. |
-| Audit drift between recorded law and current implementation | **Not covered** | No runtime path. The predecessor provides this as a standing capability. |
+| Audit drift between recorded law and current implementation | Covered | Manifest records carry `evidence` paths; `scripts/check-knowledge-index.py` fails when an evidence path rots (CD-0026). Structural reachability, not semantic verification. |
 
 ## 2. Visibility and portfolio status
 
@@ -121,7 +121,7 @@ Commissioning, validating, and reusing investigation so work does not start blin
 | Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back. |
 | Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `replace_outcome` / `supersede_contract` in `internal/store/workflow_revision.go` |
-| Record post-completion learning about how the work itself went | **Not covered** | The predecessor records durable reflections on execution and system friction. Concord has no equivalent artifact. |
+| Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, recorded through `concord_work_compact.lesson_publish` (CD-0026 D3). |
 
 ## 5. Ops runbooks
 
@@ -150,7 +150,7 @@ Knowledge that outlives the change that produced it.
 | Keep specifications as binding law with typed relations between them | Covered | CD-0015; `docs/decisions/CD-0015-typed-law-relations.md` |
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
 | Preserve the provenance link between a unit of work and its external tracking record | Covered | `external_ref` on capture, `internal/agent/mutations.go` |
-| Capture a per-change learning and promote the durable ones to project scope | **Not covered** | The predecessor accumulates wisdom entries across changes. Concord's canonical notes are per-work-item and are not promoted or aggregated. |
+| Capture a per-change learning and promote the durable ones to project scope | Covered | `concord_work_compact.lesson_publish` records a lesson per change under operator approval; explicit scopes promote it to project/Product reach through the existing scope-filtered reads (CD-0026 D1/D2). |
 | Preserve provenance when an item is promoted into an initiative | Covered | `concord_work_epic.add_entry` folds the typed `parent` relation and ordered `epic_entries` projection through `store.EpicEntryEvent`; the scoped agent boundary test verifies removal clears the relation without changing the child. |
 
 ## 7. Cross-cutting
@@ -171,18 +171,17 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 52 |
-| Not covered | 6 |
+| Covered | 55 |
+| Not covered | 3 |
 | Excluded with reason | 7 |
 
 **Total enumerated outcomes: 65.**
 
-The six not-covered entries cluster into four groups:
+The three not-covered entries cluster into four groups:
 
 1. **Session continuity** — active-session visibility is tracked by issue #72 and
    clean typed restart by issue #120 (§2, §3).
    unreachable; issue #131 owns its deliberate floor exclusion (§4).
-3. **Learning capture** — no wisdom promotion, post-completion reflection, or
    spec/implementation drift audit; issue #129 owns the durable learning path
    (§1, §4, §6).
 4. **Shared-resource coordination** — a durable cross-repository claim is tracked

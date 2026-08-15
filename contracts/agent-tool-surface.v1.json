@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "3.1.0",
+    "version": "3.2.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 9
   },
@@ -111,7 +111,8 @@
       "description": "Publish or reconcile canonical durable knowledge.",
       "operations": [
         "concord_work_compact.publish",
-        "concord_work_compact.reconcile"
+        "concord_work_compact.reconcile",
+        "concord_work_compact.lesson_publish"
       ]
     }
   ],
@@ -876,6 +877,26 @@
           "1.0"
         ]
       }
+    },
+    {
+      "id": "concord_work_compact.lesson_publish",
+      "tool": "concord_work_compact",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_compact_lesson_publish_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_compact",
+      "consequence": "publication",
+      "approval": "required",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
     }
   ],
   "schemas": {
@@ -1090,6 +1111,10 @@
     "research_pack": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_pack",
       "closed": true
+    },
+    "work_compact_lesson_publish_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_lesson_publish_input",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1140,6 +1165,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:655877a88b190afc57111c64aa666159fea7c0e454dd6968699d0c096e90d7af",
-  "digest": "sha256:965e0324544bb3683eb477808c4468c7ff682fc109df37a90f5f0cedf769996f"
+  "payload_digest": "sha256:531988639586dc543991a063abb9953ff2eab84be4411454981275d068e4a180",
+  "digest": "sha256:80da398f83f01c07558f301bb640d0556bdc2951d46568fde13e717cbfc72e0a"
 }

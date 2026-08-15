@@ -139,7 +139,12 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:24758757586b904377718a5ad7030f6e43e1ff96f1af18dfd3d8aaabb08b69fa"
+      "sha256": "sha256:24758757586b904377718a5ad7030f6e43e1ff96f1af18dfd3d8aaabb08b69fa",
+      "evidence": [
+        "internal/store/worktrees.go",
+        "internal/store/worktrees_test.go",
+        "internal/agent/trunk_firewall_test.go"
+      ]
     },
     {
       "id": "CD-0009",
@@ -160,7 +165,11 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d8aa2aad6a91590fba610755b0fb05e4b62f0cf55330148c530e34c6e9621896"
+      "sha256": "sha256:d8aa2aad6a91590fba610755b0fb05e4b62f0cf55330148c530e34c6e9621896",
+      "evidence": [
+        "internal/store/research_mutations.go",
+        "internal/agent/research_surface_test.go"
+      ]
     },
     {
       "id": "CD-0010",
@@ -244,7 +253,11 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5a941685adaa38f552a84804e91b238efe78fedbdd29e7af50b4478f5233d559"
+      "sha256": "sha256:5a941685adaa38f552a84804e91b238efe78fedbdd29e7af50b4478f5233d559",
+      "evidence": [
+        "scenarios/workflow-engine.v1.json",
+        "internal/store/workflow_conformance_test.go"
+      ]
     },
     {
       "id": "CD-0014",
@@ -311,7 +324,11 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d08f88854f05f0763cf0320f39e25298a89ab220d83953ac355109141c9ba27c"
+      "sha256": "sha256:d08f88854f05f0763cf0320f39e25298a89ab220d83953ac355109141c9ba27c",
+      "evidence": [
+        "internal/store/workflow_continuity.go",
+        "internal/store/workflow_continuity_test.go"
+      ]
     },
     {
       "id": "CD-0017",
@@ -334,7 +351,12 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5c746e2a230b268ffb5d60680982788a4c45c1467e0be1a1ea0c00248fd55856"
+      "sha256": "sha256:5c746e2a230b268ffb5d60680982788a4c45c1467e0be1a1ea0c00248fd55856",
+      "evidence": [
+        "contracts/agent-lanes.v1.json",
+        "internal/store/worker_authority_boundary_test.go",
+        "adapter/opencode/evals/promptfooconfig.yaml"
+      ]
     },
     {
       "id": "CD-0018",
@@ -426,7 +448,11 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66"
+      "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66",
+      "evidence": [
+        "internal/launcher/model.go",
+        "docs/terminal-launcher-contract.md"
+      ]
     },
     {
       "id": "CD-0022",
@@ -449,7 +475,10 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:c0fc3925debfaabc824a8f10249ac235f347751b0db0142f4ff52cf98fa83da5"
+      "sha256": "sha256:c0fc3925debfaabc824a8f10249ac235f347751b0db0142f4ff52cf98fa83da5",
+      "evidence": [
+        "internal/store/research_operations.go"
+      ]
     },
     {
       "id": "CD-0023",
@@ -471,7 +500,11 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:90f0743875136bd79b47e2cd1db241a8ef9020c6a1d9027bcf733408feb5a57f"
+      "sha256": "sha256:90f0743875136bd79b47e2cd1db241a8ef9020c6a1d9027bcf733408feb5a57f",
+      "evidence": [
+        "internal/agent/verdict_scope_test.go",
+        "internal/store/workflow_verdict.go"
+      ]
     },
     {
       "id": "CD-0024",
@@ -494,7 +527,10 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f75c9a4faac74e57f7654fd506594259442909bf1a787f3497119d0879226dc7"
+      "sha256": "sha256:f75c9a4faac74e57f7654fd506594259442909bf1a787f3497119d0879226dc7",
+      "evidence": [
+        "internal/store/epic.go"
+      ]
     },
     {
       "id": "CD-0025",
@@ -516,7 +552,39 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:952a7153df0e335a30312a994ffae31d14d21dbdd02224a434b81542f537cbc1"
+      "sha256": "sha256:952a7153df0e335a30312a994ffae31d14d21dbdd02224a434b81542f537cbc1",
+      "evidence": [
+        "internal/store/research_reliance.go",
+        "internal/agent/research_surface_test.go"
+      ]
+    },
+    {
+      "id": "CD-0026",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0026-learning-capture.md",
+      "status": "accepted",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Learning capture: lesson authoring, reflection, and drift audit",
+      "summary": "Lessons publish through the archive surface into git and the manifest under operator approval; promotion is explicit scope; reflections are tagged lessons; evidence paths give law a structural drift audit.",
+      "tags": [
+        "lessons",
+        "knowledge",
+        "drift-audit"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:40d0f7f7eca5761348f116c6c51aeeaebaf97edff824174152074c9291431ad2",
+      "evidence": [
+        "internal/store/lesson_publish.go",
+        "internal/store/lesson_publish_test.go",
+        "internal/agent/lesson_dispatch_test.go",
+        "scripts/check-knowledge-index.py"
+      ]
     },
     {
       "id": "PM1",

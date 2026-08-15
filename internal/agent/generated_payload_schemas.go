@@ -936,6 +936,50 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "knowledge_scopes_input": {
+      "additionalProperties": false,
+      "properties": {
+        "component_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "home",
+            "explicit"
+          ],
+          "type": "string"
+        },
+        "product_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "project_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "tag_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    },
     "knowledge_search_input": {
       "additionalProperties": false,
       "properties": {
@@ -2412,6 +2456,68 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "product_id"
+      ],
+      "type": "object"
+    },
+    "work_compact_lesson_publish_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "content": {
+          "maxLength": 32768,
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "lesson_id": {
+          "$ref": "#/$defs/id"
+        },
+        "scopes": {
+          "$ref": "#/$defs/knowledge_scopes_input"
+        },
+        "summary": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "lesson_id",
+        "title",
+        "summary",
+        "content",
+        "idempotency_key"
       ],
       "type": "object"
     },

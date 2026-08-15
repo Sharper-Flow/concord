@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "3.3.0",
+    "version": "3.4.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 9
   },
@@ -39,7 +39,8 @@
         "concord_work_browse.list",
         "concord_work_browse.ready",
         "concord_work_browse.blocked",
-        "concord_work_browse.scope"
+        "concord_work_browse.scope",
+        "concord_work_browse.resource_claims"
       ]
     },
     {
@@ -104,7 +105,9 @@
         "concord_work_relate.link",
         "concord_work_relate.unlink",
         "concord_work_relate.supersede",
-        "concord_work_relate.restore_superseded"
+        "concord_work_relate.restore_superseded",
+        "concord_work_relate.resource_claim",
+        "concord_work_relate.resource_release"
       ]
     },
     {
@@ -272,6 +275,26 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_browse.resource_claims",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "PM1.Q13",
+      "input_schema": "#/schemas/work_browse_resource_claims_input",
+      "result_schema": "#/schemas/resource_claims_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "none",
         "output_bytes": 65536,
         "versions": [
           "1.0"
@@ -860,6 +883,46 @@
       }
     },
     {
+      "id": "concord_work_relate.resource_claim",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_resource_claim_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "claim",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_relate.resource_release",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_resource_release_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "claim",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
       "id": "concord_work_compact.publish",
       "tool": "concord_work_compact",
       "kind": "mutation",
@@ -1144,6 +1207,22 @@
     "blocked_sessions_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_sessions_page",
       "closed": true
+    },
+    "work_relate_resource_claim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_claim_input",
+      "closed": true
+    },
+    "work_relate_resource_release_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_release_input",
+      "closed": true
+    },
+    "work_browse_resource_claims_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_resource_claims_input",
+      "closed": true
+    },
+    "resource_claims_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1166,7 +1245,8 @@
     "supersession",
     "publication",
     "recovery",
-    "research"
+    "research",
+    "claim"
   ],
   "bounds": {
     "max_output_bytes": 65536,
@@ -1194,6 +1274,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:851baed98af83f6d1c509194aded2a4bc6fcab659149a974ccfa3789e3c1cc3b",
-  "digest": "sha256:7bdb77e7e10edafe41f384da9ad98ebb5cf7140188bd62b4839c2d8caa7142b5"
+  "payload_digest": "sha256:8f3f4e96f3470c4cd7a49602f5676e3b816cbe71ba49280ed1732c0f57091e0c",
+  "digest": "sha256:cdf890dd366e7a8af43855c03a216389251baeceaf9e650badff4db62060e788"
 }

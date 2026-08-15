@@ -1,8 +1,8 @@
 # Generated Concord agent tool surface
 
-Source manifest: `3.3.0` / `sha256:7bdb77e7e10edafe41f384da9ad98ebb5cf7140188bd62b4839c2d8caa7142b5`
-Payload schema digest: `sha256:851baed98af83f6d1c509194aded2a4bc6fcab659149a974ccfa3789e3c1cc3b`
-Supported surface versions: `3.3.0`; envelope schema: `1.0`
+Source manifest: `3.4.0` / `sha256:cdf890dd366e7a8af43855c03a216389251baeceaf9e650badff4db62060e788`
+Payload schema digest: `sha256:8f3f4e96f3470c4cd7a49602f5676e3b816cbe71ba49280ed1732c0f57091e0c`
+Supported surface versions: `3.4.0`; envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
@@ -14,6 +14,7 @@ Supported surface versions: `3.3.0`; envelope schema: `1.0`
 | `concord_work_browse.blocked` | `read` | `PM1.Q4` | `product_read` | `read` | `always` |
 | `concord_work_browse.ready` | `read` | `PM1.Q5` | `product_read` | `read` | `always` |
 | `concord_work_browse.scope` | `read` | `PM1.Q6` | `product_read` | `read` | `always` |
+| `concord_work_browse.resource_claims` | `read` | `PM1.Q13` | `product_read` | `read` | `always` |
 | `concord_work_trace.history` | `read` | `PM1.Q7` | `product_read` | `read` | `always` |
 | `concord_work_trace.relations` | `read` | `PM1.Q8` | `product_read` | `read` | `always` |
 | `concord_work_trace.continuity` | `read` | `C19.Continuity` | `product_read` | `read` | `always` |
@@ -43,6 +44,8 @@ Supported surface versions: `3.3.0`; envelope schema: `1.0`
 | `concord_work_relate.unlink` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_relate.supersede` | `mutation` | `—` | `work_relate` | `supersession` | `always` |
 | `concord_work_relate.restore_superseded` | `mutation` | `—` | `work_relate` | `supersession` | `always` |
+| `concord_work_relate.resource_claim` | `mutation` | `—` | `work_relate` | `claim` | `always` |
+| `concord_work_relate.resource_release` | `mutation` | `—` | `work_relate` | `claim` | `always` |
 | `concord_work_compact.publish` | `mutation` | `—` | `work_compact` | `publication` | `always` |
 | `concord_work_compact.reconcile` | `mutation` | `—` | `work_compact` | `recovery` | `always` |
 | `concord_work_compact.lesson_publish` | `mutation` | `—` | `work_compact` | `publication` | `always` |

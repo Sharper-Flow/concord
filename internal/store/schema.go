@@ -1553,6 +1553,30 @@ CREATE TABLE worktree_entries (
 );
 `,
 	},
+
+	{
+		Version: 31,
+		Name:    "resource_claims",
+		SQL: `
+-- CD-0028: one durable claim per typed resource key. Fold-only projection;
+-- work.resource_claimed / work.resource_claim_released own every write.
+CREATE TABLE resource_claims (
+    resource_key TEXT PRIMARY KEY,
+    holder_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    holder_agent TEXT NOT NULL,
+    holder_session TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(length(reason) > 0 AND length(reason) <= 512),
+    state TEXT NOT NULL CHECK(state IN ('held','released')),
+    claimed_at TEXT NOT NULL,
+    released_at TEXT,
+    CHECK(length(holder_agent) BETWEEN 2 AND 128),
+    CHECK(length(holder_session) BETWEEN 2 AND 128)
+);
+CREATE TRIGGER resource_claims_guard_insert BEFORE INSERT ON resource_claims FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_claims is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER resource_claims_guard_update BEFORE UPDATE ON resource_claims FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_claims is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER resource_claims_guard_delete BEFORE DELETE ON resource_claims FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_claims is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

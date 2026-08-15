@@ -133,7 +133,7 @@ Executing operational procedures with approval, conditions, and rollback.
 | Roll back a partially executed operation | Covered | `rollback_run` action, `internal/store/workflow_registry.go` |
 | Wait on an external signal without polling, and distinguish waiting from never-completable | Covered for waiting | `add_condition` / `resolve_condition` / `cancel_condition`, `internal/store/workflow_conditions.go`. Distinguishing never-completable is tracked as issue #87. |
 | Record the health of an operational run | Covered | `record_health` action, `internal/store/workflow_registry.go` |
-| Claim a shared resource so concurrent agents do not collide outside the repository | **Not covered** | Tracked as issue #88. |
+| Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028). |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
 | Install, sync, pin, and roll back the coordination runtime itself | Excluded | Owned by the release and installer path (`scripts/release.py`, `scripts/install.py`), which CI validates. Not coordination territory. |
 
@@ -171,13 +171,17 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 56 |
-| Not covered | 1 |
+| Covered | 57 |
+| Not covered | 0 |
 | Excluded with reason | 8 |
 
 **Total enumerated outcomes: 65.**
 
-The one not-covered entries cluster into four groups:
+No enumerated outcome remains not covered: the floor bar (covered with evidence or
+excluded with an accepted reason) is met. The clustering list is retained below
+for history.
+
+The not-covered entries clustered as follows while the floor was open:
 
 2. **Session visibility** — resolved: blocked-session routing surfaces per session under issue #72.
    clean typed restart by issue #120 (§2, §3).

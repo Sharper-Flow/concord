@@ -119,8 +119,8 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 40,
-      "maxItems": 40,
+      "minItems": 43,
+      "maxItems": 43,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -161,7 +161,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q([1-9]|1[01]|12)|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
+            "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13)|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
           },
           "input_schema": {
             "type": "string",
@@ -194,7 +194,8 @@
               "supersession",
               "publication",
               "recovery",
-              "research"
+              "research",
+              "claim"
             ]
           },
           "approval": {
@@ -248,12 +249,13 @@
           "supersession",
           "publication",
           "recovery",
-          "research"
+          "research",
+          "claim"
         ]
       },
       "uniqueItems": true,
-      "minItems": 10,
-      "maxItems": 10
+      "minItems": 11,
+      "maxItems": 11
     },
     "bounds": {
       "$ref": "#/$defs/bounds"

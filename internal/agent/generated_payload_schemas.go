@@ -2321,6 +2321,71 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "resource_claims_page": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claimed_at": {
+                "maxLength": 40,
+                "minLength": 10,
+                "type": "string"
+              },
+              "holder_agent": {
+                "$ref": "#/$defs/id"
+              },
+              "holder_session": {
+                "$ref": "#/$defs/id"
+              },
+              "holder_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "reason": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "released_at": {
+                "maxLength": 40,
+                "minLength": 10,
+                "type": "string"
+              },
+              "resource_key": {
+                "maxLength": 160,
+                "minLength": 3,
+                "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "held",
+                  "released"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "resource_key",
+              "holder_work_id",
+              "holder_agent",
+              "holder_session",
+              "reason",
+              "state",
+              "claimed_at"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "claims"
+      ],
+      "type": "object"
+    },
     "scope": {
       "additionalProperties": false,
       "properties": {
@@ -2489,6 +2554,30 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "page"
+      ],
+      "type": "object"
+    },
+    "work_browse_resource_claims_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "resource_key": {
+          "maxLength": 160,
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id"
       ],
       "type": "object"
     },
@@ -3159,6 +3248,66 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "expected_version",
         "memberships",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_relate_resource_claim_input": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "resource_key": {
+          "maxLength": 160,
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "resource_key",
+        "reason",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_relate_resource_release_input": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "resource_key": {
+          "maxLength": 160,
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "resource_key",
+        "expected_version",
         "idempotency_key"
       ],
       "type": "object"

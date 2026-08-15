@@ -159,6 +159,19 @@ type lessonScopesInput struct {
 	ComponentIDs []string `json:"component_ids"`
 	TagIDs       []string `json:"tag_ids"`
 }
+type resourceClaimInput struct {
+	WorkID          string `json:"work_id"`
+	ResourceKey     string `json:"resource_key"`
+	Reason          string `json:"reason"`
+	ExpectedVersion int64  `json:"expected_version"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
+type resourceReleaseInput struct {
+	WorkID          string `json:"work_id"`
+	ResourceKey     string `json:"resource_key"`
+	ExpectedVersion int64  `json:"expected_version"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
 type researchBindingInput struct {
 	PackID   string `json:"pack_id"`
 	Revision int64  `json:"revision"`
@@ -1213,6 +1226,38 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 			changed := []ChangedRef{{EntityKind: "lesson", ID: published.Record.ID, Version: strconv.FormatInt(workVersion, 10)}}
 			return mutationPayload(changed, intents), []string{published.Record.ID}, changed, nil
+		}
+	case "concord_work_relate.resource_claim":
+		var in resourceClaimInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		versions["work"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.WorkID}
+		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason, "holder_agent": grant.AgentRef, "holder_session": grant.SessionRef})
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.ResourceKey}, changed, nil
+		}
+	case "concord_work_relate.resource_release":
+		var in resourceReleaseInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		versions["work"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.WorkID}
+		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey})
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.ResourceKey}, changed, nil
 		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput

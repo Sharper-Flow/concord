@@ -158,7 +158,7 @@ def validate(manifest: dict) -> str:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    expected_operations = {"3.3.0": 40, "3.2.0": 39, "3.1.0": 38, "3.0.0": 32, "2.4.0": 25, "2.3.0": 23}.get(manifest.get("surface", {}).get("version"))
+    expected_operations = {"3.4.0": 43, "3.3.0": 40, "3.2.0": 39, "3.1.0": 38, "3.0.0": 32, "2.4.0": 25, "2.3.0": 23}.get(manifest.get("surface", {}).get("version"))
     if expected_operations is None:
         expected_operations = 22 if manifest.get("surface", {}).get("version") in {"2.1.0", "2.2.0"} else 21
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
@@ -259,6 +259,7 @@ def fixtures_projection(manifest: dict) -> str:
             pattern=schema.get("pattern","")
             if "sha256:" in pattern: return "sha256:"+"0"*64
             if "[0-9a-f]{40}" in pattern: return "0"*40
+            if pattern.startswith("^[a-z][a-z0-9_-]"): return "fence:prod-pause"
             if "date" in pattern: return "2026-08-08T00:00:00Z"
             return "id-1"
         if kind=="integer" or kind=="number": return schema.get("minimum",1)

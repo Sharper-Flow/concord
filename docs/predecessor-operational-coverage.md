@@ -100,7 +100,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Absorb a mid-execution discovery without discarding completed work or silently substituting scope | Covered | `link_successor` forward composition, `internal/store/workflow_dispatch.go` |
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
 | Survive a working-window boundary without dropping law, approvals, or position | Covered | CD-0016; `checkpoint_context` and `cross_context_boundary` in `internal/store/workflow_continuity.go` |
-| Restart cleanly into a typed agent after a boundary rather than summarizing | **Not covered** | The lane registry now exists, so the original blocker is gone; typed restart dispatch was never implemented and still fails closed. Tracked under issue #120. |
+| Restart cleanly into a typed agent after a boundary rather than summarizing | Excluded | CD-0027: pinned continuity is re-derived per call (CD-0016), so a post-boundary session receives exact pinned state rather than a summary; restart would only preserve in-flight working memory, which the host owns. |
 | Cancel work safely, with approval and recorded evidence | Covered | Terminal lifecycle transitions require approval and evidence, `internal/agent/mutations.go` |
 | Delegate a bounded execution attempt to a typed worker, verify which model actually ran, and record that evidence durably | Covered | CD-0017; `internal/store/worker_lanes.go`, `adapter/opencode/dispatch.ts`, and the `worker-dispatch` / `worker-complete` / `worker-fail` evidence verbs in `cmd/concord/main.go` |
 | Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Covered | `WF48-lane-pipeline-typed-evidence` in `scenarios/workflow-engine.v1.json` dispatches three registered lanes on one workflow and accepts a completed attempt from a distinct owner. |
@@ -172,12 +172,12 @@ Territory that appears across all six and is an outcome in its own right.
 | State | Count |
 |---|---|
 | Covered | 55 |
-| Not covered | 3 |
-| Excluded with reason | 7 |
+| Not covered | 2 |
+| Excluded with reason | 8 |
 
 **Total enumerated outcomes: 65.**
 
-The three not-covered entries cluster into four groups:
+The two not-covered entries cluster into four groups:
 
 1. **Session continuity** — active-session visibility is tracked by issue #72 and
    clean typed restart by issue #120 (§2, §3).

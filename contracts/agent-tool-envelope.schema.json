@@ -21,6 +21,7 @@
          { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_trace" }, "operation": { "const": "continuity" }, "query_id": { "const": "C19.Continuity" } } },
          { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_trace" }, "operation": { "const": "relations" }, "query_id": { "const": "PM1.Q8" } } },
         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_trace" }, "operation": { "const": "research" }, "query_id": { "const": "PM1.Q11" } } },
+        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_browse" }, "operation": { "const": "resource_claims" }, "query_id": { "const": "PM1.Q13" } } },
         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_knowledge" }, "operation": { "const": "search" }, "query_id": { "const": "PM1.Q9" } } },
         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_knowledge" }, "operation": { "const": "resolve_note" }, "query_id": { "const": "PM1.Q10" } } },
          { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_define" }, "operation": { "enum": ["capture", "revise_intent"] } } },

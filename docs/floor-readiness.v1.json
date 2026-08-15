@@ -309,9 +309,18 @@
       "id": "fc6-operational-coverage",
       "condition": "fc6",
       "title": "Concord covers that territory without loss",
-      "requirement": "Every enumerated predecessor capability in docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered. This is issue #108's acceptance bar, restated here because the original wording (\"covered, not covered, or excluded\") was trivially satisfied by any table state and contradicted this item's outstanding status.",
-      "state": "outstanding",
-      "issue": 108
+      "requirement": "Every enumerated predecessor capability in docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered. This is issue #108's acceptance bar, restated here because the original wording (\"covered, not covered, or excluded\") was trivially satisfied by any table state and contradicted this item's outstanding status. Met 2026-08-15: 57 covered, 0 not covered, 8 excluded.",
+      "state": "satisfied",
+      "evidence": [
+        "docs/predecessor-operational-coverage.md",
+        "docs/decisions/CD-0021-floor-condition-1-scope.md",
+        "docs/decisions/CD-0023-verdict-read-scope.md",
+        "docs/decisions/CD-0024-epic-agent-surface-and-ts9-exception.md",
+        "docs/decisions/CD-0025-research-surface.md",
+        "docs/decisions/CD-0026-learning-capture.md",
+        "docs/decisions/CD-0027-typed-restart-excluded.md",
+        "docs/decisions/CD-0028-resource-claims.md"
+      ]
     },
     {
       "id": "fc6-consumed-surface-stability",

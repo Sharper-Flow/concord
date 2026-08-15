@@ -312,7 +312,11 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if isTerminalLifecycle(payload.To) {
-		return removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt)
+		if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
+			return err
+		}
+		// CD-0028: a terminal work item holds nothing.
+		return foldTerminalReleasesResourceClaims(ctx, tx, event)
 	}
 	return nil
 }

@@ -107,6 +107,12 @@ type productSnapshotInput struct {
 	PreviewLimit int         `json:"preview_limit"`
 	Budget       budgetInput `json:"budget"`
 }
+type blockedSessionsInput struct {
+	ProductID string      `json:"product_id"`
+	Page      pageInput   `json:"page"`
+	Budget    budgetInput `json:"budget"`
+}
+
 type productRowPortfolioInput struct {
 	ProductID string                         `json:"product_id"`
 	Page      pageInput                      `json:"page"`
@@ -756,6 +762,23 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return failureEnvelope(base, err), nil
 		}
 		return r.productRows(base, q)
+	case "concord_product_view.blocked_sessions":
+		var in blockedSessionsInput
+		if err := decodeStrict(input, &in); err != nil {
+			return base, err
+		}
+		if in.ProductID == "" {
+			in.ProductID = r.Envelope.SelectedProductID
+		}
+		products := []string{}
+		if in.ProductID != "" {
+			products = append(products, in.ProductID)
+		}
+		result, err := r.Store.BlockedSessions(ctx, time.Now().UTC(), products, r.boundedLimit(in.Page.Limit))
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"sessions": result.Sessions})
 	case "concord_work_browse.list":
 		var in workListInput
 		if err := decodeStrict(input, &in); err != nil {

@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "3.2.0"
-const ManifestDigest = "sha256:80da398f83f01c07558f301bb640d0556bdc2951d46568fde13e717cbfc72e0a"
+const ManifestVersion = "3.3.0"
+const ManifestDigest = "sha256:7bdb77e7e10edafe41f384da9ad98ebb5cf7140188bd62b4839c2d8caa7142b5"
 
 type OperationKind string
 
@@ -38,6 +38,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_product_view.resolve", Tool: "concord_product_view", Operation: "resolve", Kind: OperationKind("read"), QueryID: "PM1.Q1", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_product_view.snapshot", Tool: "concord_product_view", Operation: "snapshot", Kind: OperationKind("read"), QueryID: "PM1.Q2", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_product_view.portfolio", Tool: "concord_product_view", Operation: "portfolio", Kind: OperationKind("read"), QueryID: "C14.ProductRows", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_product_view.blocked_sessions", Tool: "concord_product_view", Operation: "blocked_sessions", Kind: OperationKind("read"), QueryID: "PM1.Q12", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.list", Tool: "concord_work_browse", Operation: "list", Kind: OperationKind("read"), QueryID: "PM1.Q3", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.blocked", Tool: "concord_work_browse", Operation: "blocked", Kind: OperationKind("read"), QueryID: "PM1.Q4", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.ready", Tool: "concord_work_browse", Operation: "ready", Kind: OperationKind("read"), QueryID: "PM1.Q5", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
@@ -92,6 +93,7 @@ type GeneratedPayloadRule struct {
 
 var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"approval":                                   {Required: []string{"approval_ref"}, Properties: []string{"approval_ref"}},
+	"blocked_sessions_page":                      {Required: []string{"sessions"}, Properties: []string{"sessions"}},
 	"blocked_work_page":                          {Required: []string{"items", "nodes", "edges"}, Properties: []string{"items", "nodes", "edges", "next_cursor"}},
 	"budget":                                     {Required: []string{"max_bytes", "max_items"}, Properties: []string{"max_bytes", "max_items", "max_millis"}},
 	"canonical_note_result":                      {Required: []string{"state"}, Properties: []string{"state", "locator", "candidates"}},
@@ -131,6 +133,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"product_row_stage_context":                  {Required: []string{"kind"}, Properties: []string{"kind", "focus_override"}},
 	"product_row_unavailable":                    {Required: []string{"reason", "omissions"}, Properties: []string{"reason", "omissions"}},
 	"product_snapshot":                           {Required: []string{"counts", "previews"}, Properties: []string{"counts", "previews"}},
+	"product_view_blocked_sessions_input":        {Required: []string{"product_id"}, Properties: []string{"product_id", "page", "budget"}},
 	"product_view_resolve_input":                 {Required: []string{}, Properties: []string{"product_id", "project_id", "page", "budget"}},
 	"product_view_snapshot_input":                {Required: []string{}, Properties: []string{"product_id", "project_ids", "preview_limit", "budget"}},
 	"research_finding":                           {Required: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status"}, Properties: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status", "source_ids", "scopes"}},

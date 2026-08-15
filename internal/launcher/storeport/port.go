@@ -383,6 +383,11 @@ func FromProductRows(result store.ProductRowResult) launcher.Snapshot {
 			present.FocusWorkKind = row.Focus.WorkKind
 			present.FocusLifecycle = row.Focus.Lifecycle
 			present.FocusAttentionKind = row.Focus.AttentionKind
+			present.FocusBlockedSessionCount = len(row.Focus.BlockedSessions)
+			if len(row.Focus.BlockedSessions) > 0 {
+				oldest := row.Focus.BlockedSessions[0]
+				present.FocusOldestBlockedSession = oldest.AgentRef + " @ " + oldest.Worktree
+			}
 			present.FocusPriority = row.Focus.Priority
 			present.FocusWorkflowStepLabel = row.Focus.WorkflowStepLabel
 			present.FocusProjectCount = row.Focus.ProjectCount

@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "3.2.0",
+    "version": "3.3.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 9
   },
@@ -28,7 +28,8 @@
       "operations": [
         "concord_product_view.resolve",
         "concord_product_view.snapshot",
-        "concord_product_view.portfolio"
+        "concord_product_view.portfolio",
+        "concord_product_view.blocked_sessions"
       ]
     },
     {
@@ -171,6 +172,26 @@
         "context": "portfolio",
         "idempotency": "request_id",
         "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_product_view.blocked_sessions",
+      "tool": "concord_product_view",
+      "kind": "read",
+      "query_id": "PM1.Q12",
+      "input_schema": "#/schemas/product_view_blocked_sessions_input",
+      "result_schema": "#/schemas/blocked_sessions_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "none",
         "output_bytes": 65536,
         "versions": [
           "1.0"
@@ -1115,6 +1136,14 @@
     "work_compact_lesson_publish_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_lesson_publish_input",
       "closed": true
+    },
+    "product_view_blocked_sessions_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_blocked_sessions_input",
+      "closed": true
+    },
+    "blocked_sessions_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_sessions_page",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1165,6 +1194,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:531988639586dc543991a063abb9953ff2eab84be4411454981275d068e4a180",
-  "digest": "sha256:80da398f83f01c07558f301bb640d0556bdc2951d46568fde13e717cbfc72e0a"
+  "payload_digest": "sha256:851baed98af83f6d1c509194aded2a4bc6fcab659149a974ccfa3789e3c1cc3b",
+  "digest": "sha256:7bdb77e7e10edafe41f384da9ad98ebb5cf7140188bd62b4839c2d8caa7142b5"
 }

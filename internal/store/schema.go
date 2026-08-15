@@ -1577,6 +1577,19 @@ CREATE TRIGGER resource_claims_guard_update BEFORE UPDATE ON resource_claims FOR
 CREATE TRIGGER resource_claims_guard_delete BEFORE DELETE ON resource_claims FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_claims is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+
+	{
+		Version: 32,
+		Name:    "revision_freshness_authoritative",
+		SQL: `
+-- Issue #122 / CD-0009 D6: freshness is authoritative at the revision
+-- consumers pin, not the pack. The pack column remains as a display summary;
+-- nothing gates on it. Backfill: every existing revision inherits its pack's
+-- state at migration time.
+ALTER TABLE active_research_revisions ADD COLUMN freshness TEXT NOT NULL DEFAULT 'current' CHECK(freshness IN ('current','stale','unknown'));
+UPDATE active_research_revisions SET freshness = (SELECT p.freshness FROM active_research_packs p WHERE p.pack_id = active_research_revisions.pack_id);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

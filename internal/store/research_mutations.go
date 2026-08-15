@@ -72,7 +72,7 @@ func CreateResearchPack(ctx context.Context, s *Store, req CreateResearchPackReq
 		_ = tx.Rollback()
 		return out, researchConstraint("research pack already exists or owner is invalid", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES(?,?,?,?,?,?,?,?)`, packID, 1, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,?,?,?,?,?,?,?,?)`, packID, 1, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now, req.Freshness); err != nil {
 		_ = tx.Rollback()
 		return out, researchConstraint("cannot create initial research revision", err)
 	}
@@ -141,7 +141,7 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	newRevision := pack.CurrentRevision + 1
-	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES(?,?,?,?,?,?,?,?)`, req.PackID, newRevision, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,?,?,?,?,?,?,?,?)`, req.PackID, newRevision, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now, "current"); err != nil {
 		_ = tx.Rollback()
 		return out, researchConstraint("cannot append research revision", err)
 	}
@@ -150,10 +150,10 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 		_ = tx.Rollback()
 		return out, err
 	}
-	// Pack freshness is deliberately not touched by the restatement. It is
-	// pack-scoped while consumers pin exact revisions, so degrading it here would
-	// leak a new revision's uncertainty onto consumers of an older revision and
-	// silently change context that CD-0009 D5 guarantees is stable once pinned.
+	// Pack freshness column is a display summary (issue #122); the new revision
+	// is fresh by construction and every other revision's authoritative state is
+	// deliberately untouched, so an append can never silently un-stale pinned
+	// content.
 	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET current_revision=?, freshness='current', expected_version=?, updated_at=? WHERE pack_id=? AND expected_version=?`, newRevision, req.ExpectedVersion+1, now, req.PackID, req.ExpectedVersion); err != nil {
 		_ = tx.Rollback()
 		return out, researchUnavailable("cannot advance research pack", err)
@@ -726,6 +726,11 @@ func SetResearchFreshness(ctx context.Context, s *Store, req SetResearchFreshnes
 	if req.PackID == "" || req.ExpectedVersion < 1 || !validResearchFreshness(req.Freshness) {
 		return researchInvalid("pack_id, expected_version, and a closed freshness value are required")
 	}
+	// Issue #122: freshness is set on the revision consumers pin; 0 means
+	// the pack's current revision.
+	if req.Revision < 0 {
+		return researchInvalid("revision must be a positive pin or 0 for the current revision")
+	}
 	digest, err := canonicalRequestDigest(req)
 	if err != nil {
 		return err
@@ -742,12 +747,23 @@ func SetResearchFreshness(ctx context.Context, s *Store, req SetResearchFreshnes
 		_ = tx.Rollback()
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=?,expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.Freshness, time.Now().UTC().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
+	targetRevision := req.Revision
+	if targetRevision == 0 {
+		if err := tx.QueryRowContext(ctx, `SELECT current_revision FROM active_research_packs WHERE pack_id=?`, req.PackID).Scan(&targetRevision); err != nil {
+			_ = tx.Rollback()
+			return researchUnavailable("cannot resolve the current revision", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE active_research_revisions SET freshness=? WHERE pack_id=? AND revision=?`, req.Freshness, req.PackID, targetRevision); err != nil {
 		_ = tx.Rollback()
 		return researchUnavailable("cannot write research freshness", err)
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=(SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=current_revision),expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.PackID, time.Now().UTC().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
+		_ = tx.Rollback()
+		return researchUnavailable("cannot write research freshness summary", err)
+	}
 	var got string
-	if err := tx.QueryRowContext(ctx, `SELECT freshness FROM active_research_packs WHERE pack_id=?`, req.PackID).Scan(&got); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=?`, req.PackID, targetRevision).Scan(&got); err != nil {
 		_ = tx.Rollback()
 		return researchUnavailable("cannot verify research freshness", err)
 	}
@@ -860,7 +876,7 @@ func CreateResearchPackWithinTx(ctx context.Context, tx *sql.Tx, req CreateResea
 	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, packID, req.OwnerWorkID, 1, req.Freshness, 1, now, now); err != nil {
 		return out, researchConstraint("research pack already exists or owner is invalid", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES(?,?,?,?,?,?,?,?)`, packID, 1, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,?,?,?,?,?,?,?,?)`, packID, 1, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now, req.Freshness); err != nil {
 		return out, researchConstraint("cannot create initial research revision", err)
 	}
 	out, err = readResearchPackTx(ctx, tx, packID, 1000)
@@ -893,17 +909,17 @@ func AppendResearchRevisionWithinTx(ctx context.Context, tx *sql.Tx, req AppendR
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	newRevision := pack.CurrentRevision + 1
-	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES(?,?,?,?,?,?,?,?)`, req.PackID, newRevision, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,?,?,?,?,?,?,?,?)`, req.PackID, newRevision, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now, "current"); err != nil {
 		return out, researchConstraint("cannot append research revision", err)
 	}
 	restated := researchBriefRestated(priorRevision, revision)
 	if err := copyResearchRevisionContent(ctx, tx, req.PackID, pack.CurrentRevision, newRevision, restated); err != nil {
 		return out, err
 	}
-	// Pack freshness is deliberately not touched by the restatement. It is
-	// pack-scoped while consumers pin exact revisions, so degrading it here would
-	// leak a new revision's uncertainty onto consumers of an older revision and
-	// silently change context that CD-0009 D5 guarantees is stable once pinned.
+	// Pack freshness column is a display summary (issue #122); the new revision
+	// is fresh by construction and every other revision's authoritative state is
+	// deliberately untouched, so an append can never silently un-stale pinned
+	// content.
 	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET current_revision=?, freshness='current', expected_version=?, updated_at=? WHERE pack_id=? AND expected_version=?`, newRevision, req.ExpectedVersion+1, now, req.PackID, req.ExpectedVersion); err != nil {
 		return out, researchUnavailable("cannot advance research pack", err)
 	}
@@ -1061,14 +1077,28 @@ func SetResearchFreshnessWithinTx(ctx context.Context, tx *sql.Tx, req SetResear
 	if req.PackID == "" || req.ExpectedVersion < 1 || !validResearchFreshness(req.Freshness) {
 		return researchInvalid("pack_id, expected_version, and a closed freshness value are required")
 	}
+	// Issue #122: freshness is set on the revision consumers pin; 0 means
+	// the pack's current revision.
+	if req.Revision < 0 {
+		return researchInvalid("revision must be a positive pin or 0 for the current revision")
+	}
 	if _, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=?,expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.Freshness, time.Now().UTC().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
+	targetRevision := req.Revision
+	if targetRevision == 0 {
+		if err := tx.QueryRowContext(ctx, `SELECT current_revision FROM active_research_packs WHERE pack_id=?`, req.PackID).Scan(&targetRevision); err != nil {
+			return researchUnavailable("cannot resolve the current revision", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE active_research_revisions SET freshness=? WHERE pack_id=? AND revision=?`, req.Freshness, req.PackID, targetRevision); err != nil {
 		return researchUnavailable("cannot write research freshness", err)
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=(SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=current_revision),expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.PackID, time.Now().UTC().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
+		return researchUnavailable("cannot write research freshness summary", err)
+	}
 	var got string
-	if err := tx.QueryRowContext(ctx, `SELECT freshness FROM active_research_packs WHERE pack_id=?`, req.PackID).Scan(&got); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=?`, req.PackID, targetRevision).Scan(&got); err != nil {
 		return researchUnavailable("cannot verify research freshness", err)
 	}
 	if got != string(req.Freshness) {

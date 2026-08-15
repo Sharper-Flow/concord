@@ -49,9 +49,11 @@ func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID stri
 		}
 		seen[key] = true
 
+		// Issue #122: the freshness verdict is the pinned revision's, not the
+		// pack summary — pack-level churn must not clear a required binding.
 		var freshness string
 		var ownerTerminal int
-		err := tx.QueryRowContext(ctx, `SELECT p.freshness, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN 1 ELSE 0 END FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id WHERE p.pack_id=?`, declaration.PackID).Scan(&freshness, &ownerTerminal)
+		err := tx.QueryRowContext(ctx, `SELECT r.freshness, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN 1 ELSE 0 END FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id LEFT JOIN active_research_revisions r ON r.pack_id=p.pack_id AND r.revision=? WHERE p.pack_id=?`, declaration.Revision, declaration.PackID).Scan(&freshness, &ownerTerminal)
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "research_reliance", "declared research pack does not exist", false, "check the pack identifier")
 		}
@@ -69,6 +71,9 @@ func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID stri
 		}
 		// CD-0009 D6: a required consumer cannot proceed on stale or unknown
 		// research. Fail closed at the boundary where reliance is declared.
+		if freshness == "" {
+			freshness = string(ResearchUnknown)
+		}
 		if declaration.Required && freshness != string(ResearchCurrent) {
 			return newFailure(KindResearchConsumerBlocked, "research_reliance", fmt.Sprintf("required research binding on %s freshness", freshness), false, "rebind to a current revision or declare the binding non-required")
 		}

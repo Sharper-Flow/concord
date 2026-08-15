@@ -1182,7 +1182,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			return base, err
 		}
 		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
-			if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness)}); err != nil {
+			if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
 				return nil, nil, nil, err
 			}
 			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
@@ -2164,6 +2164,7 @@ type researchFreshnessMutation struct {
 	PackID          string `json:"pack_id"`
 	ExpectedVersion int64  `json:"expected_version"`
 	Freshness       string `json:"freshness"`
+	Revision        int64  `json:"revision"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
 

@@ -119,7 +119,19 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchCurrent {
 		t.Fatalf("required current freshness = %q, %v", got, err)
 	}
-	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale"), PackID: pack.PackID, ExpectedVersion: 8, Freshness: ResearchStale}); err != nil {
+	// Issue #122: freshness targets the revision the consumer pins, not the
+	// pack. A pack-level set no longer poisons unchanged revisions, and an
+	// unrelated append no longer un-stales pinned content.
+	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale-other"), PackID: pack.PackID, ExpectedVersion: 8, Freshness: ResearchStale}); err != nil {
+		t.Fatal(err)
+	}
+	// That set targeted the CURRENT revision (3); the consumer pinned to
+	// revision 2 is unaffected by another revision's staleness.
+	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchCurrent {
+		t.Fatalf("consumer pinned to unchanged revision poisoned: %q, %v", got, err)
+	}
+	// Staling the pinned revision blocks the consumer...
+	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale-pinned"), PackID: pack.PackID, ExpectedVersion: 9, Freshness: ResearchStale, Revision: 2}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchStale {
@@ -129,13 +141,15 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 	if err != nil || freshness.Status != ResearchStale || !freshness.Blocked {
 		t.Fatalf("freshness = %+v, %v", freshness, err)
 	}
-	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("unknown"), PackID: pack.PackID, ExpectedVersion: 9, Freshness: ResearchUnknown}); err != nil {
+	// ...and stays blocked across an unrelated append (two revisions of one
+	// pack disagree: current 4 is fresh, pinned 2 is stale).
+	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-while-stale"), PackID: pack.PackID, ExpectedVersion: 10, Revision: ResearchRevisionInput{Question: "q4", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "docs"}}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchUnknown {
-		t.Fatalf("required unknown freshness = %q, %v", got, err)
+	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchStale {
+		t.Fatalf("unrelated append un-staled pinned content: %q, %v", got, err)
 	}
-	if err := DeleteResearchPack(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("delete-blocked"), PackID: pack.PackID, ExpectedVersion: 10}); err == nil {
+	if err := DeleteResearchPack(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("delete-blocked"), PackID: pack.PackID, ExpectedVersion: 11}); err == nil {
 		t.Fatal("delete with required active consumer succeeded")
 	} else {
 		assertFailureKind(t, err, KindResearchConsumerBlocked)

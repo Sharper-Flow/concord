@@ -2090,6 +2090,14 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 100,
           "type": "array"
         },
+        "freshness": {
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ],
+          "type": "string"
+        },
         "method": {
           "type": "string"
         },
@@ -2122,8 +2130,8 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "pack_id",
         "revision",
-        "question",
-        "created_at"
+        "created_at",
+        "question"
       ],
       "type": "object"
     },
@@ -2919,6 +2927,11 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pack_id": {
           "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [

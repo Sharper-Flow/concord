@@ -119,14 +119,16 @@ type ResearchConsumer struct {
 }
 
 type ResearchRevision struct {
-	PackID    string            `json:"pack_id"`
-	Revision  int64             `json:"revision"`
-	Question  string            `json:"question"`
-	ScopeIn   string            `json:"scope_in"`
-	ScopeOut  string            `json:"scope_out"`
-	DoneWhen  string            `json:"done_when"`
-	Method    string            `json:"method"`
-	CreatedAt string            `json:"created_at"`
+	PackID    string `json:"pack_id"`
+	Revision  int64  `json:"revision"`
+	Question  string `json:"question"`
+	ScopeIn   string `json:"scope_in"`
+	ScopeOut  string `json:"scope_out"`
+	DoneWhen  string `json:"done_when"`
+	Method    string `json:"method"`
+	CreatedAt string `json:"created_at"`
+	// Freshness is this revision's authoritative state (issue #122).
+	Freshness ResearchFreshness `json:"freshness"`
 	Findings  []ResearchFinding `json:"findings,omitempty"`
 	Sources   []ResearchSource  `json:"sources,omitempty"`
 }
@@ -201,6 +203,9 @@ type SetResearchFreshnessRequest struct {
 	PackID          string                   `json:"pack_id"`
 	ExpectedVersion int64                    `json:"expected_version"`
 	Freshness       ResearchFreshness        `json:"freshness"`
+	// Revision targets the pinned revision whose freshness is set; 0 means
+	// the pack's current revision (issue #122).
+	Revision int64 `json:"revision,omitempty"`
 }
 
 type ResearchFindingSourceRequest struct {

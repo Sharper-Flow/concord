@@ -7,7 +7,7 @@ import (
 )
 
 const ManifestVersion = "3.4.0"
-const ManifestDigest = "sha256:cdf890dd366e7a8af43855c03a216389251baeceaf9e650badff4db62060e788"
+const ManifestDigest = "sha256:a2bec699f0bb2f2d566230fc1c6ac4a3f4488275a7641b04ea19c3c87e590ef9"
 
 type OperationKind string
 
@@ -142,7 +142,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"research_finding":                           {Required: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status"}, Properties: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status", "source_ids", "scopes"}},
 	"research_finding_input":                     {Required: []string{"finding_id", "kind", "statement", "confidence"}, Properties: []string{"finding_id", "kind", "statement", "confidence", "freshness", "status", "scopes"}},
 	"research_pack":                              {Required: []string{"pack_id", "owner_work_id", "current_revision", "freshness", "expected_version", "created_at", "updated_at"}, Properties: []string{"pack_id", "owner_work_id", "current_revision", "freshness", "expected_version", "created_at", "updated_at", "revisions", "consumers"}},
-	"research_revision":                          {Required: []string{"pack_id", "revision", "question", "created_at"}, Properties: []string{"pack_id", "revision", "question", "scope_in", "scope_out", "done_when", "method", "created_at", "findings", "sources"}},
+	"research_revision":                          {Required: []string{"pack_id", "revision", "created_at", "question"}, Properties: []string{"pack_id", "revision", "question", "scope_in", "scope_out", "done_when", "method", "created_at", "findings", "sources", "freshness"}},
 	"research_revision_input":                    {Required: []string{"question", "method"}, Properties: []string{"question", "scope_in", "scope_out", "done_when", "method"}},
 	"research_scopes_input":                      {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}},
 	"research_source":                            {Required: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},
@@ -159,7 +159,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_compact_reconcile_input":               {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence"}},
 	"work_define_capture_input":                  {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "approval"}},
 	"work_define_research_finding_record_input":  {Required: []string{"pack_id", "expected_version", "finding", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "finding", "source_ids", "idempotency_key"}},
-	"work_define_research_freshness_set_input":   {Required: []string{"pack_id", "expected_version", "freshness", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "freshness", "idempotency_key"}},
+	"work_define_research_freshness_set_input":   {Required: []string{"pack_id", "expected_version", "freshness", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "freshness", "idempotency_key", "revision"}},
 	"work_define_research_pack_create_input":     {Required: []string{"owner_work_id", "revision", "idempotency_key"}, Properties: []string{"owner_work_id", "revision", "freshness", "idempotency_key"}},
 	"work_define_research_revision_append_input": {Required: []string{"pack_id", "expected_version", "revision", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "revision", "idempotency_key"}},
 	"work_define_research_source_record_input":   {Required: []string{"pack_id", "expected_version", "source", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "source", "idempotency_key"}},

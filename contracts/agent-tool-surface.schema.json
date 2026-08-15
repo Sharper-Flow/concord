@@ -119,8 +119,8 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 32,
-      "maxItems": 32,
+      "minItems": 38,
+      "maxItems": 38,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -161,7 +161,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q([1-9]|10)|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
+            "pattern": "^(PM1\\.Q([1-9]|1[01])|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
           },
           "input_schema": {
             "type": "string",
@@ -173,13 +173,14 @@
           },
           "capability": {
             "enum": [
+              "cross_scope",
               "product_read",
-              "work_define",
-              "work_transition",
-              "work_relate",
+              "research",
               "work_compact",
+              "work_define",
               "work_epic",
-              "cross_scope"
+              "work_relate",
+              "work_transition"
             ]
           },
           "consequence": {
@@ -192,7 +193,8 @@
               "relation",
               "supersession",
               "publication",
-              "recovery"
+              "recovery",
+              "research"
             ]
           },
           "approval": {
@@ -219,18 +221,19 @@
       "type": "array",
       "items": {
         "enum": [
+          "cross_scope",
           "product_read",
-          "work_define",
-          "work_transition",
-          "work_relate",
+          "research",
           "work_compact",
+          "work_define",
           "work_epic",
-          "cross_scope"
+          "work_relate",
+          "work_transition"
         ]
       },
       "uniqueItems": true,
-      "minItems": 7,
-      "maxItems": 7
+      "minItems": 8,
+      "maxItems": 8
     },
     "consequences": {
       "type": "array",
@@ -244,12 +247,13 @@
           "relation",
           "supersession",
           "publication",
-          "recovery"
+          "recovery",
+          "research"
         ]
       },
       "uniqueItems": true,
-      "minItems": 9,
-      "maxItems": 9
+      "minItems": 10,
+      "maxItems": 10
     },
     "bounds": {
       "$ref": "#/$defs/bounds"

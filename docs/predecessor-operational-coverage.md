@@ -118,8 +118,8 @@ Commissioning, validating, and reusing investigation so work does not start blin
 |---|---|---|
 | Track an independent investigation as first-class work with its own completion evidence | Covered | `research` workflow definition, `internal/store/workflow_registry.go` |
 | Explore a bounded architectural question, record options, and reach a recorded decision | Covered | `architecture_spike` workflow definition, `internal/store/workflow_registry.go` |
-| Persist a reusable research pack with revisions, findings, sources, and consumer bindings | **Not covered** | The store implements all of it (`internal/store/research_mutations.go`), but the eight agent operations in `contracts/agent-tool-surface.v1.json` contain no research-pack operation and no CLI command reaches it. Unreachable code produces no outcome. |
-| Prove a consumer read a sufficiently fresh research revision before relying on it | **Not covered** | `RequiredResearchFreshness` exists in `internal/store/research_reads.go` with no reachable surface, same as above. |
+| Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back. |
+| Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `replace_outcome` / `supersede_contract` in `internal/store/workflow_revision.go` |
 | Record post-completion learning about how the work itself went | **Not covered** | The predecessor records durable reflections on execution and system friction. Concord has no equivalent artifact. |
 
@@ -171,17 +171,16 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 50 |
-| Not covered | 8 |
+| Covered | 52 |
+| Not covered | 6 |
 | Excluded with reason | 7 |
 
 **Total enumerated outcomes: 65.**
 
-The eight not-covered entries cluster into four groups:
+The six not-covered entries cluster into four groups:
 
 1. **Session continuity** — active-session visibility is tracked by issue #72 and
    clean typed restart by issue #120 (§2, §3).
-2. **Research reachability** — the research pack subsystem is implemented and
    unreachable; issue #131 owns its deliberate floor exclusion (§4).
 3. **Learning capture** — no wisdom promotion, post-completion reflection, or
    spec/implementation drift audit; issue #129 owns the durable learning path

@@ -1,8 +1,8 @@
 # Generated Concord agent tool surface
 
-Source manifest: `3.0.0` / `sha256:fdbf664b4ebc95fe8027883e71984294e4ca0ffdf91c7e95065a7432f1a0bfe2`
-Payload schema digest: `sha256:7241bc90477072e34e5fd573a202752af7ad23e30c9dd8a95d3c37274edfc5b8`
-Supported surface versions: `3.0.0`; envelope schema: `1.0`
+Source manifest: `3.1.0` / `sha256:965e0324544bb3683eb477808c4468c7ff682fc109df37a90f5f0cedf769996f`
+Payload schema digest: `sha256:655877a88b190afc57111c64aa666159fea7c0e454dd6968699d0c096e90d7af`
+Supported surface versions: `3.1.0`; envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
@@ -16,10 +16,16 @@ Supported surface versions: `3.0.0`; envelope schema: `1.0`
 | `concord_work_trace.history` | `read` | `PM1.Q7` | `product_read` | `read` | `always` |
 | `concord_work_trace.relations` | `read` | `PM1.Q8` | `product_read` | `read` | `always` |
 | `concord_work_trace.continuity` | `read` | `C19.Continuity` | `product_read` | `read` | `always` |
+| `concord_work_trace.research` | `read` | `PM1.Q11` | `product_read` | `read` | `always` |
 | `concord_knowledge.search` | `read` | `PM1.Q9` | `product_read` | `read` | `always` |
 | `concord_knowledge.resolve_note` | `read` | `PM1.Q10` | `product_read` | `read` | `always` |
 | `concord_work_define.capture` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_define.revise_intent` | `mutation` | `—` | `work_define` | `intent` | `always` |
+| `concord_work_define.research_pack_create` | `mutation` | `—` | `research` | `research` | `always` |
+| `concord_work_define.research_revision_append` | `mutation` | `—` | `research` | `research` | `always` |
+| `concord_work_define.research_finding_record` | `mutation` | `—` | `research` | `research` | `always` |
+| `concord_work_define.research_source_record` | `mutation` | `—` | `research` | `research` | `always` |
+| `concord_work_define.research_freshness_set` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_epic.create` | `mutation` | `—` | `work_epic` | `intent` | `always` |
 | `concord_work_epic.add_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
 | `concord_work_epic.remove_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |

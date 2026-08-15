@@ -497,6 +497,28 @@
       "sha256": "sha256:f75c9a4faac74e57f7654fd506594259442909bf1a787f3497119d0879226dc7"
     },
     {
+      "id": "CD-0025",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0025-research-surface.md",
+      "status": "accepted",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Research surface and engine-bound reliance",
+      "summary": "Research authoring reaches the agent tool surface under a research capability; workflow actions declare bindings the engine proves fail-closed against stale required revisions.",
+      "tags": [
+        "research",
+        "agent-surface",
+        "reliance"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:952a7153df0e335a30312a994ffae31d14d21dbdd02224a434b81542f537cbc1"
+    },
+    {
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",

@@ -108,16 +108,55 @@ type worktreeReclaimInput struct {
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
+type researchRevisionInput struct {
+	Question string `json:"question"`
+	ScopeIn  any    `json:"scope_in"`
+	ScopeOut any    `json:"scope_out"`
+	DoneWhen any    `json:"done_when"`
+	Method   string `json:"method"`
+}
+type researchScopesInput struct {
+	Mode         string   `json:"mode"`
+	ProductIDs   []string `json:"product_ids"`
+	ProjectIDs   []string `json:"project_ids"`
+	ComponentIDs []string `json:"component_ids"`
+	TagIDs       []string `json:"tag_ids"`
+}
+type researchFindingInput struct {
+	FindingID  string               `json:"finding_id"`
+	Kind       string               `json:"kind"`
+	Statement  string               `json:"statement"`
+	Confidence string               `json:"confidence"`
+	Freshness  string               `json:"freshness"`
+	Status     string               `json:"status"`
+	Scopes     *researchScopesInput `json:"scopes"`
+}
+type researchSourceInput struct {
+	SourceID          string `json:"source_id"`
+	Kind              string `json:"kind"`
+	Locator           string `json:"locator"`
+	Title             string `json:"title"`
+	PublisherOrAuthor string `json:"publisher_or_author"`
+	PublishedAt       string `json:"published_at"`
+	AccessedAt        string `json:"accessed_at"`
+}
+type researchBindingInput struct {
+	PackID   string `json:"pack_id"`
+	Revision int64  `json:"revision"`
+	UseRole  string `json:"use_role"`
+	Required bool   `json:"required"`
+}
 type actionMutationInput struct {
-	WorkID                string          `json:"work_id"`
-	ExpectedVersion       int64           `json:"expected_version"`
-	ActionID              string          `json:"action_id"`
-	SelectedChoice        string          `json:"selected_choice"`
-	DecisionContextDigest string          `json:"decision_context_digest"`
-	Fields                json.RawMessage `json:"fields"`
-	IdempotencyKey        string          `json:"idempotency_key"`
-	Evidence              []EvidenceRef   `json:"evidence"`
-	Approval              *approvalInput  `json:"approval"`
+	WorkID                string                 `json:"work_id"`
+	ExpectedVersion       int64                  `json:"expected_version"`
+	ActionID              string                 `json:"action_id"`
+	SelectedChoice        string                 `json:"selected_choice"`
+	DecisionContextDigest string                 `json:"decision_context_digest"`
+	Fields                json.RawMessage        `json:"fields"`
+	IdempotencyKey        string                 `json:"idempotency_key"`
+	Evidence              []EvidenceRef          `json:"evidence"`
+	Approval              *approvalInput         `json:"approval"`
+	ResearchBindings      []researchBindingInput `json:"research_bindings"`
 }
 type membershipsMutationInput struct {
 	WorkID          string               `json:"work_id"`
@@ -637,7 +676,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var result Envelope
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractVersion: grant.SurfaceVersion, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractVersion: grant.SurfaceVersion, Now: r.Authority.now()}
 	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor}, nil, time.Time{}, func(tx *sql.Tx) error {
 		if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 			return err
@@ -1039,6 +1078,83 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
+		}
+	case "concord_work_define.research_pack_create":
+		var in researchPackCreateMutation
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		scope["work_ids"] = []string{in.OwnerWorkID}
+		intents = []NextIntent{{Tool: "concord_work_define", Operation: "research_finding_record", ReasonCode: "record_findings", RequiredFields: []string{"pack_id", "expected_version"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			pack, err := store.CreateResearchPackWithinTx(ctx, tx, store.CreateResearchPackRequest{OwnerWorkID: in.OwnerWorkID, Revision: storeResearchRevision(in.Revision), Freshness: store.ResearchFreshness(in.Freshness)})
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "research_pack", ID: pack.PackID, Version: strconv.FormatInt(pack.ExpectedVersion, 10)}}
+			return mutationPayload(changed, intents), []string{pack.PackID}, changed, nil
+		}
+	case "concord_work_define.research_revision_append":
+		var in researchRevisionMutation
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.PackID}, changed, nil
+		}
+	case "concord_work_define.research_finding_record":
+		var in researchFindingMutation
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			freshness := in.Finding.Freshness
+			if freshness == "" {
+				freshness = "current"
+			}
+			status := in.Finding.Status
+			if status == "" {
+				status = "active"
+			}
+			scopes := store.ResearchScopes{Mode: "home"}
+			if in.Finding.Scopes != nil {
+				scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, ComponentIDs: in.Finding.Scopes.ComponentIDs, TagIDs: in.Finding.Scopes.TagIDs}
+			}
+			finding, err := store.RecordResearchFindingWithinTxUpsert(ctx, tx, store.ResearchFindingRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Finding: store.ResearchFinding{FindingID: in.Finding.FindingID, Kind: store.ResearchFindingKind(in.Finding.Kind), Statement: in.Finding.Statement, Confidence: store.ResearchConfidence(in.Finding.Confidence), Freshness: store.ResearchFreshness(freshness), Status: store.ResearchFindingStatus(status), Scopes: scopes}})
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.PackID + ":" + finding.FindingID}, changed, nil
+		}
+	case "concord_work_define.research_source_record":
+		var in researchSourceMutation
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.PackID + ":" + source.SourceID}, changed, nil
+		}
+	case "concord_work_define.research_freshness_set":
+		var in researchFreshnessMutation
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness)}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.PackID}, changed, nil
 		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput
@@ -1914,4 +2030,62 @@ func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEn
 		changed := []ChangedRef{{EntityKind: "work_item", ID: from, Version: strconv.FormatInt(versions[from]+1, 10)}, {EntityKind: "work_item", ID: to, Version: strconv.FormatInt(versions[to]+1, 10)}}
 		return mutationPayload(changed, intents), result.EventIDs, changed, nil
 	}
+}
+
+type researchPackCreateMutation struct {
+	OwnerWorkID    string                `json:"owner_work_id"`
+	Revision       researchRevisionInput `json:"revision"`
+	Freshness      string                `json:"freshness"`
+	IdempotencyKey string                `json:"idempotency_key"`
+}
+type researchRevisionMutation struct {
+	PackID          string                `json:"pack_id"`
+	ExpectedVersion int64                 `json:"expected_version"`
+	Revision        researchRevisionInput `json:"revision"`
+	IdempotencyKey  string                `json:"idempotency_key"`
+}
+type researchFindingMutation struct {
+	PackID          string               `json:"pack_id"`
+	ExpectedVersion int64                `json:"expected_version"`
+	Finding         researchFindingInput `json:"finding"`
+	SourceIDs       []string             `json:"source_ids"`
+	IdempotencyKey  string               `json:"idempotency_key"`
+}
+type researchSourceMutation struct {
+	PackID          string              `json:"pack_id"`
+	ExpectedVersion int64               `json:"expected_version"`
+	Source          researchSourceInput `json:"source"`
+	IdempotencyKey  string              `json:"idempotency_key"`
+}
+type researchFreshnessMutation struct {
+	PackID          string `json:"pack_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+	Freshness       string `json:"freshness"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
+
+func rawJSON(v any) json.RawMessage {
+	if v == nil {
+		return json.RawMessage("null")
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return out
+}
+
+func storeResearchRevision(in researchRevisionInput) store.ResearchRevisionInput {
+	return store.ResearchRevisionInput{Question: in.Question, ScopeIn: rawJSON(in.ScopeIn), ScopeOut: rawJSON(in.ScopeOut), DoneWhen: rawJSON(in.DoneWhen), Method: in.Method}
+}
+
+func researchBindingDeclarations(in []researchBindingInput) []store.ResearchBindingDeclaration {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]store.ResearchBindingDeclaration, 0, len(in))
+	for _, b := range in {
+		out = append(out, store.ResearchBindingDeclaration{PackID: b.PackID, Revision: b.Revision, UseRole: store.ResearchUseRole(b.UseRole), Required: b.Required})
+	}
+	return out
 }

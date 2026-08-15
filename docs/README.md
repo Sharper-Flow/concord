@@ -29,7 +29,7 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 |---|---|
 | [`priorities.md`](./priorities.md) | Ranked priorities, operating envelope, Advance relationship, quality governance, open questions. **This file is the authority.** |
 | [`floor-readiness.md`](./floor-readiness.md) + [`floor-readiness.v1.json`](./floor-readiness.v1.json) | **Authorizing readiness record:** validated per-item state of every first-usable floor condition, distinguishing satisfied, outstanding, unmeasured, and out-of-scope. |
-| [`predecessor-operational-coverage.md`](./predecessor-operational-coverage.md) | **Authorizing for floor condition 6:** predecessor operational territory enumerated by outcome, each resolved to covered, not covered, or deliberately excluded. |
+| [`predecessor-operational-coverage.md`](./predecessor-operational-coverage.md) | **Authorizing for floor condition 6:** predecessor operational territory enumerated by outcome; the fc6 bar is covered-with-evidence or excluded-with-reason, with nothing left not covered (see `floor-readiness.v1.json`). |
 | [`core-architecture.md`](./core-architecture.md) | Go-core direction, state authority (CD-0002), consolidated resilience invariants. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and hard constraints derived from the priorities. |
 | [`rollout-plan.md`](./rollout-plan.md) | Sequencing and dependency-driven entry conditions. |

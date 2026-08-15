@@ -4151,6 +4151,92 @@
           "$ref": "#/$defs/approval"
         }
       }
+    },
+    "product_view_blocked_sessions_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "blocked_sessions_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessions"
+      ],
+      "properties": {
+        "sessions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session_ref",
+              "agent_ref",
+              "worktree",
+              "directory",
+              "consequence",
+              "blocked_since",
+              "block_age_seconds"
+            ],
+            "properties": {
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "agent_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "worktree": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "directory": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "consequence": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "intent",
+                  "lifecycle",
+                  "workflow_action",
+                  "scope",
+                  "relation",
+                  "supersession",
+                  "publication",
+                  "recovery",
+                  "research"
+                ]
+              },
+              "blocked_since": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 40
+              },
+              "block_age_seconds": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

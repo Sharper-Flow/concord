@@ -119,8 +119,8 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 39,
-      "maxItems": 39,
+      "minItems": 40,
+      "maxItems": 40,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -161,7 +161,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q([1-9]|1[01])|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
+            "pattern": "^(PM1\\.Q([1-9]|1[01]|12)|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
           },
           "input_schema": {
             "type": "string",

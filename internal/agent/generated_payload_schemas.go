@@ -15,6 +15,74 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "blocked_sessions_page": {
+      "additionalProperties": false,
+      "properties": {
+        "sessions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agent_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "block_age_seconds": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "blocked_since": {
+                "maxLength": 40,
+                "minLength": 10,
+                "type": "string"
+              },
+              "consequence": {
+                "enum": [
+                  "read",
+                  "intent",
+                  "lifecycle",
+                  "workflow_action",
+                  "scope",
+                  "relation",
+                  "supersession",
+                  "publication",
+                  "recovery",
+                  "research"
+                ],
+                "type": "string"
+              },
+              "directory": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "worktree": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "session_ref",
+              "agent_ref",
+              "worktree",
+              "directory",
+              "consequence",
+              "blocked_since",
+              "block_age_seconds"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessions"
+      ],
+      "type": "object"
+    },
     "blocked_work_page": {
       "additionalProperties": false,
       "properties": {
@@ -1660,6 +1728,24 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "counts",
         "previews"
+      ],
+      "type": "object"
+    },
+    "product_view_blocked_sessions_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "product_id"
       ],
       "type": "object"
     },

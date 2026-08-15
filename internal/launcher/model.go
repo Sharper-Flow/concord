@@ -73,6 +73,8 @@ type ProductRow struct {
 	FocusWorkKind              string
 	FocusLifecycle             string
 	FocusAttentionKind         string
+	FocusBlockedSessionCount   int
+	FocusOldestBlockedSession  string
 	FocusPriority              int64
 	FocusWorkflowStepLabel     string
 	FocusProjectCount          int

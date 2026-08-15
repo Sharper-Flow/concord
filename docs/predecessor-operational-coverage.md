@@ -85,7 +85,7 @@ Seeing the state of the portfolio without blind spots, across sessions.
 | Navigate portfolio → Product → work from a terminal surface | Covered | `internal/launcher/model.go`, `internal/launcher/render/bubbletea/` |
 | See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the launcher, which the S1 portfolio delivers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
 | Create work from the operator surface without holding an agent grant | Excluded | Per CD-0021 D1, the operator plans by reaching work in the launcher and opening a session that authors it. The launcher stays read-only and work creation keeps a single write authority. |
-| See which concurrent agent sessions are active and which are blocked on an operator decision | **Not covered** | No session projection. Tracked separately as issue #72. |
+| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`); the launcher's approval-gated focus row routes to the oldest waiting session. |
 
 ## 3. Implementation changes
 
@@ -171,15 +171,15 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 55 |
-| Not covered | 2 |
+| Covered | 56 |
+| Not covered | 1 |
 | Excluded with reason | 8 |
 
 **Total enumerated outcomes: 65.**
 
-The two not-covered entries cluster into four groups:
+The one not-covered entries cluster into four groups:
 
-1. **Session continuity** — active-session visibility is tracked by issue #72 and
+2. **Session visibility** — resolved: blocked-session routing surfaces per session under issue #72.
    clean typed restart by issue #120 (§2, §3).
    unreachable; issue #131 owns its deliberate floor exclusion (§4).
    spec/implementation drift audit; issue #129 owns the durable learning path

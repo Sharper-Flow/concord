@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -93,6 +94,10 @@ type ProductRowFocus struct {
 	WorkflowStepLabel string                 `json:"workflow_step_label,omitempty"`
 	ProjectCount      int                    `json:"project_count"`
 	StageContext      ProductRowStageContext `json:"stage_context"`
+	// BlockedSessions routes operator attention when AttentionKind is
+	// approval_required: the sessions waiting on an operator decision, oldest
+	// first (issue #72). Empty for every other attention kind.
+	BlockedSessions []BlockedSession `json:"blocked_sessions,omitempty"`
 }
 
 // ProductRow contains exactly C14's five row groups: identity, declared stage,
@@ -624,6 +629,13 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 			WorkID: focus.ID, Title: focus.Title, WorkKind: focus.Kind, Lifecycle: focus.Lifecycle,
 			AttentionKind: focus.attentionKind(), Priority: focus.Priority, WorkflowStepLabel: focus.WorkflowStepLabel,
 			ProjectCount: focus.ProjectCount, StageContext: productRowStageContext(products[i].row.Stage, focus),
+		}
+		// Approval-gated focus carries the routing detail: which sessions
+		// are waiting, oldest first. Read bounded and indexed (issue #72).
+		if products[i].row.Focus.AttentionKind == ProductRowAttentionApprovalRequired {
+			if blocked, blockedErr := blockedSessionsTx(ctx, tx, time.Now().UTC(), []string{products[i].row.ProductID}, 10); blockedErr == nil && len(blocked.Sessions) > 0 {
+				products[i].row.Focus.BlockedSessions = blocked.Sessions
+			}
 		}
 	}
 

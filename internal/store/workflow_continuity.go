@@ -196,7 +196,7 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 	}
 	out.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	out.RestartAvailable = false
-	out.RestartUnavailableReason = "typed restart dispatch is not implemented; restart fails closed pending issue #120"
+	out.RestartUnavailableReason = "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call"
 	return out, nil
 }
 

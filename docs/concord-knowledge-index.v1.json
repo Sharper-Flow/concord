@@ -587,6 +587,32 @@
       ]
     },
     {
+      "id": "CD-0027",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0027-typed-restart-excluded.md",
+      "status": "accepted",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Typed restart after a boundary is deliberately excluded",
+      "summary": "CD-0016's re-derived pinned continuity already prevents silent authority loss across boundaries; restart-into-lane would only preserve in-flight working memory, which the host's session management owns.",
+      "tags": [
+        "continuity",
+        "lanes",
+        "exclusion"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:27b590e86f5054250457065186b6ecd1ebf3f462e391af8e82fa44b39849049f",
+      "evidence": [
+        "internal/store/workflow_continuity.go",
+        "internal/store/workflow_continuity_test.go"
+      ]
+    },
+    {
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",

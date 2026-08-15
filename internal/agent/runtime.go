@@ -152,6 +152,13 @@ type workScopeInput struct {
 	OneOf     string      `json:"one_of"`
 	Budget    budgetInput `json:"budget"`
 }
+type researchReadInput struct {
+	ProductID string    `json:"product_id"`
+	PackID    string    `json:"pack_id"`
+	WorkID    string    `json:"work_id"`
+	Page      pageInput `json:"page"`
+}
+
 type historyInput struct {
 	WorkID     string      `json:"work_id"`
 	Direction  string      `json:"direction"`
@@ -657,6 +664,8 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "unreachable"
 	case store.KindIndexDegraded:
 		return "degraded_not_allowed"
+	case store.KindResearchConsumerBlocked:
+		return "stale_requires_review"
 	default:
 		return "internal_error"
 	}
@@ -877,6 +886,32 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return response, err
 		}
 		return r.wrapCursor(ctx, response, inner, string(binding), "continuity")
+	case "concord_work_trace.research":
+		var in researchReadInput
+		if err := decodeStrict(input, &in); err != nil {
+			return base, err
+		}
+		if (in.PackID == "") == (in.WorkID == "") {
+			return coreError(base, "invalid_input", "research read requires exactly one of pack_id or work_id", "supply_pack_or_work", false), nil
+		}
+		var pack store.ResearchPack
+		var readErr error
+		if in.PackID != "" {
+			pack, readErr = store.GetResearchPack(ctx, r.Store, in.PackID, r.boundedLimit(in.Page.Limit))
+		} else {
+			packs, listErr := store.ResearchPacksByOwner(ctx, r.Store, in.WorkID, r.boundedLimit(in.Page.Limit))
+			if listErr != nil {
+				return failureEnvelope(base, listErr), nil
+			}
+			if len(packs) == 0 {
+				return coreError(base, "not_found", "no active research pack for that work item", "check_the_owner", false), nil
+			}
+			pack = packs[0]
+		}
+		if readErr != nil {
+			return failureEnvelope(base, readErr), nil
+		}
+		return r.resultEnvelope(base, store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: pack.OwnerWorkID}, SourceVersionWatermark: pack.CurrentRevision, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: pack.UpdatedAt}, OrderingKeys: []string{"pack:" + pack.PackID}}, r.scope(store.ResultMeta{}), pack)
 	case "concord_work_trace.relations":
 		var in relationInput
 		if err := decodeStrict(input, &in); err != nil {

@@ -36,6 +36,12 @@ type WorkflowActionExecutionRequest struct {
 	LawModifies          []string
 	ContractVersion      string
 	Now                  time.Time
+	// ResearchBindings declares the pack revisions this action's work item
+	// starts relying on (CD-0025). The engine binds each consumer and proves
+	// freshness fail-closed inside this action's transaction; there is no
+	// standalone binding operation, because reliance declared outside the
+	// boundary that consumes it is unproven reliance.
+	ResearchBindings []ResearchBindingDeclaration
 }
 
 type WorkflowActionExecutionResult struct {
@@ -196,7 +202,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	if request.ContractVersion == "" {
 		request.ContractVersion = "2.0.0"
 	}
-	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" && request.ContractVersion != "2.1.0" && request.ContractVersion != "2.2.0" && request.ContractVersion != "2.3.0" && request.ContractVersion != "2.4.0" && request.ContractVersion != "3.0.0" {
+	if request.ContractVersion != "1.0.0" && request.ContractVersion != "2.0.0" && request.ContractVersion != "2.1.0" && request.ContractVersion != "2.2.0" && request.ContractVersion != "2.3.0" && request.ContractVersion != "2.4.0" && request.ContractVersion != "3.0.0" && request.ContractVersion != "3.1.0" {
 		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_version is not supported", false, "upgrade Concord before replaying this operation")
 	}
 	if request.AcceptedInputsDigest == "" {
@@ -328,6 +334,9 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 		events = append(events, workflowTypedEvent(request.OperationID+":completed", WorkflowActionCompleted, request.WorkID, actor, request.Now, resultVersion-1, completionValues))
 	}
 
+	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
+		return result, err
+	}
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
 	if err != nil {
 		return result, err

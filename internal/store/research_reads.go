@@ -78,6 +78,43 @@ func ResearchFreshnessForPack(ctx context.Context, s *Store, packID string) (Res
 func CheckResearchFreshness(ctx context.Context, s *Store, packID string) (ResearchFreshnessResult, error) {
 	return ResearchFreshnessForPack(ctx, s, packID)
 }
+
+// ResearchPacksByOwner lists the active packs owned by one work item, newest
+// update first, bounded by limit. It backs the agent read surface where a
+// consumer resolves a pack by its owning work item.
+func ResearchPacksByOwner(ctx context.Context, s *Store, ownerWorkID string, limit int) ([]ResearchPack, error) {
+	if s == nil || s.db == nil {
+		return nil, researchUnavailable("store is not open", nil)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT pack_id FROM active_research_packs WHERE owner_work_id=? ORDER BY updated_at DESC, pack_id LIMIT ?`, ownerWorkID, limit)
+	if err != nil {
+		return nil, researchUnavailable("cannot list research packs by owner", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, researchUnavailable("cannot decode research pack id", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, researchUnavailable("cannot read research pack ids", err)
+	}
+	rows.Close()
+	packs := make([]ResearchPack, 0, len(ids))
+	for _, id := range ids {
+		pack, err := readResearchPack(ctx, s, id, limit)
+		if err != nil {
+			return nil, err
+		}
+		packs = append(packs, pack)
+	}
+	return packs, nil
+}
+
 func (s *Store) RequiredResearchFreshness(ctx context.Context, packID, consumerWorkID string) (ResearchFreshness, error) {
 	var status string
 	err := s.db.QueryRowContext(ctx, `SELECT CASE WHEN c.required=0 THEN 'current' WHEN NOT EXISTS(SELECT 1 FROM active_research_revisions r WHERE r.pack_id=c.pack_id AND r.revision=c.revision) THEN 'unknown' WHEN p.freshness='stale' THEN 'stale' WHEN p.freshness='unknown' THEN 'unknown' ELSE 'current' END FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id JOIN work_items w ON w.id=c.consumer_work_id WHERE c.pack_id=? AND c.consumer_work_id=? AND w.lifecycle NOT IN ('completed','cancelled','superseded')`, packID, consumerWorkID).Scan(&status)

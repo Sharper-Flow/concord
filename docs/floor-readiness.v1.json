@@ -309,7 +309,7 @@
       "id": "fc6-operational-coverage",
       "condition": "fc6",
       "title": "Concord covers that territory without loss",
-      "requirement": "Every enumerated predecessor capability resolves to covered, not covered, or deliberately excluded with a reason.",
+      "requirement": "Every enumerated predecessor capability in docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered. This is issue #108's acceptance bar, restated here because the original wording (\"covered, not covered, or excluded\") was trivially satisfied by any table state and contradicted this item's outstanding status.",
       "state": "outstanding",
       "issue": 108
     },

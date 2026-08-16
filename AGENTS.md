@@ -67,6 +67,7 @@ git diff --exit-code            # CI's clean checkout; locally scope to -- go.mo
 go vet ./...
 go test -race ./...
 CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
+python3 scripts/check-tx-scope.py
 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 ```
 
@@ -173,7 +174,7 @@ lipgloss v2, and modernc.org/sqlite are already accepted.)
 ## Go style
 
 - Go 1.26 with the pinned toolchain from `go.mod`.
-- The store pools one SQLite connection (`SetMaxOpenConns(1)`, `internal/store/store.go`). While any `*sql.Tx` is open, that transaction holds the pool's only connection: a nested call through `s.db` (query, exec, or another `BeginTx`) parks on the pool forever — it never reaches SQLite, so WAL and `busy_timeout` cannot help, and a test exercises it only by hanging. Never call an `s.db`-backed `*Store` method from inside a transaction; extract or use a tx-scoped core (`xxxTx` function or a small queryer interface taking the tx). Raising the pool size is not the fix — a second connection would read the pre-transaction snapshot and silently miss uncommitted writes.
+- The store pools one SQLite connection (`SetMaxOpenConns(1)`, `internal/store/store.go`). While any `*sql.Tx` is open, that transaction holds the pool's only connection: a nested call through `s.db` (query, exec, or another `BeginTx`) parks on the pool forever — it never reaches SQLite, so WAL and `busy_timeout` cannot help, and a test exercises it only by hanging. Never call an `s.db`-backed `*Store` method from inside a transaction; extract or use a tx-scoped core (`xxxTx` function or a small queryer interface taking the tx). Raising the pool size is not the fix — a second connection would read the pre-transaction snapshot and silently miss uncommitted writes. `scripts/check-tx-scope.py` (CI) enforces this textually: `s.db.` access after transaction acquisition in one function is a finding.
 - Keep behavior, types, tests, and errors local to the package that owns them.
 - Prefer structural invariants, typed failures, transactions, and deterministic
   tests over heuristic inference.

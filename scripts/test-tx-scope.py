@@ -143,6 +143,41 @@ func (s *Store) Commented(ctx context.Context) error {
     assert not guard_one(source), "comments must be stripped before checking"
 
 
+def test_effect_closure_store_callback_is_flagged() -> None:
+    source = """package agent
+
+func caseX(r runtime, base Envelope, raw []byte, digest string) (Envelope, error) {
+	effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		home, err := r.Store.ResolveCompactionHome(ctx, "work-1")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, nil
+	}
+	return base, nil
+}
+"""
+    found = any(guard.guard_effect_calls(lines) for _n, lines in guard.split_functions(source))
+    assert found, "store callback inside an effect closure must be flagged"
+
+
+def test_effect_closure_tx_routed_is_clean() -> None:
+    source = """package agent
+
+func caseX(r runtime, base Envelope, raw []byte, digest string) (Envelope, error) {
+	effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{}); err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, nil
+	}
+	return base, nil
+}
+"""
+    found = any(guard.guard_effect_calls(lines) for _n, lines in guard.split_functions(source))
+    assert not found, "tx-routed effect bodies must not be flagged"
+
+
 def test_full_repo_passes() -> None:
     # The repository's own non-test store sources must be clean; this is the
     # CI assertion.

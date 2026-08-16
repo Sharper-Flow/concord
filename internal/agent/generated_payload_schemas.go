@@ -1425,6 +1425,10 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 0,
           "type": "integer"
         },
+        "overdue_awaits": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "ready": {
           "maximum": 100,
           "minimum": 0,
@@ -1436,7 +1440,8 @@ const GeneratedPayloadSchemaDocument = `{
         "blocked",
         "ready",
         "active_problems",
-        "approval_required"
+        "approval_required",
+        "overdue_awaits"
       ],
       "type": "object"
     },
@@ -4061,6 +4066,11 @@ const GeneratedPayloadSchemaDocument = `{
                 "entity_ref": {},
                 "event_stream": {},
                 "evidence_refs": {},
+                "expected_within_seconds": {
+                  "maximum": 31536000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
                 "hypothesis": {},
                 "impact_verdict": {
                   "enum": [

@@ -2434,7 +2434,12 @@
                 "title": {},
                 "touched_refs": {},
                 "transaction": {},
-                "value_statement": {}
+                "value_statement": {},
+                "expected_within_seconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 31536000
+                }
               }
             }
           ]
@@ -3147,7 +3152,8 @@
         "blocked",
         "ready",
         "active_problems",
-        "approval_required"
+        "approval_required",
+        "overdue_awaits"
       ],
       "properties": {
         "in_progress": {
@@ -3174,6 +3180,10 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 100
+        },
+        "overdue_awaits": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

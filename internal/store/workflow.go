@@ -246,6 +246,9 @@ type workflowConditionAddedPayload struct {
 	AwaitType           string `json:"await_type"`
 	AwaitRef            string `json:"await_ref"`
 	ResolutionAuthority string `json:"resolution_authority"`
+	// ExpectedWithinSeconds bounds the wait; beyond it the await reads as
+	// overdue/unverified (issue #87). Zero means no declared expectation.
+	ExpectedWithinSeconds int64 `json:"expected_within_seconds,omitempty"`
 }
 
 type workflowConditionResolvedPayload struct {
@@ -1631,13 +1634,16 @@ func foldWorkflowConditionAdded(ctx context.Context, tx *sql.Tx, event Event) er
 	if !workflowString(p.ConditionID, 128) || !workflowString(p.AwaitRef, 128) || !workflowString(p.ResolutionAuthority, 128) || !contains([]string{"pr_merge", "ci_result", "timer", "human_approval", "remote_work_state"}, p.AwaitType) {
 		return newFailure(KindInvalidPayload, "fold_event", "condition_added contains an invalid closed await type", false, "use a typed external condition")
 	}
+	if p.ExpectedWithinSeconds < 0 || p.ExpectedWithinSeconds > 31536000 {
+		return newFailure(KindInvalidPayload, "fold_event", "expected_within_seconds must be a positive bound of at most one year", false, "declare a realistic wait bound or omit it")
+	}
 	if _, err := conditionAuthorityOperation(ctx, tx, p.ResolutionAuthority, event.SubjectID); err != nil {
 		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_external_conditions(work_id,condition_id,await_type,await_ref,resolution_authority,condition_state,recorded_at) VALUES(?,?,?,?,?,'open',?)`, event.SubjectID, p.ConditionID, p.AwaitType, p.AwaitRef, p.ResolutionAuthority, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_external_conditions(work_id,condition_id,await_type,await_ref,resolution_authority,condition_state,recorded_at,expected_within_seconds) VALUES(?,?,?,?,?,'open',?,?)`, event.SubjectID, p.ConditionID, p.AwaitType, p.AwaitRef, p.ResolutionAuthority, event.OccurredAt.UTC().Format(time.RFC3339Nano), nullableInt(p.ExpectedWithinSeconds))
 	return workflowProjectionError(err, "cannot record external condition")
 }
 func foldWorkflowConditionResolved(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -1841,4 +1847,13 @@ func allClosed(values, allowed []string) bool {
 		seen[v] = true
 	}
 	return true
+}
+
+// nullableInt stores 0 as NULL so "no declared bound" and "bound of zero"
+// stay distinguishable at the storage boundary.
+func nullableInt(v int64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
 }

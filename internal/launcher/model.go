@@ -65,6 +65,7 @@ type ProductRow struct {
 	Ready                      int
 	ActiveProblems             int
 	ApprovalRequired           int
+	OverdueAwaits              int
 	CountsState                string
 	UnavailableReason          string
 	UnavailableOmissions       []string

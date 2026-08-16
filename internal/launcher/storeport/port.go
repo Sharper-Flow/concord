@@ -371,7 +371,8 @@ func FromProductRows(result store.ProductRowResult) launcher.Snapshot {
 			present.Ready = row.ActionCounts.Values.Ready
 			present.ActiveProblems = row.ActionCounts.Values.ActiveProblems
 			present.ApprovalRequired = row.ActionCounts.Values.ApprovalRequired
-			present.Actions = present.InProgress + present.Blocked + present.Ready + present.ActiveProblems + present.ApprovalRequired
+			present.OverdueAwaits = row.ActionCounts.Values.OverdueAwaits
+			present.Actions = present.InProgress + present.Blocked + present.Ready + present.ActiveProblems + present.ApprovalRequired + present.OverdueAwaits
 		}
 		if row.ActionCounts.Unavailable != nil {
 			present.UnavailableReason = row.ActionCounts.Unavailable.Reason

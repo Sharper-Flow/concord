@@ -152,7 +152,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"epic_entry.reordered":            {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryReordered},
 	"epic_entry.requiredness_changed": {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicEntryRequirednessChanged},
 	"epic.narrative_revised":          {CurrentVersion: 1, MinSupported: 1, Fold: foldEpicNarrativeRevised},
-	WorkerDispatched:                  {CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkerDispatchedV1}, Fold: foldWorkerDispatched},
+	WorkerDispatched:                  {CurrentVersion: 3, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2}, Fold: foldWorkerDispatched},
 	WorkerCompleted:                   {CurrentVersion: 1, MinSupported: 1, Upcasters: map[int]Upcaster{}, Fold: foldWorkerCompleted},
 	WorkerFailed:                      {CurrentVersion: 1, MinSupported: 1, Upcasters: map[int]Upcaster{}, Fold: foldWorkerFailed},
 }

@@ -461,7 +461,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, component, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, component, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -716,6 +716,57 @@
         "internal/sessionboot/sessionboot.go",
         "cmd/concord/session_test.go",
         "internal/launcher/render/bubbletea/model_test.go"
+      ]
+    },
+    {
+      "id": "CD-0033",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0033-out-of-band-direction.md",
+      "status": "accepted",
+      "date": "2026-08-16T00:00:00Z",
+      "title": "Out-of-band operator direction binds through contract supersession",
+      "summary": "Direction of labor is legitimate and out-of-band; changing a declared end-state binds through the single operator-approved supersession path, with clause 5 as the visible check and the unverifiable trigger documented.",
+      "tags": [
+        "direction",
+        "outcome-binding",
+        "operator"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cbe1aec76975566acf3442f2c0e74a6f4b8462f908646bc39d9c081c732423a3",
+      "evidence": [
+        "internal/store/workflow_supersession_confirmation_test.go"
+      ]
+    },
+    {
+      "id": "CD-0034",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0034-host-prompt-provenance.md",
+      "status": "accepted",
+      "date": "2026-08-16T00:00:00Z",
+      "title": "Host prompt provenance is declared at dispatch",
+      "summary": "Host injection is permitted only when recorded: dispatch evidence v3 carries a provenance digest over enumerable prompt surfaces, unenumerable ones are named, and D7 evals are reproducible only when lane and provenance digests both match.",
+      "tags": [
+        "lanes",
+        "evidence",
+        "prompt-authority"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bfcbd7779f456c9c2b17b6443d4ccfe601787be0c84b8b8afc0d2339000fa1c4",
+      "evidence": [
+        "internal/store/worker_lanes.go",
+        "adapter/opencode/dispatch.ts"
       ]
     },
     {

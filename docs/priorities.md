@@ -101,6 +101,7 @@ See [`design-constraints.md`](./design-constraints.md) §10 and [`workflows.md`]
 - Staleness is reviewed before action, with execution blocked according to risk.
 - Continuity is preserved across agent sessions and worktree switches.
 - The terminal launcher is the primary visibility surface.
+- **Scope boundary (CD-0031):** "without blind spots" covers what enters Product truth, not the session channel that directs agent labor. Operator direction given out-of-band is legitimate and invisible to Concord by design; when it changes a required end-state, it binds through contract supersession — the single write path, operator-approved — and completion's premise confirmation names the recorded premise, so an unsuperseded redirect surfaces as a premise the operator will not recognize. The blind spot that remains is documented, not accidental.
 
 See [`design-constraints.md`](./design-constraints.md) §2, §5 for the staleness and read-path constraints.
 

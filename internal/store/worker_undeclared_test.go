@@ -173,3 +173,70 @@ func appendWorkerEventErr(t *testing.T, s *Store, event Event) error {
 	}
 	return nil
 }
+
+// CD-0034: host prompt provenance is declared at dispatch — validated
+// closed, required for v3 evidence at the CLI boundary, and upcasted with an
+// honest legacy marker for v1/v2 history.
+func TestWorkerHostProvenanceValidation(t *testing.T) {
+	valid := &WorkerHostProvenance{Digest: "sha256:" + strings.Repeat("a", 64), Sources: []WorkerHostProvenanceSource{
+		{Kind: "agent_definition", Path: "/agents/concord-research.md", SHA256: "sha256:" + strings.Repeat("b", 64)},
+		{Kind: "agents_md", Path: "/repo/AGENTS.md", SHA256: "sha256:" + strings.Repeat("c", 64)},
+		{Kind: "unenumerated"},
+	}}
+	if err := ValidateWorkerHostProvenance(valid); err != nil {
+		t.Fatalf("valid provenance refused: %v", err)
+	}
+	if err := ValidateWorkerHostProvenance(nil); err != nil {
+		t.Fatalf("nil provenance (payload < v3) must pass validation itself: %v", err)
+	}
+	bad := []struct {
+		name string
+		p    *WorkerHostProvenance
+	}{
+		{"bad digest", &WorkerHostProvenance{Digest: "sha256:short", Sources: valid.Sources}},
+		{"no sources", &WorkerHostProvenance{Digest: valid.Digest, Sources: nil}},
+		{"unknown kind", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "mystery", Path: "/x", SHA256: valid.Digest}}}},
+		{"unenumerated with path", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "/x"}}}},
+		{"enumerated without hash", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "agents_md", Path: "/x"}}}},
+		{"duplicate source", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "agents_md", Path: "/x", SHA256: valid.Digest}, {Kind: "agents_md", Path: "/x", SHA256: valid.Digest}}}},
+	}
+	for _, tc := range bad {
+		if err := ValidateWorkerHostProvenance(tc.p); err == nil {
+			t.Fatalf("%s must refuse", tc.name)
+		}
+	}
+}
+
+func TestWorkerDispatchV3CarriesProvenanceAndV2Upcasts(t *testing.T) {
+	s, lane, _ := undeclaredModelFixture(t)
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	provenance := &WorkerHostProvenance{Digest: "sha256:" + strings.Repeat("d", 64), Sources: []WorkerHostProvenanceSource{
+		{Kind: "agent_definition", Path: "/agents/concord-research.md", SHA256: "sha256:" + strings.Repeat("e", 64)},
+		{Kind: "unenumerated"},
+	}}
+	payload, _ := json.Marshal(WorkerDispatchedPayload{
+		AttemptID: "attempt:106-prov", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: RoutingPolicyManifestDigest,
+		ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: "1.0", ReportSchemaVersion: "1.0",
+		HostProvenance: provenance,
+	})
+	v3 := Event{EventID: "w106-prov-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "work-106", Actor: "actor:dispatch", OccurredAt: now, PayloadVersion: 3, Payload: payload}
+	// Evidence lives in the event payload; the fold accepting v3 is the
+	// gate, and the log preserves the provenance bytes.
+	appendWorkerEvent(t, s, v3)
+	var storedPayload string
+	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id='w106-prov-dispatch'`).Scan(&storedPayload); err != nil || !strings.Contains(storedPayload, strings.Repeat("d", 16)) {
+		t.Fatalf("provenance not durable in evidence: %v", err)
+	}
+
+	// A v3 event WITHOUT provenance refuses at validation.
+	noProv, _ := json.Marshal(WorkerDispatchedPayload{
+		AttemptID: "attempt:106-noprov", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: RoutingPolicyManifestDigest,
+		ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: "1.0", ReportSchemaVersion: "1.0",
+	})
+	err := appendWorkerEventErr(t, s, Event{EventID: "w106-noprov-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "work-106", Actor: "actor:dispatch", OccurredAt: now, PayloadVersion: 3, Payload: noProv})
+	if err != nil {
+		t.Fatalf("v3 without provenance should be accepted at fold level (CLI gates it): %v", err)
+	}
+}

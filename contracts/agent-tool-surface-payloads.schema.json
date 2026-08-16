@@ -4399,6 +4399,148 @@
           }
         }
       }
+    },
+    "work_relate_message_send_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "body",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "recipient_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "broadcast": {
+          "type": "boolean"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "work_relate_message_withdraw_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "message_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^msg:[0-9a-f]{32}$",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "work_browse_messages_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "work_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "work_messages_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "messages"
+      ],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "message_id",
+              "sender_work_id",
+              "recipient_work_id",
+              "body",
+              "state",
+              "sent_at"
+            ],
+            "properties": {
+              "message_id": {
+                "type": "string",
+                "pattern": "^msg:[0-9a-f]{32}$",
+                "minLength": 36,
+                "maxLength": 36
+              },
+              "sender_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "recipient_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "body": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "sent",
+                  "withdrawn"
+                ]
+              },
+              "sent_at": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 40
+              },
+              "withdrawn_at": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 40
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

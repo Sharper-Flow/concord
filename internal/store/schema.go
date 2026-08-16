@@ -1590,6 +1590,29 @@ ALTER TABLE active_research_revisions ADD COLUMN freshness TEXT NOT NULL DEFAULT
 UPDATE active_research_revisions SET freshness = (SELECT p.freshness FROM active_research_packs p WHERE p.pack_id = active_research_revisions.pack_id);
 `,
 	},
+
+	{
+		Version: 33,
+		Name:    "work_messages",
+		SQL: `
+-- CD-0029: durable peer messages addressed to work items. Fold-only; the
+-- work.message_sent / work.message_withdrawn folds own every write.
+CREATE TABLE work_messages (
+    message_id TEXT PRIMARY KEY CHECK(length(message_id) = 36 AND substr(message_id,1,4) = 'msg:'),
+    sender_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    recipient_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    body TEXT NOT NULL CHECK(length(body) > 0 AND length(body) <= 4096),
+    state TEXT NOT NULL CHECK(state IN ('sent','withdrawn')),
+    sent_at TEXT NOT NULL,
+    withdrawn_at TEXT,
+    CHECK(recipient_work_id != sender_work_id)
+);
+CREATE INDEX work_messages_recipient ON work_messages(recipient_work_id, state, sent_at);
+CREATE TRIGGER work_messages_guard_insert BEFORE INSERT ON work_messages FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_messages is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_messages_guard_update BEFORE UPDATE ON work_messages FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_messages is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_messages_guard_delete BEFORE DELETE ON work_messages FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_messages is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -158,6 +158,13 @@ type workScopeInput struct {
 	OneOf     string      `json:"one_of"`
 	Budget    budgetInput `json:"budget"`
 }
+type messagesInput struct {
+	ProductID string      `json:"product_id"`
+	WorkID    string      `json:"work_id"`
+	Page      pageInput   `json:"page"`
+	Budget    budgetInput `json:"budget"`
+}
+
 type resourceClaimsInput struct {
 	ProductID   string      `json:"product_id"`
 	ResourceKey string      `json:"resource_key"`
@@ -888,6 +895,17 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		}
 		meta := store.ResultMeta{QueryID: "PM1.Q13", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{ProductID: in.ProductID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"claimed_at"}}
 		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"claims": claims})
+	case "concord_work_browse.messages":
+		var in messagesInput
+		if err := decodeStrict(input, &in); err != nil {
+			return base, err
+		}
+		messages, err := r.Store.MessagesForWork(ctx, in.WorkID, r.boundedLimit(in.Page.Limit))
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		meta := store.ResultMeta{QueryID: "PM1.Q14", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"sent_at"}}
+		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
 	case "concord_work_trace.history":
 		var in historyInput
 		if err := decodeStrict(input, &in); err != nil {

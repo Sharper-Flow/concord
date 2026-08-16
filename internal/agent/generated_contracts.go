@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "3.4.0"
-const ManifestDigest = "sha256:a2bec699f0bb2f2d566230fc1c6ac4a3f4488275a7641b04ea19c3c87e590ef9"
+const ManifestVersion = "3.5.0"
+const ManifestDigest = "sha256:9f8283ddd48507399620b95f03927e5c0c7c03525b1927ed58bf4f8d7e4328f5"
 
 type OperationKind string
 
@@ -44,6 +44,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_browse.ready", Tool: "concord_work_browse", Operation: "ready", Kind: OperationKind("read"), QueryID: "PM1.Q5", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.scope", Tool: "concord_work_browse", Operation: "scope", Kind: OperationKind("read"), QueryID: "PM1.Q6", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_browse.resource_claims", Tool: "concord_work_browse", Operation: "resource_claims", Kind: OperationKind("read"), QueryID: "PM1.Q13", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_browse.messages", Tool: "concord_work_browse", Operation: "messages", Kind: OperationKind("read"), QueryID: "PM1.Q14", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_trace.history", Tool: "concord_work_trace", Operation: "history", Kind: OperationKind("read"), QueryID: "PM1.Q7", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_trace.relations", Tool: "concord_work_trace", Operation: "relations", Kind: OperationKind("read"), QueryID: "PM1.Q8", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_trace.continuity", Tool: "concord_work_trace", Operation: "continuity", Kind: OperationKind("read"), QueryID: "C19.Continuity", Capability: Capability("product_read"), Approval: ApprovalClass("none"), Availability: Availability("always")},
@@ -75,6 +76,8 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_relate.restore_superseded", Tool: "concord_work_relate", Operation: "restore_superseded", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("required"), Availability: Availability("always")},
 	{ID: "concord_work_relate.resource_claim", Tool: "concord_work_relate", Operation: "resource_claim", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_relate.resource_release", Tool: "concord_work_relate", Operation: "resource_release", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_relate.message_send", Tool: "concord_work_relate", Operation: "message_send", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_relate.message_withdraw", Tool: "concord_work_relate", Operation: "message_withdraw", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_compact.publish", Tool: "concord_work_compact", Operation: "publish", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_compact"), Approval: ApprovalClass("required"), Availability: Availability("always")},
 	{ID: "concord_work_compact.reconcile", Tool: "concord_work_compact", Operation: "reconcile", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_compact"), Approval: ApprovalClass("conditional"), Availability: Availability("always")},
 	{ID: "concord_work_compact.lesson_publish", Tool: "concord_work_compact", Operation: "lesson_publish", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_compact"), Approval: ApprovalClass("required"), Availability: Availability("always")},
@@ -151,6 +154,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"scope":                                      {Required: []string{}, Properties: []string{"product_id", "project_ids", "work_ids", "scope_version"}},
 	"work_browse_blocked_input":                  {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "work_id", "kind", "depth", "page", "budget"}},
 	"work_browse_list_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_ids", "work_ids", "lifecycle", "kind", "component_id", "tag_ids", "priority_min", "priority_max", "detail", "terminal_since", "page", "budget"}},
+	"work_browse_messages_input":                 {Required: []string{"product_id", "work_id"}, Properties: []string{"product_id", "work_id", "page", "budget"}},
 	"work_browse_ready_input":                    {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kind", "page", "budget"}},
 	"work_browse_resource_claims_input":          {Required: []string{"product_id"}, Properties: []string{"product_id", "resource_key", "page", "budget"}},
 	"work_browse_scope_input":                    {Required: []string{"product_id"}, Properties: []string{"product_id", "project_id", "work_id", "page", "budget", "one_of"}},
@@ -165,9 +169,12 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_define_research_source_record_input":   {Required: []string{"pack_id", "expected_version", "source", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "source", "idempotency_key"}},
 	"work_define_revise_input":                   {Required: []string{"work_id", "expected_version", "title", "value_statement", "kind", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "reason", "idempotency_key", "evidence"}},
 	"work_event_page":                            {Required: []string{"events"}, Properties: []string{"events", "next_cursor", "workflow"}},
+	"work_messages_page":                         {Required: []string{"messages"}, Properties: []string{"messages"}},
 	"work_page":                                  {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
 	"work_relate_link_input":                     {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key", "approval"}},
 	"work_relate_memberships_input":              {Required: []string{"work_id", "expected_version", "memberships", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "memberships", "idempotency_key", "approval"}},
+	"work_relate_message_send_input":             {Required: []string{"work_id", "body", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "recipient_work_id", "broadcast", "body", "expected_version", "idempotency_key"}},
+	"work_relate_message_withdraw_input":         {Required: []string{"work_id", "message_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "message_id", "expected_version", "idempotency_key"}},
 	"work_relate_resource_claim_input":           {Required: []string{"work_id", "resource_key", "reason", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "resource_key", "reason", "expected_version", "idempotency_key"}},
 	"work_relate_resource_release_input":         {Required: []string{"work_id", "resource_key", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "resource_key", "expected_version", "idempotency_key"}},
 	"work_relate_restore_input":                  {Required: []string{"predecessor_id", "predecessor_expected_version", "successor_id", "successor_expected_version", "reason", "idempotency_key", "approval"}, Properties: []string{"predecessor_id", "predecessor_expected_version", "successor_id", "successor_expected_version", "replacement_successor_id", "replacement_successor_expected_version", "instruction", "reason", "idempotency_key", "approval", "evidence"}},

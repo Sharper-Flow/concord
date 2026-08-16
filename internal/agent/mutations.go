@@ -172,6 +172,20 @@ type resourceReleaseInput struct {
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
+type messageSendInput struct {
+	WorkID          string `json:"work_id"`
+	RecipientWorkID string `json:"recipient_work_id"`
+	Broadcast       bool   `json:"broadcast"`
+	Body            string `json:"body"`
+	ExpectedVersion int64  `json:"expected_version"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
+type messageWithdrawInput struct {
+	WorkID          string `json:"work_id"`
+	MessageID       string `json:"message_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
 type researchBindingInput struct {
 	PackID   string `json:"pack_id"`
 	Revision int64  `json:"revision"`
@@ -1259,6 +1273,77 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), []string{in.ResourceKey}, changed, nil
 		}
+	case "concord_work_relate.message_send":
+		var in messageSendInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		if in.RecipientWorkID == "" && !in.Broadcast {
+			return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "supply_recipient_or_broadcast", false), nil
+		}
+		if in.RecipientWorkID != "" && in.Broadcast {
+			return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "choose_addressing", false), nil
+		}
+		versions["work"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.WorkID}
+		if in.RecipientWorkID != "" {
+			scope["work_ids"] = []string{in.WorkID, in.RecipientWorkID}
+		}
+		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			// Broadcast resolves the recipient set now, inside the caller's
+			// transaction, so the fan-out sees a consistent Product snapshot.
+			recipients := []string{in.RecipientWorkID}
+			if in.Broadcast {
+				active, listErr := activeWorkIDsTx(ctx, tx, r.Envelope.SelectedProductID)
+				if listErr != nil {
+					return nil, nil, nil, listErr
+				}
+				// The sender is not its own recipient.
+				filtered := make([]string, 0, len(active))
+				for _, id := range active {
+					if id != in.WorkID {
+						filtered = append(filtered, id)
+					}
+				}
+				if len(filtered) == 0 {
+					return nil, nil, nil, fmt.Errorf("no active work in this Product to receive the broadcast")
+				}
+				recipients = filtered
+			}
+			// One event per (sender, recipient) pair: the work version
+			// advances once (on the sender) regardless of fan-out size.
+			events := make([]store.Event, 0, len(recipients))
+			ids := make([]string, 0, len(recipients))
+			for i, recipient := range recipients {
+				messageID := messageIDFor(digest, recipient)
+				expected := in.ExpectedVersion + int64(i)
+				payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": expected, "resulting_version": expected + 1, "message_id": messageID, "recipient_work_id": recipient, "body": in.Body})
+				events = append(events, store.Event{EventID: digest + ":msg:" + recipient, Kind: "work.message_sent", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload})
+				ids = append(ids, messageID)
+			}
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), ids, changed, nil
+		}
+	case "concord_work_relate.message_withdraw":
+		var in messageWithdrawInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		versions["work"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.WorkID}
+		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID})
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":withdraw", Kind: "work.message_withdrawn", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), []string{in.MessageID}, changed, nil
+		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput
 		if err := decodeStrict(raw, &in); err != nil {
@@ -2192,4 +2277,26 @@ func researchBindingDeclarations(in []researchBindingInput) []store.ResearchBind
 		out = append(out, store.ResearchBindingDeclaration{PackID: b.PackID, Revision: b.Revision, UseRole: store.ResearchUseRole(b.UseRole), Required: b.Required})
 	}
 	return out
+}
+
+func messageIDFor(digest, recipient string) string {
+	sum := sha256.Sum256([]byte(digest + ":" + recipient))
+	return "msg:" + hex.EncodeToString(sum[:16])
+}
+
+func activeWorkIDsTx(ctx context.Context, tx *sql.Tx, productID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT 100`, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }

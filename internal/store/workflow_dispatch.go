@@ -604,7 +604,14 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "declare_impact":
 		return []Event{workflowTypedEvent(eventID, WorkflowImpactDeclared, request.WorkID, actor, request.Now, expected, map[string]any{"edge_id": workflowFieldStringDefault(fields, "edge_id", "edge:"+request.OperationID), "edge_kind": workflowFieldStringDefault(fields, "edge_kind", "modifies"), "edge_class": workflowFieldStringDefault(fields, "edge_class", "hard"), "target_work_id": workflowFieldStringDefault(fields, "target_work_id", request.WorkID+"-target"), "target_kind": "work_item", "severity": workflowFieldStringDefault(fields, "severity", "non-breaking")})}, nil
 	case "add_condition":
-		return []Event{workflowTypedEvent(eventID, WorkflowConditionAdded, request.WorkID, actor, request.Now, expected, map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "await_type": workflowFieldStringDefault(fields, "await_type", "timer"), "await_ref": workflowFieldStringDefault(fields, "await_ref", "await:"+request.OperationID), "resolution_authority": workflowFieldStringDefault(fields, "resolution_authority", "durable_operation:"+request.OperationID)})}, nil
+		values := map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "await_type": workflowFieldStringDefault(fields, "await_type", "timer"), "await_ref": workflowFieldStringDefault(fields, "await_ref", "await:"+request.OperationID), "resolution_authority": workflowFieldStringDefault(fields, "resolution_authority", "durable_operation:"+request.OperationID)}
+		// Issue #87: a step delegating completion to an external actor may
+		// declare how long the wait is expected to take; exceeding it reads
+		// as overdue. Omitted or zero means no declared expectation.
+		if bound, ok := workflowFieldIntOK(fields, "expected_within_seconds"); ok {
+			values["expected_within_seconds"] = bound
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowConditionAdded, request.WorkID, actor, request.Now, expected, values)}, nil
 	case "resolve_condition":
 		return []Event{workflowTypedEvent(eventID, WorkflowConditionResolved, request.WorkID, actor, request.Now, expected, map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "resolution_evidence": workflowFieldStringsDefault(fields, "resolution_evidence", []string{"evidence:" + request.OperationID}), "resolved_by_event": workflowFieldStringDefault(fields, "resolved_by_event", eventID)})}, nil
 	case "cancel_condition":
@@ -739,6 +746,13 @@ func workflowFieldInt(fields map[string]json.RawMessage, name string, fallback i
 		return value
 	}
 	return fallback
+}
+func workflowFieldIntOK(fields map[string]json.RawMessage, name string) (int64, bool) {
+	var value int64
+	if fields[name] != nil && json.Unmarshal(fields[name], &value) == nil && value > 0 {
+		return value, true
+	}
+	return 0, false
 }
 func workflowFieldBool(fields map[string]json.RawMessage, name string) bool {
 	var value bool

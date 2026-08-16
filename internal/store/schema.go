@@ -1613,6 +1613,18 @@ CREATE TRIGGER work_messages_guard_update BEFORE UPDATE ON work_messages FOR EAC
 CREATE TRIGGER work_messages_guard_delete BEFORE DELETE ON work_messages FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_messages is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+
+	{
+		Version: 34,
+		Name:    "await_expectation_bounds",
+		SQL: `
+-- Issue #87: a step delegating completion to an external actor declares how
+-- long the wait is expected to take; exceeding it is derived at read time.
+-- No timer, no state change — elapsed time never creates authority.
+ALTER TABLE workflow_external_conditions ADD COLUMN expected_within_seconds INTEGER
+    CHECK(expected_within_seconds IS NULL OR expected_within_seconds > 0);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

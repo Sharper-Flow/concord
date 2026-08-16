@@ -71,6 +71,10 @@ type ProductRowActionCountValues struct {
 	Ready            int `json:"ready"`
 	ActiveProblems   int `json:"active_problems"`
 	ApprovalRequired int `json:"approval_required"`
+	// OverdueAwaits counts open external awaits whose wait exceeded the
+	// declared bound (issue #87): waiting-vs-never-completable made visible
+	// in the row the operator scans.
+	OverdueAwaits int `json:"overdue_awaits"`
 }
 
 type ProductRowActionCounts struct {
@@ -169,6 +173,7 @@ type productRowWork struct {
 	Ready             bool
 	ActiveProblem     bool
 	ApprovalRequired  bool
+	OverdueAwaits     bool
 	WorkflowStepLabel string
 }
 
@@ -212,6 +217,15 @@ WITH page_products AS (
 			  AND blocker.lifecycle IN ('needed', 'in_progress')
 		)) AS ready,
 		(w.kind = 'problem' AND w.lifecycle IN ('needed', 'in_progress')) AS active_problem,
+		(w.lifecycle IN ('needed', 'in_progress') AND EXISTS (
+			SELECT 1
+			FROM workflow_external_conditions c
+			WHERE c.work_id = w.id
+			  AND c.condition_state = 'open'
+			  AND c.expected_within_seconds IS NOT NULL
+			  AND c.recorded_at IS NOT NULL
+			  AND (julianday('now') - julianday(c.recorded_at)) * 86400 > c.expected_within_seconds
+		)) AS overdue_awaits,
 		wi.current_step,
 		wi.definition_ref,
 		wi.definition_version,
@@ -231,7 +245,7 @@ WITH page_products AS (
 SELECT
 	pp.id, pp.display_name, pp.stage_maturity, pp.stage_audience_commitment, pp.version, pp.created_at, pp.updated_at,
 	sw.work_id, sw.kind, sw.title, sw.lifecycle, sw.priority, sw.urgency, sw.created_at, sw.updated_at, sw.project_count,
-	sw.blocked, sw.ready, sw.active_problem,
+	sw.blocked, sw.ready, sw.active_problem, sw.overdue_awaits,
 	sw.current_step, sw.definition_ref, sw.definition_version, sw.definition_digest, sw.instance_state, sw.stage_override_min, sw.stage_override_max
 FROM page_products pp
 LEFT JOIN scoped_work sw ON sw.product_id = pp.id`
@@ -517,10 +531,10 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 		var p Product
 		var workID, workKind, title, lifecycle, urgency, createdAt, updatedAt sql.NullString
 		var priority, projectCount, definitionVersion sql.NullInt64
-		var blocked, ready, activeProblem sql.NullBool
+		var blocked, ready, activeProblem, overdueAwaits sql.NullBool
 		var currentStep, definitionRef, definitionDigest, instanceState, stageOverrideMin, stageOverrideMax sql.NullString
 		if err := rows.Scan(&p.ID, &p.DisplayName, &p.StageMaturity, &p.StageAudienceCommitment, &p.Version, &p.CreatedAt, &p.UpdatedAt,
-			&workID, &workKind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem,
+			&workID, &workKind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem, &overdueAwaits,
 			&currentStep, &definitionRef, &definitionVersion, &definitionDigest, &instanceState, &stageOverrideMin, &stageOverrideMax); err != nil {
 			return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot decode Product row", true, "retry once the database is readable", err)
 		}
@@ -543,7 +557,7 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 		products[idx].works = append(products[idx].works, productRowWork{
 			ID: workID.String, Kind: workKind.String, Title: title.String, Lifecycle: lifecycle.String, Priority: priority.Int64, Urgency: urgency.String,
 			CreatedAt: createdAt.String, UpdatedAt: updatedAt.String, ProjectCount: int(projectCount.Int64), Blocked: blocked.Bool,
-			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, WorkflowStepLabel: stepLabel,
+			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, OverdueAwaits: overdueAwaits.Bool, WorkflowStepLabel: stepLabel,
 			StageOverrides: parseProductRowStageOverrides(stageOverrideMin.String, stageOverrideMax.String),
 		})
 	}
@@ -586,6 +600,9 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 			}
 			if work.ActiveProblem {
 				values.ActiveProblems++
+			}
+			if work.OverdueAwaits {
+				values.OverdueAwaits++
 			}
 			if work.ApprovalRequired {
 				values.ApprovalRequired++

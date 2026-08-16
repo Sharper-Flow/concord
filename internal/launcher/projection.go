@@ -52,6 +52,9 @@ func Project(snapshot Snapshot, width int) Projection {
 			marker = "!"
 		}
 		actions := fmt.Sprintf("ip:%d b:%d r:%d p:%d a:%d", row.InProgress, row.Blocked, row.Ready, row.ActiveProblems, row.ApprovalRequired)
+		if row.OverdueAwaits > 0 {
+			actions += fmt.Sprintf(" overdue:%d", row.OverdueAwaits)
+		}
 		if row.FocusAttentionKind == "approval_required" && row.FocusBlockedSessionCount > 0 {
 			actions += fmt.Sprintf(" (waiting: %s)", row.FocusOldestBlockedSession)
 		}

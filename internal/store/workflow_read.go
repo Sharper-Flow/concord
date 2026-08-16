@@ -14,6 +14,9 @@ import (
 type WorkflowReadRequest struct {
 	WorkID string
 	Limit  int
+	// Now pins the read-time clock for await-health derivation; zero means
+	// wall clock.
+	Now time.Time
 }
 
 type WorkflowReadDefinition struct {
@@ -40,6 +43,13 @@ type WorkflowReadCondition struct {
 	AwaitRef            string `json:"await_ref"`
 	ResolutionAuthority string `json:"resolution_authority"`
 	State               string `json:"state"`
+	// ExpectedWithinSeconds is the declared wait bound (0 = none declared).
+	// Overdue/Health are derived at read time against that bound (issue #87):
+	// an await beyond its bound reads overdue — unverified, never resolved.
+	ExpectedWithinSeconds int64  `json:"expected_within_seconds"`
+	AgeSeconds            int64  `json:"age_seconds"`
+	Overdue               bool   `json:"overdue"`
+	Health                string `json:"health"`
 }
 
 type WorkflowReadNotice struct {
@@ -69,11 +79,15 @@ type WorkflowReadProjection struct {
 	CandidateIDs         []string                  `json:"candidate_ids"`
 	Conditions           []WorkflowReadCondition   `json:"conditions"`
 	UnresolvedConditions []string                  `json:"unresolved_conditions"`
-	UnreadableConditions []string                  `json:"unreadable_conditions"`
-	Ready                bool                      `json:"ready"`
-	BlockingConditions   []string                  `json:"blocking_conditions"`
-	ImpactNotices        []WorkflowReadNotice      `json:"impact_notices"`
-	CompletionWarnings   []string                  `json:"completion_warnings"`
+	// OverdueAwaits lists condition ids whose wait exceeded the declared
+	// bound, derived at read time — the waiting/never-completable split.
+	OverdueAwaits        []string                `json:"overdue_awaits"`
+	AwaitHealth          []WorkflowReadCondition `json:"await_health"`
+	UnreadableConditions []string                `json:"unreadable_conditions"`
+	Ready                bool                    `json:"ready"`
+	BlockingConditions   []string                `json:"blocking_conditions"`
+	ImpactNotices        []WorkflowReadNotice    `json:"impact_notices"`
+	CompletionWarnings   []string                `json:"completion_warnings"`
 }
 
 // ReadWorkflowProjection returns one bounded, point-in-time workflow
@@ -103,6 +117,8 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.CandidateIDs = []string{}
 	out.Conditions = []WorkflowReadCondition{}
 	out.UnresolvedConditions = []string{}
+	out.OverdueAwaits = []string{}
+	out.AwaitHealth = []WorkflowReadCondition{}
 	out.UnreadableConditions = []string{}
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}
@@ -144,19 +160,40 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT ?`, request.WorkID, request.Limit)
+	rows, err = s.db.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state,coalesce(expected_within_seconds,0),recorded_at FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT ?`, request.WorkID, request.Limit)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow conditions", true, "retry once the database is readable", err)
 	}
+	health := []WorkflowReadCondition{}
 	for rows.Next() {
 		var condition WorkflowReadCondition
-		if err := rows.Scan(&condition.ID, &condition.AwaitType, &condition.AwaitRef, &condition.ResolutionAuthority, &condition.State); err != nil {
+		var waitingSince string
+		if err := rows.Scan(&condition.ID, &condition.AwaitType, &condition.AwaitRef, &condition.ResolutionAuthority, &condition.State, &condition.ExpectedWithinSeconds, &waitingSince); err != nil {
 			rows.Close()
 			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow condition", true, "retry once the database is readable", err)
 		}
 		out.Conditions = append(out.Conditions, condition)
 		if condition.State == "open" {
 			out.UnresolvedConditions = append(out.UnresolvedConditions, condition.ID)
+			// Read-time health derivation (issue #87): compare the wait's
+			// age to the declared bound. No state change, no timer.
+			if recorded, parseErr := time.Parse(time.RFC3339Nano, waitingSince); parseErr == nil {
+				clock := request.Now
+				if clock.IsZero() {
+					clock = time.Now().UTC()
+				}
+				condition.AgeSeconds = int64(clock.Sub(recorded).Seconds())
+				if condition.AgeSeconds < 0 {
+					condition.AgeSeconds = 0
+				}
+			}
+			condition.Health = "waiting"
+			if condition.ExpectedWithinSeconds > 0 && condition.AgeSeconds > condition.ExpectedWithinSeconds {
+				condition.Overdue = true
+				condition.Health = "overdue"
+				out.OverdueAwaits = append(out.OverdueAwaits, condition.ID)
+			}
+			health = append(health, condition)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -164,6 +201,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow conditions", true, "retry once the database is readable", err)
 	}
 	rows.Close()
+	out.AwaitHealth = health
 	ready, err := DeriveWorkflowReady(ctx, s, request.WorkID)
 	if err != nil {
 		return out, err
@@ -317,6 +355,8 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 	out.CandidateIDs = []string{}
 	out.Conditions = []WorkflowReadCondition{}
 	out.UnresolvedConditions = []string{}
+	out.OverdueAwaits = []string{}
+	out.AwaitHealth = []WorkflowReadCondition{}
 	out.UnreadableConditions = []string{}
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}

@@ -7,7 +7,7 @@ import (
 )
 
 const ManifestVersion = "3.5.0"
-const ManifestDigest = "sha256:9f8283ddd48507399620b95f03927e5c0c7c03525b1927ed58bf4f8d7e4328f5"
+const ManifestDigest = "sha256:488756d935e3bf68039b66c578d1707de681b37375a690e12a97a911c59beaae"
 
 type OperationKind string
 
@@ -129,7 +129,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"product_context":                            {Required: []string{"product_id", "projects"}, Properties: []string{"product_id", "stage", "projects", "candidates", "next_cursor"}},
 	"product_row":                                {Required: []string{"product_id", "display_name", "stage", "reliance", "action_counts"}, Properties: []string{"product_id", "display_name", "display_name_suffix", "stage", "reliance", "action_counts", "focus", "focus_absent_reason"}},
 	"product_row_action_counts":                  {Required: []string{"state"}, Properties: []string{"state", "values", "unavailable"}},
-	"product_row_action_values":                  {Required: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required"}, Properties: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required"}},
+	"product_row_action_values":                  {Required: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits"}, Properties: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits"}},
 	"product_row_focus":                          {Required: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "project_count", "stage_context"}, Properties: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "workflow_step_label", "project_count", "stage_context"}},
 	"product_row_page":                           {Required: []string{"observed_at", "rows"}, Properties: []string{"observed_at", "rows"}},
 	"product_row_portfolio_input":                {Required: []string{"page"}, Properties: []string{"product_id", "page", "budget", "source"}},

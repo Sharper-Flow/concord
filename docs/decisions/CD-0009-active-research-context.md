@@ -234,7 +234,15 @@ is recoverable.
 
 ## D8. Explicit non-goals
 
-- No `docs/research/` path or `research` durable-knowledge kind.
+- No active research pack content, findings, sources, or runtime research
+  output in Git, under any path — and no `research` durable-knowledge kind.
+  *(Amended 2026-08-15, issue #119: the original wording — "no `docs/research/`
+  path" — forbade a directory that already held R1–R7, durable design evidence
+  feeding accepted CD decisions, including R2 accepted by CD-0006 R2 one day
+  before this decision. The prohibition was always meant for pack content and
+  runtime output, not for the word "research" in a path. R1–R7 remain durable
+  design evidence; they are not pack content and are not indexed as a
+  `research` knowledge kind.)*
 - No research-pack tombstones, archived pack index, hidden history, or Git copies.
 - No raw web pages, screenshots, logs, traces, binaries, or content-addressed store.
 - No RDF/PROV-O, RO-Crate, CRDT, semantic versioning, or research mailbox.

@@ -165,7 +165,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d8aa2aad6a91590fba610755b0fb05e4b62f0cf55330148c530e34c6e9621896",
+      "sha256": "sha256:fdd6527f17b4179283441f9d33ed2872603b3424e18f94d9b42140ec05e52802",
       "evidence": [
         "internal/store/research_mutations.go",
         "internal/agent/research_surface_test.go"

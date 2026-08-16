@@ -1,6 +1,7 @@
 # Predecessor operational coverage
 
-> **Status:** Authorizing for floor condition 6 coverage assessment. Companion to
+> **Status:** Authorizing for floor condition 6 coverage assessment. Validated on
+> every CI run by `scripts/check-predecessor-coverage.py`. Companion to
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
 > [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
@@ -23,6 +24,25 @@ It is deliberately not organized by predecessor command shape.
 cloning, and CD-0006 fixes Concord's own workflow model. An enumeration organized
 around predecessor commands would smuggle that shape back in through the gate that
 exists to keep it out.
+
+### How this document holds authority
+
+Authority here comes from mechanical checking rather than assertion. A checklist
+that asserts its own authority drifts silently, which is the failure
+[`floor-readiness.md`](./floor-readiness.md) already avoids for the readiness
+manifest.
+
+`scripts/check-predecessor-coverage.py` parses the section tables on every CI run
+and rejects a covered outcome that names no existing repository path, an excluded
+outcome that carries no reason, a state outside the closed vocabulary, a
+duplicated outcome, a malformed row, and a tally that disagrees with the rows it
+summarises. An outcome cannot claim coverage against a deleted file, and the
+zero-not-covered claim cannot drift from the table beneath it.
+
+The validator does not judge whether the enumeration is *complete* — no mechanism
+can. Completeness remains an auditing obligation, and the audit that produced the
+current row set is recorded in issue
+[#150](https://github.com/Sharper-Flow/concord/issues/150).
 
 ### Coverage states
 
@@ -106,7 +126,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Delegate a bounded execution attempt to a typed worker, verify which model actually ran, and record that evidence durably | Covered | CD-0017; `internal/store/worker_lanes.go`, `adapter/opencode/dispatch.ts`, and the `worker-dispatch` / `worker-complete` / `worker-fail` evidence verbs in `cmd/concord/main.go` |
 | Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Covered | `WF48-lane-pipeline-typed-evidence` in `scenarios/workflow-engine.v1.json` dispatches three registered lanes on one workflow and accepts a completed attempt from a distinct owner. |
 | Measure lane prompt behaviour with an evaluation harness | Covered | `adapter/opencode/evals/promptfooconfig.yaml` evaluates every registered lane through its pinned model; `scripts/check-lane-evals.py` fails on drift from the lane registry. |
-| Isolate each unit of work in its own git worktree, and refuse writes to the trunk checkout | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; `internal/agent/authority.go` refuses mutating grants bound to the main checkout. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`.
+| Isolate each unit of work in its own git worktree, and refuse writes to the trunk checkout | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; `internal/agent/authority.go` refuses mutating grants bound to the main checkout. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`. |
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Concord coordinates such work through the `static_analysis` workflow type and records its verdict; it does not implement scanners. |
 | Obtain an acceptance verdict from an authority the implementing agent cannot read or influence | Covered | CD-0013 D5 and CD-0017 D4 hold the influence half; CD-0023 read-scopes the recorded verdict so every session except the recorded executing actor audits it (`internal/agent/verdict_scope_test.go`). |
@@ -121,10 +141,10 @@ Commissioning, validating, and reusing investigation so work does not start blin
 |---|---|---|
 | Track an independent investigation as first-class work with its own completion evidence | Covered | `research` workflow definition, `internal/store/workflow_registry.go` |
 | Explore a bounded architectural question, record options, and reach a recorded decision | Covered | `architecture_spike` workflow definition, `internal/store/workflow_registry.go` |
-| Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back. |
+| Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back (`internal/agent/mutations.go`). |
 | Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `replace_outcome` / `supersede_contract` in `internal/store/workflow_revision.go` |
-| Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, recorded through `concord_work_compact.lesson_publish` (CD-0026 D3). |
+| Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, recorded through `concord_work_compact.lesson_publish` (CD-0026 D3), dispatched in `internal/agent/mutations.go`. |
 | Scout unrealized opportunities and leverage points during discovery | Excluded | [`capability-placement.md`](./capability-placement.md) §3: heuristic analysis tooling is an external native authority. Same basis as §3's quality-scanner row — Concord commissions such investigation through the `research` workflow and records its findings; it does not implement the heuristic. |
 
 ## 5. Ops runbooks
@@ -137,7 +157,7 @@ Executing operational procedures with approval, conditions, and rollback.
 | Roll back a partially executed operation | Covered | `rollback_run` action, `internal/store/workflow_registry.go` |
 | Wait on an external signal without polling, and distinguish waiting from never-completable | Covered for waiting | `add_condition` / `resolve_condition` / `cancel_condition`, `internal/store/workflow_conditions.go`. Distinguishing never-completable is tracked as issue #87. |
 | Record the health of an operational run | Covered | `record_health` action, `internal/store/workflow_registry.go` |
-| Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028). |
+| Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028); dispatched in `internal/agent/mutations.go` and exercised by `internal/agent/resource_claims_dispatch_test.go`. |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
 | Install, sync, pin, and roll back the coordination runtime itself | Excluded | Owned by the release and installer path (`scripts/release.py`, `scripts/install.py`), which CI validates. Not coordination territory. |
 | Diagnose a failing local environment interactively | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places host diagnosis with host scripts and on-demand methodology. Concord observes the results a local environment produces; it does not own diagnosing one. |
@@ -155,8 +175,8 @@ Knowledge that outlives the change that produced it.
 | Keep specifications as binding law with typed relations between them | Covered | CD-0015; `docs/decisions/CD-0015-typed-law-relations.md` |
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
 | Preserve the provenance link between a unit of work and its external tracking record | Covered | `external_ref` on capture, `internal/agent/mutations.go` |
-| Capture a per-change learning and promote the durable ones to project scope | Covered | `concord_work_compact.lesson_publish` records a lesson per change under operator approval; explicit scopes promote it to project/Product reach through the existing scope-filtered reads (CD-0026 D1/D2). |
-| Preserve provenance when an item is promoted into an initiative | Covered | `concord_work_epic.add_entry` folds the typed `parent` relation and ordered `epic_entries` projection through `store.EpicEntryEvent`; the scoped agent boundary test verifies removal clears the relation without changing the child. |
+| Capture a per-change learning and promote the durable ones to project scope | Covered | `concord_work_compact.lesson_publish` records a lesson per change under operator approval; explicit scopes promote it to project/Product reach through the existing scope-filtered reads (CD-0026 D1/D2), dispatched in `internal/agent/mutations.go`. |
+| Preserve provenance when an item is promoted into an initiative | Covered | `concord_work_epic.add_entry` folds the typed `parent` relation and ordered `epic_entries` projection through `store.EpicEntryEvent`; the scoped agent boundary test in `internal/agent/mutation_dispatch_test.go` verifies removal clears the relation without changing the child, against the dispatch in `internal/agent/mutations.go`. |
 | Audit instruction and guidance prose against executable anchors | Covered | CD-0026 D4: manifest records name implementation evidence and `scripts/check-knowledge-index.py` fails in CI when a named path rots, so guidance cannot silently outlive the code it describes. |
 
 ## 7. Cross-cutting

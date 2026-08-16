@@ -28,6 +28,11 @@ MAX_FINDINGS = 50
 
 TX_OBTAIN = re.compile(r"\b(BeginTx|beginRead|enterFold)\s*\(")
 S_DB_ACCESS = re.compile(r"\bs\.db\.(Query|Exec|Begin|Ping|Stats|Close)")
+# Agent-layer shape: an effect closure receives the mutation's open
+# transaction, so any store-method call inside it that does not take the tx
+# is a second connection hop — the same deadlock, one package up.
+EFFECT_OPEN = re.compile(r"effect\s*=\s*func\s*\([^)]*tx\s*\*sql\.Tx[^)]*\)")
+STORE_CALL = re.compile(r"\br\.Store\.[A-Z]")
 
 
 def guard_lines(func_lines: list[str]) -> bool:
@@ -39,6 +44,27 @@ def guard_lines(func_lines: list[str]) -> bool:
             continue
         if tx_seen and S_DB_ACCESS.search(line):
             return True
+    return False
+
+
+def guard_effect_calls(func_lines: list[str]) -> bool:
+    """True when an effect closure (which receives the open mutation tx)
+    calls back into the store. Every store call inside an effect must route
+    through the tx: a tx-free store method opens or uses a second
+    connection, which parks forever while the mutation holds the pool."""
+    in_effect = False
+    depth = 0
+    for line in func_lines:
+        if not in_effect:
+            if EFFECT_OPEN.search(line):
+                in_effect = True
+                depth = line.count("{") - line.count("}")
+            continue
+        depth += line.count("{") - line.count("}")
+        if STORE_CALL.search(line):
+            return True
+        if depth <= 0:
+            in_effect = False
     return False
 
 
@@ -69,8 +95,7 @@ def split_functions(text: str):
 
 def main() -> int:
     findings: list[str] = []
-    store_dir = ROOT / "internal" / "store"
-    for path in sorted(store_dir.rglob("*.go")):
+    for path in sorted((ROOT / "internal" / "store").rglob("*.go")) + sorted((ROOT / "internal" / "agent").rglob("*.go")):
         if path.name.endswith("_test.go"):
             continue
         try:
@@ -79,6 +104,11 @@ def main() -> int:
             findings.append(f"{path.relative_to(ROOT)}: cannot read ({err})")
             continue
         for func_name, lines in split_functions(text):
+            if guard_effect_calls(lines):
+                findings.append(
+                    f"{path.relative_to(ROOT)}: func {func_name} calls back into the store from inside an effect closure; "
+                    "route the call through the tx or a tx-scoped core"
+                )
             if guard_lines(lines):
                 line_no = next(
                     (i + 1 for i, line in enumerate(lines) if S_DB_ACCESS.search(line) and TX_OBTAIN.search("".join(lines[: i + 1]))),

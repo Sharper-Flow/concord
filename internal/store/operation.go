@@ -130,6 +130,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.worktree_created":           {CurrentVersion: 1, MinSupported: 1, Fold: foldWorktreeCreated},
 	"work.resource_claimed":           {CurrentVersion: 1, MinSupported: 1, Fold: foldResourceClaimed},
 	"work.message_sent":               {CurrentVersion: 1, MinSupported: 1, Fold: foldMessageSent},
+	"work.observation_recorded":       {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkObservationRecorded},
 	"work.message_withdrawn":          {CurrentVersion: 1, MinSupported: 1, Fold: foldMessageWithdrawn},
 	"work.resource_claim_released":    {CurrentVersion: 1, MinSupported: 1, Fold: foldResourceClaimReleased},
 	"work.worktree_reclaimed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldWorktreeReclaimed},
@@ -503,6 +504,9 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
 	for _, table := range []string{
+		// work-referencing RESTRICT-FK tables clear before work_items:
+		// observations (CD-0030), messages (CD-0029), claims (CD-0028).
+		"work_observations", "work_messages", "resource_claims",
 		"worker_attempts",
 		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",

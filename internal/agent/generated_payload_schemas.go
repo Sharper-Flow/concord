@@ -466,6 +466,59 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ]
         },
+        "observations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "observation_id": {
+                "maxLength": 20,
+                "minLength": 20,
+                "pattern": "^obs:[0-9a-f]{16}$",
+                "type": "string"
+              },
+              "recorded_at": {
+                "maxLength": 40,
+                "minLength": 10,
+                "type": "string"
+              },
+              "refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              "statement": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "tags": {
+                "items": {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "observation_id",
+              "work_id",
+              "statement",
+              "recorded_at"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
         "pinned": {
           "additionalProperties": false,
           "properties": {
@@ -2900,6 +2953,52 @@ const GeneratedPayloadSchemaDocument = `{
         "value_statement",
         "kind",
         "project_ids",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_define_observation_record_input": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "observation_id": {
+          "maxLength": 20,
+          "minLength": 20,
+          "pattern": "^obs:[0-9a-f]{16}$",
+          "type": "string"
+        },
+        "refs": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "statement": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "statement",
         "idempotency_key"
       ],
       "type": "object"

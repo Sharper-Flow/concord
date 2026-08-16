@@ -119,8 +119,8 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 46,
-      "maxItems": 46,
+      "minItems": 47,
+      "maxItems": 47,
       "items": {
         "type": "object",
         "additionalProperties": false,

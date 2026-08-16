@@ -62,6 +62,9 @@ type ContinuitySnapshot struct {
 	// session (CD-0029). The pointer survives restarts because the snapshot
 	// itself is re-derived per call.
 	PendingMessages int64 `json:"pending_messages"`
+	// Observations carries the work's un-promoted observations, newest first,
+	// bounded (CD-0030 D2). Read-time visibility: no gate consumes this.
+	Observations []WorkObservation `json:"observations"`
 }
 
 type ContinuityRequest struct {
@@ -206,6 +209,27 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 	if countErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, req.Work).Scan(&out.PendingMessages); countErr != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot count pending messages", true, "retry once the database is readable", countErr)
 	}
+	obsRows, obsErr := tx.QueryContext(ctx, `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id LIMIT 16`, req.Work)
+	if obsErr != nil {
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read observations", true, "retry once the database is readable", obsErr)
+	}
+	out.Observations = []WorkObservation{}
+	for obsRows.Next() {
+		var o WorkObservation
+		var obsRefs, obsTags string
+		if err := obsRows.Scan(&o.ObservationID, &o.WorkID, &o.Statement, &obsRefs, &obsTags, &o.RecordedAt); err != nil {
+			obsRows.Close()
+			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot decode observation", true, "retry once the database is readable", err)
+		}
+		_ = json.Unmarshal([]byte(obsRefs), &o.Refs)
+		_ = json.Unmarshal([]byte(obsTags), &o.Tags)
+		out.Observations = append(out.Observations, o)
+	}
+	if err := obsRows.Err(); err != nil {
+		obsRows.Close()
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot enumerate observations", true, "retry once the database is readable", err)
+	}
+	obsRows.Close()
 	return out, nil
 }
 

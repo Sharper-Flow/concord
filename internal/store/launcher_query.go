@@ -190,7 +190,10 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 		out.KnowledgeOmissions = append(out.KnowledgeOmissions, "knowledge matches omitted by launcher limit")
 	}
 	if knowledgeAvailable && knowledgeAuthority == "authoritative" {
-		out.KnowledgeOmissions = append(out.KnowledgeOmissions, knowledgeCoverageOmissions(ctx, s.db, home, knowledgeWatermark)...)
+		// Tx-scoped: this function holds the launcher search read
+		// transaction, and with one pooled connection a nested s.db query
+		// would park on the pool forever.
+		out.KnowledgeOmissions = append(out.KnowledgeOmissions, knowledgeCoverageOmissions(ctx, tx, home, knowledgeWatermark)...)
 	} else if knowledgeAvailable {
 		out.KnowledgeOmissions = append(out.KnowledgeOmissions, "knowledge_index_lagging_or_unreachable")
 	}

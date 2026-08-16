@@ -500,7 +500,15 @@ func validateKnowledgeCoverage(ctx context.Context, s *Store, home KnowledgeHome
 	return nil
 }
 
-func knowledgeCoverageOmissions(ctx context.Context, db *sql.DB, home KnowledgeHome, commit string) []string {
+// coverageQueryer lets the launcher search pass its open read transaction:
+// with one pooled connection (store.go SetMaxOpenConns(1)), a nested s.db
+// query while a tx is held parks on the pool forever — the caller must
+// scope reads to its own transaction.
+type coverageQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func knowledgeCoverageOmissions(ctx context.Context, db coverageQueryer, home KnowledgeHome, commit string) []string {
 	rows, err := db.QueryContext(ctx, `SELECT kind FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=? AND scanned_commit_oid=? AND coverage='supported_not_indexed' ORDER BY kind`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit)
 	if err != nil {
 		return []string{"knowledge_kind_coverage_unavailable"}

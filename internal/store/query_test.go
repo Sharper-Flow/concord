@@ -583,3 +583,32 @@ func TestQueryQ4RejectsUnboundedGraphRequests(t *testing.T) {
 		assertFailureKind(t, err, KindInvalidFilter)
 	}
 }
+
+// The authoritative knowledge branch runs coverage omissions while the
+// launcher search transaction is open. With one pooled connection
+// (store.go SetMaxOpenConns(1)) a nested s.db query there parks on the pool
+// forever — this test would hang, not fail, without tx scoping.
+func TestLauncherSearchAuthoritativeKnowledgeDoesNotDeadlock(t *testing.T) {
+	s := seedQueryFixture(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	repo := initKnowledgeRepo(t)
+	path := "docs/lessons/durable.md"
+	writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("durable-lesson", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
+	writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "durable-lesson", "lesson", path, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
+	commitKnowledgeRepo(t, repo, "durable lesson")
+	home := KnowledgeHome{HomeProjectID: "knowledge-home", HomeLocatorID: "knowledge-locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "prod", home, "proj")
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+
+	search, err := s.QueryLauncherSearch(ctx, LauncherSearchRequest{Product: "prod", Query: "blocked", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if search.KnowledgeAuthority != "authoritative" {
+		t.Fatalf("authority=%q omissions=%v", search.KnowledgeAuthority, search.KnowledgeOmissions)
+	}
+}

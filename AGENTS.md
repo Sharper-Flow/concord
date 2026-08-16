@@ -49,7 +49,9 @@ JSON command rules (see `commandSpecs` in `cmd/concord/main.go`):
 - Hyphenated (`client-register`) and two-word (`client register`) forms are both
   accepted; no other aliases.
 - `CONCORD_DB_PATH` overrides the SQLite path but is refused inside any git
-  repo or worktree.
+  repo or worktree. Without the override the database lives at
+  `$XDG_DATA_HOME/concord/concord.db`, else `~/.local/share/concord/concord.db`
+  (`store.DefaultPath`).
 
 ## Verification before push
 
@@ -61,14 +63,14 @@ python3 scripts/check-doc-links.py
 python3 scripts/check-json.py
 python3 scripts/check-predecessor-coverage.py
 python3 scripts/check-agent-contracts.py
-python3 scripts/test-release.py && python3 scripts/test-installer.py
+python3 scripts/check-tx-scope.py
+python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-tx-scope.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py
 test -z "$(gofmt -l .)"
 go mod tidy
 git diff --exit-code            # CI's clean checkout; locally scope to -- go.mod go.sum
 go vet ./...
 go test -race ./...
 CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
-python3 scripts/check-tx-scope.py
 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 ```
 
@@ -88,23 +90,49 @@ Without `oc-test-gate`, tiers warn and run unthrottled. CI does not use the
 wrapper. For tight Go TDD loops, `targeted` the smallest package first, then
 `full` before push.
 
+Adapter tests (`adapter/opencode/*.test.ts`) use `bun:test` — run them with
+`bun test adapter/opencode`. There is no `package.json`; bun is optional, and
+CI validates the adapter through the Python contract checker instead of
+running bun.
+
 ## Generated code — do not hand-edit
 
-`scripts/generate-agent-contracts.py` produces the files carrying `DO NOT EDIT`
-headers:
+Two generators produce every file carrying a `DO NOT EDIT` header.
+
+`scripts/generate-agent-contracts.py` produces:
 
 - `internal/agent/generated_contracts.go`, `internal/agent/generated_payload_schemas.go`
 - `adapter/opencode/generated-contracts.ts`, `adapter/opencode/generated-contract-tests.ts`
+- `docs/generated-agent-tool-surface.md`
 
 Inputs: `contracts/agent-tool-surface.v1.json` (manifest),
 `contracts/agent-tool-surface.schema.json` (IR),
 `contracts/agent-tool-surface-payloads.schema.json`. A pinned digest lives in
-`contracts/agent-tool-surface.digest`. `scripts/check-agent-contracts.py` (run
-in CI) validates and diffs these — regenerate rather than patching when you
-change the manifest or schemas. `docs/concord-knowledge-index.v1.json` is
-similarly validated by `scripts/check-knowledge-index.py`, and
-`docs/floor-readiness.v1.json` by `scripts/check-floor-readiness.py`. Both run
-inside `scripts/check-json.py` in CI.
+`contracts/agent-tool-surface.digest`.
+
+`scripts/generate-agent-lanes.py` produces:
+
+- `internal/store/generated_agent_lanes.go`, `internal/store/generated_routing_policy.go`
+- `adapter/opencode/generated-agent-lanes.ts`
+- `contracts/agent-lanes.digest`, `contracts/routing-policy.digest`
+- `docs/agent-lanes-contract.md`, `docs/routing-policy-contract.md`
+- `adapter/opencode/agents/concord-{lane}.md` lane agent definitions
+
+Inputs: `contracts/agent-lanes.v1.json` (lane manifest) and
+`contracts/routing-policy.v1.json` (routing policy), each with its schema and
+pinned digest.
+
+`scripts/check-agent-contracts.py` (own CI step) re-runs both generators in
+`--check` mode, diffs the outputs, and — when bun is installed — build-checks
+the generated TypeScript. Regenerate rather than patching when you change a
+manifest or schema. `scripts/test-agent-contracts.py` covers manifest tamper
+rejection (local `python3` unittest; not part of CI).
+
+`docs/concord-knowledge-index.v1.json` is validated by
+`scripts/check-knowledge-index.py` and `docs/floor-readiness.v1.json` by
+`scripts/check-floor-readiness.py`. `scripts/check-json.py` (CI) nests those
+two plus `check-agent-contracts.py`, `check-tx-scope.py`, and
+`check-lane-evals.py` (adapter lane evals).
 
 `docs/predecessor-operational-coverage.md` is validated by
 `scripts/check-predecessor-coverage.py`, which runs as its own CI step. It parses
@@ -148,8 +176,9 @@ the validator to make a check pass.
 - `docs/priorities.md` is the canonical priority/operating-envelope source.
 - `docs/decisions/` contains binding `CD-NNNN` records until superseded.
 - Active research packs are SQLite working context under CD-0009, never Git
-  knowledge. Do not add research-pack content or runtime research output to
-  docs.
+  knowledge. Accepted, decision-bound research reports do live in Git under
+  `docs/research/` (`R*.md`, referenced from the companion table). Do not add
+  active research-pack content or runtime research output to docs.
 - Relative links and heading anchors are enforced
   (`scripts/check-doc-links.py`). Update callers when moving or renaming
   files/headings.
@@ -163,13 +192,13 @@ the validator to make a check pass.
 |---|---|
 | `cmd/concord/` | CLI entrypoint (see CLI surface above). |
 | `internal/version/` | Version value (ldflag-overridden at release). |
-| `internal/store/` | SQLite authority: schema, events, workflow engine, knowledge index, research, lifecycle, membership. |
+| `internal/store/` | SQLite authority: schema, events, workflow engine, knowledge index, research, lifecycle, membership, generated lane/routing registry. |
 | `internal/launcher/` | Framework-agnostic launcher model; `render/bubbletea` is the TUI adapter; `storeport` is the store bridge. |
 | `internal/agent/` | Agent tool surface: grants, invoke dispatch, envelopes, semver, payload validation, generated contracts. |
 | `internal/portfolio/`, `internal/workflowcorpus/` | Read projections and conformance coverage. |
-| `contracts/` | Public JSON schemas + manifest (generated-code inputs). |
+| `contracts/` | Public JSON schemas + manifests (generated-code inputs). |
 | `scenarios/` | Synthetic acceptance scenarios and fixtures. |
-| `adapter/opencode/` | Implemented TypeScript custom-tool adapter (`concord.ts` hand-written + generated contracts); `agents/` holds lane prose and `evals/` the advisory CD-0017 D7 prompt-eval harness. |
+| `adapter/opencode/` | Implemented TypeScript custom-tool adapter (`concord.ts` hand-written + generated contracts); `agents/` holds generated lane definitions and `evals/` the advisory CD-0017 D7 prompt-eval harness. |
 | `docs/` | Constitutional Product law and design evidence. |
 | `workflows/`, `skills/` | Reserved (README only); `skills/` is packaged into releases. |
 | `scripts/` | Validators, codegen, release/install tooling, and their tests. |

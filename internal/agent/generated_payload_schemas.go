@@ -2541,6 +2541,28 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_browse_messages_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "product_id",
+        "work_id"
+      ],
+      "type": "object"
+    },
     "work_browse_ready_input": {
       "additionalProperties": false,
       "properties": {
@@ -3151,6 +3173,67 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "string"
     },
+    "work_messages_page": {
+      "additionalProperties": false,
+      "properties": {
+        "messages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "message_id": {
+                "maxLength": 36,
+                "minLength": 36,
+                "pattern": "^msg:[0-9a-f]{32}$",
+                "type": "string"
+              },
+              "recipient_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "sender_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "sent_at": {
+                "maxLength": 40,
+                "minLength": 10,
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "sent",
+                  "withdrawn"
+                ],
+                "type": "string"
+              },
+              "withdrawn_at": {
+                "maxLength": 40,
+                "minLength": 10,
+                "type": "string"
+              }
+            },
+            "required": [
+              "message_id",
+              "sender_work_id",
+              "recipient_work_id",
+              "body",
+              "state",
+              "sent_at"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "messages"
+      ],
+      "type": "object"
+    },
     "work_page": {
       "additionalProperties": false,
       "properties": {
@@ -3261,6 +3344,65 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "expected_version",
         "memberships",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_relate_message_send_input": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "broadcast": {
+          "type": "boolean"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "recipient_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "body",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_relate_message_withdraw_input": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "message_id": {
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^msg:[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "message_id",
+        "expected_version",
         "idempotency_key"
       ],
       "type": "object"

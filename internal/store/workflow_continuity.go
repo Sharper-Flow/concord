@@ -58,6 +58,10 @@ type ContinuitySnapshot struct {
 	Watermark                string                    `json:"watermark"`
 	RestartAvailable         bool                      `json:"restart_available"`
 	RestartUnavailableReason string                    `json:"restart_unavailable_reason"`
+	// PendingMessages counts sent peer messages awaiting this work's next
+	// session (CD-0029). The pointer survives restarts because the snapshot
+	// itself is re-derived per call.
+	PendingMessages int64 `json:"pending_messages"`
 }
 
 type ContinuityRequest struct {
@@ -197,6 +201,11 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 	out.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	out.RestartAvailable = false
 	out.RestartUnavailableReason = "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call"
+	// Tx-scoped: this function holds a read transaction, and a second
+	// connection would deadlock on SQLite's single writer.
+	if countErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, req.Work).Scan(&out.PendingMessages); countErr != nil {
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot count pending messages", true, "retry once the database is readable", countErr)
+	}
 	return out, nil
 }
 

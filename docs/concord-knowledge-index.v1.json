@@ -639,6 +639,32 @@
       ]
     },
     {
+      "id": "CD-0029",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0029-peer-messages.md",
+      "status": "accepted",
+      "date": "2026-08-14T00:00:00Z",
+      "title": "Peer messages addressed to durable work",
+      "summary": "Messages are durable events addressed to work items: direct or Product-broadcast, pull-at-next-call delivery with a continuity pending pointer, withdrawable-with-visibility, structurally authority-free.",
+      "tags": [
+        "messaging",
+        "concurrency",
+        "agent-surface"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:003f4d884c1dfc9dc12c79bc2ac9d0f6ba883c789103d72f13f736141ee0e29e",
+      "evidence": [
+        "internal/store/work_messages.go",
+        "internal/agent/work_messages_dispatch_test.go"
+      ]
+    },
+    {
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",

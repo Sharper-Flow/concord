@@ -129,6 +129,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.memberships_replaced":       {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkMembershipsReplaced},
 	"work.worktree_created":           {CurrentVersion: 1, MinSupported: 1, Fold: foldWorktreeCreated},
 	"work.resource_claimed":           {CurrentVersion: 1, MinSupported: 1, Fold: foldResourceClaimed},
+	"work.message_sent":               {CurrentVersion: 1, MinSupported: 1, Fold: foldMessageSent},
+	"work.message_withdrawn":          {CurrentVersion: 1, MinSupported: 1, Fold: foldMessageWithdrawn},
 	"work.resource_claim_released":    {CurrentVersion: 1, MinSupported: 1, Fold: foldResourceClaimReleased},
 	"work.worktree_reclaimed":         {CurrentVersion: 1, MinSupported: 1, Fold: foldWorktreeReclaimed},
 	"work.transitioned":               {CurrentVersion: 1, MinSupported: 1, Fold: foldWorkTransitioned},

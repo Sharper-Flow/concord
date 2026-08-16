@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "3.4.0",
+    "version": "3.5.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 9
   },
@@ -40,7 +40,8 @@
         "concord_work_browse.ready",
         "concord_work_browse.blocked",
         "concord_work_browse.scope",
-        "concord_work_browse.resource_claims"
+        "concord_work_browse.resource_claims",
+        "concord_work_browse.messages"
       ]
     },
     {
@@ -107,7 +108,9 @@
         "concord_work_relate.supersede",
         "concord_work_relate.restore_superseded",
         "concord_work_relate.resource_claim",
-        "concord_work_relate.resource_release"
+        "concord_work_relate.resource_release",
+        "concord_work_relate.message_send",
+        "concord_work_relate.message_withdraw"
       ]
     },
     {
@@ -295,6 +298,26 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_browse.messages",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "PM1.Q14",
+      "input_schema": "#/schemas/work_browse_messages_input",
+      "result_schema": "#/schemas/work_messages_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
         "output_bytes": 65536,
         "versions": [
           "1.0"
@@ -923,6 +946,46 @@
       }
     },
     {
+      "id": "concord_work_relate.message_send",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_message_send_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_relate.message_withdraw",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_message_withdraw_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_relate",
+      "consequence": "relation",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
       "id": "concord_work_compact.publish",
       "tool": "concord_work_compact",
       "kind": "mutation",
@@ -1223,6 +1286,22 @@
     "resource_claims_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
       "closed": true
+    },
+    "work_relate_message_send_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_send_input",
+      "closed": true
+    },
+    "work_relate_message_withdraw_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_withdraw_input",
+      "closed": true
+    },
+    "work_browse_messages_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_messages_input",
+      "closed": true
+    },
+    "work_messages_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_messages_page",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1274,6 +1353,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:ca72ecd32f38d1c771179ea6f783282fe163deb1c8f2e5ea06338e940892a1a5",
-  "digest": "sha256:a2bec699f0bb2f2d566230fc1c6ac4a3f4488275a7641b04ea19c3c87e590ef9"
+  "payload_digest": "sha256:5ca007e8326c976de40e736c6351f6075e3aa2db2d69ac3334903efbddacb081",
+  "digest": "sha256:9f8283ddd48507399620b95f03927e5c0c7c03525b1927ed58bf4f8d7e4328f5"
 }

@@ -46,6 +46,13 @@ type WorkerDispatchedPayload struct {
 	FallbackReason       string `json:"fallback_reason"`
 	PacketSchemaVersion  string `json:"packet_schema_version"`
 	ReportSchemaVersion  string `json:"report_schema_version"`
+	// HostProvenance is the declared record of unversioned host prompt
+	// surfaces that shape the worker's behavior (issue #103 / CD-0034):
+	// the adapter enumerates what it can bind — agent definition file,
+	// AGENTS.md chain at spawn cwd, declared instruction files — and hashes
+	// them. Injection is permitted only when recorded. Nil is legal only
+	// for payloads older than v3.
+	HostProvenance *WorkerHostProvenance `json:"host_provenance,omitempty"`
 	// Terminal records the immediate terminal outcome forced at dispatch
 	// (issue #106): "failed" for an undeclared executing model or an
 	// exhausted resolution chain, empty for an ordinary dispatch. A
@@ -69,6 +76,24 @@ type WorkerFailedPayload struct {
 	ReadbackModel string `json:"readback_model"`
 	FailureKind   string `json:"failure_kind"`
 	Detail        string `json:"detail"`
+}
+
+// WorkerHostProvenance is the typed record of host prompt-injection surfaces
+// present at dispatch (CD-0034: declared). TotalDigest binds the ordered
+// manifest; Sources name each enumerated surface.
+type WorkerHostProvenance struct {
+	Digest  string                       `json:"digest"`
+	Sources []WorkerHostProvenanceSource `json:"sources"`
+}
+
+// WorkerHostProvenanceSource names one enumerated injection surface. Kind is
+// closed; Path is host-relative or absolute; SHA256 is the file's content
+// hash. Unenumerable surfaces (provider hints, voice overlays) are recorded
+// as kind "unenumerated" with an empty path and no hash — visible by name.
+type WorkerHostProvenanceSource struct {
+	Kind   string `json:"kind"`
+	Path   string `json:"path,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // WorkerAttempt is the fold-only current projection of one worker attempt.
@@ -163,7 +188,53 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	if err != nil {
 		return err
 	}
+	if err := ValidateWorkerHostProvenance(payload.HostProvenance); err != nil {
+		return err
+	}
 	return ValidateWorkerDispatchIdentity(lane, policy, payload.ResolvedModel, payload.ResolutionRole, payload.FallbackReason)
+}
+
+// workerProvenancePattern binds the total digest and per-source hashes.
+var workerProvenancePattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+var workerProvenanceKinds = map[string]bool{
+	"agent_definition": true, "agents_md": true, "instruction_file": true, "unenumerated": true,
+}
+
+// validateWorkerHostProvenance enforces the CD-0034 declared rule at the
+// evidence boundary: when present the provenance must be complete and
+// closed. Payload version 3 requires it; that gate is the emitter's
+// contract, pinned by the adapter's own tests.
+// ValidateWorkerHostProvenance is the exported gate for CLI/adapter
+// callers composing dispatch evidence.
+func ValidateWorkerHostProvenance(p *WorkerHostProvenance) error {
+	if p == nil {
+		return nil
+	}
+	if !workerProvenancePattern.MatchString(p.Digest) || len(p.Sources) < 1 || len(p.Sources) > 32 {
+		return invalidWorkerPayload("worker host provenance has invalid digest or source bound")
+	}
+	seen := map[string]bool{}
+	for _, source := range p.Sources {
+		if !workerProvenanceKinds[source.Kind] || len(source.Path) > 512 {
+			return invalidWorkerPayload("worker host provenance source has an unknown kind or oversized path")
+		}
+		if source.SHA256 != "" && !workerProvenancePattern.MatchString(source.SHA256) {
+			return invalidWorkerPayload("worker host provenance source hash is not a sha256 digest")
+		}
+		if source.Kind == "unenumerated" && (source.Path != "" || source.SHA256 != "") {
+			return invalidWorkerPayload("unenumerated provenance sources carry no path or hash")
+		}
+		if source.Kind != "unenumerated" && source.SHA256 == "" {
+			return invalidWorkerPayload("enumerated provenance sources must carry their content hash")
+		}
+		key := source.Kind + ":" + source.Path
+		if seen[key] {
+			return invalidWorkerPayload("worker host provenance names a source twice")
+		}
+		seen[key] = true
+	}
+	return nil
 }
 
 func upcastWorkerDispatchedV1(event Event) (Event, error) {
@@ -415,4 +486,27 @@ func (s *Store) WorkerAttemptByID(ctx context.Context, attemptID string) (Worker
 		return WorkerAttempt{}, wrapFailure(KindUnavailable, "worker_attempt_read", "cannot read worker attempt projection", true, "retry once the database is readable", err)
 	}
 	return attempt, nil
+}
+
+// upcastWorkerDispatchedV2 stamps legacy v2 dispatch evidence with an honest
+// provenance marker: recorded before host prompt provenance was declared
+// (CD-0034), so the injection surfaces are unknown by construction.
+func upcastWorkerDispatchedV2(event Event) (Event, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return Event{}, invalidWorkerPayload("worker event payload does not match its closed schema")
+	}
+	if _, exists := payload["host_provenance"]; !exists {
+		payload["host_provenance"] = map[string]any{
+			"digest":  "sha256:" + strings.Repeat("0", 64),
+			"sources": []map[string]any{{"kind": "unenumerated"}},
+		}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return Event{}, err
+	}
+	event.PayloadVersion = 3
+	event.Payload = raw
+	return event, nil
 }

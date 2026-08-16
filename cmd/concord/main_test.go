@@ -542,6 +542,11 @@ func workerDispatchJSON(t *testing.T, eventID, workID, attemptID string, lane st
 		"routing_policy_version": "routing-v1", "routing_policy_digest": store.RoutingPolicyManifestDigest,
 		"resolved_model": resolvedModel, "resolution_role": store.WorkerResolutionPreferred, "fallback_reason": "",
 		"packet_schema_version": packetVersion, "report_schema_version": store.WorkerReportSchemaVersion,
+		// CD-0032: v3 dispatch evidence requires declared host provenance.
+		"host_provenance": map[string]any{
+			"digest":  "sha256:" + strings.Repeat("a", 64),
+			"sources": []map[string]any{{"kind": "agents_md", "path": "/repo/AGENTS.md", "sha256": "sha256:" + strings.Repeat("b", 64)}, {"kind": "unenumerated"}},
+		},
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {

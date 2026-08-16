@@ -223,6 +223,65 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
   return null
 }
 
+// CD-0034 / issue #103: host prompt provenance. The adapter enumerates the
+// unversioned host surfaces it can bind — the lane agent definition file, the
+// AGENTS.md chain at spawn cwd, and instruction files declared through
+// CONCORD_HOST_INSTRUCTIONS (colon-separated paths) — hashing each. Surfaces
+// it cannot enumerate (provider hints, voice overlays, MCP tool prompts) are
+// recorded by name as unenumerated. Injection is permitted only when
+// recorded: a silent injection change changes this digest and is visible in
+// dispatch evidence.
+export type HostProvenanceSource = { kind: "agent_definition" | "agents_md" | "instruction_file" | "unenumerated"; path?: string; sha256?: string }
+export type HostProvenance = { digest: string; sources: HostProvenanceSource[] }
+
+const UNENUMERATED_SURFACES: HostProvenanceSource[] = [
+  { kind: "unenumerated" }, // provider behavioral hints injected per model family
+  { kind: "unenumerated" }, // output-voice overlays applied per call
+  { kind: "unenumerated" }, // MCP tool-definition prompt content
+]
+
+async function fileProvenance(kind: HostProvenanceSource["kind"], path: string): Promise<HostProvenanceSource | null> {
+  try {
+    const file = Bun.file(path)
+    if (!(await file.exists())) return null
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    return { kind, path, sha256: "sha256:" + Bun.SHA256.hash(bytes, "hex") }
+  } catch {
+    return null
+  }
+}
+
+export async function computeHostPromptProvenance(laneId: string, cwd = process.cwd()): Promise<HostProvenance> {
+  const sources: HostProvenanceSource[] = []
+  const agentCandidates = [
+    `${process.env.HOME ?? ""}/.config/opencode/agents/concord-${laneId}.md`,
+    `${cwd}/.opencode/agents/concord-${laneId}.md`,
+  ]
+  for (const candidate of agentCandidates) {
+    const source = await fileProvenance("agent_definition", candidate)
+    if (source) {
+      sources.push(source)
+      break
+    }
+  }
+  let dir = cwd
+  for (let depth = 0; depth < 8 && sources.filter(s => s.kind === "agents_md").length < 4; depth++) {
+    const source = await fileProvenance("agents_md", `${dir}/AGENTS.md`)
+    if (source) sources.push(source)
+    const parent = dir.slice(0, dir.lastIndexOf("/"))
+    if (!parent || parent === dir) break
+    dir = parent
+  }
+  const declared = (process.env.CONCORD_HOST_INSTRUCTIONS ?? "").split(":").filter(Boolean).slice(0, 16)
+  for (const path of declared) {
+    const source = await fileProvenance("instruction_file", path)
+    if (source) sources.push(source)
+  }
+  sources.push(...UNENUMERATED_SURFACES)
+  const manifest = sources.map(source => [source.kind, source.path ?? "", source.sha256 ?? ""].join("\n")).join("\n---\n")
+  return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 32) }
+}
+
 export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
@@ -279,6 +338,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     fallback_reason: envelope.fallback_reason,
     packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION,
+    host_provenance: await computeHostPromptProvenance(lane.id),
   }, signal)
   if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
 

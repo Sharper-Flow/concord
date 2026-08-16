@@ -179,3 +179,26 @@ test("the registered lane set is closed and every agent name is Concord-owned", 
   expect(agentLanes.map((entry) => entry.id).sort()).toEqual(["implement", "research", "review", "verify"])
   for (const entry of agentLanes) expect(`concord-${entry.id}`).toMatch(/^concord-[a-z]+$/)
 })
+
+// CD-0032 / issue #103: provenance is deterministic for the same inputs and
+// changes when an enumerated source changes.
+import { computeHostPromptProvenance } from "./dispatch"
+import { mkdtemp } from "node:fs/promises"
+import * as path from "node:path"
+import * as os from "node:os"
+
+test("host prompt provenance is deterministic and content-bound", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-"))
+  await Bun.write(`${dir}/AGENTS.md`, "# instructions v1\n")
+  const first = await computeHostPromptProvenance("research", dir)
+  const second = await computeHostPromptProvenance("research", dir)
+  expect(first.digest).toBe(second.digest)
+  expect(first.digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  const agentsMd = first.sources.find((s) => s.kind === "agents_md")
+  expect(agentsMd?.path).toBe(`${dir}/AGENTS.md`)
+  expect(agentsMd?.sha256).toMatch(/^sha256:/)
+  expect(first.sources.filter((s) => s.kind === "unenumerated").length).toBeGreaterThan(0)
+  await Bun.write(`${dir}/AGENTS.md`, "# instructions v2 — silently changed\n")
+  const changed = await computeHostPromptProvenance("research", dir)
+  expect(changed.digest).not.toBe(first.digest)
+})

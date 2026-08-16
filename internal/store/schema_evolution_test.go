@@ -232,7 +232,8 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 		registration, ok := eventKindRegistry[kind]
 		wantVersion := 1
 		if kind == WorkerDispatched {
-			wantVersion = 2
+			// v3 adds host prompt provenance (CD-0032).
+			wantVersion = 3
 		}
 		if !ok || registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
 			t.Fatalf("%s registration lacks expected fold/upcaster scaffolding: %+v", kind, registration)

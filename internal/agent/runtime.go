@@ -1432,6 +1432,10 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 // ContinuityPayload is the single public rendering of CD-0016 continuity.
 // Session boot and the concord_work_trace.continuity read share this exact shape.
 func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
+	observations := snapshot.Observations
+	if observations == nil {
+		observations = []store.WorkObservation{}
+	}
 	return map[string]any{
 		"work_id":            snapshot.WorkID,
 		"pinned":             map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure},
@@ -1439,7 +1443,7 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
 		"pending_messages":   snapshot.PendingMessages,
-		"observations":       snapshot.Observations,
+		"observations":       observations,
 	}
 }
 

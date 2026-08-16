@@ -1,6 +1,6 @@
 # CD-0017: Typed Workers and Model Routing
 
-**Status:** Accepted 2026-08-11; amended 2026-08-11 (fallback resolution semantics: D2/D3/D5/D8 clarified, D9 routing-policy record added, Invariant 7 replaced — operator-accepted)
+**Status:** Accepted 2026-08-11; amended 2026-08-11 (fallback resolution semantics: D2/D3/D5/D8 clarified, D9 routing-policy record added, Invariant 7 replaced — operator-accepted); amended 2026-08-15 (issue #106: undeclared-role terminal evidence; `resolved ≠ readback` scope restated)
 **Type:** Architecture decision (spike outcome)
 **Spike:** [`../research/R6-typed-workers-and-model-routing.md`](../research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
@@ -107,6 +107,32 @@ The typed dispatch failure is `resolved ≠ readback`, or `resolved ∉` the dec
 resolution set. A fallback event recorded through readback — `resolved` is a
 declared fallback member and `readback == resolved` — is legal evidence; an
 unrecorded model change is a defect.
+
+*(Amended 2026-08-15, issue #106 — two clarifications the mechanism can now
+back.)*
+
+*First: an executing model outside the declared resolution set, and an
+exhausted resolution chain where no model ran, are now recordable as terminal
+evidence. The dispatch payload's resolution role gains `undeclared`, legal
+only together with a forced terminal failure: `model_identity_mismatch` with
+the undeclared model recorded exactly as read back, or
+`routing_policy_exhausted` with no model. Such attempts are born `failed`,
+can never bind a completion, and exist so the prohibited outcome D5 names is
+durable evidence rather than an adapter-level rejection that is then
+discarded.*
+
+*Second: what `resolved ≠ readback` actually detects. Against the current
+host's single-shot `opencode run`, resolution and execution arrive as one
+observation — a fallback presents as a new assistant message carrying the
+fallback model, with the typed reason on a separate status action — so
+`resolved` and `readback` derive from the same reading and the comparison
+guards **attempt binding across the two CLI invocations** (crossed attempt
+ids, replay, adapter defects), not host-side substitution. A host that
+silently substitutes the model after dispatch is not detectable by this
+clause on the single-shot path. If a session-attached dispatch
+(`--attach`) ever makes resolution and execution separately observable,
+this clause should be revisited; until then no reader may infer a
+substitution guarantee.*
 
 `worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
 item and make one transition from `dispatched`. Both terminal states are immutable;

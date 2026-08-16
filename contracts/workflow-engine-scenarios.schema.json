@@ -839,13 +839,14 @@
         },
         "resolved_model": {
           "type": "string",
-          "minLength": 3,
+          "minLength": 0,
           "maxLength": 128
         },
         "resolution_role": {
           "enum": [
             "preferred",
-            "fallback"
+            "fallback",
+            "undeclared"
           ]
         },
         "fallback_reason": {
@@ -859,7 +860,7 @@
         },
         "readback_model": {
           "type": "string",
-          "minLength": 3,
+          "minLength": 0,
           "maxLength": 128
         },
         "packet_schema_version": {
@@ -1251,10 +1252,16 @@
           "$ref": "#/$defs/id"
         },
         "old_hash": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "new_hash": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "condition_id": {
           "$ref": "#/$defs/id"
@@ -1316,12 +1323,6 @@
             "insufficient_evidence"
           ]
         },
-        "verdict_actor_ref": {
-          "type": "string",
-          "pattern": "^actor:[0-9a-f]{64}$",
-          "minLength": 70,
-          "maxLength": 70
-        },
         "premise_confirmed": {
           "type": "boolean"
         },
@@ -1348,6 +1349,22 @@
           "items": {
             "$ref": "#/$defs/id"
           }
+        },
+        "terminal": {
+          "type": "string",
+          "enum": [
+            "failed"
+          ]
+        },
+        "terminal_failure_kind": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64
+        },
+        "terminal_detail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
         }
       }
     },

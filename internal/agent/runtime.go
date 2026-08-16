@@ -1440,6 +1440,7 @@ func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (E
 		"latest_checkpoint":  snapshot.LatestCheckpoint,
 		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
+		"observations":       snapshot.Observations,
 	})
 }
 func (r runtime) q8(base Envelope, q store.Q8Result) (Envelope, error) {

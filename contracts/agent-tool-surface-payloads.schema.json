@@ -1302,6 +1302,59 @@
               "$ref": "#/$defs/short"
             }
           }
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "observation_id",
+              "work_id",
+              "statement",
+              "recorded_at"
+            ],
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^obs:[0-9a-f]{16}$",
+                "minLength": 20,
+                "maxLength": 20
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "refs": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "tags": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                }
+              },
+              "recorded_at": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 40
+              }
+            }
+          }
         }
       }
     },
@@ -4549,6 +4602,52 @@
               }
             }
           }
+        }
+      }
+    },
+    "work_define_observation_record_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "statement",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "observation_id": {
+          "type": "string",
+          "pattern": "^obs:[0-9a-f]{16}$",
+          "minLength": 20,
+          "maxLength": 20
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
         }
       }
     }

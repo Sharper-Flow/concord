@@ -1,8 +1,8 @@
 # Generated Concord agent tool surface
 
-Source manifest: `3.5.0` / `sha256:488756d935e3bf68039b66c578d1707de681b37375a690e12a97a911c59beaae`
-Payload schema digest: `sha256:93277ade56f07d7fd9756b7457b91d3679698f55775d60fc6537da5fed6aa529`
-Supported surface versions: `3.5.0`; envelope schema: `1.0`
+Source manifest: `3.6.0` / `sha256:253b9bea129be5465890fe886ce35316dd75074937c30553da4090db4cefe958`
+Payload schema digest: `sha256:7459a6e938568c58c24d846eef95c329134f1d545d75d50ef8e2d69e182b1c45`
+Supported surface versions: `3.6.0`; envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
@@ -29,6 +29,7 @@ Supported surface versions: `3.5.0`; envelope schema: `1.0`
 | `concord_work_define.research_finding_record` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.research_source_record` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.research_freshness_set` | `mutation` | `—` | `research` | `research` | `always` |
+| `concord_work_define.observation_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_epic.create` | `mutation` | `—` | `work_epic` | `intent` | `always` |
 | `concord_work_epic.add_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
 | `concord_work_epic.remove_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |

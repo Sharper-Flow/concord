@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "3.5.0"
-const ManifestDigest = "sha256:488756d935e3bf68039b66c578d1707de681b37375a690e12a97a911c59beaae"
+const ManifestVersion = "3.6.0"
+const ManifestDigest = "sha256:253b9bea129be5465890fe886ce35316dd75074937c30553da4090db4cefe958"
 
 type OperationKind string
 
@@ -58,6 +58,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_define.research_finding_record", Tool: "concord_work_define", Operation: "research_finding_record", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("research"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_define.research_source_record", Tool: "concord_work_define", Operation: "research_source_record", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("research"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_define.research_freshness_set", Tool: "concord_work_define", Operation: "research_freshness_set", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("research"), Approval: ApprovalClass("none"), Availability: Availability("always")},
+	{ID: "concord_work_define.observation_record", Tool: "concord_work_define", Operation: "observation_record", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_epic.create", Tool: "concord_work_epic", Operation: "create", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_epic.add_entry", Tool: "concord_work_epic", Operation: "add_entry", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
 	{ID: "concord_work_epic.remove_entry", Tool: "concord_work_epic", Operation: "remove_entry", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_epic"), Approval: ApprovalClass("none"), Availability: Availability("always")},
@@ -107,7 +108,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_checkpoint":                      {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
 	"continuity_failure":                         {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
 	"continuity_operator_decision":               {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
-	"continuity_snapshot":                        {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}},
+	"continuity_snapshot":                        {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations"}},
 	"epic_add_entry_input":                       {Required: []string{"epic_work_id", "child_work_id", "expected_version", "position", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "position", "required", "idempotency_key"}},
 	"epic_change_requiredness_input":             {Required: []string{"epic_work_id", "child_work_id", "expected_version", "required", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "required", "idempotency_key"}},
 	"epic_create_input":                          {Required: []string{"title", "value_statement", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "project_ids", "priority", "urgency", "tags", "component_id", "external_ref", "idempotency_key"}},
@@ -162,6 +163,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_compact_publish_input":                 {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence"}},
 	"work_compact_reconcile_input":               {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence"}},
 	"work_define_capture_input":                  {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "approval"}},
+	"work_define_observation_record_input":       {Required: []string{"work_id", "statement", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "statement", "refs", "tags", "idempotency_key"}},
 	"work_define_research_finding_record_input":  {Required: []string{"pack_id", "expected_version", "finding", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "finding", "source_ids", "idempotency_key"}},
 	"work_define_research_freshness_set_input":   {Required: []string{"pack_id", "expected_version", "freshness", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "freshness", "idempotency_key", "revision"}},
 	"work_define_research_pack_create_input":     {Required: []string{"owner_work_id", "revision", "idempotency_key"}, Properties: []string{"owner_work_id", "revision", "freshness", "idempotency_key"}},

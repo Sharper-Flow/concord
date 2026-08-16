@@ -59,6 +59,7 @@ CI order (`.github/workflows/ci.yml`):
 python3 scripts/check-public-content.py
 python3 scripts/check-doc-links.py
 python3 scripts/check-json.py
+python3 scripts/check-predecessor-coverage.py
 python3 scripts/check-agent-contracts.py
 python3 scripts/test-release.py && python3 scripts/test-installer.py
 test -z "$(gofmt -l .)"
@@ -104,6 +105,13 @@ change the manifest or schemas. `docs/concord-knowledge-index.v1.json` is
 similarly validated by `scripts/check-knowledge-index.py`, and
 `docs/floor-readiness.v1.json` by `scripts/check-floor-readiness.py`. Both run
 inside `scripts/check-json.py` in CI.
+
+`docs/predecessor-operational-coverage.md` is validated by
+`scripts/check-predecessor-coverage.py`, which runs as its own CI step. It parses
+the section tables and fails when a covered outcome names no existing repository
+path, an excluded outcome carries no reason, a state falls outside the closed
+vocabulary, or the stated tally disagrees with the rows it summarises. Editing
+the table is how coverage state changes; the validator keeps the claim honest.
 
 `docs/floor-readiness.v1.json` is the authorizing record of distance from the
 first-usable floor. Editing it is how readiness state changes — a satisfied item

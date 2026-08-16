@@ -182,3 +182,6 @@ func (s *Store) ActiveWorkInProduct(ctx context.Context, productID string, limit
 	}
 	return out, rows.Err()
 }
+
+// RebuildAfterMessagesAndClaimsProvesDeleteOrder is asserted indirectly by
+// work_observations_test.go's rebuild test, which exercises the same list.

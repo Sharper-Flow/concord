@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "3.5.0",
+    "version": "3.6.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 9
   },
@@ -72,7 +72,8 @@
         "concord_work_define.research_revision_append",
         "concord_work_define.research_finding_record",
         "concord_work_define.research_source_record",
-        "concord_work_define.research_freshness_set"
+        "concord_work_define.research_freshness_set",
+        "concord_work_define.observation_record"
       ]
     },
     {
@@ -573,6 +574,26 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "research",
       "consequence": "research",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_work_define.observation_record",
+      "tool": "concord_work_define",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_define_observation_record_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_define",
+      "consequence": "intent",
       "approval": "none",
       "metadata": {
         "context": "ambient",
@@ -1302,6 +1323,10 @@
     "work_messages_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_messages_page",
       "closed": true
+    },
+    "work_define_observation_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_observation_record_input",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1353,6 +1378,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:93277ade56f07d7fd9756b7457b91d3679698f55775d60fc6537da5fed6aa529",
-  "digest": "sha256:488756d935e3bf68039b66c578d1707de681b37375a690e12a97a911c59beaae"
+  "payload_digest": "sha256:7459a6e938568c58c24d846eef95c329134f1d545d75d50ef8e2d69e182b1c45",
+  "digest": "sha256:253b9bea129be5465890fe886ce35316dd75074937c30553da4090db4cefe958"
 }

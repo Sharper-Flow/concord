@@ -186,6 +186,14 @@ type messageWithdrawInput struct {
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
+type observationRecordInput struct {
+	WorkID         string   `json:"work_id"`
+	ObservationID  string   `json:"observation_id"`
+	Statement      string   `json:"statement"`
+	Refs           []string `json:"refs"`
+	Tags           []string `json:"tags"`
+	IdempotencyKey string   `json:"idempotency_key"`
+}
 type researchBindingInput struct {
 	PackID   string `json:"pack_id"`
 	Revision int64  `json:"revision"`
@@ -1343,6 +1351,26 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), []string{in.MessageID}, changed, nil
+		}
+	case "concord_work_define.observation_record":
+		var in observationRecordInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		scope["work_ids"] = []string{in.WorkID}
+		intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
+		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			observationID := in.ObservationID
+			if observationID == "" {
+				sum := sha256.Sum256([]byte(digest))
+				observationID = "obs:" + hex.EncodeToString(sum[:8])
+			}
+			payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":observation", Kind: "work.observation_recorded", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "observation", ID: observationID, Version: "1"}}
+			return mutationPayload(changed, intents), []string{observationID}, changed, nil
 		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput

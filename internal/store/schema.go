@@ -1694,6 +1694,27 @@ CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+
+	{
+		Version: 36,
+		Name:    "work_observations",
+		SQL: `
+-- CD-0030: durable mid-life observations on work items. Fold-only; the
+-- work.observation_recorded fold owns every write. Non-authoritative.
+CREATE TABLE work_observations (
+    observation_id TEXT PRIMARY KEY CHECK(length(observation_id) = 20 AND substr(observation_id,1,4) = 'obs:'),
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    statement TEXT NOT NULL CHECK(length(statement) > 0 AND length(statement) <= 512),
+    refs TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(refs) AND json_type(refs)='array' AND json_array_length(refs) <= 16),
+    tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags) AND json_type(tags)='array' AND json_array_length(tags) <= 8),
+    recorded_at TEXT NOT NULL
+);
+CREATE INDEX work_observations_work ON work_observations(work_id, recorded_at);
+CREATE TRIGGER work_observations_guard_insert BEFORE INSERT ON work_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_observations_guard_update BEFORE UPDATE ON work_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_observations_guard_delete BEFORE DELETE ON work_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -425,6 +425,10 @@
           "items": {
             "$ref": "#/$defs/id"
           }
+        },
+        "rigor_class": {
+          "type": "string",
+          "maxLength": 64
         }
       }
     },
@@ -1175,7 +1179,8 @@
         "pinned",
         "latest_checkpoint",
         "boundaries",
-        "typed_availability"
+        "typed_availability",
+        "pending_messages"
       ],
       "properties": {
         "work_id": {
@@ -1206,7 +1211,14 @@
               "$ref": "#/$defs/short"
             },
             "contract": {
-              "$ref": "#/$defs/workflow_contract"
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/workflow_contract"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "spec_mandate": {
               "type": "array",
@@ -1355,6 +1367,10 @@
               }
             }
           }
+        },
+        "pending_messages": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -4648,6 +4664,46 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "session_boot_packet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "session_type",
+        "session_contract_version",
+        "surface_version",
+        "manifest_digest",
+        "product_id",
+        "work_id",
+        "continuity"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0"
+        },
+        "session_type": {
+          "const": "operator"
+        },
+        "session_contract_version": {
+          "const": "1.0"
+        },
+        "surface_version": {
+          "const": "3.7.0"
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "continuity": {
+          "$ref": "#/$defs/continuity_snapshot"
         }
       }
     }

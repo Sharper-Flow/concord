@@ -119,6 +119,8 @@ C18's read-only contract is honored without amendment.
 
 ## Operational usage note
 
+> **Resolved by CD-0031:** launcher-started operator sessions receive core-derived continuity before OpenCode starts. Host skills may still govern method, but durable work intent no longer depends on prose injection.
+
 > The mechanism for delivering operational guidance to Concord agents — skills,
 > prompt injection, documentation, or another shape — is not yet decided. The
 > following is recorded here so the semantics and discipline survive regardless

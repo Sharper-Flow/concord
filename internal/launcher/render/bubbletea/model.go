@@ -3,6 +3,7 @@ package bubbletea
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -196,6 +197,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.SetWidth(max(1, msg.Width))
 		m.Sync()
 		return m, nil
+	case sessionLaunchError:
+		m.setError(msg.err)
+		m.Sync()
+		return m, nil
 	case tea.PasteMsg:
 		if m.filterMode || m.queryMode {
 			var cmd tea.Cmd
@@ -378,10 +383,9 @@ func (m *Model) setError(err error) {
 	snapshot := m.core.Snapshot()
 	snapshot.StatusMessage = err.Error()
 	snapshot.Coverage = "unreachable"
-	// The core owns snapshots; a failed explicit read is represented by the
-	// read port's typed snapshot on the next successful call. Keep the render
-	// stable here without adding a second authority or retry command.
-	_ = snapshot
+	// This is process-launch status, not workflow authority. Preserve the
+	// current snapshot and expose the typed failure without retrying.
+	m.core.RestoreSnapshot(snapshot)
 }
 
 func (m *Model) filteredRows() []launcher.ProductRow {
@@ -748,15 +752,31 @@ func fmtInt64(value int64) string {
 	return fmtInt(int(value))
 }
 
+var executablePath = os.Executable
+
+type sessionLaunchError struct{ err error }
+
 func defaultSessionLauncher(handoff launcher.SessionHandoff) tea.Cmd {
-	prompt := "Concord identity: product_id=" + handoff.ProductID
-	cmd := exec.Command("opencode", "--prompt", prompt)
-	cmd.Env = handoffEnv(handoff)
-	if handoff.WorkID != "" {
-		prompt += " work_id=" + handoff.WorkID
-		cmd.Args = []string{"opencode", "--prompt", prompt}
+	cmd, err := sessionProcess(handoff)
+	if err != nil {
+		return func() tea.Msg { return sessionLaunchError{err: err} }
 	}
-	return tea.ExecProcess(cmd, nil)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return sessionLaunchError{err: err}
+		}
+		return nil
+	})
+}
+
+func sessionProcess(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
+	executable, err := executablePath()
+	if err != nil || executable == "" {
+		return nil, fmt.Errorf("cannot identify the running Concord binary")
+	}
+	cmd := exec.Command(executable, "session")
+	cmd.Env = handoffEnv(handoff)
+	return cmd, nil
 }
 
 func handoffEnv(handoff launcher.SessionHandoff) []string {

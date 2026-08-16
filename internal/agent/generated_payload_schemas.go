@@ -519,11 +519,22 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "type": "array"
         },
+        "pending_messages": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "pinned": {
           "additionalProperties": false,
           "properties": {
             "contract": {
-              "$ref": "#/$defs/workflow_contract"
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/workflow_contract"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "latest_checkpoint": {
               "oneOf": [
@@ -611,7 +622,8 @@ const GeneratedPayloadSchemaDocument = `{
         "pinned",
         "latest_checkpoint",
         "boundaries",
-        "typed_availability"
+        "typed_availability",
+        "pending_messages"
       ],
       "type": "object"
     },
@@ -2478,6 +2490,46 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         }
       },
+      "type": "object"
+    },
+    "session_boot_packet": {
+      "additionalProperties": false,
+      "properties": {
+        "continuity": {
+          "$ref": "#/$defs/continuity_snapshot"
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "schema_version": {
+          "const": "1.0"
+        },
+        "session_contract_version": {
+          "const": "1.0"
+        },
+        "session_type": {
+          "const": "operator"
+        },
+        "surface_version": {
+          "const": "3.7.0"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "session_type",
+        "session_contract_version",
+        "surface_version",
+        "manifest_digest",
+        "product_id",
+        "work_id",
+        "continuity"
+      ],
       "type": "object"
     },
     "short": {
@@ -4441,6 +4493,10 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 7,
           "type": "array",
           "uniqueItems": true
+        },
+        "rigor_class": {
+          "maxLength": 64,
+          "type": "string"
         },
         "route_conventions": {
           "items": {

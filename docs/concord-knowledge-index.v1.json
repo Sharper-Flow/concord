@@ -351,7 +351,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5c746e2a230b268ffb5d60680982788a4c45c1467e0be1a1ea0c00248fd55856",
+      "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
       "evidence": [
         "contracts/agent-lanes.v1.json",
         "internal/store/worker_authority_boundary_test.go",

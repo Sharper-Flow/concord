@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "3.6.0",
+    "version": "3.7.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 9
   },
@@ -1156,6 +1156,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
     },
+    "session_boot_packet": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_boot_packet",
+      "closed": true
+    },
     "work_relation_graph": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relation_graph",
       "closed": true
@@ -1378,6 +1382,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:7459a6e938568c58c24d846eef95c329134f1d545d75d50ef8e2d69e182b1c45",
-  "digest": "sha256:253b9bea129be5465890fe886ce35316dd75074937c30553da4090db4cefe958"
+  "payload_digest": "sha256:4ac4939305d49d7081307d4ab57b0e38e8a0f676ba9c4e4c994e6fbf3f7d35ee",
+  "digest": "sha256:d3622c049aee48793c70107a8ee799bb83903f8b60d88a3a50fa855b4a690d82"
 }

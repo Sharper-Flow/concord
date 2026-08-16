@@ -2,6 +2,7 @@ package bubbletea
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -481,5 +482,36 @@ func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	m.UpdateKey("l")
 	if called.ProductID != "product-1" || called.WorkID != "work-1" {
 		t.Fatalf("S3 handoff=%#v", called)
+	}
+}
+
+func TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap(t *testing.T) {
+	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmd.Args) != 2 || cmd.Args[0] != cmd.Path || cmd.Args[1] != "session" {
+		t.Fatalf("session argv=%q path=%q", cmd.Args, cmd.Path)
+	}
+	selected := map[string]string{}
+	for _, value := range cmd.Env {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") {
+			selected["product"] = strings.TrimPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=")
+		}
+		if strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") {
+			selected["work"] = strings.TrimPrefix(value, "CONCORD_SELECTED_WORK_ID=")
+		}
+	}
+	if selected["product"] != "product-1" || selected["work"] != "work-1" {
+		t.Fatalf("session env identity=%v", selected)
+	}
+}
+
+func TestSessionLauncherFailsClosedWithoutRunningBinaryIdentity(t *testing.T) {
+	original := executablePath
+	executablePath = func() (string, error) { return "", errors.New("unavailable") }
+	defer func() { executablePath = original }()
+	if cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1"}); err == nil || cmd != nil {
+		t.Fatalf("session process=%v err=%v", cmd, err)
 	}
 }

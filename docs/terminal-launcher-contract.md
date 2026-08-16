@@ -302,9 +302,12 @@ So the handoff carries identity only:
 | S2 | Resolved Product scope |
 | S3 | Resolved Product scope plus the work item's stable ID |
 
-The session then reads durable state and resumes at whatever step the workflow is
-actually on. State-dependent behaviour is preserved — it is simply resolved once, by
-the authority that owns it, at the moment of use rather than at the moment of display.
+The launcher starts the core-owned `concord session` bootstrap with that identity.
+Per CD-0031, the child reads the canonical CD-0016 continuity projection, validates
+its versioned packet, and gives the exact packet to OpenCode before the session starts.
+State-dependent behaviour is preserved and resolved once by the authority that owns
+it, at the moment of use rather than at the moment of display. The launcher model and
+renderer never see the packet or derive workflow position.
 
 This also makes the launcher's snapshot harmless. A stale screen can hand off a work
 ID; it cannot hand off a stale opinion about workflow position, because it never forms
@@ -498,7 +501,10 @@ A prototype would need to satisfy at minimum:
 - Back from S3 returns to S2 with the prior selection and scroll position intact.
 - A work item cannot be reached without an ambient Product.
 - Launching from S3 hands the work item's stable ID and nothing about workflow
-  position; the session resumes at the step durable state says it is on.
+  position; the core session bootstrap supplies a generated, digest-bound continuity
+  packet before OpenCode starts, and the session resumes at the durable current step.
+- An unknown session type, session contract version, surface version, or manifest digest
+  fails before OpenCode starts.
 - Launching from a deliberately stale S3 snapshot resumes at the *current* step, not
   the displayed one.
 - No durable write is observable in the event log across a full launcher session that

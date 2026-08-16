@@ -4,6 +4,8 @@
 **Approval date:** 2026-08-11.
 **Approval:** Operator-approved GitHub issue #42.
 
+> **Subsequent decision:** CD-0031 supplies automatic core-derived continuity to launcher-started operator sessions. The absence statement in §Consequences records the state when CD-0016 was accepted.
+
 ## Decision
 
 Concord names this capability **context continuity**, not compaction. Product

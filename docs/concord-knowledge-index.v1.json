@@ -324,7 +324,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d08f88854f05f0763cf0320f39e25298a89ab220d83953ac355109141c9ba27c",
+      "sha256": "sha256:98680244e6653e03458dcb6fb437417558807d47724e44077a6de330f86ca8c5",
       "evidence": [
         "internal/store/workflow_continuity.go",
         "internal/store/workflow_continuity_test.go"
@@ -380,7 +380,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:756fcbb22f03e259d2aac9bd663b3696de71180dbb77facdc3d0fc6dd8c5ca03"
+      "sha256": "sha256:3b85627f25651e47820823d3887bbf006561a9c44767d57b82762a8da0f0a217"
     },
     {
       "id": "CD-0019",
@@ -461,7 +461,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, component, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, component, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -689,6 +689,33 @@
         "internal/store/work_observations.go",
         "internal/store/work_observations_test.go",
         "internal/agent/observation_dispatch_test.go"
+      ]
+    },
+    {
+      "id": "CD-0031",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0031-core-derived-session-boot.md",
+      "status": "accepted",
+      "date": "2026-08-16T00:00:00Z",
+      "title": "Core-derived operator session boot",
+      "summary": "Launcher-started operator sessions receive one generated, digest-bound packet rendered from canonical continuity before OpenCode starts; the launcher remains identity-only.",
+      "tags": [
+        "continuity",
+        "launcher",
+        "agent-surface"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:2a7934347c6eae0d2bb4f3d3ef7f4399a35d7dd2e50935ecf315c4d47726f0bb",
+      "evidence": [
+        "internal/sessionboot/sessionboot.go",
+        "cmd/concord/session_test.go",
+        "internal/launcher/render/bubbletea/model_test.go"
       ]
     },
     {

@@ -32,6 +32,8 @@ Small but no longer `--version`-only:
 - `concord --version`, `concord --help`
 - `concord launcher` — interactive Bubble Tea TUI; TTY-only, does **not** read
   JSON stdin.
+- `concord session` — internal TTY bootstrap invoked by the launcher; derives and
+  validates the selected work's CD-0016 continuity packet before starting OpenCode.
 - JSON-stdin commands: `grant`, `invoke`, worker evidence (`worker-dispatch`,
   `worker-complete`, `worker-fail`), and operator setup (`client register`
   / `policy-update` / `key-rotate` / `revoke`, `product create`, `project

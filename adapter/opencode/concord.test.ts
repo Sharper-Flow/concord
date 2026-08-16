@@ -313,3 +313,20 @@ test("canonical host approval vector matches core encoding", () => {
   const { canonical_base64: expected, ...assertion } = approvalVector
   expect(Buffer.from(adapter.canonicalHostApproval(assertion)).toString("base64")).toBe(expected)
 })
+
+test("grant bootstrap advertises the generated surface identity", async () => {
+  let assertion: any
+  let calls = 0
+  const runner = { async run(_argv: string[], input: string) {
+    calls++
+    if (calls === 1) {
+      assertion = JSON.parse(input).assertion
+      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    }
+    return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", stage: "prototype", projects: [], candidates: [] } })), stderr: "" }
+  } }
+  await runProduct(runner)
+  expect(assertion.client_version).toBe(manifestVersion)
+  expect(assertion.surface_range).toBe(`${manifestVersion}-${manifestVersion}`)
+  expect(assertion.manifest_digest).toBe(manifestDigest)
+})

@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "3.6.0"
-const ManifestDigest = "sha256:253b9bea129be5465890fe886ce35316dd75074937c30553da4090db4cefe958"
+const ManifestVersion = "3.7.0"
+const ManifestDigest = "sha256:d3622c049aee48793c70107a8ee799bb83903f8b60d88a3a50fa855b4a690d82"
 
 type OperationKind string
 
@@ -108,7 +108,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_checkpoint":                      {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
 	"continuity_failure":                         {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
 	"continuity_operator_decision":               {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
-	"continuity_snapshot":                        {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations"}},
+	"continuity_snapshot":                        {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "pending_messages"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations", "pending_messages"}},
 	"epic_add_entry_input":                       {Required: []string{"epic_work_id", "child_work_id", "expected_version", "position", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "position", "required", "idempotency_key"}},
 	"epic_change_requiredness_input":             {Required: []string{"epic_work_id", "child_work_id", "expected_version", "required", "idempotency_key"}, Properties: []string{"epic_work_id", "child_work_id", "expected_version", "required", "idempotency_key"}},
 	"epic_create_input":                          {Required: []string{"title", "value_statement", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "project_ids", "priority", "urgency", "tags", "component_id", "external_ref", "idempotency_key"}},
@@ -153,6 +153,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"research_source_input":                      {Required: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},
 	"resource_claims_page":                       {Required: []string{"claims"}, Properties: []string{"claims"}},
 	"scope":                                      {Required: []string{}, Properties: []string{"product_id", "project_ids", "work_ids", "scope_version"}},
+	"session_boot_packet":                        {Required: []string{"schema_version", "session_type", "session_contract_version", "surface_version", "manifest_digest", "product_id", "work_id", "continuity"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "surface_version", "manifest_digest", "product_id", "work_id", "continuity"}},
 	"work_browse_blocked_input":                  {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "work_id", "kind", "depth", "page", "budget"}},
 	"work_browse_list_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_ids", "work_ids", "lifecycle", "kind", "component_id", "tag_ids", "priority_min", "priority_max", "detail", "terminal_since", "page", "budget"}},
 	"work_browse_messages_input":                 {Required: []string{"product_id", "work_id"}, Properties: []string{"product_id", "work_id", "page", "budget"}},
@@ -193,7 +194,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_lifecycle_input":            {Required: []string{"work_id", "expected_version", "target", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "target", "reason", "idempotency_key", "evidence", "approval"}},
 	"work_transition_worktree_claim_input":       {Required: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key"}},
 	"work_transition_worktree_reclaim_input":     {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key"}},
-	"workflow_contract":                          {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies"}},
+	"workflow_contract":                          {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class"}},
 	"workflow_read":                              {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}},
 }
 

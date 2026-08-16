@@ -3,8 +3,8 @@ import { tool, type ToolContext } from "@opencode-ai/plugin"
 import { contractOperations, canonicalAssertion, manifestDigest, manifestVersion, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 
-const ADAPTER_VERSION = "3.0.0"
-const SURFACE_RANGE = "3.0.0-3.0.0"
+const ADAPTER_VERSION = manifestVersion
+const SURFACE_RANGE = `${manifestVersion}-${manifestVersion}`
 const ENVELOPE_VERSIONS = "1.0"
 const MAX_STDERR = 8192
 const GRANT_TTL_MS = 50 * 60 * 1000

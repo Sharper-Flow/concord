@@ -1428,21 +1428,30 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"events": events})
 }
+
+// ContinuityPayload is the single public rendering of CD-0016 continuity.
+// Session boot and the concord_work_trace.continuity read share this exact shape.
+func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
+	return map[string]any{
+		"work_id":            snapshot.WorkID,
+		"pinned":             map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure},
+		"latest_checkpoint":  snapshot.LatestCheckpoint,
+		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
+		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
+		"pending_messages":   snapshot.PendingMessages,
+		"observations":       snapshot.Observations,
+	}
+}
+
 func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (Envelope, error) {
 	watermark := int64(0)
 	if strings.HasPrefix(snapshot.Watermark, "seq:") {
 		watermark, _ = strconv.ParseInt(strings.TrimPrefix(snapshot.Watermark, "seq:"), 10, 64)
 	}
 	meta := store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: snapshot.NextCursor, Omissions: []string{}, Warnings: []string{}}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{
-		"work_id":            snapshot.WorkID,
-		"pinned":             map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure},
-		"latest_checkpoint":  snapshot.LatestCheckpoint,
-		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
-		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
-		"observations":       snapshot.Observations,
-	})
+	return r.resultEnvelope(base, meta, r.scope(meta), ContinuityPayload(snapshot))
 }
+
 func (r runtime) q8(base Envelope, q store.Q8Result) (Envelope, error) {
 	if q.Edges == nil {
 		q.Edges = []store.RelationEdge{}

@@ -67,6 +67,7 @@ Turning intent into durable, reviewable commitment before implementation.
 | Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Covered | `concord_work_epic.create`, entry mutations, narrative revision, and bounded `entries` read in `internal/agent/mutations.go`, `internal/agent/runtime.go`, and `contracts/agent-tool-surface.v1.json`; `TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead` proves the reachable event and read path. |
 | Track lightweight future work that is not yet ready to start | Excluded | CD-0009 rejects additional trackable kinds. Early-lifecycle work items carry this, and a separate backlog entity would reintroduce the trackable proliferation the decision closes. |
 | Audit drift between recorded law and current implementation | Covered | Manifest records carry `evidence` paths; `scripts/check-knowledge-index.py` fails when an evidence path rots (CD-0026). Structural reachability, not semantic verification. |
+| Resolve an ambiguous requirement into a decidable operator choice before commitment | Covered | `operator_question` projection with closed choices and action mapping, `internal/store/workflow_operator.go`; `confirm_premise` requires `selected_choice=confirm` and the matching `decision_context_digest` ([`workflow-engine-contract.md`](./workflow-engine-contract.md) §8.1) |
 
 ## 2. Visibility and portfolio status
 
@@ -109,6 +110,8 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Concord coordinates such work through the `static_analysis` workflow type and records its verdict; it does not implement scanners. |
 | Obtain an acceptance verdict from an authority the implementing agent cannot read or influence | Covered | CD-0013 D5 and CD-0017 D4 hold the influence half; CD-0023 read-scopes the recorded verdict so every session except the recorded executing actor audits it (`internal/agent/verdict_scope_test.go`). |
+| Track a small, well-understood durable change without the full spec-driven lifecycle | Covered | `generic_one_off` workflow definition (`define` → `execute` → `verify` → `complete`), `internal/store/workflow_registry.go` |
+| Obtain a review verdict on rendered visual or frontend output | Covered | `record_verdict` and the `EvidenceReview` requirement carry a review verdict regardless of which surface the reviewer inspected, `internal/store/workflow_registry.go`; evaluator distinctness is enforced in `internal/store/workflow_completion.go`. Which surface a reviewer examines is lane methodology, which [`capability-placement.md`](./capability-placement.md) §4 assigns to a skill — the same coordination/analysis split this section applies to quality scanners. |
 
 ## 4. Research and investigation
 
@@ -122,6 +125,7 @@ Commissioning, validating, and reusing investigation so work does not start blin
 | Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `replace_outcome` / `supersede_contract` in `internal/store/workflow_revision.go` |
 | Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, recorded through `concord_work_compact.lesson_publish` (CD-0026 D3). |
+| Scout unrealized opportunities and leverage points during discovery | Excluded | [`capability-placement.md`](./capability-placement.md) §3: heuristic analysis tooling is an external native authority. Same basis as §3's quality-scanner row — Concord commissions such investigation through the `research` workflow and records its findings; it does not implement the heuristic. |
 
 ## 5. Ops runbooks
 
@@ -136,6 +140,7 @@ Executing operational procedures with approval, conditions, and rollback.
 | Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028). |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
 | Install, sync, pin, and roll back the coordination runtime itself | Excluded | Owned by the release and installer path (`scripts/release.py`, `scripts/install.py`), which CI validates. Not coordination territory. |
+| Diagnose a failing local environment interactively | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places host diagnosis with host scripts and on-demand methodology. Concord observes the results a local environment produces; it does not own diagnosing one. |
 
 ## 6. Durable product knowledge
 
@@ -152,6 +157,7 @@ Knowledge that outlives the change that produced it.
 | Preserve the provenance link between a unit of work and its external tracking record | Covered | `external_ref` on capture, `internal/agent/mutations.go` |
 | Capture a per-change learning and promote the durable ones to project scope | Covered | `concord_work_compact.lesson_publish` records a lesson per change under operator approval; explicit scopes promote it to project/Product reach through the existing scope-filtered reads (CD-0026 D1/D2). |
 | Preserve provenance when an item is promoted into an initiative | Covered | `concord_work_epic.add_entry` folds the typed `parent` relation and ordered `epic_entries` projection through `store.EpicEntryEvent`; the scoped agent boundary test verifies removal clears the relation without changing the child. |
+| Audit instruction and guidance prose against executable anchors | Covered | CD-0026 D4: manifest records name implementation evidence and `scripts/check-knowledge-index.py` fails in CI when a named path rots, so guidance cannot silently outlive the code it describes. |
 
 ## 7. Cross-cutting
 
@@ -164,6 +170,8 @@ Territory that appears across all six and is an outcome in its own right.
 | Rebuild every projection from the event log without loss | Covered | `internal/store/reconstruction.go`; rebuild byte-equality scenario in `scenarios/workflow-engine.v1.json` |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Grants and scope validation, `internal/agent/authority.go` |
 | Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered in path, unverified in split | `internal/agent/runtime.go`. Recorded as `fc2-context-freshness` (`unmeasured`). |
+| Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `replace_outcome` / `supersede_contract` (`internal/store/workflow_revision.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
+| Deliver agent behavioural methodology — rule rationale, structured preference elicitation | Excluded | [`capability-placement.md`](./capability-placement.md) §4: always-on behavioural policy is an instruction and on-demand methodology is a skill. Both are host-owned surfaces, not durable coordination state. |
 
 ---
 
@@ -171,11 +179,11 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 57 |
+| Covered | 62 |
 | Not covered | 0 |
-| Excluded with reason | 8 |
+| Excluded with reason | 11 |
 
-**Total enumerated outcomes: 65.**
+**Total enumerated outcomes: 73.**
 
 No enumerated outcome remains not covered: the floor bar (covered with evidence or
 excluded with an accepted reason) is met. The clustering list is retained below

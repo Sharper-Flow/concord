@@ -377,6 +377,37 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 // historical fixtureEvent helper that lived inside internal/store's test
 // package; behaviour and payload-version rule (work.created uses v2, all
 // others use v1) are preserved verbatim.
+// SeedGoverningRequirement declares one CD-0035 governing requirement against a
+// seeded Project. It is deliberately additive and separate from Seed: folding it
+// into the base fixture would move every Project version and shift expected
+// versions under every PM1-bound scenario, which is the coupling issue #169
+// already tracks.
+func SeedGoverningRequirement(ctx context.Context, s *store.Store, projectID, requirementRef, reason string) error {
+	var current int64
+	if err := s.DB().QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, projectID).Scan(&current); err != nil {
+		return fmt.Errorf("pm1fixture: read Project %s version: %w", projectID, err)
+	}
+	event := fixtureEvent(
+		"governing-requirement-"+projectID+"-"+requirementRef,
+		"project.governing_requirement_declared",
+		store.SubjectProject,
+		projectID,
+		"operator",
+		"2026-08-07T12:00:00Z",
+		map[string]any{
+			"project_id":        projectID,
+			"requirement_ref":   requirementRef,
+			"reason":            reason,
+			"expected_version":  current,
+			"resulting_version": current + 1,
+		},
+	)
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, projectID): current}}); err != nil {
+		return fmt.Errorf("pm1fixture: declare governing requirement %s on %s: %w", requirementRef, projectID, err)
+	}
+	return nil
+}
+
 func fixtureEvent(id, kind string, subject store.SubjectType, subjectID, actor, occurred string, payload map[string]any) store.Event {
 	raw, err := json.Marshal(payload)
 	if err != nil {

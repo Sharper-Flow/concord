@@ -116,8 +116,36 @@ type TypedError struct {
 	CurrentVersions []ChangedRef   `json:"current_versions,omitempty"`
 	Candidates      []string       `json:"candidates,omitempty"`
 	Violations      []string       `json:"violations,omitempty"`
+	Options         []string       `json:"options,omitempty"`
 	Details         map[string]any `json:"details,omitempty"`
 }
+
+// GoverningConflictOptions is the closed operator-choice vocabulary of CD-0035
+// D1/D5. It is the wire form of the three resolutions specs-as-laws.md section 4
+// and CD-0012 D6 name in prose.
+var GoverningConflictOptions = []string{"clarify", "amend_contract", "accept_scope_cut"}
+
+func validateOptions(err TypedError) error {
+	if len(err.Options) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{"clarify": true, "amend_contract": true, "accept_scope_cut": true}
+	if len(err.Options) > len(allowed) || !unique(err.Options) {
+		return errors.New("invalid operator options")
+	}
+	for _, option := range err.Options {
+		if !allowed[option] {
+			return fmt.Errorf("unknown operator option %q", option)
+		}
+	}
+	// CD-0035 D1: options are permitted only on a governing-law conflict, and
+	// only alongside the recovery action that returns the choice to the operator.
+	if err.Kind != "invariant_violation" || err.RecoveryAction.Kind != "contact_operator" {
+		return errors.New("operator options coupling violated")
+	}
+	return nil
+}
+
 type OperationRef struct {
 	ID          string         `json:"id"`
 	Kind        string         `json:"kind"`
@@ -611,6 +639,9 @@ func validateError(err TypedError) error {
 	}
 	if (err.Kind == "cancelled" || err.Kind == "timeout") && (err.EffectState != EffectNone || err.RecoveryAction.Kind != "retry_same_request") {
 		return errors.New("cancel/timeout coupling violated")
+	}
+	if x := validateOptions(err); x != nil {
+		return x
 	}
 	return nil
 }

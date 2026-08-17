@@ -24,18 +24,23 @@ type mutationMembership struct {
 	Role      string `json:"role"`
 }
 type captureMutationInput struct {
-	Title           string         `json:"title"`
-	ValueStatement  string         `json:"value_statement"`
-	Kind            string         `json:"kind"`
-	ProjectIDs      []string       `json:"project_ids"`
-	Priority        int64          `json:"priority"`
-	Urgency         string         `json:"urgency"`
-	Tags            []string       `json:"tags"`
-	ComponentID     string         `json:"component_id"`
-	WorkflowTypeRef string         `json:"workflow_type_ref"`
-	ExternalRef     string         `json:"external_ref"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Approval        *approvalInput `json:"approval"`
+	Title           string   `json:"title"`
+	ValueStatement  string   `json:"value_statement"`
+	Kind            string   `json:"kind"`
+	ProjectIDs      []string `json:"project_ids"`
+	Priority        int64    `json:"priority"`
+	Urgency         string   `json:"urgency"`
+	Tags            []string `json:"tags"`
+	ComponentID     string   `json:"component_id"`
+	WorkflowTypeRef string   `json:"workflow_type_ref"`
+	ExternalRef     string   `json:"external_ref"`
+	IdempotencyKey  string   `json:"idempotency_key"`
+	// GoverningRequirements enumerates the scope-level obligations this capture
+	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
+	// fails to cover the requirements the target scope declares, and the caller
+	// cannot assert satisfaction or mark a requirement inapplicable.
+	GoverningRequirements []string       `json:"governing_requirements"`
+	Approval              *approvalInput `json:"approval"`
 }
 type reviseMutationInput struct {
 	WorkID          string   `json:"work_id"`
@@ -853,6 +858,10 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 	consequence := mutationConsequence(op.ID)
 	approval := ""
 	requiresApproval := op.Approval == ApprovalClass("required")
+	// governingConflict names the scope requirements a capture failed to carry.
+	// It is empty for every other mutation and turns the approval refusal into a
+	// CD-0035 governing-law conflict carrying the operator's three resolutions.
+	var governingConflict []string
 	var effect mutationEffect
 	var intents []NextIntent
 
@@ -880,6 +889,25 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		productsByProject, scopeErr := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
 		if scopeErr != nil {
 			return failureEnvelope(base, scopeErr), nil
+		}
+		// CD-0035 D3: a governing-law conflict is a set difference against the
+		// requirements the target scope declares, never a reading of the
+		// instruction text. The refusal writes nothing and returns the operator
+		// the three resolutions; a reduced set proceeds only behind a core-issued
+		// approval bound to this exact operation, which is CD-0006 D5's
+		// legislative moment rather than an agent-side decision.
+		applicable, requirementErr := r.Store.GoverningRequirementsForProjectIDs(ctx, in.ProjectIDs)
+		if requirementErr != nil {
+			return failureEnvelope(base, requirementErr), nil
+		}
+		if missing := store.MissingGoverningRequirements(applicable, in.GoverningRequirements); len(missing) > 0 {
+			// The conflict is consequential, so it routes through the same
+			// approval machinery as every other governed consequence. That is
+			// deliberate: offering accept_scope_cut without minting the challenge
+			// it resolves against would repeat the defect where a refusal named a
+			// recovery the agent had nothing to act on.
+			requiresApproval = true
+			governingConflict = missing
 		}
 		for _, products := range productsByProject {
 			for _, product := range products {
@@ -1545,7 +1573,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		return failureEnvelope(base, preflightErr), nil
 	}
 	scope["product_ids"] = preflightProducts
-	return r.executeMutation(ctx, base, raw, digest, scope, versions, consequence, approval, requiresApproval, intents, effect)
+	return r.executeMutation(ctx, base, raw, digest, scope, versions, consequence, approval, requiresApproval, governingConflict, intents, effect)
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {
@@ -2020,7 +2048,7 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	return response
 }
 
-func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, intents []NextIntent, effect mutationEffect) (Envelope, error) {
+func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect) (Envelope, error) {
 	tx, err := r.Store.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -2092,8 +2120,17 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if err := tx.Commit(); err != nil {
 			return failureEnvelope(base, err), nil
 		}
+		details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+		if len(governingConflict) > 0 {
+			// The operator's three resolutions travel with a real challenge the
+			// accept_scope_cut branch can be approved against.
+			response := governingConflictEnvelope(base, governingConflict)
+			details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
+			response.Error.Details = details
+			return response, nil
+		}
 		response := coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
-		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+		response.Error.Details = details
 		return response, nil
 	}
 	if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {

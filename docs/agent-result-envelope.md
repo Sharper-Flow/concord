@@ -106,6 +106,7 @@ message?             # human aid only; agents branch on kind/action
 current_versions[]?
 candidates[]?
 violations[]?
+options[]?           # operator resolutions; governing-law conflicts only (CD-0035)
 details?             # closed scalar/list values; bounded, no nested dump
 adapter_reason?      # required closed reason when origin=adapter
 ```
@@ -156,6 +157,15 @@ explicitly allowed same-request retry. Cancellation/timeout may
 use an `error` outcome only when `effect_state=none`; possible effects become
 `operation_conflict` with reconciliation.
 
+`options` is the one affordance that names choices for the operator rather than
+recovery steps for the agent. It is permitted only on a governing-law conflict —
+`invariant_violation` with `contact_operator` recovery — and its closed vocabulary
+is `clarify`, `amend_contract`, `accept_scope_cut`. It is permitted rather than
+required, so an `invariant_violation` that offers no choice stays valid. A refusal
+carrying `accept_scope_cut` also carries the `approval_ref` that option resolves
+against: the choice is actionable, not advisory. See
+[CD-0035](./decisions/CD-0035-governing-requirements-at-capture.md).
+
 ## 6. Authority, freshness, and omissions
 
 - `authoritative`: every required source watermark proves completeness/currentness.
@@ -202,7 +212,7 @@ retrieve bounded evidence from its authority only when needed.
 - Relation graphs: depth maximum 3, 100 nodes, 200 edges.
 - Serialized envelope: hard maximum 65,536 bytes.
 - Warnings: 16; omissions: 16; evidence refs: 32; changed refs: 32; next valid
-  intents: 16; error candidates/violations: 20 each.
+  intents: 16; error candidates/violations: 20 each; error options: 3.
 
 If the requested page would cross any bound, the core returns fewer complete items
 plus a non-null cursor and explicit omission/continuation metadata. It never cuts an

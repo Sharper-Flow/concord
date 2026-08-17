@@ -42,7 +42,7 @@ or terminal-note changes.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `capture` | title, value statement, work kind, at least one Project membership, optional workflow type/priority/tags/component/external reference | Create one `work_item` plus complete initial membership set and creation event in one SQLite transaction. |
+| `capture` | title, value statement, work kind, at least one Project membership, the governing requirements the work carries when its target scope declares any, optional workflow type/priority/tags/component/external reference | Create one `work_item` plus complete initial membership set and creation event in one SQLite transaction. |
 | `revise_intent` | work ID, expected version, complete replacement intent block, reason | Replace only the closed mutable intent block and append one event. Omitted fields are intentionally absent because the block is complete—not patch semantics. |
 
 The mutable intent block is closed: title, value statement, work kind, priority,
@@ -50,6 +50,15 @@ tags, component, and accepted workflow-type reference. Identity, lifecycle,
 memberships, relations, evidence, versions, authority, and compaction locator cannot
 appear in it. A governing-law conflict returns a typed conflict and no mutation;
 the agent cannot silently shrink the accepted scope.
+
+CD-0035 makes that sentence enforceable at `capture`. Requirements are declared
+against a Project, and the core refuses when the requirement set a capture declares
+does not cover the ones its target scope carries. The refusal is a set difference,
+not a reading of the instruction: `invariant_violation` naming the omitted
+requirements in `violations`, `contact_operator` recovery, the operator's three
+`options`, and no events. Enumeration confers no authority — a caller can match the
+applicable set or fail, and the only path to a reduced set is an operator-approved
+scope cut bound to the challenge the refusal mints.
 
 `capture` is one item only. Multiple discovered needs become separate explicit
 calls so each receives independent identity, value, scope, and conflict handling.

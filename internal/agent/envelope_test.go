@@ -78,6 +78,21 @@ func TestOutcomeMismatchIsClosedAndCannotDowngrade(t *testing.T) {
 	}
 }
 
+func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
+	base := NewBase("stale-law", "concord_work_transition", "workflow_action", ManifestVersion)
+	valid := NewCoreError(base, TypedError{
+		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone,
+		StaleLawRevision: &StaleLawRevision{OldLawID: "spec:old", OldContentHash: "sha256:" + strings.Repeat("a", 64), AcceptedSuccessorLawID: "spec:new", AcceptedSuccessorContentHash: "sha256:" + strings.Repeat("b", 64), RecoveryActions: []string{"supersede_contract"}},
+	})
+	if _, err := valid.Encode(); err != nil {
+		t.Fatalf("valid stale law revision rejected: %v", err)
+	}
+	valid.Error.StaleLawRevision.OldContentHash = "sha256:not-a-proof"
+	if _, err := valid.Encode(); err == nil {
+		t.Fatal("stale law revision accepted an invalid old content hash")
+	}
+}
+
 func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 	e := NewBase("req", "concord_work_define", "capture", ManifestVersion)
 	e.Authority = AuthorityAuthoritative

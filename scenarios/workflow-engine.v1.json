@@ -855,6 +855,7 @@
                 "route:implementation"
               ],
               "spec_mandate": [],
+              "law_revisions": [],
               "rigor_class": "prototype_internal",
               "consequence_class": "internal_sqlite",
               "work_id": "work-alpha",

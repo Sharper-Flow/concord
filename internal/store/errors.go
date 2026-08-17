@@ -149,6 +149,7 @@ const (
 	// identity differs from the model resolved at dispatch.
 	KindModelIdentityMismatch FailureKind = "model_identity_mismatch"
 	KindUnauthorized          FailureKind = "unauthorized"
+	KindStaleLawRevision      FailureKind = "stale_law_revision"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's
@@ -175,6 +176,9 @@ type Failure struct {
 	// failures that refuse a relation because of a structural violation
 	// (cycle, supersession target already taken, etc.).
 	Violations []string `json:"violations,omitempty"`
+	// StaleLawRevision carries the old and accepted successor law proofs without
+	// requiring callers to parse Detail.
+	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`

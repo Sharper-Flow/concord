@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -102,22 +103,31 @@ type RecoveryAction struct {
 	RequiredRefs []string `json:"required_refs,omitempty"`
 }
 
+type StaleLawRevision struct {
+	OldLawID                     string   `json:"old_law_id"`
+	OldContentHash               string   `json:"old_content_hash"`
+	AcceptedSuccessorLawID       string   `json:"accepted_successor_law_id"`
+	AcceptedSuccessorContentHash string   `json:"accepted_successor_content_hash"`
+	RecoveryActions              []string `json:"recovery_actions"`
+}
+
 // MaxNotices bounds each notice collection on an envelope. Producers that merge
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
 
 type TypedError struct {
-	Kind            string         `json:"kind"`
-	RetrySafe       bool           `json:"retry_safe"`
-	RecoveryAction  RecoveryAction `json:"recovery_action"`
-	EffectState     EffectState    `json:"effect_state"`
-	AdapterReason   string         `json:"adapter_reason,omitempty"`
-	Message         string         `json:"message,omitempty"`
-	CurrentVersions []ChangedRef   `json:"current_versions,omitempty"`
-	Candidates      []string       `json:"candidates,omitempty"`
-	Violations      []string       `json:"violations,omitempty"`
-	Options         []string       `json:"options,omitempty"`
-	Details         map[string]any `json:"details,omitempty"`
+	Kind             string            `json:"kind"`
+	RetrySafe        bool              `json:"retry_safe"`
+	RecoveryAction   RecoveryAction    `json:"recovery_action"`
+	EffectState      EffectState       `json:"effect_state"`
+	AdapterReason    string            `json:"adapter_reason,omitempty"`
+	Message          string            `json:"message,omitempty"`
+	CurrentVersions  []ChangedRef      `json:"current_versions,omitempty"`
+	Candidates       []string          `json:"candidates,omitempty"`
+	Violations       []string          `json:"violations,omitempty"`
+	Options          []string          `json:"options,omitempty"`
+	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
+	Details          map[string]any    `json:"details,omitempty"`
 }
 
 // GoverningConflictOptions is the closed operator-choice vocabulary of CD-0035
@@ -580,7 +590,7 @@ func validateRecoveryAction(action RecoveryAction) error {
 	return nil
 }
 func validateError(err TypedError) error {
-	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "outcome_mismatch": true, "stale_requires_review": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
+	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "outcome_mismatch": true, "stale_requires_review": true, "stale_law_revision": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
 	if !allowed[err.Kind] {
 		return fmt.Errorf("unknown error kind %q", err.Kind)
 	}
@@ -609,6 +619,11 @@ func validateError(err TypedError) error {
 	}
 	if len(err.Details) > 20 || !scalarDetails(err.Details) {
 		return errors.New("invalid error details")
+	}
+	if err.Kind == "stale_law_revision" {
+		if err.RecoveryAction.Kind != "request_approval" || err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
+			return errors.New("stale law revision coupling violated")
+		}
 	}
 	if err.Kind == "ambiguous_scope" && (len(err.Candidates) == 0 || err.RecoveryAction.Kind != "resolve_ambiguity") {
 		return errors.New("ambiguous scope recovery coupling violated")
@@ -644,6 +659,18 @@ func validateError(err TypedError) error {
 		return x
 	}
 	return nil
+}
+
+func validSHA256Proof(value string) bool {
+	if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 {
+		return false
+	}
+	for _, r := range value[len("sha256:"):] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 func boundedStrings(values []string, min, max int) bool {
 	for _, value := range values {

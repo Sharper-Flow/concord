@@ -322,6 +322,9 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
+	if actionID == "supersede_contract" {
+		return ActionInternalSQLite
+	}
 	for _, action := range definition.ActionDefinitions {
 		if action.ID == actionID {
 			return action.Consequence
@@ -356,6 +359,22 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
+	staleRecovery := false
+	if request.ActionID == "supersede_contract" {
+		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindStaleLawRevision {
+				return RegisteredDefinition{}, err
+			}
+			staleRecovery = true
+		} else {
+			return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+		}
+	} else if !workflowActionAllowsTerminalRecovery(request) {
+		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
 	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite && requireTerminalConditions {
 		var open int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
@@ -374,10 +393,14 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
 		}
 	}
-	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 	}
-	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+	if staleRecovery {
+		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
+			return RegisteredDefinition{}, err
+		}
+	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
 	}
 	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
@@ -542,6 +565,9 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	}
 	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, BuiltinWorkflowRegistry(), req.WorkID)
 	if err != nil {
+		return err
+	}
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, req.WorkID); err != nil {
 		return err
 	}
 	if entry.Definition.Ref != req.WorkflowTypeRef || entry.Definition.Version != int64(req.WorkflowTypeVersion) {

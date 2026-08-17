@@ -1747,6 +1747,29 @@ CREATE INDEX work_observations_work ON work_observations(work_id, recorded_at);
 CREATE TRIGGER work_observations_guard_insert BEFORE INSERT ON work_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER work_observations_guard_update BEFORE UPDATE ON work_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER work_observations_guard_delete BEFORE DELETE ON work_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
+	},
+	{
+		Version: 37,
+		Name:    "workflow_contract_law_revisions",
+		SQL: `
+-- CD-0036: event-folded law revision pins for bounded reverse consumer lookup.
+-- Git remains the sole law author; this table is rebuilt from contract approval
+-- event pins and never records a cutover or law relation.
+CREATE TABLE workflow_contract_law_revisions (
+    work_id         TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    contract_version INTEGER NOT NULL,
+    law_id          TEXT NOT NULL,
+    content_hash    TEXT NOT NULL CHECK(length(content_hash)=71 AND substr(content_hash,1,7)='sha256:'),
+    PRIMARY KEY(work_id, contract_version, law_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_contracts(work_id, contract_version) ON DELETE RESTRICT,
+    CHECK(length(law_id) BETWEEN 2 AND 256)
+);
+CREATE INDEX workflow_contract_law_revisions_reverse
+    ON workflow_contract_law_revisions(law_id, content_hash, work_id, contract_version);
+CREATE TRIGGER workflow_contract_law_revisions_guard_insert BEFORE INSERT ON workflow_contract_law_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_law_revisions_guard_update BEFORE UPDATE ON workflow_contract_law_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_law_revisions_guard_delete BEFORE DELETE ON workflow_contract_law_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
 }

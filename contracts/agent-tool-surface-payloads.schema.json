@@ -430,6 +430,20 @@
             "$ref": "#/$defs/id"
           }
         },
+        "law_revisions": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["law_id", "content_hash"],
+            "properties": {
+              "law_id": {"$ref": "#/$defs/id"},
+              "content_hash": {"$ref": "#/$defs/digest"}
+            }
+          }
+        },
         "law_modifies": {
           "type": "array",
           "maxItems": 32,
@@ -616,6 +630,18 @@
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/short"
+          }
+        },
+        "stale_law_revision": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["old_law_id", "old_content_hash", "accepted_successor_law_id", "accepted_successor_content_hash", "recovery_actions"],
+          "properties": {
+            "old_law_id": {"$ref": "#/$defs/id"},
+            "old_content_hash": {"$ref": "#/$defs/digest"},
+            "accepted_successor_law_id": {"$ref": "#/$defs/id"},
+            "accepted_successor_content_hash": {"$ref": "#/$defs/digest"},
+            "recovery_actions": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/id"}}
           }
         }
       }

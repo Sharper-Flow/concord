@@ -498,6 +498,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	// Version-window and chain failures are rejected before the first
 	// projection DELETE. Fold/decode failures remain transactionally atomic, and
 	// are attributed by the shared fold path below.
+	replayCtx := workflowReplayContext(ctx)
 	for _, event := range events {
 		if err := validateRegisteredEvent(event); err != nil {
 			return rollback(attributeFailure(err, event, "upcast"))
@@ -510,6 +511,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		// observations (CD-0030), messages (CD-0029), claims (CD-0028).
 		"work_observations", "work_messages", "resource_claims",
 		"worker_attempts",
+		"workflow_contract_law_revisions",
 		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",
 		"workflow_contracts", "workflow_decision_records", "workflow_instances", "workflow_actors",
@@ -525,7 +527,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	for _, event := range events {
 		// Historical knowledge is git-derived. Domain-log replay must not
 		// rewrite archived_work, scope edges, or git watermarks.
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(replayCtx, tx, event); err != nil {
 			return rollback(err)
 		}
 	}

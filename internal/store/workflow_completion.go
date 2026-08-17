@@ -99,6 +99,11 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if !workflowExecutionAllowsStaleRecovery("complete", event.Payload) {
+		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
+			return err
+		}
+	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}

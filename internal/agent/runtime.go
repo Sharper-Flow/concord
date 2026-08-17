@@ -623,6 +623,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		if len(sf.Violations) > 0 {
 			out.Error.Violations = append(out.Error.Violations, sf.Violations...)
 		}
+		if sf.StaleLawRevision != nil {
+			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, AcceptedSuccessorLawID: sf.StaleLawRevision.AcceptedSuccessorLawID, AcceptedSuccessorContentHash: sf.StaleLawRevision.AcceptedSuccessorContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
+		}
 		return out
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
@@ -729,6 +732,8 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "degraded_not_allowed"
 	case store.KindResearchConsumerBlocked:
 		return "stale_requires_review"
+	case store.KindStaleLawRevision:
+		return "stale_law_revision"
 	default:
 		return "internal_error"
 	}
@@ -743,6 +748,8 @@ func publicRecovery(kind, proposed string) string {
 	case "unauthorized", "outcome_mismatch", "unreachable", "internal_error":
 		return "contact_operator"
 	case "approval_required", "approval_invalid":
+		return "request_approval"
+	case "stale_law_revision":
 		return "request_approval"
 	case "version_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"

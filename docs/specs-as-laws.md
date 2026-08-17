@@ -103,6 +103,20 @@ CD-0006 D10 adds the **spec mandate** refinement:
 - Specs outside the mandate still enforce as laws.
 - Completion verifies delivered changes match the approved mandate.
 
+CD-0036 separates compatible amendment from breaking replacement:
+
+- a compatible amendment keeps the same stable law ID and changes its content
+  hash;
+- a replacement that requires active consumers to stop uses a new law ID plus
+  the existing `supersedes` relation;
+- every supersession is a strict cutover: old consumers may only supersede their
+  contract onto the accepted successor or make their work terminal; and
+- workflow contracts record the exact `(law_id, content_hash)` revisions used at
+  planning, while Git remains the sole law author.
+
+This rule removes the overwrite-or-replace guess from workflow authority. The
+operator's Git delta declares the answer, and Concord enforces its consequence.
+
 ---
 
 ## 6. Auditability
@@ -126,8 +140,10 @@ shows the legislative moments explicitly.
 
 ## 8. Remaining implementation question
 
-The root policy is accepted. Exact structural enforcement remains implementation
-design; instruction-only is insufficient and cannot weaken the policy above.
+The root policy and CD-0036 cutover mechanism are accepted. Issue #170 owns the
+cutover implementation. Capture-time detection of a silently omitted governing
+requirement remains issue #167; instruction-only enforcement is still
+insufficient.
 
 ---
 
@@ -138,6 +154,7 @@ design; instruction-only is insufficient and cannot weaken the policy above.
 | `feature-inventory.md` §2.8 | The capability entry. |
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws, the user is the legislator. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
+| [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and strict quiescence on law supersession. |
 
 ---
 

@@ -52,19 +52,20 @@ type workflowDefinitionSelectedPayload struct {
 
 type workflowContractApprovedPayload struct {
 	WorkflowVersionFields
-	ContractVersion    int64           `json:"contract_version"`
-	Premise            string          `json:"premise"`
-	OutcomeKind        string          `json:"outcome_kind"`
-	OutcomePayload     json.RawMessage `json:"outcome_payload"`
-	RequiredEvidence   []string        `json:"required_evidence"`
-	RouteConventions   []string        `json:"route_conventions"`
-	SpecMandate        []string        `json:"spec_mandate"`
-	LawModifies        []string        `json:"law_modifies"`
-	LawBoundaryVersion int             `json:"law_boundary_version,omitempty"`
-	RigorClass         string          `json:"rigor_class"`
-	ConsequenceClass   string          `json:"consequence_class,omitempty"`
-	PremiseHash        string          `json:"premise_hash,omitempty"`
-	OutcomeHash        string          `json:"outcome_hash,omitempty"`
+	ContractVersion    int64                 `json:"contract_version"`
+	Premise            string                `json:"premise"`
+	OutcomeKind        string                `json:"outcome_kind"`
+	OutcomePayload     json.RawMessage       `json:"outcome_payload"`
+	RequiredEvidence   []string              `json:"required_evidence"`
+	RouteConventions   []string              `json:"route_conventions"`
+	SpecMandate        []string              `json:"spec_mandate"`
+	LawModifies        []string              `json:"law_modifies"`
+	LawRevisions       []WorkflowLawRevision `json:"law_revisions"`
+	LawBoundaryVersion int                   `json:"law_boundary_version,omitempty"`
+	RigorClass         string                `json:"rigor_class"`
+	ConsequenceClass   string                `json:"consequence_class,omitempty"`
+	PremiseHash        string                `json:"premise_hash,omitempty"`
+	OutcomeHash        string                `json:"outcome_hash,omitempty"`
 }
 
 type workflowContractSupersededPayload struct {
@@ -73,6 +74,10 @@ type workflowContractSupersededPayload struct {
 	NewContractVersion      int64    `json:"new_contract_version"`
 	SupersedeReason         string   `json:"supersede_reason"`
 	AuditEvidence           []string `json:"audit_evidence"`
+	// SuccessorContract is present for the operator-approved stale-law
+	// recovery route. When present, the event installs the fully supplied
+	// successor instead of cloning the prior contract.
+	SuccessorContract *workflowContractApprovedPayload `json:"successor_contract,omitempty"`
 }
 
 type workflowCandidateSetRevisedPayload struct {
@@ -313,7 +318,7 @@ func workflowRegistration(f projectionMutation) EventKindRegistration {
 
 func init() {
 	eventKindRegistry[WorkflowDefinitionSelected] = workflowRegistration(foldWorkflowDefinitionSelected)
-	eventKindRegistry[WorkflowContractApproved] = workflowRegistration(foldWorkflowContractApproved)
+	eventKindRegistry[WorkflowContractApproved] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowContractApprovedV1}, Fold: foldWorkflowContractApproved}
 	eventKindRegistry[WorkflowContractSuperseded] = workflowRegistration(foldWorkflowContractSuperseded)
 	eventKindRegistry[WorkflowCandidateSetRevised] = workflowRegistration(foldWorkflowCandidateSetRevised)
 	eventKindRegistry[WorkflowActorRecorded] = workflowRegistration(foldWorkflowActorRecorded)
@@ -637,12 +642,31 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if p.SpecMandate == nil {
 		p.SpecMandate = []string{}
 	}
+	var contractFields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &contractFields); err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "contract_approved payload is malformed", false, "repair the workflow contract payload")
+	}
+	if p.LawBoundaryVersion == 1 {
+		if _, present := contractFields["law_revisions"]; !present {
+			return newFailure(KindInvalidPayload, "fold_event", "current law-aware contract approval is missing law revision pins", false, "capture one current Git law hash for every mandated law ID")
+		}
+	}
+	if p.LawRevisions != nil {
+		if err := validateWorkflowLawRevisions(p.SpecMandate, p.LawRevisions); err != nil {
+			return err
+		}
+	}
 	if p.LawBoundaryVersion == 1 {
 		if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
 			return err
 		}
-		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, p.SpecMandate, p.LawModifies, true); err != nil {
-			return err
+		if p.LawRevisions == nil && !isWorkflowReplay(ctx) {
+			if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, p.SpecMandate, p.LawModifies, true); err != nil {
+				return err
+			}
+		}
+		if p.LawRevisions != nil && len(p.SpecMandate) == 0 && len(p.LawRevisions) != 0 {
+			return newFailure(KindInvalidPayload, "fold_event", "workflow law revision pins require a non-empty spec_mandate", false, "supply one pin for each mandated law")
 		}
 	}
 	if p.ConsequenceClass != "internal_sqlite" && p.ConsequenceClass != "cross_authority" && p.ConsequenceClass != "external_effect" {
@@ -672,6 +696,13 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
+	if p.LawRevisions != nil {
+		for _, revision := range p.LawRevisions {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,?,?,?)`, event.SubjectID, p.ContractVersion, revision.LawID, revision.ContentHash); err != nil {
+				return workflowProjectionError(err, "cannot record workflow law revision pin")
+			}
+		}
+	}
 	return nil
 }
 
@@ -686,13 +717,47 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if p.PreviousContractVersion <= 0 || p.NewContractVersion != p.PreviousContractVersion+1 || !workflowString(p.SupersedeReason, 4096) || !workflowList(p.AuditEvidence, 32, 1) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_superseded has invalid version, reason, or audit evidence", false, "supersede one contract with a consecutive version and evidence")
 	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
+	var activeCount int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
+		return workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT work_id,?,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
-		// The revision event carries the audit and version identity; the
-		// approved predicate remains immutable until the next explicit approval.
-		return workflowProjectionError(err, "cannot create superseding workflow contract")
+	if p.SuccessorContract != nil && activeCount != 1 {
+		return newFailure(KindInvariantViolation, "fold_event", "contract supersession requires exactly one active workflow contract", false, "rebuild the workflow contract projection")
+	}
+	if p.SuccessorContract != nil {
+		if p.SuccessorContract.ContractVersion != p.NewContractVersion {
+			return newFailure(KindInvalidPayload, "fold_event", "successor contract version does not match contract supersession", false, "supply the consecutive successor contract version")
+		}
+		if !isWorkflowReplay(ctx) {
+			if err := validateCurrentWorkflowLawRevisionsTx(ctx, tx, event.SubjectID, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
+				return err
+			}
+			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, p.PreviousContractVersion, p.SuccessorContract.LawRevisions); err != nil {
+				return err
+			}
+		}
+		p.SuccessorContract.WorkflowVersionFields = p.WorkflowVersionFields
+		successorPayload, err := json.Marshal(p.SuccessorContract)
+		if err != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "successor contract payload cannot be encoded", false, "supply a valid successor contract")
+		}
+		successorEvent := event
+		successorEvent.EventID = event.EventID + ":successor"
+		successorEvent.Kind = WorkflowContractApproved
+		successorEvent.PayloadVersion = 2
+		successorEvent.Payload = successorPayload
+		if err := foldWorkflowContractApproved(ctx, tx, successorEvent); err != nil {
+			return err
+		}
+	} else {
+		if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT work_id,?,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
+			// Legacy revision events remain replayable; new stale-law recovery
+			// events always carry a fully supplied successor contract above.
+			return workflowProjectionError(err, "cannot create superseding workflow contract")
+		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET superseded_by=? WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, p.NewContractVersion, event.SubjectID, p.PreviousContractVersion)
 	if err != nil {
@@ -701,8 +766,15 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if n, _ := result.RowsAffected(); n != 1 {
 		return newFailure(KindProjectionNotFound, "fold_event", "previous workflow contract does not exist or is already superseded", false, "reload the current contract")
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='planned',current_step='planning' WHERE work_id=?`, event.SubjectID); err != nil {
-		return workflowProjectionError(err, "cannot return workflow to planning after contract supersession")
+	if p.SuccessorContract == nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='planned',current_step='planning' WHERE work_id=?`, event.SubjectID); err != nil {
+			return workflowProjectionError(err, "cannot return workflow to planning after contract supersession")
+		}
+	}
+	if p.SuccessorContract != nil {
+		// The successor was folded before this update so the contract foreign
+		// key remains valid; both writes commit or roll back together.
+		return nil
 	}
 	return nil
 }
@@ -1579,6 +1651,23 @@ func upcastWorkflowImpactNoticeRecordedV1(event Event) (Event, error) {
 	payload, err := json.Marshal(fields)
 	if err != nil {
 		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.impact_notice_recorded v1 payload", false, "repair the stored workflow impact notice", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 2
+	return event, nil
+}
+
+func upcastWorkflowContractApprovedV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v1 payload is not a JSON object", false, "repair the stored workflow contract")
+	}
+	// V1 contracts intentionally remain unpinned. Replay validates their
+	// recorded shape and does not reinterpret them against today's law.
+	fields["law_revisions"] = json.RawMessage("null")
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_approved v1 payload", false, "repair the stored workflow contract", err)
 	}
 	event.Payload = payload
 	event.PayloadVersion = 2

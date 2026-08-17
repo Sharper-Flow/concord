@@ -1460,7 +1460,21 @@ func (r runtime) q8(base Envelope, q store.Q8Result) (Envelope, error) {
 	if q.Edges == nil {
 		q.Edges = []store.RelationEdge{}
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": q.Edges, "replacement_state": relationReplacementState(q.Edges)})
+	// The store struct (store.RelationEdge) and the agent envelope use
+	// deliberately different spellings: the store spells endpoints as
+	// `source`/`target`, while the public agent envelope uses `from`/`to` so
+	// the directional axis reads naturally. The envelope schema
+	// (`work_relation_graph.edges` in
+	// contracts/agent-tool-surface-payloads.schema.json) is the public
+	// contract; the store-side spelling is pinned by scenarios
+	// `Q8-relations` in scenarios/product-memory-query.v1.json, which asserts
+	// $.edges[0].source / $.edges[0].target against the store projection
+	// layer. Translating here keeps both contracts intact.
+	edges := make([]map[string]any, 0, len(q.Edges))
+	for _, e := range q.Edges {
+		edges = append(edges, map[string]any{"from": e.Source, "to": e.Target, "kind": e.Kind})
+	}
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges, "replacement_state": relationReplacementState(q.Edges)})
 }
 func relationReplacementState(edges []store.RelationEdge) string {
 	for _, edge := range edges {

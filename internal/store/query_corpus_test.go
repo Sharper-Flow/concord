@@ -1,94 +1,40 @@
-package store
+package store_test
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/sharper-flow/concord/internal/pm1fixture"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
-type corpusEvent struct {
-	Work         string   `json:"work"`
-	Seq          int      `json:"seq"`
-	From         *string  `json:"from"`
-	To           *string  `json:"to"`
-	Kind         string   `json:"kind"`
-	Actor        string   `json:"actor"`
-	EvidenceRefs []string `json:"evidence_refs"`
-}
-
-// This adapter deliberately keeps fixture-only aliases out of Store. In
-// particular, fixture Product stages use stage_maturity and the adapter's
-// documented audience default; fixture work.product is only an assertion.
-type queryCorpus struct {
-	Fixtures struct {
-		Products []struct {
-			ID    string `json:"id"`
-			Name  string `json:"name"`
-			Stage string `json:"stage"`
-		} `json:"products"`
-		Projects []struct {
-			ID       string   `json:"id"`
-			Name     string   `json:"name"`
-			Products []string `json:"products"`
-		} `json:"projects"`
-		Work []struct {
-			ID       string `json:"id"`
-			Product  string `json:"product"`
-			Projects []struct {
-				ID   string `json:"id"`
-				Role string `json:"role"`
-			} `json:"projects"`
-			Lifecycle  string `json:"lifecycle"`
-			Priority   int64  `json:"priority"`
-			CreatedAt  string `json:"created_at"`
-			TerminalAt string `json:"terminal_at"`
-		} `json:"work"`
-		Relations []struct {
-			Kind   string `json:"kind"`
-			Source string `json:"source"`
-			Target string `json:"target"`
-		} `json:"relations"`
-		Events    []corpusEvent `json:"events"`
-		Knowledge []struct {
-			ID          string `json:"id"`
-			Path        string `json:"path"`
-			Commit      string `json:"commit"`
-			ContentHash string `json:"content_hash"`
-		} `json:"knowledge"`
-	} `json:"fixtures"`
-	Scenarios []struct {
-		ID              string         `json:"id"`
-		QueryID         string         `json:"query_id"`
-		Input           map[string]any `json:"input"`
-		DependsOn       []string       `json:"depends_on"`
-		FixtureOverride map[string]any `json:"fixture_override"`
-		Expected        struct {
-			Authority  string
-			Assertions []struct {
-				Path, Op string
-				Value    any
-			}
-		}
-		ExpectedError struct {
-			Kind         string   `json:"kind"`
-			CandidateIDs []string `json:"candidate_ids"`
-		} `json:"expected_error"`
-	} `json:"scenarios"`
-}
-
 func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
-	corpus := readQueryCorpus(t)
-	s := seedQueryCorpus(t, corpus)
-	gitKnowledge := seedKnowledgeCorpus(t, s, corpus)
+	corpus, err := pm1fixture.Load()
+	if err != nil {
+		t.Fatalf("load corpus: %v", err)
+	}
+	s, err := pm1fixture.OpenTemp(t.TempDir())
+	if err != nil {
+		t.Fatalf("open temp store: %v", err)
+	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	}()
+	if err := pm1fixture.Seed(context.Background(), s, corpus); err != nil {
+		t.Fatalf("seed corpus: %v", err)
+	}
+	gitKnowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
+	if err != nil {
+		t.Fatalf("seed knowledge corpus: %v", err)
+	}
 	results := map[string]any{}
 	run := 0
 	for _, scenario := range corpus.Scenarios {
@@ -97,12 +43,12 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 		}
 		run++
 		input := resolveCorpusInput(scenario.Input, results)
-		result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride, gitKnowledge.home)
+		result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride, gitKnowledge.Home)
 		if scenario.ExpectedError.Kind != "" {
 			if err == nil {
 				t.Fatalf("%s: expected %s, got success", scenario.ID, scenario.ExpectedError.Kind)
 			}
-			var failure *Failure
+			var failure *store.Failure
 			if !asFailure(err, &failure) {
 				t.Fatalf("%s: error is not typed: %v", scenario.ID, err)
 			}
@@ -132,7 +78,6 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 	if run != 23 {
 		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 23", run)
 	}
-	assertExtraCrossProductFixture(t)
 }
 
 func q1ToQ10(id string) bool {
@@ -143,194 +88,8 @@ func q1ToQ10(id string) bool {
 	return err == nil && n >= 1 && n <= 10
 }
 
-func readQueryCorpus(t *testing.T) queryCorpus {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "scenarios", "product-memory-query.v1.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var corpus queryCorpus
-	if err := json.Unmarshal(data, &corpus); err != nil {
-		t.Fatal(err)
-	}
-	return corpus
-}
-
-func fixtureEvent(id, kind string, subject SubjectType, subjectID, actor, occurred string, payload map[string]any) Event {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		panic(err)
-	}
-	when, err := time.Parse(time.RFC3339, occurred)
-	if err != nil {
-		when = time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	}
-	version := 1
-	if kind == "work.created" {
-		version = 2
-	}
-	return Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: actor, OccurredAt: when, PayloadVersion: version, Payload: raw}
-}
-
-func seedQueryCorpus(t *testing.T, corpus queryCorpus) *Store {
-	t.Helper()
-	s := openTemp(t)
-	ctx := context.Background()
-	eventFor := func(work string, seq int) corpusEvent {
-		for _, event := range corpus.Fixtures.Events {
-			if event.Work == work && event.Seq == seq {
-				return event
-			}
-		}
-		return corpusEvent{}
-	}
-	// Adapter-only audience choice: PM1's fixture has stage but no audience;
-	// operator_only is the conservative contract-valid default.
-	events := []Event{}
-	expected := map[SubjectRef]int64{}
-	for _, p := range corpus.Fixtures.Products {
-		events = append(events, fixtureEvent("create-"+p.ID, "product.created", SubjectProduct, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"display_name": p.Name, "stage_maturity": p.Stage, "stage_audience_commitment": "operator_only"}))
-		expected[VersionRef(SubjectProduct, p.ID)] = 0
-	}
-	for _, p := range corpus.Fixtures.Projects {
-		events = append(events, fixtureEvent("create-"+p.ID, "project.created", SubjectProject, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"display_name": p.Name}))
-		expected[VersionRef(SubjectProject, p.ID)] = 0
-	}
-	for _, p := range corpus.Fixtures.Products {
-		version := int64(1)
-		for _, project := range corpus.Fixtures.Projects {
-			for _, productID := range project.Products {
-				if productID != p.ID {
-					continue
-				}
-				role := "secondary"
-				if version == 1 {
-					role = "primary"
-				}
-				events = append(events, fixtureEvent(fmt.Sprintf("membership-%s-%s", p.ID, project.ID), "product_project.added", SubjectProduct, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"product_id": p.ID, "project_id": project.ID, "role": role, "reason": "fixture adapter", "expected_version": version, "resulting_version": version + 1}))
-				version++
-			}
-		}
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: expected}); err != nil {
-		t.Fatal(err)
-	}
-	versions := map[string]int64{}
-	for _, w := range corpus.Fixtures.Work {
-		versions[w.ID] = 1
-		created := eventFor(w.ID, 1)
-		actor := created.Actor
-		if actor == "" {
-			actor = "operator"
-		}
-		to := "needed"
-		if created.To != nil {
-			to = *created.To
-		}
-		events := []Event{fixtureEvent("create-"+w.ID, "work.created", SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
-		for i, p := range w.Projects {
-			role := p.Role
-			events = append(events, fixtureEvent(fmt.Sprintf("membership-%s-%d", w.ID, i), "work_project.added", SubjectWorkItem, w.ID, "operator", w.CreatedAt, map[string]any{"work_id": w.ID, "project_id": p.ID, "role": role, "reason": "fixture adapter", "expected_version": int64(i + 1), "resulting_version": int64(i + 2)}))
-			versions[w.ID]++
-		}
-		if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, w.ID): 0}}); err != nil {
-			t.Fatalf("create %s: %v", w.ID, err)
-		}
-		scope, err := s.ProductsForWork(ctx, w.ID)
-		if err != nil {
-			t.Fatalf("derive fixture Product scope for %s: %v", w.ID, err)
-		}
-		found := false
-		for _, product := range scope.Products {
-			if product.ID == w.Product {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("fixture Product %q is outside derived scope for work %q", w.Product, w.ID)
-		}
-	}
-	events = nil
-	for _, w := range corpus.Fixtures.Work {
-		if w.ID == "work-cross" {
-			started := eventFor(w.ID, 2)
-			actor, from, to := started.Actor, "needed", "in_progress"
-			if started.From != nil {
-				from = *started.From
-			}
-			if started.To != nil {
-				to = *started.To
-			}
-			events = append(events, fixtureEvent("event-work-cross-started", "work.transitioned", SubjectWorkItem, w.ID, actor, "2026-08-02T09:00:00Z", map[string]any{"from": from, "to": to, "reason": "fixture started", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
-			versions[w.ID]++
-			continue
-		}
-		if w.ID == "work-done" {
-			started := eventFor(w.ID, 2)
-			actor, from, to := started.Actor, "needed", "in_progress"
-			if started.From != nil {
-				from = *started.From
-			}
-			if started.To != nil {
-				to = *started.To
-			}
-			events = append(events, fixtureEvent("event-work-done-started", "work.transitioned", SubjectWorkItem, w.ID, actor, "2026-08-02T09:00:00Z", map[string]any{"from": from, "to": to, "reason": "fixture started", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
-			versions[w.ID]++
-			completed := eventFor(w.ID, 3)
-			actor, from, to = completed.Actor, "in_progress", "completed"
-			if completed.From != nil {
-				from = *completed.From
-			}
-			if completed.To != nil {
-				to = *completed.To
-			}
-			evidence := completed.EvidenceRefs
-			if evidence == nil {
-				evidence = []string{}
-			}
-			events = append(events, fixtureEvent("event-work-done-completed", "work.transitioned", SubjectWorkItem, w.ID, actor, w.TerminalAt, map[string]any{"from": from, "to": to, "reason": "fixture completed", "evidence_refs": evidence, "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
-			versions[w.ID]++
-			continue
-		}
-		if w.Lifecycle == "in_progress" {
-			events = append(events, fixtureEvent("transition-"+w.ID, "work.transitioned", SubjectWorkItem, w.ID, "operator", "2026-08-02T09:00:00Z", map[string]any{"from": "needed", "to": "in_progress", "reason": "fixture lifecycle", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
-			versions[w.ID]++
-		} else if w.Lifecycle == "cancelled" {
-			events = append(events, fixtureEvent("transition-"+w.ID, "work.transitioned", SubjectWorkItem, w.ID, "operator", w.TerminalAt, map[string]any{"from": "needed", "to": "cancelled", "reason": "fixture lifecycle", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
-			versions[w.ID]++
-		}
-	}
-	if len(events) > 0 {
-		if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, r := range corpus.Fixtures.Relations {
-		switch r.Kind {
-		case "depends_on":
-			event := fixtureEvent("relation-depends", "relation.added", SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
-			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
-				t.Fatal(err)
-			}
-			versions[r.Target]++
-		case "supersedes":
-			event := fixtureEvent("relation-supersedes", "work.superseded", SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"successor": r.Source, "superseded": r.Target, "reason": "fixture supersession", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
-			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
-				t.Fatal(err)
-			}
-			versions[r.Target]++
-		}
-	}
-	return s
-}
-
-func asFailure(err error, target **Failure) bool {
-	f, ok := err.(*Failure)
+func asFailure(err error, target **store.Failure) bool {
+	f, ok := err.(*store.Failure)
 	if ok {
 		*target = f
 		return true
@@ -338,103 +97,50 @@ func asFailure(err error, target **Failure) bool {
 	return false
 }
 
-type corpusGitKnowledge struct {
-	home        KnowledgeHome
-	commitAlias map[string]string
-	hashAlias   map[string]string
-}
-
-func seedKnowledgeCorpus(t *testing.T, s *Store, corpus queryCorpus) corpusGitKnowledge {
-	t.Helper()
-	repo := initKnowledgeRepo(t)
-	workPath := "docs/work/2026-08-03-auth-release.md"
-	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z"))
-	lessonPath := "docs/lessons/2026-08-04-state-authority.md"
-	decisionPath := "docs/decisions/CD-0002-state-authority.md"
-	writeKnowledgeFile(t, repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-05T12:00:00Z", []string{"state-authority", "sqlite"}))
-	writeKnowledgeFile(t, repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-04T12:00:00Z", []string{"sqlite", "governance"}))
-	writeManifestFixture(t, repo,
-		manifestFixtureFromFile(t, repo, "knowledge-lesson", "lesson", lessonPath, "published", "2026-08-05T12:00:00Z", "Durable lesson", "Governance summary", []string{"state-authority", "sqlite"}, KnowledgeRecordScopes{Mode: "home"}),
-		manifestFixtureFromFile(t, repo, "knowledge-decision", "decision", decisionPath, "accepted", "2026-08-04T12:00:00Z", "Durable decision", "Durable summary", []string{"sqlite", "governance"}, KnowledgeRecordScopes{Mode: "home"}),
-	)
-	commit := commitKnowledgeRepo(t, repo, "accepted PM1 corpus")
-	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
-	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
-		t.Fatal(err)
-	}
-	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id = 'work-done'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if err := PublishCompactionLink(context.Background(), s, CompactionLinkRequest{EventID: "corpus-compaction-work-done", WorkID: "work-done", ExpectedVersion: version, Actor: "operator", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: workPath, Reason: "accepted corpus fixture"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
-		t.Fatal(err)
-	}
-	commitAlias, hashAlias := map[string]string{}, map[string]string{}
-	for _, fixture := range corpus.Fixtures.Knowledge {
-		verified, err := VerifyCommittedNote(context.Background(), repo, commit, fixture.Path, "")
-		if err != nil {
-			t.Fatalf("fixture knowledge %q does not resolve to a committed note: %v", fixture.ID, err)
-		}
-		if existing := commitAlias[fixture.Commit]; existing != "" && existing != commit {
-			t.Fatalf("fixture commit alias %q resolves ambiguously", fixture.Commit)
-		}
-		if existing := hashAlias[fixture.ContentHash]; existing != "" && existing != verified.ContentHash {
-			t.Fatalf("fixture content hash alias %q resolves ambiguously", fixture.ContentHash)
-		}
-		commitAlias[fixture.Commit] = commit
-		hashAlias[fixture.ContentHash] = verified.ContentHash
-	}
-	return corpusGitKnowledge{home: home, commitAlias: commitAlias, hashAlias: hashAlias}
-}
-
-func resolveCorpusKnowledgeAlias(path string, value any, knowledge corpusGitKnowledge) any {
+func resolveCorpusKnowledgeAlias(path string, value any, knowledge pm1fixture.GitKnowledge) any {
 	valueString, ok := value.(string)
 	if !ok {
 		return value
 	}
 	switch path {
 	case "$.note.commit", "$.items[*].commit":
-		if resolved := knowledge.commitAlias[valueString]; resolved != "" {
+		if resolved := knowledge.CommitAlias[valueString]; resolved != "" {
 			return resolved
 		}
 	case "$.note.content_hash", "$.items[*].content_hash":
-		if resolved := knowledge.hashAlias[valueString]; resolved != "" {
+		if resolved := knowledge.HashAlias[valueString]; resolved != "" {
 			return resolved
 		}
 	}
 	return value
 }
 
-func executeCorpusQuery(ctx context.Context, s *Store, id string, input map[string]any, override map[string]any, home KnowledgeHome) (any, error) {
+func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input map[string]any, override map[string]any, home store.KnowledgeHome) (any, error) {
 	if override["source_stale"] == true && override["staleness_policy"] == "review_required" {
-		return nil, newFailure(KindStaleRequiresReview, id, "live source is stale and requires review", false, "review source freshness before retrying")
+		return nil, &store.Failure{Kind: store.KindStaleRequiresReview, Op: id, Detail: "live source is stale and requires review", RetrySafe: false, RecoveryAction: "review source freshness before retrying"}
 	}
 	if override["live_authority_unreachable"] == true {
-		return nil, newFailure(KindUnreachable, id, "live authority is unreachable", true, "restore live authority and retry")
+		return nil, &store.Failure{Kind: store.KindUnreachable, Op: id, Detail: "live authority is unreachable", RetrySafe: true, RecoveryAction: "restore live authority and retry"}
 	}
 	switch id {
 	case "PM1.Q1":
-		return s.QueryQ1(ctx, Q1Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
+		return s.QueryQ1(ctx, store.Q1Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q2":
-		return s.QueryQ2(ctx, Q2Request{Product: stringInput(input, "product"), PreviewLimit: intInput(input, "preview_limit")})
+		return s.QueryQ2(ctx, store.Q2Request{Product: stringInput(input, "product"), PreviewLimit: intInput(input, "preview_limit")})
 	case "PM1.Q3":
-		return s.QueryQ3(ctx, Q3Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), LifecycleStates: stringSliceInput(input, "lifecycle_states"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
+		return s.QueryQ3(ctx, store.Q3Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), LifecycleStates: stringSliceInput(input, "lifecycle_states"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q4":
-		return s.QueryQ4(ctx, Q4Request{Product: stringInput(input, "product"), Limit: intInput(input, "limit")})
+		return s.QueryQ4(ctx, store.Q4Request{Product: stringInput(input, "product"), Limit: intInput(input, "limit")})
 	case "PM1.Q5":
-		return s.QueryQ5(ctx, Q5Request{Product: stringInput(input, "product"), Limit: intInput(input, "limit")})
+		return s.QueryQ5(ctx, store.Q5Request{Product: stringInput(input, "product"), Limit: intInput(input, "limit")})
 	case "PM1.Q6":
-		return s.QueryQ6(ctx, Q6Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Work: stringInput(input, "work")})
+		return s.QueryQ6(ctx, store.Q6Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Work: stringInput(input, "work")})
 	case "PM1.Q7":
-		return s.QueryQ7(ctx, Q7Request{Work: stringInput(input, "work"), Direction: stringInput(input, "direction"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
+		return s.QueryQ7(ctx, store.Q7Request{Work: stringInput(input, "work"), Direction: stringInput(input, "direction"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q8":
-		return s.QueryQ8(ctx, Q8Request{Work: stringInput(input, "work"), RelationKinds: stringSliceInput(input, "relation_kinds"), Direction: stringInput(input, "direction")})
+		return s.QueryQ8(ctx, store.Q8Request{Work: stringInput(input, "work"), RelationKinds: stringSliceInput(input, "relation_kinds"), Direction: stringInput(input, "direction")})
 	case "PM1.Q9":
-		result, err := s.QueryQ9(ctx, Q9Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Component: stringInput(input, "component"), Kinds: stringSliceInput(input, "kinds"), Tags: stringSliceInput(input, "tags"), Text: stringInput(input, "text"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
+		result, err := s.QueryQ9(ctx, store.Q9Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Component: stringInput(input, "component"), Kinds: stringSliceInput(input, "kinds"), Tags: stringSliceInput(input, "tags"), Text: stringInput(input, "text"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
 		if err != nil {
 			return nil, err
 		}
@@ -451,7 +157,7 @@ func executeCorpusQuery(ctx context.Context, s *Store, id string, input map[stri
 		}
 		return result, nil
 	case "PM1.Q10":
-		return s.QueryQ10(ctx, Q10Request{Work: stringInput(input, "work"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
+		return s.QueryQ10(ctx, store.Q10Request{Work: stringInput(input, "work"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
 	}
 	return nil, fmt.Errorf("unsupported corpus query %s", id)
 }
@@ -527,7 +233,7 @@ func assertCorpusEnvelope(t *testing.T, id string, result map[string]any) {
 	t.Fatalf("%s: successful result must contain non-null items or result payload", id)
 }
 
-func assertCorpusFailureEnvelope(t *testing.T, id string, failure *Failure) {
+func assertCorpusFailureEnvelope(t *testing.T, id string, failure *store.Failure) {
 	t.Helper()
 	encoded := marshalCorpusResult(t, failure)
 	for _, field := range []string{"kind", "retry_safe", "recovery_action"} {
@@ -678,23 +384,4 @@ func containsValue(got, want any) bool {
 		return false
 	}
 	return reflect.DeepEqual(got, want) || strings.Contains(fmt.Sprint(got), fmt.Sprint(want))
-}
-func assertExtraCrossProductFixture(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	events := []Event{productCreatedEvent("cross-a", "cross-product-a"), projectCreatedEvent("cross-project", "cross-project-create"), operationEvent("cross-a-project", "product_project.added", SubjectProduct, "cross-a", map[string]any{"product_id": "cross-a", "project_id": "cross-project", "role": "primary", "reason": "cross fixture", "expected_version": 1, "resulting_version": 2}), productCreatedEvent("cross-b", "cross-product-b"), operationEvent("cross-b-project", "product_project.added", SubjectProduct, "cross-b", map[string]any{"product_id": "cross-b", "project_id": "cross-project", "role": "primary", "reason": "cross fixture", "expected_version": 1, "resulting_version": 2})}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "cross-a"): 0, VersionRef(SubjectProduct, "cross-b"): 0, VersionRef(SubjectProject, "cross-project"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workCreatedEvent("cross-work", "cross-work-create"), operationEvent("cross-work-project", "work_project.added", SubjectWorkItem, "cross-work", map[string]any{"work_id": "cross-work", "project_id": "cross-project", "role": "primary", "reason": "cross fixture", "expected_version": 1, "resulting_version": 2})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cross-work"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	scope, err := s.ProductsForWork(ctx, "cross-work")
-	if err != nil || len(scope.Products) != 2 || !scope.CrossProduct {
-		t.Fatalf("ProductsForWork = %#v, err %v", scope, err)
-	}
-	result, err := s.QueryQ6(ctx, Q6Request{Work: "cross-work"})
-	if err != nil || result.Work == nil || result.Work.ID != "cross-work" {
-		t.Fatalf("cross-product Q6 = %#v, err %v", result, err)
-	}
 }

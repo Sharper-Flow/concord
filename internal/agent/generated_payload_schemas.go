@@ -1176,6 +1176,18 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "object"
     },
     "lifecycle": {
+      "description": "Observed work lifecycle state. Every value the store can persist is permitted here so read paths and the work_browse_list_input filter can return/select any current state, including 'superseded'. Use this def for outputs and read-side filters; do NOT use it for transition targets, where supersession must remain atomic with its relation and only four agent-requestable values are permitted.",
+      "enum": [
+        "needed",
+        "in_progress",
+        "completed",
+        "cancelled",
+        "superseded"
+      ],
+      "type": "string"
+    },
+    "lifecycle_transition_target": {
+      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only via concord_work_relate.supersede. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
       "enum": [
         "needed",
         "in_progress",
@@ -4379,7 +4391,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/short"
         },
         "target": {
-          "$ref": "#/$defs/lifecycle"
+          "$ref": "#/$defs/lifecycle_transition_target"
         },
         "work_id": {
           "$ref": "#/$defs/id"

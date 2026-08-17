@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/agent-jobs-scenarios.schema.json",
+  "title": "Concord TS1 agent-jobs scenario corpus v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "contract_status",
+    "fixture_sources",
+    "assertion_contract",
+    "runner_requirements",
+    "shared_invariants",
+    "jobs",
+    "scenarios"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "contract": {
+      "const": "TS1"
+    },
+    "contract_status": {
+      "const": "accepted"
+    },
+    "fixture_sources": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "assertion_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_fields",
+        "targets",
+        "ops"
+      ],
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "ops": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "runner_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passing_rule",
+        "trajectory_policy",
+        "mutation_oracle",
+        "required_measurements"
+      ],
+      "properties": {
+        "passing_rule": {
+          "$ref": "#/$defs/short"
+        },
+        "trajectory_policy": {
+          "$ref": "#/$defs/short"
+        },
+        "mutation_oracle": {
+          "$ref": "#/$defs/short"
+        },
+        "required_measurements": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "shared_invariants": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 64,
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/short"
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "name": {
+            "$ref": "#/$defs/short"
+          }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 21,
+      "maxItems": 21,
+      "items": {
+        "$ref": "#/$defs/scenario"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$",
+      "minLength": 2,
+      "maxLength": 128
+    },
+    "short": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "jsonValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 0,
+          "maxProperties": 64,
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      ]
+    },
+    "driver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "response"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/id"
+        },
+        "response": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "path",
+        "op"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "op": {
+          "$ref": "#/$defs/id"
+        },
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assertions"
+      ],
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/assertion"
+          }
+        },
+        "invariants": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "initialState": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 64,
+      "additionalProperties": false,
+      "properties": {
+        "ambient_project": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "consequence": {
+          "$ref": "#/$defs/id"
+        },
+        "current_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "fault": {
+          "$ref": "#/$defs/id"
+        },
+        "fixture": {
+          "$ref": "#/$defs/id"
+        },
+        "fixture_override": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        "git": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "merged",
+            "clean"
+          ],
+          "properties": {
+            "merged": {
+              "type": "boolean"
+            },
+            "clean": {
+              "type": "boolean"
+            }
+          }
+        },
+        "governing_requirement": {
+          "$ref": "#/$defs/id"
+        },
+        "health_after_apply": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_seed": {
+          "$ref": "#/$defs/short"
+        },
+        "native_authority": {
+          "$ref": "#/$defs/id"
+        },
+        "operation": {
+          "$ref": "#/$defs/id"
+        },
+        "projection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        },
+        "provided_evidence": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "requested_budget_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "required_evidence": {
+          "$ref": "#/$defs/id"
+        },
+        "rollback": {
+          "$ref": "#/$defs/id"
+        },
+        "supported_budget_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "job_id",
+        "instruction",
+        "initial_state",
+        "expected"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "job_id": {
+          "$ref": "#/$defs/id"
+        },
+        "instruction": {
+          "$ref": "#/$defs/short"
+        },
+        "initial_state": {
+          "$ref": "#/$defs/initialState"
+        },
+        "expected": {
+          "$ref": "#/$defs/expected"
+        },
+        "driver": {
+          "$ref": "#/$defs/driver"
+        }
+      }
+    }
+  }
+}

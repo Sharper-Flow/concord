@@ -164,3 +164,21 @@ Amend TS1 only when one of these occurs:
 
 New jobs require the unmet intent, success oracle, authority boundary, and a failing
 scenario. An existing tool or endpoint is never sufficient evidence.
+
+### Approved amendments
+
+**2026-08-16, issue #156 — `AJ1-ambient-ready-work` gains an authority assertion.**
+Building the corpus runner surfaced that this scenario asserted only `result` and
+`communication` facets. It declared the `canonical_authority` invariant and carries
+AJ1's "authority and freshness are visible" attribute from section 2, but checked
+neither, while all four other read-only scenarios already asserted a durable
+`effects` or `authority` fact. That is the sixth falsifier above: the scenario
+rewarded response wording while permitting wrong authority. The amendment adds
+
+```json
+{ "target": "authority", "path": "stored_ready_flag_used", "op": "eq", "value": false }
+```
+
+which mirrors `AJ2-blocker-explanation`'s `stored_blocked_flag_used` assertion and is
+satisfiable because readiness is derived at read time and never persisted as a flag.
+No job definition, instruction, invariant, or other scenario changed.

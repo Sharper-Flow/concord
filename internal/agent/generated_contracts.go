@@ -7,7 +7,7 @@ import (
 )
 
 const ManifestVersion = "3.7.0"
-const ManifestDigest = "sha256:d3622c049aee48793c70107a8ee799bb83903f8b60d88a3a50fa855b4a690d82"
+const ManifestDigest = "sha256:b2a60d98e08de647ed5857243abada4accaa791309d85575bdfbaf0048b72c9b"
 
 type OperationKind string
 

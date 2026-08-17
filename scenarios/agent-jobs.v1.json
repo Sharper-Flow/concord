@@ -59,7 +59,8 @@
           { "target": "result", "path": "resolved_product_id", "op": "eq", "value": "prod-alpha" },
           { "target": "result", "path": "selected_work_id", "op": "eq", "value": "work-ready-high" },
           { "target": "result", "path": "selected_work_id", "op": "not_eq", "value": "work-blocked" },
-          { "target": "communication", "path": "ready_work_evidence", "op": "nonempty" }
+          { "target": "communication", "path": "ready_work_evidence", "op": "nonempty" },
+          { "target": "authority", "path": "stored_ready_flag_used", "op": "eq", "value": false }
         ],
         "invariants": ["correct_scope", "canonical_authority", "bounded_context"]
       }

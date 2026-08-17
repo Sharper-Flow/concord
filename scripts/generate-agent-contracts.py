@@ -15,7 +15,7 @@ def canonical(value: object) -> bytes:
 def fail(message: str) -> None:
     raise ValueError(message)
 
-SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties"}
+SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties"}
 
 def schema_validate(value, schema, root, path="$"):
     """Validate an instance using every JSON-Schema keyword used in-repo."""
@@ -40,6 +40,10 @@ def schema_validate(value, schema, root, path="$"):
     if isinstance(value, dict):
         if "minProperties" in schema and len(value) < schema["minProperties"]: fail(f"minProperties at {path}")
         if "maxProperties" in schema and len(value) > schema["maxProperties"]: fail(f"maxProperties at {path}")
+        if "propertyNames" in schema:
+            for key in value:
+                try: schema_validate(key, schema["propertyNames"], root, f"{path}.{key}")
+                except ValueError as exc: fail(f"propertyNames at {path}.{key}: {exc}")
         required = schema.get("required", [])
         for key in required:
             if key not in value: fail(f"missing required {path}.{key}")

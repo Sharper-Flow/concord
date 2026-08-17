@@ -140,6 +140,76 @@ def test_relative_doc_links_resolve() -> None:
     assert checker.existing_paths("[`priorities.md`](./priorities.md)") == ["docs/priorities.md"]
 
 
+FLOOR_STATES = {"fc2-context-freshness": "satisfied", "fc3-lane-pipeline": "outstanding"}
+
+
+def run_floor(row: str, states: dict[str, str] | None = None) -> list[str]:
+    findings: list[str] = []
+    rows = checker.parse_rows(document(row) + tally(1, 0, 0, 1), findings)
+    checker.check_floor_references(rows, FLOOR_STATES if states is None else states, findings)
+    return findings
+
+
+def test_floor_reference_state_must_match_the_manifest() -> None:
+    row = (
+        "| An outcome | Covered | `scripts/check-predecessor-coverage.py`. "
+        "Recorded as `fc2-context-freshness` (`unmeasured`). |"
+    )
+    findings = run_floor(row)
+    assert any("manifest records 'satisfied'" in f for f in findings), findings
+
+
+def test_floor_reference_state_that_matches_is_accepted() -> None:
+    row = (
+        "| An outcome | Covered | `scripts/check-predecessor-coverage.py`. "
+        "Recorded as `fc2-context-freshness` (`satisfied`). |"
+    )
+    assert run_floor(row) == []
+
+
+def test_floor_reference_must_name_a_declared_item() -> None:
+    row = (
+        "| An outcome | Covered | `scripts/check-predecessor-coverage.py`. "
+        "Recorded as `fc9-invented-item` (`satisfied`). |"
+    )
+    findings = run_floor(row)
+    assert any("which the manifest does not declare" in f for f in findings), findings
+
+
+def test_floor_reference_without_a_state_claim_is_accepted() -> None:
+    row = (
+        "| An outcome | Covered | `scripts/check-predecessor-coverage.py`. "
+        "See `fc2-context-freshness`. |"
+    )
+    assert run_floor(row) == []
+
+
+def test_two_state_claims_in_one_row_are_ambiguous() -> None:
+    row = (
+        "| An outcome | Covered | `scripts/check-predecessor-coverage.py`. "
+        "`fc2-context-freshness` (`satisfied`) and (`outstanding`). |"
+    )
+    findings = run_floor(row)
+    assert any("the claim is ambiguous" in f for f in findings), findings
+
+
+def test_state_claim_against_several_items_is_rejected() -> None:
+    row = (
+        "| An outcome | Covered | `scripts/check-predecessor-coverage.py`. "
+        "`fc2-context-freshness` and `fc3-lane-pipeline` are (`satisfied`). |"
+    )
+    findings = run_floor(row)
+    assert any("while citing 2 floor items" in f for f in findings), findings
+
+
+def test_real_floor_manifest_resolves() -> None:
+    findings: list[str] = []
+    states = checker.load_floor_states(findings)
+    assert findings == [], findings
+    assert states and states["fc2-context-freshness"] == "satisfied"
+    assert set(states.values()) <= checker.FLOOR_STATES
+
+
 def main() -> int:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:

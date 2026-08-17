@@ -283,9 +283,14 @@ func bumpVersion(ctx context.Context, tx *sql.Tx, table string, event Event, exp
 			"retry once the database is readable", err)
 	}
 	if current != expected {
-		return newFailure(KindVersionConflict, "fold_event",
+		f := newFailure(KindVersionConflict, "fold_event",
 			fmt.Sprintf("%s %s has version %d, want %d", label, event.SubjectID, current, expected), false,
 			"reload the subject and retry with its current version")
+		// fold_event subjects share the SubjectWorkItem/SubjectProduct/SubjectProject
+		// vocabulary; carry the typed current version so the agent layer does not
+		// have to parse the human detail string.
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: event.SubjectType, SubjectID: event.SubjectID, Version: current, Exists: true}}
+		return f
 	}
 	result, err := tx.ExecContext(ctx, "UPDATE "+table+" SET version = ?, updated_at = ? WHERE id = ? AND version = ?",
 		resulting, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), event.SubjectID, expected)

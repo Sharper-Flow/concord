@@ -167,7 +167,7 @@
       "id": "fc2-ts1-corpus-complete",
       "condition": "fc2",
       "title": "All 21 TS1 scenarios are bound and passing",
-      "requirement": "All 21 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today four of twenty-one are bound (AJ1-ambient-ready-work, AJ1-ambiguous-product, AJ1-cross-project-deduplication, AJ2-blocker-explanation); the remaining seventeen are deferred and must be bound for this item to be satisfied.",
+      "requirement": "All 21 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today twelve of twenty-one are bound: the four AJ1/AJ2 read scenarios plus the eight AJ3/AJ4/AJ5 mutation scenarios. The remaining nine are deferred and must be bound for this item to be satisfied: AJ3-spec-conflict (#167), the two AJ6 compaction scenarios (#161), the two AJ7 knowledge scenarios (#160), and the four AJ8 operational scenarios (#162).",
       "state": "outstanding",
       "issue": 165
     },

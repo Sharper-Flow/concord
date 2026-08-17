@@ -65,6 +65,28 @@ type jobAssertion struct {
 	Value  any    `json:"value"`
 }
 
+// probedAbsent marks a fact a binding actively looked for and did not find.
+// The "absent" assertion operator requires this sentinel: a nil path means
+// the binding never probed, which is a harness defect, not a passing
+// assertion. The Evidence field carries a short human-readable description
+// of what the probe did so reviewers can audit the claim without re-running
+// the binding. Bindings record probedAbsent at the exact (target, path) the
+// assertion resolves to; the runner checks structural presence, not the
+// evidence string.
+type probedAbsent struct {
+	Evidence string
+}
+
+// assertReporter is the minimal subset of *testing.T the corpus evaluator
+// uses. Pulling it out lets regression tests for the absent guard drive the
+// evaluator with a recording stub instead of piggybacking on the live
+// corpus run.
+type assertReporter interface {
+	Helper()
+	Errorf(format string, args ...any)
+	Fatalf(format string, args ...any)
+}
+
 // ---------------------------------------------------------------------------
 // Observation — the result of executing a scenario binding
 // ---------------------------------------------------------------------------
@@ -96,16 +118,19 @@ var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
 	"canonical_authority": invariantCanonicalAuthority,
 	"bounded_context":     invariantBoundedContext,
 	"no_silent_scope_cut": invariantNoSilentScopeCut,
+	// AJ3/AJ4/AJ5 mutation scenarios exercise the four core mutation
+	// invariants; the bindings write durable state that lets the
+	// checks run with real evidence rather than vacuous assertions.
+	"atomic_core_effect": invariantAtomicCoreEffect,
+	"retry_safe":         invariantRetrySafe,
+	"evidence_authority": invariantEvidenceAuthority,
+	"honest_recovery":    invariantHonestRecovery,
 }
 
 // uncheckedInvariants cannot be mechanically checked by this harness.
 // The test fails if a scenario names an invariant that is neither here nor in
 // implementedInvariants.
 var uncheckedInvariants = map[string]string{
-	"atomic_core_effect":      "requires mutation execution — only read scenarios bound in this tranche",
-	"evidence_authority":      "requires approval/evidence gate — mutation scenarios deferred",
-	"honest_recovery":         "requires fault injection — deferred to mutation tranche",
-	"retry_safe":              "requires idempotency replay — mutation scenarios deferred",
 	"ground_truth_cleanup":    "requires git worktree lifecycle — not yet bound",
 	"ordered_cross_authority": "requires git publication sequencing — not yet bound",
 	"stable_evolution":        "requires contract version drift testing — not yet bound",
@@ -152,11 +177,128 @@ func invariantNoSilentScopeCut(t *testing.T, obs jobObservation) {
 	}
 }
 
+// invariantAtomicCoreEffect enforces the all-or-nothing property on a
+// single domain operation: a typed error must leave zero durable
+// effect, and a successful operation must carry the matching durable
+// state. Bindings record either atomic_core_effect_zero=true (refusal
+// path) or atomic_core_effect=complete (success path) in effects, so
+// the invariant reads precomputed evidence rather than re-deriving
+// durable state. A path without either marker fails — that catches
+// bindings that forgot to write the observation hook.
+func invariantAtomicCoreEffect(t *testing.T, obs jobObservation) {
+	t.Helper()
+	hasZero, hasComplete := false, false
+	if v, ok := obs.Effects["atomic_core_effect_zero"].(bool); ok {
+		hasZero = v
+	}
+	if v, ok := obs.Effects["atomic_core_effect"].(string); ok && v == "complete" {
+		hasComplete = true
+	}
+	if !hasZero && !hasComplete {
+		t.Error("atomic_core_effect: binding did not record either atomic_core_effect_zero=true (refusal path) or atomic_core_effect=complete (success path)")
+		return
+	}
+	// Cross-check: when error is present, the invariant requires
+	// atomic_core_effect_zero=true; when outcome is OK, the invariant
+	// requires atomic_core_effect=complete.
+	_, hasErr := obs.Communication["error"]
+	if hasErr && !hasZero {
+		t.Error("atomic_core_effect: typed error present but atomic_core_effect_zero=true is missing")
+	}
+	if !hasErr && !hasComplete {
+		t.Error("atomic_core_effect: success outcome but atomic_core_effect=complete is missing")
+	}
+}
+
+// invariantRetrySafe verifies the binding actually replayed the same
+// idempotency key against the same input and recorded evidence. A
+// scenario that declares retry_safe but does not record
+// retry_safe_replayed=true in the effects map fails the invariant
+// rather than passing vacuously — the brief requires the check have
+// "real evidence to read".
+func invariantRetrySafe(t *testing.T, obs jobObservation) {
+	t.Helper()
+	if v, ok := obs.Effects["retry_safe_replayed"].(bool); !ok || !v {
+		t.Error("retry_safe: binding did not record retry_safe_replayed=true; retry_safe cannot be verified without replay evidence")
+	}
+}
+
+// invariantEvidenceAuthority distinguishes the two meaningful
+// evidence outcomes: when evidence was supplied the durable event
+// must carry it, and when required evidence was absent the typed
+// refusal must be missing_evidence with provide_evidence recovery.
+// Bindings write one of two effects markers and the invariant reads
+// them directly.
+func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
+	t.Helper()
+	supplied, suppliedOK := obs.Effects["evidence_authority_supplied"].(bool)
+	required, requiredOK := obs.Effects["missing_evidence_refused"].(bool)
+	if !suppliedOK && !requiredOK {
+		t.Error("evidence_authority: binding did not record either evidence_authority_supplied or missing_evidence_refused")
+		return
+	}
+	if supplied && !suppliedOK {
+		t.Error("evidence_authority: evidence_authority_supplied set but to a non-bool")
+	}
+	if required {
+		// Cross-check: a missing_evidence refusal must surface in the
+		// communication error map, not just in effects.
+		if commErr, ok := obs.Communication["error"].(map[string]any); ok {
+			if kind, _ := commErr["kind"].(string); kind != "missing_evidence" {
+				t.Errorf("evidence_authority: missing_evidence_refused but error.kind=%q, want missing_evidence", kind)
+			}
+		} else {
+			t.Error("evidence_authority: missing_evidence_refused but no error map in communication")
+		}
+	}
+}
+
+// invariantHonestRecovery enforces the recovery contract: the typed
+// error must name a recovery_action.kind the agent can actually act
+// on, and structural fields the runner relies on (current_version
+// for version_conflict, violations for invalid_relation, approval_ref
+// for approval_required) must be present. Bindings write the typed
+// fields directly into the error map; this check verifies the wire
+// shape end-to-end.
+func invariantHonestRecovery(t *testing.T, obs jobObservation) {
+	t.Helper()
+	commErr, ok := obs.Communication["error"].(map[string]any)
+	if !ok {
+		return // success path — no error to recover from
+	}
+	recovery, _ := commErr["recovery_action"].(string)
+	if recovery == "" {
+		t.Error("honest_recovery: error map present but recovery_action is empty")
+		return
+	}
+	kind, _ := commErr["kind"].(string)
+	switch kind {
+	case "version_conflict":
+		if cv, _ := commErr["current_version"].(float64); cv == 0 {
+			t.Error("honest_recovery: version_conflict without structural current_version")
+		}
+	case "invalid_relation":
+		violations, _ := commErr["violations"].([]any)
+		if len(violations) == 0 {
+			t.Error("honest_recovery: invalid_relation without structural violations")
+		}
+	case "approval_required":
+		if approvalRef, _ := commErr["approval_ref"].(string); approvalRef == "" {
+			// approval_ref is not part of communication.error by
+			// convention; bindings surface it under authority when
+			// it exists. If neither is present the agent cannot act.
+			if ar, _ := obs.Authority["approval_ref"].(string); ar == "" {
+				t.Error("honest_recovery: approval_required without an approval_ref the agent can sign against")
+			}
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Evaluator — (target, path, op, value) with dot-path traversal
 // ---------------------------------------------------------------------------
 
-func evaluateAssertion(t *testing.T, obs jobObservation, a jobAssertion) {
+func evaluateAssertion(t assertReporter, obs jobObservation, a jobAssertion) {
 	t.Helper()
 
 	var root any
@@ -176,6 +318,16 @@ func evaluateAssertion(t *testing.T, obs jobObservation, a jobAssertion) {
 	}
 
 	got := resolvePath(root, a.Path)
+
+	// The probedAbsent sentinel exists for one operator: "absent". Any
+	// other operator finding the sentinel at the resolved path means the
+	// binding wrote the probe marker into a map the assertion will index
+	// against, which is a wiring defect — flag it loudly so it cannot pass
+	// silently.
+	if _, isProbe := got.(probedAbsent); isProbe && a.Op != "absent" {
+		t.Errorf("%s.%s %s: probedAbsent sentinel present; only the absent operator accepts the probe marker", a.Target, a.Path, a.Op)
+		return
+	}
 
 	switch a.Op {
 	case "eq":
@@ -217,7 +369,13 @@ func evaluateAssertion(t *testing.T, obs jobObservation, a jobAssertion) {
 			t.Errorf("%s.%s nonempty: value is empty", a.Target, a.Path)
 		}
 	case "absent":
-		if got != nil {
+		switch got.(type) {
+		case nil:
+			t.Errorf("%s.%s absent: no probe recorded — binding must actively prove this fact is absent", a.Target, a.Path)
+		case probedAbsent:
+			// confirmed absent after the binding queried durable state;
+			// the operator accepts the marker.
+		default:
 			t.Errorf("%s.%s absent: value unexpectedly present: %#v", a.Target, a.Path, got)
 		}
 	default:
@@ -321,6 +479,231 @@ func toSlice(v any) []any {
 		return a
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Absent-operator guard — regression harness
+// ---------------------------------------------------------------------------
+//
+// The five TS1 mutation scenarios plus three AJ1 read scenarios carry
+// "absent" assertions whose previous behaviour (a nil path resolving to
+// nil means "pass") was a vacuous-pass defect: a binding that simply
+// never probed the path produced a passing assertion. evaluateAssertion
+// now requires a probedAbsent sentinel at the resolved path; this
+// harness proves the guard is live and bites.
+//
+// recorderT captures the evaluator's failure output without leaking to
+// the live test runner. The runner itself runs evaluateAssertion
+// through *testing.T; if the guard is removed or weakened the
+// TestAgentJobsCorpus top-level sub-tests fail first, but this
+// regression test exists so a future maintainer who re-introduces the
+// vacuous-pass cannot rely on the corpus alone to detect it — this
+// test exercises the evaluator in isolation.
+
+type recorderT struct {
+	*testing.T
+	errors []string
+	fatals []string
+}
+
+func (r *recorderT) Helper() {}
+
+func (r *recorderT) Errorf(format string, args ...any) {
+	r.errors = append(r.errors, fmt.Sprintf(format, args...))
+}
+
+func (r *recorderT) Fatalf(format string, args ...any) {
+	r.fatals = append(r.fatals, fmt.Sprintf(format, args...))
+	// Keep the message but do NOT propagate the failure to *testing.T;
+	// the caller inspects recorderT.errors / .fatals and decides.
+}
+
+// TestEvaluateAbsentRequiresProbe verifies the evaluator rejects an
+// "absent" assertion when the binding did not record a probedAbsent
+// sentinel at the resolved path. The guard must produce a clear
+// "no probe recorded" message — never a silent pass.
+func TestEvaluateAbsentRequiresProbe(t *testing.T) {
+	cases := []struct {
+		name         string
+		obs          jobObservation
+		assertion    jobAssertion
+		wantFragment string
+	}{
+		{
+			name: "effects.terminal_transition without probe",
+			obs: jobObservation{
+				State:         map[string]any{},
+				Result:        map[string]any{},
+				Communication: map[string]any{},
+				Effects:       map[string]any{},
+				Authority:     map[string]any{},
+			},
+			assertion: jobAssertion{
+				Target: "effects",
+				Path:   "terminal_transition",
+				Op:     "absent",
+			},
+			wantFragment: "no probe recorded",
+		},
+		{
+			name: "effects.stored_blocked_state without probe",
+			obs: jobObservation{
+				State:         map[string]any{},
+				Result:        map[string]any{},
+				Communication: map[string]any{},
+				Effects:       map[string]any{},
+				Authority:     map[string]any{},
+			},
+			assertion: jobAssertion{
+				Target: "effects",
+				Path:   "stored_blocked_state",
+				Op:     "absent",
+			},
+			wantFragment: "no probe recorded",
+		},
+		{
+			name: "result.selected_work_id without probe",
+			obs: jobObservation{
+				State:         map[string]any{},
+				Result:        map[string]any{},
+				Communication: map[string]any{},
+				Effects:       map[string]any{},
+				Authority:     map[string]any{},
+			},
+			assertion: jobAssertion{
+				Target: "result",
+				Path:   "selected_work_id",
+				Op:     "absent",
+			},
+			wantFragment: "no probe recorded",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recorderT{T: t}
+			evaluateAssertion(rec, tc.obs, tc.assertion)
+			if len(rec.errors) == 0 {
+				t.Fatalf("evaluateAssertion accepted an absent assertion without a probe (no error recorded); the guard is not biting")
+			}
+			found := false
+			for _, msg := range rec.errors {
+				if strings.Contains(msg, tc.wantFragment) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("evaluateAssertion errors %v do not contain %q", rec.errors, tc.wantFragment)
+			}
+		})
+	}
+}
+
+// TestEvaluateAbsentAcceptsProbe verifies the evaluator accepts a
+// probedAbsent sentinel at the resolved path. The companion to the
+// requires-probe test above; together they prove the operator both
+// rejects unprobed paths and accepts probed ones.
+func TestEvaluateAbsentAcceptsProbe(t *testing.T) {
+	rec := &recorderT{T: t}
+	obs := jobObservation{
+		State:         map[string]any{},
+		Result:        map[string]any{},
+		Communication: map[string]any{},
+		Effects: map[string]any{
+			"terminal_transition": probedAbsent{Evidence: "domain_events has zero terminal rows for work-cross"},
+		},
+		Authority: map[string]any{},
+	}
+	evaluateAssertion(rec, obs, jobAssertion{
+		Target: "effects",
+		Path:   "terminal_transition",
+		Op:     "absent",
+	})
+	if len(rec.errors) != 0 {
+		t.Fatalf("evaluateAssertion rejected a probed absent path; errors=%v", rec.errors)
+	}
+	if len(rec.fatals) != 0 {
+		t.Fatalf("evaluateAssertion fatally rejected a probed absent path; fatals=%v", rec.fatals)
+	}
+}
+
+// TestEvaluateAbsentRejectsUnexpectedValue verifies the evaluator
+// still fails the absent assertion when the path resolves to a real
+// value (not nil and not probedAbsent). The brief's third branch
+// (path resolves to anything else → FAIL) must remain live.
+func TestEvaluateAbsentRejectsUnexpectedValue(t *testing.T) {
+	rec := &recorderT{T: t}
+	obs := jobObservation{
+		State:         map[string]any{},
+		Result:        map[string]any{},
+		Communication: map[string]any{},
+		Effects: map[string]any{
+			"terminal_transition": "completed",
+		},
+		Authority: map[string]any{},
+	}
+	evaluateAssertion(rec, obs, jobAssertion{
+		Target: "effects",
+		Path:   "terminal_transition",
+		Op:     "absent",
+	})
+	if len(rec.errors) == 0 {
+		t.Fatalf("evaluateAssertion passed an absent assertion whose path resolves to a real value; the operator's third branch is not biting")
+	}
+	wantFragment := "unexpectedly present"
+	found := false
+	for _, msg := range rec.errors {
+		if strings.Contains(msg, wantFragment) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("evaluateAssertion errors %v do not contain %q", rec.errors, wantFragment)
+	}
+}
+
+// TestEvaluateProbeSentinelRejectsOtherOperators verifies a probedAbsent
+// sentinel at the resolved path is rejected by every operator other
+// than absent. The brief says: "Do not let probedAbsent satisfy any
+// other operator." Without this guard a binding could accidentally
+// satisfy nonempty by recording a probe at a path the assertion
+// expects to be populated.
+func TestEvaluateProbeSentinelRejectsOtherOps(t *testing.T) {
+	ops := []string{"eq", "not_eq", "contains", "not_contains", "set_eq", "unique", "nonempty"}
+	rec := &recorderT{T: t}
+	obs := jobObservation{
+		State:         map[string]any{},
+		Result:        map[string]any{},
+		Communication: map[string]any{},
+		Effects: map[string]any{
+			"terminal_transition": probedAbsent{Evidence: "probe"},
+		},
+		Authority: map[string]any{},
+	}
+	for _, op := range ops {
+		rec.errors = rec.errors[:0]
+		evaluateAssertion(rec, obs, jobAssertion{
+			Target: "effects",
+			Path:   "terminal_transition",
+			Op:     op,
+			Value:  "anything",
+		})
+		if len(rec.errors) == 0 {
+			t.Fatalf("op %q accepted probedAbsent sentinel; only absent must accept the marker", op)
+		}
+		found := false
+		for _, msg := range rec.errors {
+			if strings.Contains(msg, "probedAbsent sentinel") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("op %q rejected probedAbsent without naming it; errors=%v", op, rec.errors)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -658,17 +1041,19 @@ func init() {
 	jobBindings["AJ1-ambiguous-product"] = bindAJ1AmbiguousProduct
 	jobBindings["AJ1-cross-project-deduplication"] = bindAJ1CrossProjectDeduplication
 	jobBindings["AJ2-blocker-explanation"] = bindAJ2BlockerExplanation
+	// AJ3/AJ4/AJ5 mutation bindings land in this tranche (#159). The
+	// handlers live in agent_jobs_mutations_bindings_test.go.
+	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
+	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
+	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
+	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
+	jobBindings["AJ4-stale-version"] = bindAJ4StaleVersion
+	jobBindings["AJ5-add-dependency"] = bindAJ5AddDependency
+	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
+	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 
 	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ3-capture-work"] = "#159 mutation tranche: drives concord_work_define.capture"
-	jobDeferrals["AJ3-spec-conflict"] = "#159 mutation tranche: needs the human_checkpoint driver"
-	jobDeferrals["AJ4-start-valid-work"] = "#159 mutation tranche: drives concord_work_transition.lifecycle"
-	jobDeferrals["AJ4-complete-valid-work"] = "#159 mutation tranche: needs evidence binding on completion"
-	jobDeferrals["AJ4-completion-missing-evidence"] = "#159 mutation tranche: needs the missing-evidence gate"
-	jobDeferrals["AJ4-stale-version"] = "#159 mutation tranche: needs the version-conflict path"
-	jobDeferrals["AJ5-add-dependency"] = "#159 mutation tranche: drives concord_work_relate for blocks edges"
-	jobDeferrals["AJ5-reject-cycle"] = "#159 mutation tranche: needs an active probe for the rejected cyclic relation"
-	jobDeferrals["AJ5-atomic-supersession"] = "#159 mutation tranche: needs initial_state.fixture_override support"
+	jobDeferrals["AJ3-spec-conflict"] = "#167 governance tranche: requires new envelope options field, governing-requirement detection, and a human_checkpoint driver"
 	jobDeferrals["AJ6-compact-terminal-work"] = "#161 compaction tranche: needs observed git publication ordering"
 	jobDeferrals["AJ6-partial-publication"] = "#161 compaction tranche: needs a commit-verification fault injector"
 	jobDeferrals["AJ7-search-knowledge"] = "#160 knowledge tranche: needs SeedKnowledge wired through the agent surface"
@@ -754,13 +1139,33 @@ func bindAJ1AmbiguousProduct(t *testing.T, sc jobScenario) jobObservation {
 	obs := envelopeToObservation(resp)
 	obs.Effects = map[string]any{}
 
-	// Verify no product was guessed in the result.
+	// Active probe: the response must be a typed ambiguous_scope
+	// refusal, and neither a product_id nor a selected_work_id may have
+	// leaked into the result payload. Without this probe the runner's
+	// absent assertions for result.selected_work_id and
+	// effects.guessed_product would pass vacuously.
+	var resolvedResult map[string]any
 	if len(resp.Result) > 0 {
-		var result map[string]any
-		if err := json.Unmarshal(resp.Result, &result); err == nil {
-			if pid, ok := result["product_id"].(string); ok && pid != "" {
-				obs.Effects["guessed_product"] = pid
-			}
+		if err := json.Unmarshal(resp.Result, &resolvedResult); err != nil {
+			t.Fatalf("unmarshal resolve result: %v", err)
+		}
+	}
+	if _, hasPID := resolvedResult["product_id"]; hasPID {
+		if pid, _ := resolvedResult["product_id"].(string); pid != "" {
+			obs.Effects["guessed_product"] = pid
+		}
+	}
+	if _, hasSelection := resolvedResult["selected_work_id"]; !hasSelection {
+		if obs.Result == nil {
+			obs.Result = map[string]any{}
+		}
+		obs.Result["selected_work_id"] = probedAbsent{
+			Evidence: "resolve returned ambiguous_scope with no selected_work_id; scope was refused, not guessed",
+		}
+	}
+	if _, set := obs.Effects["guessed_product"]; !set {
+		obs.Effects["guessed_product"] = probedAbsent{
+			Evidence: "resolve returned ambiguous_scope with no product_id in the result; product was refused, not guessed",
 		}
 	}
 
@@ -841,6 +1246,40 @@ func bindAJ1CrossProjectDeduplication(t *testing.T, sc jobScenario) jobObservati
 	obs := envelopeToObservation(listResp)
 	obs.Result = map[string]any{"items": items}
 	obs.Effects = map[string]any{}
+	// Active probe: scan the raw read payload and confirm no entry
+	// duplicates a work item once per project. work-cross spans two
+	// projects; if the reader copied status per-project, the items
+	// array would carry it twice. Count distinct work ids in the raw
+	// payload vs the total entries; equality is the probe.
+	rawCount := 0
+	distinctIDs := map[string]int{}
+	if rawItems, ok := listResult["items"].([]any); ok {
+		for _, raw := range rawItems {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := item["id"].(string)
+			if id == "" {
+				continue
+			}
+			rawCount++
+			distinctIDs[id]++
+		}
+	}
+	duplicated := false
+	for _, n := range distinctIDs {
+		if n > 1 {
+			duplicated = true
+			break
+		}
+	}
+	if duplicated {
+		t.Fatalf("cross-project work items were duplicated in the read result (raw entries=%d, distinct=%d); per-project status copies leaked", rawCount, len(distinctIDs))
+	}
+	obs.Effects["per_project_status_copy"] = probedAbsent{
+		Evidence: fmt.Sprintf("read result carries %d entries and %d distinct work ids; per-project status is derived from project_ids, not duplicated", rawCount, len(distinctIDs)),
+	}
 	return obs
 }
 

@@ -165,6 +165,23 @@ Amend TS1 only when one of these occurs:
 New jobs require the unmet intent, success oracle, authority boundary, and a failing
 scenario. An existing tool or endpoint is never sufficient evidence.
 
+### Runner obligation: `absent` must be probed
+
+An `absent` assertion states that a prohibited effect did not happen. A runner that
+evaluates it by checking whether a key is missing from its own observation proves
+nothing — the assertion passes precisely because nobody looked. That is the fifth
+falsifier above wearing a disguise: the corpus appears to forbid an effect while
+permitting it.
+
+The runner therefore requires an explicit probe sentinel. A binding must query
+durable state, prove the prohibited effect is absent, and record that finding; an
+unprobed `absent` path fails with `no probe recorded`. Issue #159 found eight
+`absent` assertions passing vacuously this way — five in the mutation scenarios then
+being bound, and three already-shipped AJ1 assertions from #156 — so the guard is
+retrospective, not merely preventive. A test asserts that the evaluator rejects an
+unprobed `absent` assertion, which is what keeps this property from silently
+regressing.
+
 ### Approved amendments
 
 **2026-08-16, issue #156 — `AJ1-ambient-ready-work` gains an authority assertion.**
@@ -182,3 +199,41 @@ rewarded response wording while permitting wrong authority. The amendment adds
 which mirrors `AJ2-blocker-explanation`'s `stored_blocked_flag_used` assertion and is
 satisfiable because readiness is derived at read time and never persisted as a flag.
 No job definition, instruction, invariant, or other scenario changed.
+
+**2026-08-17, issue #159 — AJ4 version integers corrected to Concord's actual
+version accounting.**
+Binding the mutation scenarios surfaced that AJ4's hardcoded version integers assume
+project membership is free. Concord charges one version per membership: a work item's
+version is `1 (create) + one per project membership + one per lifecycle transition`.
+This was verified against production `concord_work_define.capture`, not merely against
+the PM1 fixture — capturing work with one project yields version 2, so the fixture is
+faithful and the corpus integers were unachievable.
+
+The accounting explains every PM1 work version exactly. `work-cross` is version 4
+because it is the cross-Project item: two memberships plus one transition. Only
+`AJ4-stale-version` was accidentally correct, because `work-ready-low` has one
+membership and no transitions, making its true current version 2 as declared.
+
+| Scenario | Field | Was | Now |
+|---|---|---|---|
+| `AJ4-start-valid-work` | `initial_state.expected_version` | 1 | 2 |
+| `AJ4-start-valid-work` | `state.work.work-ready-high.version` | 2 | 3 |
+| `AJ4-start-valid-work` | `communication.new_version` | 2 | 3 |
+| `AJ4-complete-valid-work` | `initial_state.expected_version` | 2 | 4 |
+
+`AJ4-stale-version` is unchanged: it was already correct.
+
+The behavioural law these scenarios encode — a stale expected version is refused, and
+a successful transition increments the version by exactly one — was never in question
+and is unweakened. Because absolute integers silently depend on fixture membership
+counts, both success scenarios additionally gained
+
+```json
+{ "target": "effects", "path": "version_increment", "op": "eq", "value": 1 }
+```
+
+so the increment law is asserted structurally rather than inferred from a magic
+number. That assertion is computed from the observed pre- and post-mutation versions,
+so it fails if a regression shifted every version uniformly — which a literal integer
+alone would also catch, but which relative-version resolution would not. No job
+definition, instruction, or invariant changed.

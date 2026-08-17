@@ -63,14 +63,30 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	}
 
 	// Non-authority: an observation does not soften the terminal transition's
-	// approval requirement, and no workflow gate reads it.
+	// approval requirement, and no workflow gate reads it. Post-D3 the
+	// refusal surfaces as missing_evidence (the agent must supply the
+	// verification evidence before the approval challenge can even be
+	// minted); this is strictly stronger than the pre-fix approval-only
+	// gate because the missing-evidence recovery_action=provide_evidence
+	// names the exact next step the agent must take.
 	terminalInput, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "observed and delivered", "idempotency_key": "obs-terminal"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: terminalInput}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "approval_required" {
-		t.Fatalf("observation must not substitute for approval: %+v", response.Error)
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
+		t.Fatalf("observation must not substitute for terminal evidence: %+v", response.Error)
+	}
+	// Supplying evidence proves the observation buys no approval either, so
+	// the approval gate remains asserted here and not merely the evidence one.
+	obsWithEvidence, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "observed and delivered", "idempotency_key": "obs-terminal-evidence",
+		"evidence": []map[string]any{{"kind": "verification", "authority": "native_run", "locator_kind": "run_ref", "locator": "observation-verification"}}})
+	obsApprovalGated, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: obsWithEvidence}, mutationEnvelope(grant, scopeVersion))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obsApprovalGated.Outcome != OutcomeError || obsApprovalGated.Error == nil || obsApprovalGated.Error.Kind != "approval_required" {
+		t.Fatalf("observation must not substitute for approval: %+v", obsApprovalGated.Error)
 	}
 
 	// Replay is idempotent.

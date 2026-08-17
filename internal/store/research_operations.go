@@ -169,7 +169,12 @@ func lockResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 		return p, researchUnavailable("cannot inspect research owner lifecycle", err)
 	}
 	if p.ExpectedVersion != expected {
-		return p, newFailure(KindVersionConflict, "research_mutation", fmt.Sprintf("research pack %s has version %d, want %d", id, p.ExpectedVersion, expected), false, "reload the pack and retry with its current version")
+		f := newFailure(KindVersionConflict, "research_mutation", fmt.Sprintf("research pack %s has version %d, want %d", id, p.ExpectedVersion, expected), false, "reload the pack and retry with its current version")
+		// Research packs do not use SubjectRef; the typed current version is
+		// still surfaced via the generic SubjectCurrentVersion carrier keyed by
+		// subject_type "research_pack" so higher layers do not have to regex.
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: "research_pack", SubjectID: id, Version: p.ExpectedVersion, Exists: true}}
+		return p, f
 	}
 	return p, nil
 }

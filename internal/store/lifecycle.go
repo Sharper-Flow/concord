@@ -401,8 +401,12 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if cycle, err := relationWouldCycle(ctx, tx, payload.Successor, payload.Superseded, "supersedes"); err != nil {
 		return err
 	} else if cycle {
-		return newFailure(KindCycleDetected, "fold_event", "supersession would create a cycle", false,
+		f := newFailure(KindCycleDetected, "fold_event", "supersession would create a cycle", false,
 			"choose a successor that is not reachable from the superseded work")
+		// Carry the typed offending edge so the agent layer can surface
+		// error.violations structurally (D5) instead of regexing detail.
+		f.Violations = []string{"supersedes:" + payload.Successor + "->" + payload.Superseded}
+		return f
 	}
 	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Successor, To: payload.Superseded, Kind: "supersedes"}); err != nil {
 		return err
@@ -488,7 +492,11 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if cycle, err := relationWouldCycle(ctx, tx, payload.Replacement, event.SubjectID, "supersedes"); err != nil {
 			return err
 		} else if cycle {
-			return newFailure(KindCycleDetected, "fold_event", "replacement supersession would create a cycle", false, "choose a non-cyclic replacement successor")
+			f := newFailure(KindCycleDetected, "fold_event", "replacement supersession would create a cycle", false, "choose a non-cyclic replacement successor")
+			// Carry the typed offending edge so the agent layer can surface
+			// error.violations structurally (D5) instead of regexing detail.
+			f.Violations = []string{"supersedes:" + payload.Replacement + "->" + event.SubjectID}
+			return f
 		}
 		if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Replacement, To: event.SubjectID, Kind: "supersedes"}); err != nil {
 			return err
@@ -555,8 +563,13 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if cycle, err := relationWouldCycle(ctx, tx, payload.From, payload.To, payload.Kind); err != nil {
 			return err
 		} else if cycle {
-			return newFailure(KindCycleDetected, "fold_event", payload.Kind+" relation would create a cycle", false,
+			f := newFailure(KindCycleDetected, "fold_event", payload.Kind+" relation would create a cycle", false,
 				"choose a relation direction that is not already reachable")
+			// Carry the typed offending edge so the agent layer can surface
+			// error.violations structurally (D5) instead of forcing callers
+			// to regex the human detail string.
+			f.Violations = []string{payload.Kind + ":" + payload.From + "->" + payload.To}
+			return f
 		}
 	}
 	if err := insertRelation(ctx, tx, event, payload); err != nil {
@@ -672,9 +685,11 @@ func workExists(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
 
 func validateWorkVersion(event Event, current, expected, resulting int64) error {
 	if expected != current {
-		return newFailure(KindVersionConflict, "fold_event",
+		f := newFailure(KindVersionConflict, "fold_event",
 			fmt.Sprintf("work item %s has version %d, want %d", event.SubjectID, current, expected), false,
 			"reload the work item and retry with its current version")
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Version: current, Exists: true}}
+		return f
 	}
 	if resulting != current+1 {
 		return newFailure(KindInvalidPayload, "fold_event", "lifecycle event resulting version is not current version plus one", false,

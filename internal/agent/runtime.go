@@ -607,7 +607,23 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	var sf *store.Failure
 	if errors.As(err, &sf) {
 		kind := mapFailureKind(sf.Kind)
-		return coreError(base, kind, sf.Detail, publicRecovery(kind, sf.RecoveryAction), sf.RetrySafe)
+		out := coreError(base, kind, sf.Detail, publicRecovery(kind, sf.RecoveryAction), sf.RetrySafe)
+		// Carry typed current-version carriers into the agent envelope so
+		// callers can recover the live projection version structurally without
+		// having to parse the human detail string. Mirrors the same path for
+		// typed violations: see D5.
+		if len(sf.CurrentVersions) > 0 {
+			for _, current := range sf.CurrentVersions {
+				if !current.Exists {
+					continue
+				}
+				out.Error.CurrentVersions = append(out.Error.CurrentVersions, ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
+			}
+		}
+		if len(sf.Violations) > 0 {
+			out.Error.Violations = append(out.Error.Violations, sf.Violations...)
+		}
+		return out
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
 }

@@ -7,7 +7,7 @@ import (
 )
 
 const ManifestVersion = "3.7.0"
-const ManifestDigest = "sha256:96b639ae1bf2986d45628140f9b47ac11a2f21617ec9810f9283de3ca20137ca"
+const ManifestDigest = "sha256:f587fdc943321f3a36328fd05114b51870ecf4c845fdbc422649e02618f3c68a"
 
 type OperationKind string
 
@@ -194,8 +194,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_lifecycle_input":            {Required: []string{"work_id", "expected_version", "target", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "target", "reason", "idempotency_key", "evidence", "approval"}},
 	"work_transition_worktree_claim_input":       {Required: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key"}},
 	"work_transition_worktree_reclaim_input":     {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key"}},
-	"workflow_contract":                          {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class"}},
-	"workflow_read":                              {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}},
+	"workflow_contract":                          {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class"}},
+	"workflow_read":                              {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "stale_law_revision"}},
 }
 
 func ValidateGeneratedPayload(schemaName string, data []byte) error {

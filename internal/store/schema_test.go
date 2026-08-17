@@ -269,6 +269,44 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	}
 }
 
+func TestMigrateV36ToV37AddsWorkflowLawRevisionProjection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v36.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:36] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-17T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var tableCount, indexCount int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workflow_contract_law_revisions'`).Scan(&tableCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='index' AND name='workflow_contract_law_revisions_reverse'`).Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if tableCount != 1 || indexCount != 1 {
+		t.Fatalf("law revision projection table/index = %d/%d", tableCount, indexCount)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('missing',1,'spec:law','sha256:`+strings.Repeat("a", 64)+`')`); err == nil {
+		t.Fatal("law revision projection write bypassed fold guard or foreign keys")
+	}
+}
+
 func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concord-v8.db")
 	ctx := context.Background()

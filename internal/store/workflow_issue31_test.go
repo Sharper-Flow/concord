@@ -9,6 +9,10 @@ import (
 )
 
 func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor) int64 {
+	return issue31WorkflowActionWithPayload(t, s, workID, version, actionID, operationID, actor, json.RawMessage(`{}`))
+}
+
+func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor, payload json.RawMessage) int64 {
 	t.Helper()
 	tx, err := s.DB().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -19,7 +23,7 @@ func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64,
 		t.Fatal(err)
 	}
 	result, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: json.RawMessage(`{}`), Actor: actor,
+		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:issue31", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractVersion: "2.0.0", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
@@ -127,6 +131,50 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	}
 	if step != "execution" {
 		t.Fatalf("rebuilt workflow current_step=%q, want execution", step)
+	}
+}
+
+func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
+	s := openTemp(t)
+	workID := "workflow-law-pin-legacy-surface"
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	actor := WorkflowActor{PrincipalRef: "principal:law-pin", ClientRef: "client:law-pin", AgentRef: "agent:law-pin", SessionRef: "session:law-pin", ActorClass: ActorAgent}
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DB().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	version := int64(4)
+	for _, action := range []string{"record_proposal", "record_discovery", "record_design"} {
+		version = issue31WorkflowAction(t, s, workID, version, action, "law-pin-"+action, actor)
+	}
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "law-pin-approve", actor, json.RawMessage(`{"spec_mandate":["spec:one"]}`))
+
+	var boundaryVersion int
+	if err := s.DB().QueryRow(`SELECT law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&boundaryVersion); err != nil {
+		t.Fatal(err)
+	}
+	if boundaryVersion != 1 {
+		t.Fatalf("law boundary version=%d, want 1 for a new contract submitted through the legacy surface", boundaryVersion)
+	}
+	var pinnedHash string
+	if err := s.DB().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id='spec:one'`, workID).Scan(&pinnedHash); err != nil || pinnedHash != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("legacy-surface approval law pin=%q err=%v", pinnedHash, err)
+	}
+	if version == 0 {
+		t.Fatal("approval route did not produce a resulting version")
 	}
 }
 

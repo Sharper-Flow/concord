@@ -64,7 +64,8 @@ type ContinuitySnapshot struct {
 	PendingMessages int64 `json:"pending_messages"`
 	// Observations carries the work's un-promoted observations, newest first,
 	// bounded (CD-0030 D2). Read-time visibility: no gate consumes this.
-	Observations []WorkObservation `json:"observations"`
+	Observations     []WorkObservation `json:"observations"`
+	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -133,6 +134,20 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 			return out, newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
 		out.Contract = &contract
+		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, tx, req.Work, contract.Version)
+		if err != nil {
+			return out, err
+		}
+		if len(contract.SpecMandate) != 0 {
+			homeProjectID, homeLocatorID, homeErr := workflowLawHomeTx(ctx, tx, req.Work)
+			if homeErr != nil {
+				return out, homeErr
+			}
+			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, req.Work, contract.Version, contract.SpecMandate)
+			if err != nil {
+				return out, err
+			}
+		}
 		out.SpecMandate = append([]string(nil), contract.SpecMandate...)
 		out.PendingOperatorDecision, err = workflowOperatorQuestionTx(req.Work, currentStep, workVersion, definition, contract)
 		if err != nil {

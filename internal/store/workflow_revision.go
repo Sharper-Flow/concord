@@ -56,7 +56,6 @@ func SupersedeWorkflowContract(ctx context.Context, s *Store, event Event) error
 	if err := enterFold(ctx, tx); err != nil {
 		return rollback(err)
 	}
-	defer func() { _ = leaveFold(ctx, tx) }()
 	if _, err := appendEvent(ctx, tx, event, true); err != nil {
 		return rollback(err)
 	}
@@ -119,6 +118,9 @@ func SupersedeWorkflowContract(ctx context.Context, s *Store, event Event) error
 			return rollback(err)
 		}
 		version++
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "supersede_workflow_contract", "cannot commit contract revision", true, "retry once the database is writable", err)

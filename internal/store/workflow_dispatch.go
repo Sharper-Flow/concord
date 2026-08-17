@@ -63,6 +63,30 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 	}
+	if actionID == "supersede_contract" {
+		var state string
+		if err := s.db.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow lifecycle", true, "retry once the workflow projection is readable", err)
+		}
+		if state == "completed" || state == "cancelled" || state == "superseded" {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is unavailable for terminal work", false, "start a successor workflow")
+		}
+		var activeCount int
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect active workflow contract", true, "retry once the workflow projection is readable", err)
+		}
+		if activeCount != 1 {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires exactly one active workflow contract", false, "rebuild the workflow contract projection")
+		}
+		if err := checkWorkflowLawRevisionStalenessDB(ctx, s.db, workID); err != nil {
+			var failure *Failure
+			if failureAs(err, &failure) && failure.Kind == KindStaleLawRevision {
+				return entry, workflowContractRecoveryActionDefinition(), nil
+			}
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+		}
+		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+	}
 	for _, action := range entry.Definition.ActionDefinitions {
 		if action.ID == actionID {
 			return entry, action, nil
@@ -102,12 +126,32 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
+	staleRecovery := false
+	if request.ActionID == "supersede_contract" {
+		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindStaleLawRevision {
+				return result, err
+			}
+			staleRecovery = true
+		} else {
+			return result, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+		}
+	} else if !workflowExecutionAllowsStaleRecovery(request.ActionID, request.Payload) {
+		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+			return result, err
+		}
+	}
 	if request.ActionID == "complete" {
 		if err := workflowCompletionBoundaryPreflight(request.Payload); err != nil {
 			return result, err
 		}
 	}
-	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+	if staleRecovery {
+		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
+			return result, err
+		}
+	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return result, err
 	}
 	if request.ActionID == "link_successor" {
@@ -142,7 +186,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 			}
 		}
 	}
-	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
@@ -317,7 +361,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	}
 	// Continuity's typed event is the durable action boundary. Appending a
 	// generic completion after it would make the checkpoint immediately stale.
-	if request.ActionID != "checkpoint_context" && request.ActionID != "cross_context_boundary" {
+	if request.ActionID != "checkpoint_context" && request.ActionID != "cross_context_boundary" && request.ActionID != "supersede_contract" {
 		resultVersion := request.ExpectedVersion + int64(len(events)) + 1
 		fields, fieldsErr := workflowActionObject(payload)
 		if fieldsErr != nil {
@@ -502,9 +546,12 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
 		contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": json.RawMessage(outcome), "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
-		if request.ContractVersion == "2.2.0" {
-			contract["law_boundary_version"] = 1
+		revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, spec, lawModifies)
+		if revisionErr != nil {
+			return nil, revisionErr
 		}
+		contract["law_revisions"] = revisions
+		contract["law_boundary_version"] = 1
 		return []Event{workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)}, nil
 	case "revise_candidates":
 		added := workflowFieldStrings(fields, "added")
@@ -517,18 +564,40 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
 	case "supersede_contract":
-		previous := workflowFieldInt(fields, "previous_contract_version", 0)
-		if previous == 0 {
-			_ = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=?`, request.WorkID).Scan(&previous)
+		if err := validateWorkflowContractRecoveryPayload(raw); err != nil {
+			return nil, err
 		}
-		if previous == 0 {
-			return nil, newFailure(KindProjectionNotFound, "workflow_action", "no active workflow contract can be superseded", false, "reread the current contract")
+		var activeCount, previous int64
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID).Scan(&activeCount); err != nil {
+			return nil, workflowProjectionError(err, "cannot inspect active workflow contract")
+		}
+		if activeCount != 1 {
+			return nil, newFailure(KindInvariantViolation, "workflow_action", "stale-law recovery requires exactly one active workflow contract", false, "rebuild the workflow contract projection")
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID).Scan(&previous); err != nil {
+			return nil, workflowProjectionError(err, "cannot read active workflow contract")
+		}
+		next := workflowFieldInt(fields, "contract_version", 0)
+		if next != previous+1 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "successor contract version must immediately follow the active contract", false, "supply the next contract version")
 		}
 		audit := workflowFieldStrings(fields, "audit_evidence")
 		if len(audit) == 0 {
 			audit = []string{"audit:" + request.OperationID}
 		}
-		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": previous + 1, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit})}, nil
+		lawModifies := workflowFieldStrings(fields, "law_modifies")
+		specMandate := workflowFieldStrings(fields, "spec_mandate")
+		revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, specMandate, lawModifies)
+		if revisionErr != nil {
+			return nil, revisionErr
+		}
+		successor := map[string]any{
+			"contract_version": next, "premise": workflowFieldStringDefault(fields, "premise", ""), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
+			"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
+			"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
+			"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}, nil
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		evidenceRef := "evidence:" + request.OperationID
 		if len(request.EvidenceRefs) != 0 {

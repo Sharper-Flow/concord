@@ -683,6 +683,12 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		versions["contract"] = contractVersion
 	}
+	if in.ActionID == "supersede_contract" {
+		if err := r.Store.DB().QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, in.WorkID).Scan(&contractVersion); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		versions["contract"] = contractVersion
+	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef

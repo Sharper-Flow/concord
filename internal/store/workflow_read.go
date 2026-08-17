@@ -26,15 +26,16 @@ type WorkflowReadDefinition struct {
 }
 
 type WorkflowReadContract struct {
-	Version          int64    `json:"version"`
-	Premise          string   `json:"premise"`
-	OutcomeKind      string   `json:"outcome_kind"`
-	OutcomePayload   string   `json:"outcome_payload"`
-	RequiredEvidence []string `json:"required_evidence"`
-	RouteConventions []string `json:"route_conventions"`
-	SpecMandate      []string `json:"spec_mandate"`
-	LawModifies      []string `json:"law_modifies"`
-	RigorClass       string   `json:"rigor_class"`
+	Version          int64                 `json:"version"`
+	Premise          string                `json:"premise"`
+	OutcomeKind      string                `json:"outcome_kind"`
+	OutcomePayload   string                `json:"outcome_payload"`
+	RequiredEvidence []string              `json:"required_evidence"`
+	RouteConventions []string              `json:"route_conventions"`
+	SpecMandate      []string              `json:"spec_mandate"`
+	LawModifies      []string              `json:"law_modifies"`
+	LawRevisions     []WorkflowLawRevision `json:"law_revisions"`
+	RigorClass       string                `json:"rigor_class"`
 }
 
 type WorkflowReadCondition struct {
@@ -88,6 +89,7 @@ type WorkflowReadProjection struct {
 	BlockingConditions   []string                `json:"blocking_conditions"`
 	ImpactNotices        []WorkflowReadNotice    `json:"impact_notices"`
 	CompletionWarnings   []string                `json:"completion_warnings"`
+	StaleLawRevision     *StaleLawRevision       `json:"stale_law_revision,omitempty"`
 }
 
 // ReadWorkflowProjection returns one bounded, point-in-time workflow
@@ -132,6 +134,20 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
 		out.Contract = &contract
+		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, s.db, request.WorkID, contract.Version)
+		if err != nil {
+			return out, err
+		}
+		if len(contract.SpecMandate) != 0 {
+			homeProjectID, homeLocatorID, homeErr := workflowLawHomeDB(ctx, s.db, request.WorkID)
+			if homeErr != nil {
+				return out, homeErr
+			}
+			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, s.db, homeProjectID, homeLocatorID, request.WorkID, contract.Version, contract.SpecMandate)
+			if err != nil {
+				return out, err
+			}
+		}
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}

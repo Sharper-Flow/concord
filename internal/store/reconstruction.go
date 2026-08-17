@@ -97,8 +97,9 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 	if err := seedReconstructionEndpoints(ctx, tx, subject, events); err != nil {
 		return rollback(err)
 	}
+	replayCtx := workflowReplayContext(ctx)
 	for _, event := range events {
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(replayCtx, tx, event); err != nil {
 			return rollback(err)
 		}
 	}

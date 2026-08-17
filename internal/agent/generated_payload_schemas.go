@@ -4496,6 +4496,27 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "law_revisions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "content_hash": {
+                "$ref": "#/$defs/digest"
+              },
+              "law_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "law_id",
+              "content_hash"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
         "outcome_kind": {
           "$ref": "#/$defs/short"
         },
@@ -4688,6 +4709,41 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "ready": {
           "type": "boolean"
+        },
+        "stale_law_revision": {
+          "additionalProperties": false,
+          "properties": {
+            "accepted_successor_content_hash": {
+              "$ref": "#/$defs/digest"
+            },
+            "accepted_successor_law_id": {
+              "$ref": "#/$defs/id"
+            },
+            "old_content_hash": {
+              "$ref": "#/$defs/digest"
+            },
+            "old_law_id": {
+              "$ref": "#/$defs/id"
+            },
+            "recovery_actions": {
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "maxItems": 4,
+              "type": "array"
+            }
+          },
+          "required": [
+            "old_law_id",
+            "old_content_hash",
+            "accepted_successor_law_id",
+            "accepted_successor_content_hash",
+            "recovery_actions"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "state": {
           "$ref": "#/$defs/short"

@@ -244,6 +244,39 @@ func workflowLawHomeTx(ctx context.Context, tx *sql.Tx, workID string) (string, 
 	return project, locator, nil
 }
 
+func workflowLawHomeDB(ctx context.Context, db *sql.DB, workID string) (string, string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? ORDER BY ph.project_id,ph.locator_id`, workID)
+	if err != nil {
+		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
+	}
+	defer rows.Close()
+	var homes [][2]string
+	for rows.Next() {
+		var project, locator string
+		if err := rows.Scan(&project, &locator); err != nil {
+			return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
+		}
+		if len(homes) == 0 || homes[len(homes)-1][0] != project || homes[len(homes)-1][1] != locator {
+			homes = append(homes, [2]string{project, locator})
+		}
+	}
+	if len(homes) == 1 {
+		return homes[0][0], homes[0][1], nil
+	}
+	if len(homes) > 1 {
+		return "", "", newFailure(KindAmbiguousScope, "check_mandated_laws", "workflow resolves to multiple canonical Git law homes", false, "resolve one Product knowledge home")
+	}
+	var project, locator string
+	err = db.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&project, &locator)
+	if err == sql.ErrNoRows {
+		return "", "", newFailure(KindUnknownScope, "check_mandated_laws", "workflow has no canonical Git law home", false, "designate a Product home or primary Project locator")
+	}
+	if err != nil {
+		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the primary Git law home", true, "retry once the workflow scope is readable", err)
+	}
+	return project, locator, nil
+}
+
 // SortLawIDs is a presentation helper only. Sorting never decides relation
 // precedence; it merely makes bounded diagnostics deterministic.
 func SortLawIDs(ids []string) []string {

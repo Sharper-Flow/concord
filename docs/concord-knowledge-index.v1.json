@@ -797,6 +797,33 @@
       ]
     },
     {
+      "id": "CD-0036",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0036-breaking-law-cutovers.md",
+      "status": "accepted",
+      "date": "2026-08-17T00:00:00Z",
+      "title": "Breaking law supersession strictly quiesces old consumers",
+      "summary": "Law revision identity is the law ID and content hash; same-ID amendments remain compatible, while an accepted superseding law strictly quiesces old workflow consumers until recovery.",
+      "tags": [
+        "workflow",
+        "law",
+        "cutover"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d79282359486fbba3953dc2007683c2888c3b5e4993743787e399bf9eaacbd11",
+      "evidence": [
+        "internal/store/workflow_law_revision.go",
+        "internal/store/workflow_law_revision_test.go",
+        "docs/workflow-engine-contract.md"
+      ]
+    },
+    {
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",
@@ -1011,7 +1038,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:6c4f9ab549efec3b0dc7df42a97e83df6d54da56c1e18db5f5486969f31dd79f"
+      "sha256": "sha256:fa8dc9bba499df2259ef51759cecf5b42a236b2923a6005f5443d8b3126a8a1c"
     }
   ]
 }

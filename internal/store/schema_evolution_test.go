@@ -213,7 +213,7 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	for kind := range wantWorkflowKinds {
 		registration := eventKindRegistry[kind]
 		wantVersion := 1
-		if kind == WorkflowCompleted || kind == WorkflowImpactNoticeRecorded || kind == WorkflowActionCompleted {
+		if kind == WorkflowCompleted || kind == WorkflowImpactNoticeRecorded || kind == WorkflowActionCompleted || kind == WorkflowContractApproved {
 			wantVersion = 2
 		}
 		if registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {

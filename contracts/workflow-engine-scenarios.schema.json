@@ -992,6 +992,21 @@
             "$ref": "#/$defs/id"
           }
         },
+        "law_revisions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["law_id", "content_hash"],
+            "properties": {
+              "law_id": {"$ref": "#/$defs/id"},
+              "content_hash": {"$ref": "#/$defs/digest"}
+            }
+          }
+        },
         "law_modifies": {
           "type": "array",
           "minItems": 0,

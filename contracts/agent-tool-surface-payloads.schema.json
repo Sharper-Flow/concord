@@ -1497,6 +1497,9 @@
           ],
           "maxLength": 64
         },
+        "allow_degraded": {
+          "type": "boolean"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -4737,7 +4740,7 @@
           "const": "1.0"
         },
         "surface_version": {
-          "const": "3.7.0"
+          "const": "3.8.0"
         },
         "manifest_digest": {
           "$ref": "#/$defs/digest"

@@ -83,7 +83,10 @@ func NegotiateSurfaceVersion(supportedRange string) (string, error) {
 	// a different manifest digest and has no lossless representation for them,
 	// so the major boundary fails at grant bootstrap instead of pretending to
 	// negotiate an identity the current core cannot safely serve.
-	supported := []SemVer{{Major: 3, Minor: 0, Patch: 0}, {Major: 3, Minor: 1, Patch: 0}, {Major: 3, Minor: 2, Patch: 0}, {Major: 3, Minor: 3, Patch: 0}, {Major: 3, Minor: 4, Patch: 0}, {Major: 3, Minor: 5, Patch: 0}, {Major: 3, Minor: 6, Patch: 0}, {Major: 3, Minor: 7, Patch: 0}}
+	// Surface 3.8.0 adds the optional knowledge search `allow_degraded` opt-in.
+	// It is additive: an omitted field keeps the fail-closed default, so a 3.7.0
+	// adapter negotiates and behaves exactly as before.
+	supported := []SemVer{{Major: 3, Minor: 0, Patch: 0}, {Major: 3, Minor: 1, Patch: 0}, {Major: 3, Minor: 2, Patch: 0}, {Major: 3, Minor: 3, Patch: 0}, {Major: 3, Minor: 4, Patch: 0}, {Major: 3, Minor: 5, Patch: 0}, {Major: 3, Minor: 6, Patch: 0}, {Major: 3, Minor: 7, Patch: 0}, {Major: 3, Minor: 8, Patch: 0}}
 	var selected *SemVer
 	for _, candidate := range supported {
 		if r.Contains(candidate) && (selected == nil || candidate.Compare(*selected) > 0) {

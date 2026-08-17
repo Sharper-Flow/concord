@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "3.7.0"
-const ManifestDigest = "sha256:f587fdc943321f3a36328fd05114b51870ecf4c845fdbc422649e02618f3c68a"
+const ManifestVersion = "3.8.0"
+const ManifestDigest = "sha256:949bf84a2e220a7c32ee6bcece5431a880a1399dc29c6bb8793d9b63574c5c88"
 
 type OperationKind string
 
@@ -122,7 +122,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"knowledge_page":                             {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "watermark"}},
 	"knowledge_resolve_input":                    {Required: []string{}, Properties: []string{"work_id", "knowledge_id"}},
 	"knowledge_scopes_input":                     {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}},
-	"knowledge_search_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "page", "budget"}},
+	"knowledge_search_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "allow_degraded", "page", "budget"}},
 	"mutation_result":                            {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id"}},
 	"operator_choice":                            {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
 	"operator_question":                          {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},

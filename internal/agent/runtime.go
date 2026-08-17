@@ -203,15 +203,20 @@ type epicEntriesInput struct {
 	Budget     budgetInput `json:"budget"`
 }
 type knowledgeSearchInput struct {
-	ProductID string      `json:"product_id"`
-	ProjectID string      `json:"project_id"`
-	Kinds     []string    `json:"kinds"`
-	Tags      []string    `json:"tags"`
-	Text      string      `json:"text"`
-	Since     *string     `json:"since"`
-	Until     *string     `json:"until"`
-	Page      pageInput   `json:"page"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string   `json:"product_id"`
+	ProjectID string   `json:"project_id"`
+	Kinds     []string `json:"kinds"`
+	Tags      []string `json:"tags"`
+	Text      string   `json:"text"`
+	Since     *string  `json:"since"`
+	Until     *string  `json:"until"`
+	// AllowDegraded opts the caller in to CD-0008 D3 degraded enumeration: a
+	// knowledge index behind the git head answers with authority "degraded" plus
+	// omissions instead of failing closed. Default false keeps the fail-closed
+	// path, so a caller never receives a silently incomplete answer.
+	AllowDegraded bool        `json:"allow_degraded"`
+	Page          pageInput   `json:"page"`
+	Budget        budgetInput `json:"budget"`
 }
 type knowledgeResolveInput struct {
 	WorkID      string `json:"work_id"`
@@ -1090,7 +1095,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Home: home})
+		q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}

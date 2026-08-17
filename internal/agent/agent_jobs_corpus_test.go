@@ -114,10 +114,11 @@ const agentJobsCorpusPath = "../../scenarios/agent-jobs.v1.json"
 
 // implementedInvariants are mechanically checked by the test harness.
 var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
-	"correct_scope":       invariantCorrectScope,
-	"canonical_authority": invariantCanonicalAuthority,
-	"bounded_context":     invariantBoundedContext,
-	"no_silent_scope_cut": invariantNoSilentScopeCut,
+	"correct_scope":        invariantCorrectScope,
+	"canonical_authority":  invariantCanonicalAuthority,
+	"bounded_context":      invariantBoundedContext,
+	"no_silent_scope_cut":  invariantNoSilentScopeCut,
+	"ground_truth_cleanup": invariantGroundTruthCleanup,
 	// AJ3/AJ4/AJ5 mutation scenarios exercise the four core mutation
 	// invariants; the bindings write durable state that lets the
 	// checks run with real evidence rather than vacuous assertions.
@@ -131,7 +132,6 @@ var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
 // The test fails if a scenario names an invariant that is neither here nor in
 // implementedInvariants.
 var uncheckedInvariants = map[string]string{
-	"ground_truth_cleanup":    "requires git worktree lifecycle — not yet bound",
 	"ordered_cross_authority": "requires git publication sequencing — not yet bound",
 	"stable_evolution":        "requires contract version drift testing — not yet bound",
 }
@@ -274,6 +274,57 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 		} else {
 			t.Error("evidence_authority: missing_evidence_refused but no error map in communication")
 		}
+	}
+}
+
+// invariantGroundTruthCleanup enforces the rule that makes ground-truth
+// reclamation safe: a cleanup driven by an external authority's stronger truth
+// may remove the native resource, and may never remove the durable history that
+// records the work. The two halves are checked together because either alone is
+// satisfiable by doing nothing — a binding that removed nothing and a binding
+// that removed everything would each pass half of it.
+func invariantGroundTruthCleanup(t *testing.T, obs jobObservation) {
+	t.Helper()
+	worktree, ok := obs.State["worktree"].(map[string]any)
+	if !ok {
+		t.Error("ground_truth_cleanup: binding recorded no worktree state")
+		return
+	}
+	exists, present := worktree["exists"].(bool)
+	if !present {
+		t.Error("ground_truth_cleanup: worktree.exists is missing or not a bool")
+		return
+	}
+	if exists {
+		t.Error("ground_truth_cleanup: native resource survived a reclamation")
+	}
+	work, ok := obs.State["work"].(map[string]any)
+	if !ok {
+		t.Error("ground_truth_cleanup: binding recorded no work state, so history retention is unproven")
+		return
+	}
+	retained := false
+	for id, entry := range work {
+		fields, isMap := entry.(map[string]any)
+		if !isMap {
+			continue
+		}
+		kept, present := fields["history_retained"].(bool)
+		if !present {
+			continue
+		}
+		if !kept {
+			t.Errorf("ground_truth_cleanup: reclamation dropped history for %s", id)
+		}
+		retained = true
+	}
+	if !retained {
+		t.Error("ground_truth_cleanup: no work item recorded history_retained, so the cleanup proved nothing about history")
+	}
+	// Cleanup must be justified by the external authority's evidence, not by the
+	// caller's assertion that it was fine to proceed.
+	if evidence, _ := obs.Communication["ground_truth_evidence"].(string); strings.TrimSpace(evidence) == "" {
+		t.Error("ground_truth_cleanup: no ground-truth evidence accompanied the cleanup")
 	}
 }
 
@@ -1117,6 +1168,7 @@ func init() {
 	// handlers live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
 	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
+	jobBindings["AJ8-ground-truth-reclamation"] = bindAJ8GroundTruthReclamation
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
@@ -1130,10 +1182,9 @@ func init() {
 	jobDeferrals["AJ6-partial-publication"] = "#161 compaction tranche: needs a commit-verification fault injector"
 	jobDeferrals["AJ7-search-knowledge"] = "#160 knowledge tranche: needs SeedKnowledge wired through the agent surface"
 	jobDeferrals["AJ7-degraded-index"] = "#160 knowledge tranche: needs deterministic knowledge-index lag"
-	jobDeferrals["AJ8-approval-required"] = "#162 operational tranche: needs the human_checkpoint driver"
-	jobDeferrals["AJ8-health-failure-rollback"] = "#162 operational tranche: needs a native-authority stub"
-	jobDeferrals["AJ8-ground-truth-reclamation"] = "#162 operational tranche: needs git merge verification against a stale projection"
-	jobDeferrals["AJ8-budget-refused"] = "#162 operational tranche: needs a seconds-denominated budget path"
+	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"
+	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
+	jobDeferrals["AJ8-budget-refused"] = "#173 budget tranche: needs a declared seconds-denominated operation budget with a supported ceiling"
 }
 
 // AJ1-ambient-ready-work: resolve product, list ready work.

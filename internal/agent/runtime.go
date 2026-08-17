@@ -650,6 +650,33 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 	}
 	return errorBase
 }
+
+// governingConflictEnvelope refuses a capture that does not cover the governing
+// requirements its target scope declares (CD-0035 D1/D3). The omitted
+// requirements are named in the typed violations rather than described in the
+// message, so an agent recovers without parsing prose.
+func governingConflictEnvelope(base Envelope, missing []string) Envelope {
+	base.Authority = AuthorityAuthoritative
+	base.Outcome = OutcomeError
+	base.Error = &TypedError{
+		Kind:           "invariant_violation",
+		RetrySafe:      false,
+		RecoveryAction: RecoveryAction{Kind: "contact_operator"},
+		EffectState:    EffectNone,
+		Message:        "capture does not carry the governing requirements accepted for this scope",
+		Violations:     missing,
+		Options:        GoverningConflictOptions,
+	}
+	if _, err := base.Encode(); err == nil {
+		return base
+	}
+	errorBase := NewBase(base.RequestID, base.Tool, base.Operation, base.ContractVersion)
+	errorBase.Authority = AuthorityAuthoritative
+	errorBase.Outcome = OutcomeError
+	errorBase.Error = base.Error
+	return errorBase
+}
+
 func mapFailureKind(kind store.FailureKind) string {
 	switch kind {
 	case store.KindUnavailable:

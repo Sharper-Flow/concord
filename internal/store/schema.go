@@ -766,6 +766,40 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
 END;
 
+-- Governing requirements bind to a Project scope (CD-0035 D2). They are not a
+-- per-rule obligation field, which CD-0015 R0 forbids: a requirement is an
+-- explicit scope-level declaration that work captured into the Project must
+-- carry. Withdrawal appends its own event so a mistaken declaration is corrected
+-- forward rather than hand-repaired.
+CREATE TABLE project_governing_requirements (
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    requirement_ref TEXT NOT NULL,
+    reason          TEXT NOT NULL,
+    declared_at     TEXT NOT NULL,
+    PRIMARY KEY (project_id, requirement_ref),
+    CHECK(length(requirement_ref) > 0 AND length(requirement_ref) <= 128),
+    CHECK(length(reason) > 0 AND length(reason) <= 1000)
+);
+CREATE INDEX project_governing_requirements_by_project ON project_governing_requirements(project_id, requirement_ref);
+CREATE TRIGGER project_governing_requirements_guard_insert
+BEFORE INSERT ON project_governing_requirements FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_governing_requirements is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER project_governing_requirements_guard_update
+BEFORE UPDATE ON project_governing_requirements FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_governing_requirements is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER project_governing_requirements_guard_delete
+BEFORE DELETE ON project_governing_requirements FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_governing_requirements is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+
 -- One installation-scoped random key authenticates opaque pagination cursors.
 -- It is authority state, not adapter state or a source-code secret.
 CREATE TABLE agent_installation_keys (

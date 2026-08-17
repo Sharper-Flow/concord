@@ -2034,6 +2034,14 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "governing_requirements": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
         "approval": {
           "$ref": "#/$defs/approval"
         }

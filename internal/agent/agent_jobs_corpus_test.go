@@ -233,9 +233,33 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	t.Helper()
 	supplied, suppliedOK := obs.Effects["evidence_authority_supplied"].(bool)
 	required, requiredOK := obs.Effects["missing_evidence_refused"].(bool)
-	if !suppliedOK && !requiredOK {
-		t.Error("evidence_authority: binding did not record either evidence_authority_supplied or missing_evidence_refused")
+	// A third shape: the consequence needed operator authority that was withheld,
+	// so it was refused before any effect. That is neither evidence supplied nor
+	// a missing-evidence refusal, and CD-0035's governing-law conflict is the
+	// first scenario to exercise it.
+	withheld, withheldOK := obs.Effects["approval_authority_withheld"].(bool)
+	if !suppliedOK && !requiredOK && !withheldOK {
+		t.Error("evidence_authority: binding did not record evidence_authority_supplied, missing_evidence_refused, or approval_authority_withheld")
 		return
+	}
+	if withheld {
+		// Cross-check the wire: withholding authority must return the choice to
+		// the operator, not merely fail. Kind, recovery, and the option list are
+		// all required to be coherent.
+		commErr, ok := obs.Communication["error"].(map[string]any)
+		if !ok {
+			t.Error("evidence_authority: approval_authority_withheld but no error map in communication")
+			return
+		}
+		if kind, _ := commErr["kind"].(string); kind != "invariant_violation" {
+			t.Errorf("evidence_authority: approval_authority_withheld but error.kind=%q, want invariant_violation", kind)
+		}
+		if recovery, _ := commErr["recovery_action"].(string); recovery != "contact_operator" {
+			t.Errorf("evidence_authority: approval_authority_withheld but recovery_action=%q, want contact_operator", recovery)
+		}
+		if options, _ := obs.Communication["options"].([]any); len(options) == 0 {
+			t.Error("evidence_authority: approval_authority_withheld but no operator options were offered")
+		}
 	}
 	if supplied && !suppliedOK {
 		t.Error("evidence_authority: evidence_authority_supplied set but to a non-bool")
@@ -726,6 +750,45 @@ func loadAgentJobsCorpus(t *testing.T) jobCorpus {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario drivers — how external or human authority responds during a run
+// ---------------------------------------------------------------------------
+
+// scenarioDriver is a scenario's declared external-authority response. A driver
+// is resolved through a closed vocabulary and unknown kinds fail: a scenario
+// that carries a driver the runner does not understand must not run as though it
+// carried none, which would silently weaken the scenario.
+type scenarioDriver struct {
+	Kind     string
+	Response string
+}
+
+func resolveDriver(t *testing.T, sc jobScenario) scenarioDriver {
+	t.Helper()
+	if len(sc.Driver) == 0 {
+		return scenarioDriver{}
+	}
+	kind, _ := sc.Driver["kind"].(string)
+	response, _ := sc.Driver["response"].(string)
+	switch kind {
+	case "human_checkpoint":
+		// A pending checkpoint means the operator has not answered, so no
+		// core-issued approval exists for the operation under test.
+		if response != "pending" && response != "granted" {
+			t.Fatalf("driver human_checkpoint has unsupported response %q", response)
+		}
+	default:
+		t.Fatalf("scenario %q declares unsupported driver kind %q", sc.ID, kind)
+	}
+	return scenarioDriver{Kind: kind, Response: response}
+}
+
+// approvalWithheld reports whether the driver models an operator who has not yet
+// answered, meaning the call under test must carry no approval reference.
+func (d scenarioDriver) approvalWithheld() bool {
+	return d.Kind == "human_checkpoint" && d.Response == "pending"
+}
+
+// ---------------------------------------------------------------------------
 // Top-level test — iterates every scenario, fails if any is missing or
 // double-registered, and checks deferral format.
 // ---------------------------------------------------------------------------
@@ -907,6 +970,15 @@ func envelopeToObservation(resp Envelope) jobObservation {
 			"message":         resp.Error.Message,
 			"recovery_action": resp.Error.RecoveryAction.Kind,
 		}
+		// CD-0035 D1: the operator-choice list is a typed envelope affordance, so
+		// the corpus reads it from the envelope rather than from a binding's prose.
+		if len(resp.Error.Options) > 0 {
+			options := make([]any, len(resp.Error.Options))
+			for i, option := range resp.Error.Options {
+				options[i] = option
+			}
+			obs.Communication["options"] = options
+		}
 	}
 	if len(resp.Result) > 0 {
 		var result map[string]any
@@ -1044,6 +1116,7 @@ func init() {
 	// AJ3/AJ4/AJ5 mutation bindings land in this tranche (#159). The
 	// handlers live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
+	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
@@ -1053,7 +1126,6 @@ func init() {
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 
 	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ3-spec-conflict"] = "#167 governance tranche: requires new envelope options field, governing-requirement detection, and a human_checkpoint driver"
 	jobDeferrals["AJ6-compact-terminal-work"] = "#161 compaction tranche: needs observed git publication ordering"
 	jobDeferrals["AJ6-partial-publication"] = "#161 compaction tranche: needs a commit-verification fault injector"
 	jobDeferrals["AJ7-search-knowledge"] = "#160 knowledge tranche: needs SeedKnowledge wired through the agent surface"

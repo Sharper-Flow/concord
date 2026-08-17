@@ -744,6 +744,33 @@
       ]
     },
     {
+      "id": "CD-0035",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0035-governing-requirements-at-capture.md",
+      "status": "accepted",
+      "date": "2026-08-17T00:00:00Z",
+      "title": "Governing requirements are scope-bound and refused at capture",
+      "summary": "Governing requirements bind to a Project rather than to a rule, and capture refuses by set difference against the requirements its target scope declares: invariant_violation naming the omitted requirements, typed operator options, no events, and a minted challenge the approved scope cut resolves against.",
+      "tags": [
+        "agent-surface",
+        "governing-law",
+        "capture"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:037eceaed277b5f4c825621d4b78b15552ef9ebe0064387d0ad8ab5aa8ee4fb8",
+      "evidence": [
+        "internal/store/governing_requirements.go",
+        "internal/agent/mutations.go",
+        "internal/agent/envelope.go"
+      ]
+    },
+    {
       "id": "CD-0034",
       "kind": "decision",
       "path": "docs/decisions/CD-0034-host-prompt-provenance.md",
@@ -897,7 +924,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:57d70c83e87934f953b25eb414e9a4e6249c04d64709afda3c562400f96bf094"
+      "sha256": "sha256:68261681e4f1aac22787132be3e81cf1c0443e49791259914d65edd7fb1c69c8"
     },
     {
       "id": "advance-predecessor-lessons",

@@ -2971,6 +2971,14 @@ const GeneratedPayloadSchemaDocument = `{
         "external_ref": {
           "$ref": "#/$defs/short"
         },
+        "governing_requirements": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },

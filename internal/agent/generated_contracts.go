@@ -7,7 +7,7 @@ import (
 )
 
 const ManifestVersion = "3.7.0"
-const ManifestDigest = "sha256:b2a60d98e08de647ed5857243abada4accaa791309d85575bdfbaf0048b72c9b"
+const ManifestDigest = "sha256:96b639ae1bf2986d45628140f9b47ac11a2f21617ec9810f9283de3ca20137ca"
 
 type OperationKind string
 
@@ -163,7 +163,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_compact_lesson_publish_input":          {Required: []string{"work_id", "lesson_id", "title", "summary", "content", "idempotency_key"}, Properties: []string{"work_id", "lesson_id", "title", "summary", "content", "tags", "scopes", "evidence", "idempotency_key", "approval"}},
 	"work_compact_publish_input":                 {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence"}},
 	"work_compact_reconcile_input":               {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence"}},
-	"work_define_capture_input":                  {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "approval"}},
+	"work_define_capture_input":                  {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref", "idempotency_key", "governing_requirements", "approval"}},
 	"work_define_observation_record_input":       {Required: []string{"work_id", "statement", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "statement", "refs", "tags", "idempotency_key"}},
 	"work_define_research_finding_record_input":  {Required: []string{"pack_id", "expected_version", "finding", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "finding", "source_ids", "idempotency_key"}},
 	"work_define_research_freshness_set_input":   {Required: []string{"pack_id", "expected_version", "freshness", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "freshness", "idempotency_key", "revision"}},

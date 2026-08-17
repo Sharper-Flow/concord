@@ -263,6 +263,7 @@
         "current_versions": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/changedRef" } },
         "candidates": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
         "violations": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+        "options": { "type": "array", "maxItems": 3, "uniqueItems": true, "items": { "enum": ["clarify", "amend_contract", "accept_scope_cut"] } },
         "details": {
           "type": "object",
           "maxProperties": 20,
@@ -332,6 +333,10 @@
         {
           "if": { "properties": { "kind": { "enum": ["cancelled", "timeout"] } }, "required": ["kind"] },
           "then": { "properties": { "effect_state": { "const": "none" }, "recovery_action": { "properties": { "kind": { "const": "retry_same_request" } } } } }
+        },
+        {
+          "if": { "required": ["options"] },
+          "then": { "properties": { "kind": { "const": "invariant_violation" }, "recovery_action": { "properties": { "kind": { "const": "contact_operator" } } } } }
         }
       ]
     },

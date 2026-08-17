@@ -203,16 +203,35 @@ No job definition, instruction, invariant, or other scenario changed.
 **2026-08-17, issue #159 — AJ4 version integers corrected to Concord's actual
 version accounting.**
 Binding the mutation scenarios surfaced that AJ4's hardcoded version integers assume
-project membership is free. Concord charges one version per membership: a work item's
-version is `1 (create) + one per project membership + one per lifecycle transition`.
-This was verified against production `concord_work_define.capture`, not merely against
-the PM1 fixture — capturing work with one project yields version 2, so the fixture is
-faithful and the corpus integers were unachievable.
+project membership is free. It is not. A work item's version counts the events that
+mutate the work aggregate, and membership belongs to that aggregate rather than
+standing as a sibling entity with its own fence:
+[`agent-call-context-contract.md`](./agent-call-context-contract.md) places membership
+replacement in the same expected-version envelope as intent revision, lifecycle, and
+relations, and [CD-0008](./decisions/CD-0008-concord-mechanism-hardening.md) makes the
+version the optimistic-concurrency fence for the work.
+
+The unit charged is the event, not the project. `work.memberships_replaced` carries a
+whole membership set and consumes one version however many projects it names, while
+`work_project.added` consumes one version per event. Production
+`concord_work_define.capture` emits `work.created` plus one
+`work.memberships_replaced`, so a capture yields version 2 for any project count. The
+PM1 fixture seeds membership as one `work_project.added` per project, so there the
+cost is one version each.
+
+The two paths coincide for single-project work and diverge for cross-Project work,
+which is why the fixture's `work-cross` is version 4 where a production capture plus
+one transition would reach 3. That divergence is recorded as issue #169 rather than
+repaired here: moving the fixture's seeding path would shift expected versions under
+every PM1-bound scenario in two corpora, which is a deliberate fixture change and not
+a side effect of binding mutation scenarios. It does not weaken these scenarios,
+because the fixture-independent increment assertion below is what carries the law.
 
 The accounting explains every PM1 work version exactly. `work-cross` is version 4
-because it is the cross-Project item: two memberships plus one transition. Only
-`AJ4-stale-version` was accidentally correct, because `work-ready-low` has one
-membership and no transitions, making its true current version 2 as declared.
+because it is the cross-Project item: two `work_project.added` events plus one
+transition. Only `AJ4-stale-version` was accidentally correct, because
+`work-ready-low` has one membership and no transitions, making its true current
+version 2 as declared.
 
 | Scenario | Field | Was | Now |
 |---|---|---|---|

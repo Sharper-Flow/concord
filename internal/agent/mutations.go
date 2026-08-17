@@ -1104,9 +1104,14 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if in.Target == "superseded" {
 			return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "use_relation_operation", false), nil
 		}
-		if (in.Target == "completed" || in.Target == "cancelled") && (in.Approval == nil || len(in.Evidence) == 0) {
-			response := coreError(base, "approval_required", "terminal lifecycle transition requires approval and evidence", "request_approval", false)
-			response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion}
+		// Terminal lifecycle transitions demand evidence before approval can be
+		// granted. Refuse the missing-evidence case structurally with a typed
+		// missing_evidence refusal whose recovery_action is provide_evidence;
+		// only when evidence is present do we let the normal challenge-minting
+		// path execute so the agent receives a real approval_ref to act on.
+		if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
+			response := coreError(base, "missing_evidence", "terminal lifecycle transition requires verification evidence", "provide_evidence", false)
+			response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}
 			return response, nil
 		}
 		if in.Approval != nil {

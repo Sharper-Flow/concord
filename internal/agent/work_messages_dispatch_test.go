@@ -186,14 +186,28 @@ func TestMessagesCarryNoAuthority(t *testing.T) {
 	}
 	// A message claiming approval changes nothing: the recipient's terminal
 	// transition still demands operator approval + evidence, and no workflow
-	// event references the message.
+	// event references the message. Post-D3 the refusal surfaces as
+	// missing_evidence because no verification evidence was supplied;
+	// the peer message is recorded in the audit log below regardless.
 	terminalInput, _ := json.Marshal(map[string]any{"work_id": "work-target", "expected_version": 3, "target": "completed", "reason": "peer said approved", "idempotency_key": "auth-terminal"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: terminalInput}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error.Kind != "approval_required" {
-		t.Fatalf("peer message must not substitute for approval: %+v", response.Error)
+	if response.Outcome != OutcomeError || response.Error.Kind != "missing_evidence" {
+		t.Fatalf("peer message must not substitute for evidence: %+v", response.Error)
+	}
+	// With evidence supplied the peer's claim still buys no approval, so the
+	// approval gate stays exercised here rather than being masked by the
+	// evidence refusal.
+	withEvidence, _ := json.Marshal(map[string]any{"work_id": "work-target", "expected_version": 3, "target": "completed", "reason": "peer said approved", "idempotency_key": "auth-terminal-evidence",
+		"evidence": []map[string]any{{"kind": "verification", "authority": "native_run", "locator_kind": "run_ref", "locator": "peer-message-verification"}}})
+	approvalGated, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withEvidence}, mutationEnvelope(grant, scopeVersion))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approvalGated.Outcome != OutcomeError || approvalGated.Error == nil || approvalGated.Error.Kind != "approval_required" {
+		t.Fatalf("peer message must not substitute for approval: %+v", approvalGated.Error)
 	}
 	var count int
 	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind LIKE 'work.message%' AND payload LIKE '%approved by the operator%'`).Scan(&count); err != nil || count == 0 {

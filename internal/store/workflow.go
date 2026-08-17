@@ -1475,7 +1475,11 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	if cycle, err := workflowEdgeWouldCycle(ctx, tx, event.SubjectID, p.SuccessorWorkID, "forward_link"); err != nil {
 		return err
 	} else if cycle {
-		return newFailure(KindCycleDetected, "fold_event", "forward link would create a cycle", false, "choose a non-cyclic successor")
+		f := newFailure(KindCycleDetected, "fold_event", "forward link would create a cycle", false, "choose a non-cyclic successor")
+		// Carry the typed offending edge so the agent layer can surface
+		// error.violations structurally (D5).
+		f.Violations = []string{"forward_link:" + event.SubjectID + "->" + p.SuccessorWorkID}
+		return f
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_impact_edges(work_id,edge_id,edge_kind,edge_class,target_work_id,target_kind,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?)`, event.SubjectID, event.EventID, "forward_link", "hard", p.SuccessorWorkID, "work_item", "informational", event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -1511,7 +1515,11 @@ func foldWorkflowImpactDeclared(ctx context.Context, tx *sql.Tx, event Event) er
 		if cycle, err := workflowEdgeWouldCycle(ctx, tx, event.SubjectID, p.TargetWorkID, p.EdgeKind); err != nil {
 			return err
 		} else if cycle {
-			return newFailure(KindCycleDetected, "fold_event", "hard workflow edge would create a cycle", false, "choose a non-cyclic edge")
+			f := newFailure(KindCycleDetected, "fold_event", "hard workflow edge would create a cycle", false, "choose a non-cyclic edge")
+			// Carry the typed offending edge so the agent layer can surface
+			// error.violations structurally (D5).
+			f.Violations = []string{p.EdgeKind + ":" + event.SubjectID + "->" + p.TargetWorkID}
+			return f
 		}
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_impact_edges(work_id,edge_id,edge_kind,edge_class,target_work_id,target_kind,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?)`, event.SubjectID, p.EdgeID, p.EdgeKind, p.EdgeClass, p.TargetWorkID, p.TargetKind, p.Severity, event.OccurredAt.UTC().Format(time.RFC3339Nano))

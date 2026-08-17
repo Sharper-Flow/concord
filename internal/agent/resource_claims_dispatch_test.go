@@ -150,14 +150,29 @@ func TestResourceClaimGrantsNoAuthority(t *testing.T) {
 		t.Fatalf("claim=%+v kind=%s msg=%s err=%v", claim, claim.Error.Kind, claim.Error.Message, err)
 	}
 	// A terminal lifecycle transition still demands approval and evidence —
-	// holding a claim changes nothing about authority.
+	// holding a claim changes nothing about authority. Both gates are
+	// asserted: without evidence the refusal is missing_evidence, and with
+	// evidence supplied the claim still buys no approval. Asserting only the
+	// first would leave the approval gate unexercised here.
 	terminalInput, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "done", "idempotency_key": "auth-terminal"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: terminalInput}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "approval_required" {
-		t.Fatalf("claim holder must still need approval, got %+v", response.Error)
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
+		t.Fatalf("claim holder must still need evidence, got %+v", response.Error)
+	}
+	withEvidence, _ := json.Marshal(map[string]any{"work_id": "work-holder", "expected_version": 3, "target": "completed", "reason": "done", "idempotency_key": "auth-terminal-evidence",
+		"evidence": []map[string]any{{"kind": "verification", "authority": "native_run", "locator_kind": "run_ref", "locator": "claim-holder-verification"}}})
+	approvalGated, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withEvidence}, mutationEnvelope(grant, scopeVersion))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approvalGated.Outcome != OutcomeError || approvalGated.Error == nil || approvalGated.Error.Kind != "approval_required" {
+		t.Fatalf("claim holder must still need approval once evidence is supplied, got %+v", approvalGated.Error)
+	}
+	if ref, _ := approvalGated.Error.Details["approval_ref"].(string); len(ref) != 64 {
+		t.Fatalf("approval refusal must carry an actionable approval_ref, got %v", approvalGated.Error.Details["approval_ref"])
 	}
 }
 

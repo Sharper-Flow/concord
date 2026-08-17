@@ -575,9 +575,13 @@ func versionConflict(subjectType SubjectType, subjectID string, expected, got in
 	if exists {
 		actual = fmt.Sprintf("%d", got)
 	}
-	return newFailure(KindVersionConflict, "apply_operation",
+	f := newFailure(KindVersionConflict, "apply_operation",
 		fmt.Sprintf("%s %s has version %s, want %d", subjectType, subjectID, actual, expected), false,
 		"reload the subject and retry with its current version")
+	// Carry the typed current version so higher layers can surface
+	// error.current_version structurally instead of regexing the detail string.
+	f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: subjectType, SubjectID: subjectID, Version: got, Exists: exists}}
+	return f
 }
 
 func projectionVersion(ctx context.Context, tx *sql.Tx, subjectType SubjectType, subjectID string) (int64, bool, error) {

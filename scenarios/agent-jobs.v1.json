@@ -146,13 +146,14 @@
       "id": "AJ4-start-valid-work",
       "job_id": "AJ4",
       "instruction": "Start work-ready-high.",
-      "initial_state": { "fixture": "PM1", "expected_version": 1, "idempotency_seed": "start-ready-high" },
+      "initial_state": { "fixture": "PM1", "expected_version": 2, "idempotency_seed": "start-ready-high" },
       "expected": {
         "assertions": [
           { "target": "state", "path": "work.work-ready-high.lifecycle", "op": "eq", "value": "in_progress" },
-          { "target": "state", "path": "work.work-ready-high.version", "op": "eq", "value": 2 },
+          { "target": "state", "path": "work.work-ready-high.version", "op": "eq", "value": 3 },
           { "target": "effects", "path": "transition_events.count", "op": "eq", "value": 1 },
-          { "target": "communication", "path": "new_version", "op": "eq", "value": 2 }
+          { "target": "effects", "path": "version_increment", "op": "eq", "value": 1 },
+          { "target": "communication", "path": "new_version", "op": "eq", "value": 3 }
         ],
         "invariants": ["atomic_core_effect", "retry_safe", "canonical_authority"]
       }
@@ -161,12 +162,13 @@
       "id": "AJ4-complete-valid-work",
       "job_id": "AJ4",
       "instruction": "Complete work-cross with the supplied verification evidence.",
-      "initial_state": { "fixture": "PM1", "expected_version": 2, "evidence_refs": ["verification-pass"] },
+      "initial_state": { "fixture": "PM1", "expected_version": 4, "evidence_refs": ["verification-pass"] },
       "expected": {
         "assertions": [
           { "target": "state", "path": "work.work-cross.lifecycle", "op": "eq", "value": "completed" },
           { "target": "effects", "path": "transition_events.count", "op": "eq", "value": 1 },
           { "target": "effects", "path": "transition_events.0.evidence_refs", "op": "contains", "value": "verification-pass" },
+          { "target": "effects", "path": "version_increment", "op": "eq", "value": 1 },
           { "target": "communication", "path": "new_version", "op": "nonempty" }
         ],
         "invariants": ["atomic_core_effect", "evidence_authority", "retry_safe"]

@@ -167,6 +167,14 @@ type Failure struct {
 	RecoveryAction   string   `json:"recovery_action"`
 	CandidateIDs     []string `json:"candidate_ids,omitempty"`
 	UnavailableKinds []string `json:"unavailable_kinds,omitempty"`
+	// CurrentVersions carries the typed current version for each subject whose
+	// version conflict produced this failure. Higher layers surface this
+	// structurally so callers do not have to regex the human detail string.
+	CurrentVersions []SubjectCurrentVersion `json:"current_versions,omitempty"`
+	// Violations carries the typed offending relation/edge identities for
+	// failures that refuse a relation because of a structural violation
+	// (cycle, supersession target already taken, etc.).
+	Violations []string `json:"violations,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`
@@ -182,6 +190,17 @@ type Failure struct {
 	Stage          FailureStage `json:"stage,omitempty"`
 	// Err is the underlying cause, when one exists.
 	Err error `json:"-"`
+}
+
+// SubjectCurrentVersion is the typed current-version carrier for an optimistic
+// concurrency refusal. Exists is false for projections the projectionVersion
+// probe reported as missing; in that case Version is zero and callers should
+// interpret the absence as "no projection exists yet".
+type SubjectCurrentVersion struct {
+	SubjectType SubjectType `json:"subject_type"`
+	SubjectID   string      `json:"subject_id"`
+	Version     int64       `json:"version"`
+	Exists      bool        `json:"exists"`
 }
 
 func (f *Failure) Error() string {

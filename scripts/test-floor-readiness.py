@@ -48,7 +48,13 @@ def fixture() -> dict:
 def build_root(directory: str) -> Path:
     root = Path(directory)
     (root / "docs").mkdir()
-    (root / "docs/priorities.md").write_text("priorities\n", encoding="utf-8")
+    (root / "docs/priorities.md").write_text(
+        "## First-usable floor\n\n"
+        "Use this when it is usable:\n\n"
+        "1. First condition\n"
+        "2. Second condition\n",
+        encoding="utf-8",
+    )
     return root
 
 
@@ -238,6 +244,133 @@ def test_repository_manifest_and_schema_are_valid() -> None:
     assert set(schema["properties"]["items"]["items"]["properties"]) == checker.ALLOWED_ITEM
     assert set(schema["properties"]["items"]["items"]["required"]) == checker.REQUIRED_ITEM
     assert tuple(schema["properties"]["items"]["items"]["properties"]["state"]["enum"]) == checker.STATES
+
+
+def test_condition_correspondence_dropped_condition() -> None:
+    # The fixture has fc1 and fc2; the source has 2 items. Drop fc2 and the
+    # count diverges. The validator must report a non-pass.
+    value = fixture()
+    value["conditions"] = [value["conditions"][0]]
+    value["items"] = [value["items"][0]]
+    assert_rejected(value, "manifest declares 1 condition")
+
+
+def test_condition_correspondence_added_condition() -> None:
+    # The fixture has 2 conditions; the source has 2 items. Add a third
+    # condition whose id/ordinal/title also match the third source item so
+    # only the count mis-match vs. source can be detected. The fixture's
+    # source only has 2 items, so the count divergence is the failure mode.
+    value = fixture()
+    value["conditions"].append({"id": "fc3", "ordinal": 3, "title": "Third condition"})
+    value["items"].append(
+        {
+            "id": "fc3-third-item",
+            "condition": "fc3",
+            "title": "Third",
+            "requirement": "Third item is satisfied and checkable.",
+            "state": "satisfied",
+            "evidence": ["docs/priorities.md"],
+        }
+    )
+    assert_rejected(value, "manifest declares 3 condition")
+
+
+def test_condition_correspondence_reordered_condition() -> None:
+    # Swap the titles of the two declared conditions; the source ordering
+    # must be preserved so the second condition's title must equal the
+    # second source item.
+    value = fixture()
+    value["conditions"][0]["title"] = "Second condition"
+    value["conditions"][1]["title"] = "First condition"
+    assert_rejected(value, "title does not equal first sentence")
+
+
+def test_condition_correspondence_reworded_title() -> None:
+    # Reword a single title; the source's first sentence must remain exact.
+    value = fixture()
+    value["conditions"][0]["title"] = "First condition reworded."
+    assert_rejected(value, "title does not equal first sentence")
+
+
+def test_condition_correspondence_unresolvable_section() -> None:
+    # Point the manifest-level source at a section that does not exist in
+    # the priorities.md stub. The validator must fail rather than pass
+    # vacuously because there is no such section.
+    value = fixture()
+    value["source"]["section"] = "Does not exist"
+    assert_rejected(value, "section 'Does not exist' not found")
+
+
+def test_condition_correspondence_override_section() -> None:
+    # A condition may declare its own source override. When the override
+    # section does not exist, that condition is rejected with the section
+    # not-found message.
+    value = fixture()
+    value["conditions"][0]["source"] = {
+        "path": "docs/priorities.md",
+        "section": "Does not exist",
+    }
+    assert_rejected(value, "section 'Does not exist' not found")
+
+
+def test_condition_correspondence_section_with_no_items() -> None:
+    # The override source resolves to a section that exists but has no
+    # numbered or bulleted items. The validator must report that as a
+    # failure, not a vacuous pass.
+    value = fixture()
+    with tempfile.TemporaryDirectory() as directory:
+        root = build_root(directory)
+        # Add an empty section after the existing one.
+        root.joinpath("docs/priorities.md").write_text(
+            "## First-usable floor\n\n"
+            "1. First condition\n"
+            "2. Second condition\n\n"
+            "---\n\n"
+            "## Empty section\n\n"
+            "Just prose, no items.\n",
+            encoding="utf-8",
+        )
+        value["conditions"][0]["source"] = {
+            "path": "docs/priorities.md",
+            "section": "Empty section",
+        }
+        found, _ = checker.validate(value, root=root)
+        assert any("has no items" in finding for finding in found), found
+
+
+def test_condition_correspondence_override_to_bulleted_source() -> None:
+    # A condition can override its source to a section that uses bullets
+    # instead of numbered items. The first sentence of the bullet must
+    # match the title verbatim.
+    value = fixture()
+    with tempfile.TemporaryDirectory() as directory:
+        root = build_root(directory)
+        root.joinpath("docs/priorities.md").write_text(
+            "## First-usable floor\n\n"
+            "1. First condition\n"
+            "2. Second condition\n\n"
+            "---\n\n"
+            "## Bulleted section\n\n"
+            "- bullet one is exact.\n"
+            "- bullet two is exact.\n",
+            encoding="utf-8",
+        )
+        value["conditions"][0]["source"] = {
+            "path": "docs/priorities.md",
+            "section": "Bulleted section",
+        }
+        value["conditions"][0]["title"] = "bullet one is exact."
+        value["conditions"][1]["source"] = {
+            "path": "docs/priorities.md",
+            "section": "Bulleted section",
+        }
+        value["conditions"][1]["title"] = "bullet two is exact."
+        # Manifest-level source still has to resolve; the priority stub
+        # already has the section we built earlier, so an unused but valid
+        # path is sufficient.
+        value["source"] = {"path": "docs/priorities.md", "section": "First-usable floor"}
+        found, _ = checker.validate(value, root=root)
+        assert found == [], found
 
 
 def main() -> int:

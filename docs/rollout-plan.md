@@ -57,16 +57,31 @@ research, or clarification work.
 
 Concord is not replacement-ready after a partial dashboard, isolated tool, or
 single workflow. The full floor must be proven for one operator and many concurrent
-agents on one machine:
+agents on one machine.
 
-- Product-first visibility, planning, implementation, research, investigation, ops,
-  and durable product knowledge are covered;
-- every supported work kind has a versioned workflow and completion evidence;
-- SQLite authority, safe evolution, recovery, and cross-workflow impact rules are
-  demonstrated by conformance scenarios;
-- TS1–TS9 agent jobs and result envelopes are validated with synthetic scenarios;
-- external systems retain authority for their own execution and enforcement;
+Replacement readiness is two bars: the **usability floor**, defined by the numbered
+conditions in [`priorities.md`](./priorities.md) *First-usable floor*, plus the
+**release-evidence bar** this section owns. `priorities.md` remains authorizing for
+the usability floor. Its conditions are linked rather than restated here, because
+restating them is how the two documents drifted.
+
+Two evidence expectations elaborate the usability floor without redefining it. They
+are decomposed as manifest items under the conditions they serve rather than as
+conditions of their own:
+
+- TS1–TS9 agent jobs and result envelopes are validated with synthetic scenarios —
+  evidence on usability-floor condition 2, agent read/write/execute through tools;
+- external systems retain authority for their own execution and enforcement —
+  evidence on usability-floor condition 3, workflow types and completion evidence.
+
+### Release-evidence bar
+
+Beyond the usability floor, replacement readiness additionally requires:
+
 - release, install, privacy, and Linux amd64 evidence meet CD-0007's floor.
+
+Both bars are decomposed in the floor manifest, and each condition's `source` names
+the document and section that bears it.
 
 ## 4. Later migration
 

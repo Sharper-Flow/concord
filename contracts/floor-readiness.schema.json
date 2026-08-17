@@ -12,7 +12,7 @@
       "enum": ["1.0"]
     },
     "source": {
-      "description": "The document and section the floor conditions are copied from. The manifest never redefines the floor.",
+      "description": "Default provenance: the document and section the floor conditions are copied from. A condition may override this with its own source. The manifest never redefines the floor.",
       "type": "object",
       "additionalProperties": false,
       "required": ["path", "section"],
@@ -30,7 +30,7 @@
       }
     },
     "conditions": {
-      "description": "The floor conditions, in the order they appear in the source document. Every condition must carry at least one item.",
+      "description": "The floor conditions, in the order they appear in the source document. Every condition must carry at least one item. A condition may declare its own source to override the manifest-level source; the override has the same {path, section} shape and means 'this condition comes from here instead of the manifest-level source'.",
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
@@ -52,6 +52,24 @@
             "type": "string",
             "minLength": 2,
             "maxLength": 512
+          },
+          "source": {
+            "description": "Per-condition provenance override. Same closed {path, section} shape as the manifest-level source. When present, this condition comes from this document and section instead of the manifest-level one.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "section"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 512
+              },
+              "section": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 256
+              }
+            }
           }
         }
       }

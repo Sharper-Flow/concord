@@ -14,13 +14,17 @@ SCHEMA = ROOT / "contracts/floor-readiness.schema.json"
 
 ALLOWED_ROOT = {"schema_version", "source", "conditions", "items"}
 ALLOWED_SOURCE = {"path", "section"}
-ALLOWED_CONDITION = {"id", "ordinal", "title"}
+ALLOWED_CONDITION = {"id", "ordinal", "title", "source"}
 ALLOWED_ITEM = {"id", "condition", "title", "requirement", "state", "evidence", "issue", "reason"}
 REQUIRED_ITEM = {"id", "condition", "title", "requirement", "state"}
 STATES = ("satisfied", "outstanding", "unmeasured", "out_of_scope")
 
 CONDITION_ID = re.compile(r"^fc[0-9]{1,2}$")
 ITEM_ID = re.compile(r"^(fc[0-9]{1,2})-[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+NUMBERED_ITEM_RE = re.compile(r"^\s{0,6}(\d+)\.\s+(.*\S)")
+BULLET_ITEM_RE = re.compile(r"^\s{0,6}[-*+]\s+(.*\S)")
 
 MAX_CONDITIONS = 32
 MAX_ITEMS = 500
@@ -82,12 +86,173 @@ def validate_source(source: object, findings: list[str], *, root: Path) -> None:
         findings.append(f"manifest.source: path does not exist: {path}")
 
 
-def validate_conditions(raw: object, findings: list[str]) -> dict[str, int]:
+def find_markdown_section(text: str, section: str) -> str | None:
+    """Return the body of the markdown `## Section` heading matching `section`,
+    or None if no such heading exists. The body is taken up to (but not
+    including) the next heading of the same or higher level. Matching is by
+    trailing heading text after the prefix, so "3. Replacement-ready floor"
+    matches a request for "Replacement-ready floor"."""
+    lines = text.splitlines()
+    target: tuple[int, str] | None = None
+    for line in lines:
+        match = HEADING_RE.match(line)
+        if not match:
+            continue
+        level = len(match.group(1))
+        heading = match.group(2).strip()
+        # Strip an optional leading "<number>. " prefix used by numbered
+        # sections like "## 3. Replacement-ready floor".
+        heading_body = re.sub(r"^[\d.]+\s+", "", heading)
+        if heading_body == section.strip():
+            target = (level, line)
+            break
+    if target is None:
+        return None
+    level, header_line = target
+    body_lines: list[str] = []
+    seen_header = False
+    for line in lines:
+        if line == header_line:
+            seen_header = True
+            continue
+        if not seen_header:
+            continue
+        match = HEADING_RE.match(line)
+        if match and len(match.group(1)) <= level:
+            break
+        body_lines.append(line)
+    return "\n".join(body_lines)
+
+
+def extract_section_items(section_body: str) -> list[str]:
+    """Extract the ordered list of items from a markdown section body.
+
+    Uses a numbered list (`1. ...`) when present and any subsequent numbered
+    lines are still in the same contiguous run; otherwise falls back to a
+    bulleted list (`- ...`). Each item's text is the continuation lines
+    following the marker, joined with spaces and leading whitespace stripped."""
+    lines = section_body.splitlines()
+    items: list[str] = []
+    current: list[str] | None = None
+    marker_re: re.Pattern[str] | None = None
+    for line in lines:
+        numbered = NUMBERED_ITEM_RE.match(line)
+        bulleted = BULLET_ITEM_RE.match(line)
+        if numbered:
+            if current is not None and marker_re is NUMBERED_ITEM_RE:
+                items.append(" ".join(current).strip())
+            elif current is not None:
+                items.append(" ".join(current).strip())
+            current = [numbered.group(2).strip()]
+            marker_re = NUMBERED_ITEM_RE
+            continue
+        if bulleted and marker_re is BULLET_ITEM_RE:
+            items.append(" ".join(current).strip())
+            current = [bulleted.group(1).strip()]
+            marker_re = BULLET_ITEM_RE
+            continue
+        if bulleted and marker_re is None:
+            current = [bulleted.group(1).strip()]
+            marker_re = BULLET_ITEM_RE
+            continue
+        if current is not None:
+            stripped = line.strip()
+            if stripped:
+                current.append(stripped)
+    if current is not None:
+        items.append(" ".join(current).strip())
+    return items
+
+
+def collapse_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def first_sentence(text: str) -> str:
+    """Return the first sentence of `text`. A sentence ends at the first
+    period followed by whitespace or end-of-string, or at the first question
+    or exclamation mark in the same rule. The marker is preserved when it
+    is followed by end-of-string so wrapped items without subsequent prose
+    keep their terminator."""
+    match = re.search(r"([.!?])(?=\s|$)", text)
+    if not match:
+        return text.strip()
+    return text[: match.end()].strip()
+
+
+def validate_condition_correspondence(
+    conditions: list[dict[str, object]],
+    effective_sources: list[tuple[str, dict[str, str]]],
+    root: Path,
+    findings: list[str],
+) -> None:
+    """Group conditions by their effective source (path, section) and verify
+    that each group's titles correspond one-to-one and in order with the
+    numbered/bulleted items in that source. A non-resolvable section or a
+    zero-item section is a failure, not a vacuous pass."""
+    text_cache: dict[str, str] = {}
+    by_source: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for condition, (identifier, source) in zip(conditions, effective_sources):
+        key = (source["path"], source["section"])
+        by_source.setdefault(key, []).append(condition)
+    for source_key, group in by_source.items():
+        path, section = source_key
+        if path not in text_cache:
+            target = root / path
+            try:
+                text_cache[path] = target.read_text(encoding="utf-8")
+            except OSError as exc:
+                findings.append(
+                    f"manifest.conditions: could not read source {path}: {exc}"
+                )
+                continue
+        text = text_cache[path]
+        body = find_markdown_section(text, section)
+        if body is None:
+            findings.append(
+                f"manifest.conditions: source {path} section {section!r} not found"
+            )
+            continue
+        items = extract_section_items(body)
+        if not items:
+            findings.append(
+                f"manifest.conditions: source {path} section {section!r} has no items"
+            )
+            continue
+        if len(group) != len(items):
+            findings.append(
+                f"manifest.conditions: source {path} section {section!r} has {len(items)} item(s), "
+                f"manifest declares {len(group)} condition(s) from it"
+            )
+            continue
+        for number, (condition, item_text) in enumerate(zip(group, items), start=1):
+            collapsed = collapse_whitespace(item_text)
+            first = first_sentence(collapsed)
+            if condition["title"] != first:
+                identifier = condition["id"]
+                findings.append(
+                    f"manifest.conditions[{identifier}]: title does not equal first sentence of "
+                    f"source item {number} from {path} section {section!r}: "
+                    f"got {condition['title']!r}, want {first!r}"
+                )
+
+
+def validate_conditions(
+    raw: object,
+    findings: list[str],
+    *,
+    default_source: dict[str, str] | None = None,
+) -> tuple[dict[str, int], list[tuple[str, dict[str, str]]]]:
+    """Validate the conditions array. Returns the declared id→ordinal map and
+    a list of (id, effective_source) pairs suitable for the correspondence
+    check. The effective source is the condition's own `source` if present
+    and well-formed, otherwise the manifest-level `source`."""
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_CONDITIONS:
         findings.append("manifest.conditions: must be a bounded non-empty array")
-        return {}
+        return {}, []
     declared: dict[str, int] = {}
     ordinals: list[int] = []
+    effective_sources: list[tuple[str, dict[str, str]]] = []
     for number, condition in enumerate(raw):
         prefix = f"manifest.conditions[{number}]"
         if not isinstance(condition, dict):
@@ -96,7 +261,7 @@ def validate_conditions(raw: object, findings: list[str]) -> dict[str, int]:
         unknown = set(condition) - ALLOWED_CONDITION
         if unknown:
             findings.append(f"{prefix}: unknown fields: {sorted(unknown)}")
-        missing = ALLOWED_CONDITION - set(condition)
+        missing = {"id", "ordinal", "title"} - set(condition)
         if missing:
             findings.append(f"{prefix}: missing fields: {sorted(missing)}")
             continue
@@ -115,11 +280,34 @@ def validate_conditions(raw: object, findings: list[str]) -> dict[str, int]:
             findings.append(f"{prefix}: id {identifier} disagrees with ordinal {ordinal}")
         if not bounded_text(condition["title"], 2, 512):
             findings.append(f"{prefix}: title is not bounded text")
+        override: dict[str, str] | None = None
+        if "source" in condition:
+            source = condition["source"]
+            if not isinstance(source, dict):
+                findings.append(f"{prefix}: source must be an object")
+            else:
+                src_unknown = set(source) - ALLOWED_SOURCE
+                if src_unknown:
+                    findings.append(f"{prefix}.source: unknown fields: {sorted(src_unknown)}")
+                src_missing = ALLOWED_SOURCE - set(source)
+                if src_missing:
+                    findings.append(f"{prefix}.source: missing fields: {sorted(src_missing)}")
+                elif isinstance(source.get("path"), str) and isinstance(source.get("section"), str):
+                    if not bounded_text(source["section"], 2, 256):
+                        findings.append(f"{prefix}.source: section is not bounded text")
+                    elif not safe_repository_path(source["path"]):
+                        findings.append(f"{prefix}.source: unsafe path: {source['path']!r}")
+                    else:
+                        override = {"path": source["path"], "section": source["section"]}
         declared[identifier] = ordinal
         ordinals.append(ordinal)
+        if override is not None:
+            effective_sources.append((identifier, override))
+        elif default_source is not None:
+            effective_sources.append((identifier, dict(default_source)))
     if ordinals and sorted(ordinals) != list(range(1, len(ordinals) + 1)):
         findings.append("manifest.conditions: ordinals must be contiguous from 1")
-    return declared
+    return declared, effective_sources
 
 
 def validate_items(raw: object, declared: dict[str, int], findings: list[str], *, root: Path) -> dict[str, int]:
@@ -226,9 +414,29 @@ def validate(data: object, *, root: Path = ROOT) -> tuple[list[str], dict[str, i
     if data["schema_version"] != "1.0":
         findings.append("manifest: schema_version must be 1.0")
     validate_source(data["source"], findings, root=root)
-    declared = validate_conditions(data["conditions"], findings)
+    default_source: dict[str, str] | None = None
+    if isinstance(data["source"], dict):
+        source = data["source"]
+        if (
+            isinstance(source.get("path"), str)
+            and isinstance(source.get("section"), str)
+            and safe_repository_path(source["path"])
+            and (root / source["path"]).is_file()
+        ):
+            default_source = {"path": source["path"], "section": source["section"]}
+    declared, effective_sources = validate_conditions(
+        data["conditions"], findings, default_source=default_source
+    )
+    if effective_sources and not findings_in_findings(findings, "manifest.conditions"):
+        validate_condition_correspondence(
+            data["conditions"], effective_sources, root, findings
+        )
     tally = validate_items(data["items"], declared, findings, root=root)
     return findings, tally
+
+
+def findings_in_findings(findings: list[str], fragment: str) -> bool:
+    return any(fragment in finding for finding in findings)
 
 
 def main() -> int:

@@ -18,7 +18,7 @@
     {
       "id": "fc3",
       "ordinal": 3,
-      "title": "Every supported work kind has a defined workflow type and completion evidence."
+      "title": "Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence."
     },
     {
       "id": "fc4",
@@ -33,7 +33,16 @@
     {
       "id": "fc6",
       "ordinal": 6,
-      "title": "The predecessor surfaces Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage."
+      "title": "The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage."
+    },
+    {
+      "id": "fc7",
+      "ordinal": 7,
+      "title": "release, install, privacy, and Linux amd64 evidence meet CD-0007's floor.",
+      "source": {
+        "path": "docs/rollout-plan.md",
+        "section": "Release-evidence bar"
+      }
     }
   ],
   "items": [
@@ -143,6 +152,26 @@
       ]
     },
     {
+      "id": "fc2-ts1-corpus-executed",
+      "condition": "fc2",
+      "title": "TS1 agent-jobs corpus executes against the real dispatch path",
+      "requirement": "The accepted TS1 agent-jobs corpus runs in CI against the real dispatch path, every scenario is structurally validated at the harness level, and no scenario can be silently skipped: the test fails when a scenario is in neither the bindings nor the deferral registry, and the deferral registry is structurally pinned to the TS1 scenario set.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/agent/agent_jobs_corpus_test.go",
+        "scripts/check-agent-jobs.py",
+        "contracts/agent-jobs-scenarios.schema.json"
+      ]
+    },
+    {
+      "id": "fc2-ts1-corpus-complete",
+      "condition": "fc2",
+      "title": "All 21 TS1 scenarios are bound and passing",
+      "requirement": "All 21 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today four of twenty-one are bound (AJ1-ambient-ready-work, AJ1-ambiguous-product, AJ1-cross-project-deduplication, AJ2-blocker-explanation); the remaining seventeen are deferred and must be bound for this item to be satisfied.",
+      "state": "outstanding",
+      "issue": 165
+    },
+    {
       "id": "fc3-workflow-types",
       "condition": "fc3",
       "title": "Purpose-built workflow types exist for every supported work kind",
@@ -213,6 +242,20 @@
       "evidence": [
         "internal/store/worker_authority_boundary_test.go",
         "internal/store/workflow.go"
+      ]
+    },
+    {
+      "id": "fc3-external-systems-retain-authority",
+      "condition": "fc3",
+      "title": "External systems retain authority for their own execution and enforcement",
+      "requirement": "External systems retain authority for their own execution and enforcement. Concord owns workflow coordination (progression, branching, retries, evidence, recovery, composition) while native systems (git, CI, cloud, database, service-manager operations) retain their own execution and enforcement authority. Worker attempts cannot create workflow authority; preflight authorization occurs at every cross-authority or external-effect boundary; external-effect steps drive native systems through typed consequence classes and never reimplement them.",
+      "state": "satisfied",
+      "evidence": [
+        "docs/decisions/CD-0006-concord-root-product-policy.md",
+        "docs/decisions/CD-0013-workflow-engine-mechanism.md",
+        "internal/store/worker_authority_boundary_test.go",
+        "internal/store/worktrees.go",
+        "internal/store/workflow_preflight.go"
       ]
     },
     {
@@ -331,6 +374,53 @@
       "evidence": [
         "docs/predecessor-operational-coverage.md",
         "docs/decisions/CD-0010-pre-readiness-development-authority.md"
+      ]
+    },
+    {
+      "id": "fc7-release-evidence",
+      "condition": "fc7",
+      "title": "Release artifact publication is reproducible and attested",
+      "requirement": "Release artifacts are produced by an automated release pipeline that computes a semver tag from Conventional Commits, builds the Linux amd64 binary with the version ldflag, packages the adapter and skills, generates a SPDX SBOM, produces a SHA-256 checksum manifest, and attests provenance for every uploaded asset. The pipeline is exercised by unit tests pinned to the workflow YAML.",
+      "state": "satisfied",
+      "evidence": [
+        "scripts/release.py",
+        "scripts/test-release.py",
+        ".github/workflows/release.yml",
+        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
+      ]
+    },
+    {
+      "id": "fc7-install-evidence",
+      "condition": "fc7",
+      "title": "Idempotent installation is verified end-to-end",
+      "requirement": "The Concord-owned idempotent installer verifies the published SHA-256 checksum and archive before changing the operator's data, binary, adapter, or OpenCode configuration paths, and supports install, upgrade, and uninstall. The installer's behavior is exercised by unit tests covering checksum verification, archive extraction, and version selection.",
+      "state": "satisfied",
+      "evidence": [
+        "scripts/install.py",
+        "scripts/test-installer.py",
+        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
+      ]
+    },
+    {
+      "id": "fc7-privacy-evidence",
+      "condition": "fc7",
+      "title": "Public-content boundary is validated by a structural check",
+      "requirement": "The public-content boundary is enforced by a repository-scanning validator that rejects private Product/customer data, personal filesystem paths, machine names, private network details, credentials, and unreachable private citations. The validator runs in CI; CD-0007's privacy and provenance requirements are sourced from this item.",
+      "state": "satisfied",
+      "evidence": [
+        "scripts/check-public-content.py",
+        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
+      ]
+    },
+    {
+      "id": "fc7-linux-amd64-evidence",
+      "condition": "fc7",
+      "title": "Linux amd64 is the only supported v1 platform with concrete evidence",
+      "requirement": "Linux amd64 is the only supported v1 platform in CD-0007 D5, and the release pipeline produces a single Linux amd64 binary with `CGO_ENABLED=0`, archives it with a deterministic tar, and excludes any other platform. The artifact verification step runs the binary in CI to confirm its reported version matches the published tag.",
+      "state": "satisfied",
+      "evidence": [
+        ".github/workflows/release.yml",
+        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
       ]
     }
   ]

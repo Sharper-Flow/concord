@@ -6,9 +6,18 @@ companion [`floor-readiness.schema.json`](../contracts/floor-readiness.schema.js
 is the closed JSON Schema contract, and `scripts/check-floor-readiness.py`
 validates the manifest on every CI run through `scripts/check-json.py`.
 
-The floor itself is defined in [`priorities.md`](./priorities.md) under
-*First-usable floor*. The manifest copies its conditions and never redefines
-them; `source` names the document and section they came from.
+The floor itself is defined in two documents:
+[`priorities.md`](./priorities.md) under *First-usable floor* (the six
+usability-floor conditions) and [`rollout-plan.md`](./rollout-plan.md) under
+*Release-evidence bar* (the release/install/privacy/Linux amd64 bar this
+manifest names `fc7`). A condition may carry its own `source`, overriding the
+manifest-level default.
+
+The manifest copies its conditions and never redefines them. That was previously
+an assertion; the checker now enforces it, requiring each condition's title to
+equal the first sentence of the corresponding item in its source section, one to
+one and in order. A dropped, added, reordered, or reworded condition fails, and a
+source section that cannot be resolved fails rather than passing vacuously.
 
 ## Why it is a manifest
 

@@ -150,6 +150,8 @@ Incremental design, build, replay, and shadow evaluation are allowed, but a part
 
 Distance from the floor is recorded in [`floor-readiness.md`](./floor-readiness.md) and its validated manifest, which decomposes each condition below into items whose state is checked in CI. That record is authorizing for *where Concord stands*; this section remains authorizing for *what the floor is*.
 
+The six numbered conditions below define the **usability floor — the bar Concord must clear for one operator and many agents to do real work on this machine**. Replacement readiness is a higher bar: it additionally requires the release, install, privacy, and Linux amd64 release-evidence bar owned by [`rollout-plan.md`](./rollout-plan.md) §3. Both bars are decomposed in the floor manifest, and the manifest's `source` for each condition names the document and section that bears it.
+
 Migration then proceeds one Product at a time. Advance remains authority for unmigrated Products; each migrated Product fixes forward in Concord. Advance retires after the final Product moves. This is a bounded transition, not permanent coexistence or rollback.
 
 It becomes usable when:

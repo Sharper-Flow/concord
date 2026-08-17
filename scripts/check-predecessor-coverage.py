@@ -9,12 +9,14 @@ stated tally must agree with the rows it summarises.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCUMENT = ROOT / "docs/predecessor-operational-coverage.md"
+FLOOR_MANIFEST = ROOT / "docs/floor-readiness.v1.json"
 
 # Closed state vocabulary. A qualified state is deliberate and must be added
 # here, so a new qualifier cannot enter the table unnoticed.
@@ -46,6 +48,14 @@ EXTENSIONS = (".go", ".py", ".ts", ".md", ".json", ".yaml", ".yml", ".sql")
 
 TALLY_ROW = re.compile(r"^\|\s*(Covered|Not covered|Excluded with reason)\s*\|\s*([0-9]+)\s*\|$")
 TALLY_TOTAL = re.compile(r"^\*\*Total enumerated outcomes: ([0-9]+)\.\*\*$")
+
+# This table and docs/floor-readiness.v1.json are both authorizing records, and
+# rows here cite manifest items by identifier. Nothing previously compared the
+# cited state against the manifest, so the two drifted silently: a row claimed
+# `fc2-context-freshness` was `unmeasured` after issue #110 had measured it.
+FLOOR_ITEM = re.compile(r"`(fc[1-9][0-9]*-[a-z0-9-]+)`")
+FLOOR_STATES = frozenset({"satisfied", "outstanding", "unmeasured", "out_of_scope"})
+FLOOR_STATE_CLAIM = re.compile(r"`(satisfied|outstanding|unmeasured|out_of_scope)`")
 
 MIN_REASON_LENGTH = 40
 MAX_ROWS = 500
@@ -140,6 +150,62 @@ def check_rows(rows, findings):
     return counts
 
 
+def load_floor_states(findings):
+    """Return floor-manifest item states, or None when the manifest is unusable."""
+    if not FLOOR_MANIFEST.is_file():
+        findings.append(f"{FLOOR_MANIFEST.name}: missing, cannot resolve cited floor items")
+        return None
+    try:
+        manifest = json.loads(FLOOR_MANIFEST.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        findings.append(f"{FLOOR_MANIFEST.name}: is not valid JSON: {exc}")
+        return None
+    states = {}
+    for item in manifest.get("items", []):
+        identifier, state = item.get("id"), item.get("state")
+        if isinstance(identifier, str) and isinstance(state, str):
+            states[identifier] = state
+    if not states:
+        findings.append(f"{FLOOR_MANIFEST.name}: declares no resolvable items")
+        return None
+    return states
+
+
+def check_floor_references(rows, floor_states, findings):
+    """Every cited floor item must exist, and any state it claims must match.
+
+    A row may cite an item without naming a state. Naming one is a claim about
+    another authorizing record, so it is checked rather than trusted.
+    """
+    for number, _section, outcome, _state, evidence in rows:
+        cited = FLOOR_ITEM.findall(evidence)
+        if not cited:
+            continue
+        claims = FLOOR_STATE_CLAIM.findall(evidence)
+        if len(claims) > 1:
+            findings.append(
+                f"line {number}: cites {len(claims)} floor states, so the claim is ambiguous: {outcome!r}"
+            )
+            continue
+        for identifier in cited:
+            if identifier not in floor_states:
+                findings.append(
+                    f"line {number}: cites floor item {identifier!r}, which the manifest does not declare"
+                )
+                continue
+            if not claims:
+                continue
+            if len(cited) > 1:
+                findings.append(
+                    f"line {number}: claims state {claims[0]!r} while citing {len(cited)} floor items: {outcome!r}"
+                )
+                break
+            if claims[0] != floor_states[identifier]:
+                findings.append(
+                    f"line {number}: claims {identifier} is {claims[0]!r}, manifest records {floor_states[identifier]!r}"
+                )
+
+
 def check_tally(lines, counts, findings):
     stated = {}
     total = None
@@ -184,6 +250,9 @@ def main():
     else:
         counts = check_rows(rows, findings)
         check_tally(lines, counts, findings)
+        floor_states = load_floor_states(findings)
+        if floor_states is not None:
+            check_floor_references(rows, floor_states, findings)
 
     if findings:
         for finding in findings[:MAX_FINDINGS]:

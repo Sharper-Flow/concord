@@ -22,7 +22,7 @@ func TestRebuildSurvivesMessagesAndClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	tx, _ := s.DB().BeginTx(ctx, nil)
+	tx, _ := s.DatabaseForTesting().BeginTx(ctx, nil)
 	_ = enterFold(ctx, tx)
 	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "msg-ev", Kind: "work.message_sent", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "p/a", OccurredAt: now, PayloadVersion: 1, Payload: msgPayload}}}); err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestRebuildSurvivesMessagesAndClaims(t *testing.T) {
 		t.Fatalf("rebuild after message: %v", err)
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_messages`).Scan(&count); err != nil || count != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_messages`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("messages after rebuild=%d err=%v", count, err)
 	}
 }

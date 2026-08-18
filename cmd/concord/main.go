@@ -252,7 +252,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return 1
 	}
 	defer s.Close()
-	service := agent.NewService(s.DB())
+	service := agent.NewService(s)
 	service.ProjectResolver = func(ctx context.Context, directory, worktree string) (store.ProjectResolution, error) {
 		return s.ResolveProject(ctx, directory, worktree)
 	}

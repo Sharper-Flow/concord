@@ -840,7 +840,15 @@ func BindResearchFindingSource(ctx context.Context, s *Store, req ResearchFindin
 // CreateResearchPackWithinTx runs the CreateResearchPack core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
-func CreateResearchPackWithinTx(ctx context.Context, tx *sql.Tx, req CreateResearchPackRequest) (ResearchPack, error) {
+func CreateResearchPackWithinTx(ctx context.Context, transaction *Transaction, req CreateResearchPackRequest) (ResearchPack, error) {
+	tx, err := transactionSQL(transaction, "research_pack_create")
+	if err != nil {
+		return ResearchPack{}, err
+	}
+	return createResearchPackWithinRawTx(ctx, tx, req)
+}
+
+func createResearchPackWithinRawTx(ctx context.Context, tx *sql.Tx, req CreateResearchPackRequest) (ResearchPack, error) {
 	var out ResearchPack
 	if req.OwnerWorkID == "" {
 		return out, researchInvalid("owner_work_id is required")
@@ -889,7 +897,15 @@ func CreateResearchPackWithinTx(ctx context.Context, tx *sql.Tx, req CreateResea
 // AppendResearchRevisionWithinTx runs the AppendResearchRevision core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
-func AppendResearchRevisionWithinTx(ctx context.Context, tx *sql.Tx, req AppendResearchRevisionRequest) (ResearchRevision, error) {
+func AppendResearchRevisionWithinTx(ctx context.Context, transaction *Transaction, req AppendResearchRevisionRequest) (ResearchRevision, error) {
+	tx, err := transactionSQL(transaction, "research_revision_append")
+	if err != nil {
+		return ResearchRevision{}, err
+	}
+	return appendResearchRevisionWithinRawTx(ctx, tx, req)
+}
+
+func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req AppendResearchRevisionRequest) (ResearchRevision, error) {
 	var out ResearchRevision
 	if req.PackID == "" || req.ExpectedVersion < 1 {
 		return out, researchInvalid("pack_id and positive expected_version are required")
@@ -933,7 +949,15 @@ func AppendResearchRevisionWithinTx(ctx context.Context, tx *sql.Tx, req AppendR
 // RecordResearchFindingWithinTx runs the addResearchFinding core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
-func RecordResearchFindingWithinTx(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, update bool) (ResearchFinding, error) {
+func RecordResearchFindingWithinTx(ctx context.Context, transaction *Transaction, req ResearchFindingRequest, update bool) (ResearchFinding, error) {
+	tx, err := transactionSQL(transaction, "research_finding_write")
+	if err != nil {
+		return ResearchFinding{}, err
+	}
+	return recordResearchFindingWithinRawTx(ctx, tx, req, update)
+}
+
+func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, update bool) (ResearchFinding, error) {
 	var out ResearchFinding
 	if err := validateFinding(req.Finding); err != nil {
 		return out, err
@@ -1073,7 +1097,15 @@ func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSour
 // SetResearchFreshnessWithinTx runs the SetResearchFreshness core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
-func SetResearchFreshnessWithinTx(ctx context.Context, tx *sql.Tx, req SetResearchFreshnessRequest) error {
+func SetResearchFreshnessWithinTx(ctx context.Context, transaction *Transaction, req SetResearchFreshnessRequest) error {
+	tx, err := transactionSQL(transaction, "research_freshness")
+	if err != nil {
+		return err
+	}
+	return setResearchFreshnessWithinRawTx(ctx, tx, req)
+}
+
+func setResearchFreshnessWithinRawTx(ctx context.Context, tx *sql.Tx, req SetResearchFreshnessRequest) error {
 	if req.PackID == "" || req.ExpectedVersion < 1 || !validResearchFreshness(req.Freshness) {
 		return researchInvalid("pack_id, expected_version, and a closed freshness value are required")
 	}
@@ -1110,21 +1142,37 @@ func SetResearchFreshnessWithinTx(ctx context.Context, tx *sql.Tx, req SetResear
 // RecordResearchFindingWithinTx records a finding: update when the finding
 // already exists in the revision, add otherwise. Deterministic on stored
 // state and idempotent under the caller's replay semantics.
-func RecordResearchFindingWithinTxUpsert(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest) (ResearchFinding, error) {
+func RecordResearchFindingWithinTxUpsert(ctx context.Context, transaction *Transaction, req ResearchFindingRequest) (ResearchFinding, error) {
+	tx, err := transactionSQL(transaction, "research_finding_write")
+	if err != nil {
+		return ResearchFinding{}, err
+	}
+	return recordResearchFindingWithinTxUpsertRaw(ctx, tx, req)
+}
+
+func recordResearchFindingWithinTxUpsertRaw(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest) (ResearchFinding, error) {
 	var exists int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, req.PackID, req.Finding.Revision, req.Finding.FindingID).Scan(&exists)
 	switch {
 	case err == nil:
-		return RecordResearchFindingWithinTx(ctx, tx, req, true)
+		return recordResearchFindingWithinRawTx(ctx, tx, req, true)
 	case err == sql.ErrNoRows:
-		return RecordResearchFindingWithinTx(ctx, tx, req, false)
+		return recordResearchFindingWithinRawTx(ctx, tx, req, false)
 	default:
 		return ResearchFinding{}, researchUnavailable("cannot inspect finding", err)
 	}
 }
 
 // RecordResearchSourceWithinTx records a source with the same upsert rule.
-func RecordResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest) (ResearchSource, error) {
+func RecordResearchSourceWithinTx(ctx context.Context, transaction *Transaction, req ResearchSourceRequest) (ResearchSource, error) {
+	tx, err := transactionSQL(transaction, "research_source_write")
+	if err != nil {
+		return ResearchSource{}, err
+	}
+	return recordResearchSourceWithinTxRaw(ctx, tx, req)
+}
+
+func recordResearchSourceWithinTxRaw(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest) (ResearchSource, error) {
 	var exists int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_sources WHERE pack_id=? AND revision=? AND source_id=?`, req.PackID, req.Source.Revision, req.Source.SourceID).Scan(&exists)
 	switch {

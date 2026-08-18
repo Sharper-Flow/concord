@@ -23,7 +23,7 @@ func testClaim(opID, key string) ClaimRequest {
 func countRows(t *testing.T, s *Store, table string) int {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
 		t.Fatalf("count %s: %v", table, err)
 	}
 	return count
@@ -105,7 +105,7 @@ func TestDurableOperationReplayVectorsMigrateLegacyResultsAndRejectFutureValues(
 		if _, err := ClaimStep(context.Background(), s, claim); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DB().Exec(`UPDATE durable_operations SET contract_version='9.0.0' WHERE op_id=?`, claim.OpID); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET contract_version='9.0.0' WHERE op_id=?`, claim.OpID); err != nil {
 			t.Fatal(err)
 		}
 		_, err := Step(context.Background(), s, claim.OpID)
@@ -118,7 +118,7 @@ func TestDurableOperationReplayVectorsMigrateLegacyResultsAndRejectFutureValues(
 		if _, err := ClaimStep(context.Background(), s, claim); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DB().Exec(`PRAGMA ignore_check_constraints=ON; UPDATE durable_operations SET result_kind='succeeded_with_unknown_semantics' WHERE op_id=?`, claim.OpID); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`PRAGMA ignore_check_constraints=ON; UPDATE durable_operations SET result_kind='succeeded_with_unknown_semantics' WHERE op_id=?`, claim.OpID); err != nil {
 			t.Fatal(err)
 		}
 		_, err := Step(context.Background(), s, claim.OpID)
@@ -148,7 +148,7 @@ func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {
 		t.Fatal(err)
 	}
 	var epoch int64
-	if err := s.DB().QueryRow(`SELECT MAX(attempt_epoch) FROM durable_operations WHERE op_id='op-2'`).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(attempt_epoch) FROM durable_operations WHERE op_id='op-2'`).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	if epoch != 2 {

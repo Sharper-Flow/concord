@@ -37,7 +37,7 @@ func TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead(t *testing.T) {
 	}
 	epicID := created.ChangedRefs[0].ID
 	var kind string
-	if err := s.DB().QueryRow(`SELECT kind FROM work_items WHERE id=?`, epicID).Scan(&kind); err != nil || kind != "epic" {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT kind FROM work_items WHERE id=?`, epicID).Scan(&kind); err != nil || kind != "epic" {
 		t.Fatalf("created Epic kind=%q err=%v", kind, err)
 	}
 
@@ -77,7 +77,7 @@ func TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead(t *testing.T) {
 	if err != nil || removed.Outcome != OutcomeOK {
 		t.Fatalf("remove response=%+v err=%v", removed, err)
 	}
-	if countRows(t, s.DB(), `SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='`+epicID+`' AND work_id_to='work-1'`) != 0 {
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='`+epicID+`' AND work_id_to='work-1'`) != 0 {
 		t.Fatal("removing Epic entry retained parent relation")
 	}
 }
@@ -99,7 +99,7 @@ func TestDispatchEpicCreateRejectsAmbiguousProductBeforeCreation(t *testing.T) {
 	if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invariant_violation" {
 		t.Fatalf("response=%+v err=%v", response, err)
 	}
-	if countRows(t, s.DB(), `SELECT count(*) FROM work_items WHERE kind='epic'`) != 0 {
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE kind='epic'`) != 0 {
 		t.Fatal("ambiguous Epic create left a work projection")
 	}
 }
@@ -124,7 +124,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	}
 	var status string
 	var used, maxUses int
-	if err := s.DB().QueryRow(`SELECT status,used_count,max_uses FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&status, &used, &maxUses); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT status,used_count,max_uses FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&status, &used, &maxUses); err != nil {
 		t.Fatal(err)
 	}
 	if status != "active" || used != 0 || maxUses != 1 {
@@ -140,10 +140,10 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved response=%+v err=%v", approved, err)
 	}
-	if usedCount(t, s.DB(), "SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?", challengeRef) != 1 {
+	if usedCount(t, s.DatabaseForTesting(), "SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?", challengeRef) != 1 {
 		t.Fatal("challenge was not consumed exactly once")
 	}
-	if usedCount(t, s.DB(), "SELECT used_count FROM agent_approvals WHERE approval_ref=(SELECT approval_ref FROM agent_approvals WHERE protected_evidence_ref=?)", "approval-challenge:"+challengeRef) != 1 {
+	if usedCount(t, s.DatabaseForTesting(), "SELECT used_count FROM agent_approvals WHERE approval_ref=(SELECT approval_ref FROM agent_approvals WHERE protected_evidence_ref=?)", "approval-challenge:"+challengeRef) != 1 {
 		t.Fatal("issued approval was not consumed exactly once")
 	}
 	if version := workVersion(t, s, "work-1"); version != 3 {
@@ -206,7 +206,7 @@ func TestDispatchRejectsInvalidSignedHostApprovalAssertions(t *testing.T) {
 			}
 		})
 	}
-	if _, err := s.DB().Exec(`UPDATE agent_approval_challenges SET issued_at=?,expires_at=? WHERE challenge_ref=?`, fixedTime().Add(-2*time.Minute).Format(time.RFC3339Nano), fixedTime().Add(-time.Minute).Format(time.RFC3339Nano), challengeRef); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE agent_approval_challenges SET issued_at=?,expires_at=? WHERE challenge_ref=?`, fixedTime().Add(-2*time.Minute).Format(time.RFC3339Nano), fixedTime().Add(-time.Minute).Format(time.RFC3339Nano), challengeRef); err != nil {
 		t.Fatal(err)
 	}
 	expired := request
@@ -274,7 +274,7 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 		t.Fatalf("failed mutation=%+v err=%v", failed, err)
 	}
 	var grantUsed int
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_ref=?`, grant.RecordID).Scan(&grantUsed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_ref=?`, grant.RecordID).Scan(&grantUsed); err != nil {
 		t.Fatal(err)
 	}
 	if grantUsed != 0 {
@@ -282,7 +282,7 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	}
 	var challengeStatus string
 	var challengeUsed int
-	if err := s.DB().QueryRow(`SELECT status,used_count FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&challengeStatus, &challengeUsed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT status,used_count FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&challengeStatus, &challengeUsed); err != nil {
 		t.Fatal(err)
 	}
 	if challengeStatus != "active" || challengeUsed != 0 {
@@ -329,10 +329,10 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	if err := exec.Command("git", "-C", repo, "commit", "--quiet", "-m", "orphan note").Run(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','project-1','canonical_path',?,?,'now','now'); DELETE FROM fold_guard; INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','locator-1')`, repo, repo); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','project-1','canonical_path',?,?,'now','now'); DELETE FROM fold_guard; INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','locator-1')`, repo, repo); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"work_compact"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
@@ -363,10 +363,10 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("reconcile=%+v err=%v", response, err)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM archived_work WHERE id='work-orphan'`); count != 1 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM archived_work WHERE id='work-orphan'`); count != 1 {
 		t.Fatalf("orphan link count=%d", count)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM domain_events WHERE kind='compaction_link.published' AND subject_id='work-orphan'`); count != 1 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='compaction_link.published' AND subject_id='work-orphan'`); count != 1 {
 		t.Fatalf("compaction event count=%d", count)
 	}
 }
@@ -385,7 +385,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	var eventsBefore int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	env.ScopeVersion = "drifted-scope-version"
@@ -395,7 +395,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
 	var eventsAfter int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if eventsAfter != eventsBefore {
@@ -420,7 +420,7 @@ func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
 	if err != nil || denied.Outcome != OutcomeError || denied.Error == nil || denied.Error.Kind != "unauthorized" {
 		t.Fatalf("cross-product denial=%+v err=%v", denied, err)
 	}
-	if count := countRows(t, deniedStore.DB(), `SELECT count(*) FROM work_items WHERE title='Cross'`); count != 0 {
+	if count := countRows(t, deniedStore.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE title='Cross'`); count != 0 {
 		t.Fatalf("denied capture created %d work items", count)
 	}
 
@@ -448,7 +448,7 @@ func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
 	if approved.ResolvedScope == nil || len(approved.ResolvedScope.ProductIDs) != 2 || approved.ResolvedScope.ProductIDs[0] != "product-1" || approved.ResolvedScope.ProductIDs[1] != "product-2" {
 		t.Fatalf("resulting Product scope=%+v", approved.ResolvedScope)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM work_items WHERE title='Cross'`); count != 1 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE title='Cross'`); count != 1 {
 		t.Fatalf("approved capture work count=%d", count)
 	}
 }
@@ -478,7 +478,7 @@ func TestDispatchRelationLinkAndUnlinkResolveEndpointVersionsAndRelationID(t *te
 		t.Fatalf("link=%+v err=%v", linked, err)
 	}
 	var relationID int64
-	if err := s.DB().QueryRow(`SELECT id FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='blocks'`).Scan(&relationID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT id FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='blocks'`).Scan(&relationID); err != nil {
 		t.Fatal(err)
 	}
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
@@ -489,7 +489,7 @@ func TestDispatchRelationLinkAndUnlinkResolveEndpointVersionsAndRelationID(t *te
 	if err != nil || unlinked.Outcome != OutcomeOK {
 		t.Fatalf("unlink=%+v err=%v", unlinked, err)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM relations WHERE id=`+strconv.FormatInt(relationID, 10)); count != 0 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE id=`+strconv.FormatInt(relationID, 10)); count != 0 {
 		t.Fatalf("relation-ID unlink left %d rows", count)
 	}
 }
@@ -506,7 +506,7 @@ func TestDispatchCrossProductLinkRequiresCapabilityAndApproval(t *testing.T) {
 	if err != nil || denied.Error == nil || denied.Error.Kind != "unauthorized" {
 		t.Fatalf("cross link without capability=%+v err=%v", denied, err)
 	}
-	if count := countRows(t, sDenied.DB(), `SELECT count(*) FROM relations`); count != 0 {
+	if count := countRows(t, sDenied.DatabaseForTesting(), `SELECT count(*) FROM relations`); count != 0 {
 		t.Fatalf("denied cross link created %d relations", count)
 	}
 
@@ -530,7 +530,7 @@ func TestDispatchCrossProductLinkRequiresCapabilityAndApproval(t *testing.T) {
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("cross link approved=%+v err=%v", approved, err)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM relations WHERE kind='blocks'`); count != 1 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks'`); count != 1 {
 		t.Fatalf("approved cross link count=%d", count)
 	}
 }
@@ -547,7 +547,7 @@ func TestDispatchDisjointWorkCrossScopeLinkAndRelationUnlink(t *testing.T) {
 	if err != nil || denied.Error == nil || denied.Error.Kind != "unauthorized" {
 		t.Fatalf("disjoint link denial=%+v err=%v", denied, err)
 	}
-	if count := countRows(t, sDenied.DB(), `SELECT count(*) FROM relations`); count != 0 {
+	if count := countRows(t, sDenied.DatabaseForTesting(), `SELECT count(*) FROM relations`); count != 0 {
 		t.Fatalf("denied disjoint link created %d relations", count)
 	}
 
@@ -571,12 +571,12 @@ func TestDispatchDisjointWorkCrossScopeLinkAndRelationUnlink(t *testing.T) {
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("disjoint link approval=%+v err=%v", approved, err)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM relations WHERE kind='blocks'`); count != 1 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks'`); count != 1 {
 		t.Fatalf("disjoint link count=%d", count)
 	}
 
 	var relationID int64
-	if err := s.DB().QueryRow(`SELECT id FROM relations WHERE kind='blocks'`).Scan(&relationID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT id FROM relations WHERE kind='blocks'`).Scan(&relationID); err != nil {
 		t.Fatal(err)
 	}
 	unlink := InvokeRequest{Tool: "concord_work_relate", Operation: "unlink", Input: json.RawMessage(`{"relation_id":"` + strconv.FormatInt(relationID, 10) + `","expected_versions":[{"work_id":"work-a","version":3},{"work_id":"work-b","version":3}],"reason":"disjoint unlink","idempotency_key":"disjoint-unlink"}`)}
@@ -597,7 +597,7 @@ func TestDispatchDisjointWorkCrossScopeLinkAndRelationUnlink(t *testing.T) {
 	if err != nil || removed.Outcome != OutcomeOK {
 		t.Fatalf("disjoint unlink approval=%+v err=%v", removed, err)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM relations WHERE id=`+strconv.FormatInt(relationID, 10)); count != 0 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE id=`+strconv.FormatInt(relationID, 10)); count != 0 {
 		t.Fatalf("disjoint unlink persisted relation")
 	}
 }
@@ -612,7 +612,7 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	}
 	envDenied := disjointEnvelope(grantDenied, scopeVersion)
 	request := InvokeRequest{Tool: "concord_work_relate", Operation: "supersede", Input: input}
-	beforeEvents := countRows(t, sDenied.DB(), `SELECT count(*) FROM domain_events`)
+	beforeEvents := countRows(t, sDenied.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
 	denied, err := Dispatch(ctx, sDenied, serviceDenied, request, envDenied)
 	if err != nil || denied.Error == nil || denied.Error.Kind != "unauthorized" {
 		t.Fatalf("supersede without capability=%+v err=%v", denied, err)
@@ -623,10 +623,10 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	if lifecycle := workLifecycle(t, sDenied, "work-a"); lifecycle != "needed" {
 		t.Fatalf("denied predecessor lifecycle=%s", lifecycle)
 	}
-	if count := countRows(t, sDenied.DB(), `SELECT count(*) FROM relations`); count != 0 {
+	if count := countRows(t, sDenied.DatabaseForTesting(), `SELECT count(*) FROM relations`); count != 0 {
 		t.Fatalf("denied supersede relations=%d", count)
 	}
-	if after := countRows(t, sDenied.DB(), `SELECT count(*) FROM domain_events`); after != beforeEvents {
+	if after := countRows(t, sDenied.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); after != beforeEvents {
 		t.Fatalf("denied supersede events before=%d after=%d", beforeEvents, after)
 	}
 
@@ -646,7 +646,7 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	versions := map[string]any{"predecessor": 2, "successor": 2}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "disjoint-supersede-approval")
 	request.Input = json.RawMessage(`{"predecessor_id":"work-a","successor_id":"work-b","predecessor_expected_version":2,"successor_expected_version":2,"reason":"replace disjoint work","idempotency_key":"disjoint-supersede","approval":{"approval_ref":"` + challengeRef + `"}}`)
-	beforeEvents = countRows(t, s.DB(), `SELECT count(*) FROM domain_events`)
+	beforeEvents = countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved supersede=%+v err=%v", approved, err)
@@ -663,10 +663,10 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	if version := workVersion(t, s, "work-b"); version != 3 {
 		t.Fatalf("superseded successor version=%d", version)
 	}
-	if count := countRows(t, s.DB(), `SELECT count(*) FROM relations WHERE kind='supersedes' AND work_id_from='work-b' AND work_id_to='work-a'`); count != 1 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='supersedes' AND work_id_from='work-b' AND work_id_to='work-a'`); count != 1 {
 		t.Fatalf("supersession edge count=%d", count)
 	}
-	if after := countRows(t, s.DB(), `SELECT count(*) FROM domain_events`); after != beforeEvents+1 {
+	if after := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); after != beforeEvents+1 {
 		t.Fatalf("supersede event count before=%d after=%d", beforeEvents, after)
 	}
 
@@ -674,7 +674,7 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("supersede replay=%+v err=%v", replay, err)
 	}
-	if after := countRows(t, s.DB(), `SELECT count(*) FROM domain_events`); after != beforeEvents+1 {
+	if after := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); after != beforeEvents+1 {
 		t.Fatalf("supersede replay created another event: %d", after)
 	}
 }
@@ -701,7 +701,7 @@ func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*stor
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProduct, "product-2"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
 	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil
@@ -751,7 +751,7 @@ func disjointRelationFixture(t *testing.T, capabilities []Capability) (*store.St
 			t.Fatal(err)
 		}
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
 	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "ambient"}, nil
@@ -807,7 +807,7 @@ func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.St
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: capabilities, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
@@ -855,7 +855,7 @@ func usedCount(t *testing.T, db *sql.DB, query, arg string) int {
 func workVersion(t *testing.T, s *store.Store, id string) int64 {
 	t.Helper()
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, id).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, id).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	return version
@@ -864,7 +864,7 @@ func workVersion(t *testing.T, s *store.Store, id string) int64 {
 func workLifecycle(t *testing.T, s *store.Store, id string) string {
 	t.Helper()
 	var lifecycle string
-	if err := s.DB().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, id).Scan(&lifecycle); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, id).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
 	}
 	return lifecycle

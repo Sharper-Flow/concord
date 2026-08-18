@@ -287,11 +287,11 @@ func TestRebuildKnowledgeIndexRejectsDuplicateStableIDs(t *testing.T) {
 func TestRebuildFromLogLeavesGitKnowledgeTablesUntouched(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('w','lesson','L','2026-08-07T00:00:00Z','published','[]','completed',1,'S','p','l','docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err == nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('w','lesson','L','2026-08-07T00:00:00Z','published','[]','completed',1,'S','p','l','docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err == nil {
 		t.Fatal("ad-hoc archived_work write succeeded")
 	}
 	// The public rebuild assertion is covered once a proof-backed compaction row exists.
-	if version, err := SchemaVersion(ctx, s.DB()); err != nil || version < 6 {
+	if version, err := SchemaVersion(ctx, s.DatabaseForTesting()); err != nil || version < 6 {
 		t.Fatalf("schema version = %d, err %v", version, err)
 	}
 }
@@ -299,7 +299,7 @@ func TestRebuildFromLogLeavesGitKnowledgeTablesUntouched(t *testing.T) {
 func TestKnowledgeSchemaHasNoNoteBodyAndRebuildFromLogPreservesIndex(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
-	rows, err := s.DB().QueryContext(ctx, `PRAGMA table_info(archived_work)`)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `PRAGMA table_info(archived_work)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,14 +333,14 @@ func TestKnowledgeSchemaHasNoNoteBodyAndRebuildFromLogPreservesIndex(t *testing.
 		t.Fatal(err)
 	}
 	var before int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
 	var after int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if before != after || after != 1 {

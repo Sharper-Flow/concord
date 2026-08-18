@@ -100,10 +100,18 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 // exposed. Every declared semantic action is translated to its closed event
 // family here. The dispatcher is deliberately the only place where public
 // action IDs acquire domain meaning.
-func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
+func ApplyWorkflowActionTx(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
+	tx, err := transactionSQL(transaction, "workflow_action")
+	if err != nil {
+		return WorkflowActionExecutionResult{}, err
+	}
+	return applyWorkflowActionRawTx(ctx, tx, registry, request)
+}
+
+func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if tx == nil {
-		return result, newFailure(KindUnavailable, "workflow_action", "transaction is not open", false, "open a mutation transaction")
+		return result, newFailure(KindInvalidOperation, "workflow_action", "transaction is not open", false, "supply an active store transaction")
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()

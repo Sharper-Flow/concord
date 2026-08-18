@@ -3,10 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1044,13 +1040,15 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err := decodeStrict(input, &in); err != nil {
 			return base, err
 		}
-		var kind string
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, in.EpicWorkID).Scan(&kind); err == sql.ErrNoRows {
-			return coreError(base, "unknown_scope", "Epic does not exist", "reread_entities", false), nil
-		} else if err != nil {
+		summary, err := r.Store.ReadWorkItemSummary(ctx, in.EpicWorkID)
+		if err != nil {
+			var failure *store.Failure
+			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+				return coreError(base, "unknown_scope", "Epic does not exist", "reread_entities", false), nil
+			}
 			return failureEnvelope(base, err), nil
 		}
-		if kind != "epic" {
+		if summary.Kind != "epic" {
 			return coreError(base, "invariant_violation", "entry read target is not an Epic", "reread_entities", false), nil
 		}
 		products, err := r.Store.ProductsForWorkIDs(ctx, []string{in.EpicWorkID})
@@ -1064,12 +1062,8 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		var narrative string
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT narrative FROM work_items WHERE id=?`, in.EpicWorkID).Scan(&narrative); err != nil {
-			return failureEnvelope(base, err), nil
-		}
 		meta := store.ResultMeta{QueryID: queryID, ContractVersion: "C21/1.0", ResolvedScope: store.ResolvedScope{ProductID: products[in.EpicWorkID][0], WorkID: in.EpicWorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"position", "child_work_id"}}
-		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"entries": entries, "narrative": narrative})
+		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"entries": entries, "narrative": summary.Narrative})
 	case "concord_knowledge.search":
 		var in knowledgeSearchInput
 		if err := decodeStrict(input, &in); err != nil {
@@ -1180,8 +1174,8 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
 	if r.Tool != "concord_knowledge" {
-		var watermark int64
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT COALESCE(max(seq),0) FROM domain_events`).Scan(&watermark); err != nil {
+		watermark, err := r.Store.DomainEventWatermark(ctx)
+		if err != nil {
 			return "", err
 		}
 		expected.Source = strconv.FormatInt(watermark, 10)
@@ -1195,18 +1189,13 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 			locatorID = knowledgeHomes[0].HomeLocatorID
 			headRef = knowledgeHomes[0].HeadRef
 		}
-		query := `SELECT COALESCE(max(scanned_commit_oid),'') FROM knowledge_index_watermark WHERE home_project_id=?`
-		args := []any{projectID}
-		if locatorID != "" {
-			query += ` AND home_locator_id=? AND head_ref=?`
-			args = append(args, locatorID, headRef)
-		}
-		if err := r.Store.DB().QueryRowContext(ctx, query, args...).Scan(&watermark); err != nil {
+		watermark, err := r.Store.KnowledgeIndexWatermark(ctx, projectID, locatorID, headRef)
+		if err != nil {
 			return "", err
 		}
 		expected.Source = watermark
 	}
-	cursor, err := DecodeCursor(ctx, r.Store.DB(), token, expected)
+	cursor, err := r.Store.DecodeCursor(ctx, token, expected)
 	if err != nil {
 		return "", err
 	}
@@ -1217,7 +1206,7 @@ func (r runtime) wrapCursor(ctx context.Context, response Envelope, inner, bindi
 	if response.NextCursor == nil {
 		return response, nil
 	}
-	token, err := EncodeCursor(ctx, r.Store.DB(), SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: watermarkString(response), Last: "", Inner: *response.NextCursor})
+	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: watermarkString(response), Last: "", Inner: *response.NextCursor})
 	if err != nil {
 		return response, err
 	}
@@ -1574,62 +1563,18 @@ func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"state": state, "locator": locator, "candidates": []string{}})
 }
 
-// SignedCursor is an authenticated, operation-bound continuation token. The
-// key is read from the SQLite authority, never hard-coded or adapter-cached.
-type SignedCursor struct {
-	Version   int    `json:"v"`
-	Tool      string `json:"tool"`
-	Operation string `json:"operation"`
-	Scope     string `json:"scope"`
-	Filter    string `json:"filter"`
-	Detail    string `json:"detail"`
-	Order     string `json:"order"`
-	Source    string `json:"source"`
-	Last      string `json:"last"`
-	Inner     string `json:"inner"`
+// SignedCursor remains an agent-facing alias while the authority owns its
+// representation and authenticated serialization.
+type SignedCursor = store.SignedCursor
+
+// EncodeCursor preserves the agent package API without accepting a database
+// handle. Production callers use Store.EncodeCursor directly.
+func EncodeCursor(ctx context.Context, s *store.Store, cursor SignedCursor) (string, error) {
+	return s.EncodeCursor(ctx, cursor)
 }
 
-func EncodeCursor(ctx context.Context, db *sql.DB, cursor SignedCursor) (string, error) {
-	key, err := store.InstallationKey(ctx, db)
-	if err != nil {
-		return "", err
-	}
-	cursor.Version = 1
-	raw, err := json.Marshal(cursor)
-	if err != nil {
-		return "", err
-	}
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write(raw)
-	sig := mac.Sum(nil)
-	return base64.RawURLEncoding.EncodeToString(raw) + "." + base64.RawURLEncoding.EncodeToString(sig), nil
-}
-
-func DecodeCursor(ctx context.Context, db *sql.DB, token string, expected SignedCursor) (SignedCursor, error) {
-	key, err := store.InstallationKey(ctx, db)
-	if err != nil {
-		return SignedCursor{}, err
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) != 2 {
-		return SignedCursor{}, newRuntimeFailure("invalid_cursor", "cursor encoding is invalid", "restart_query", false)
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return SignedCursor{}, newRuntimeFailure("invalid_cursor", "cursor encoding is invalid", "restart_query", false)
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return SignedCursor{}, newRuntimeFailure("invalid_cursor", "cursor signature is invalid", "restart_query", false)
-	}
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write(raw)
-	if !hmac.Equal(sig, mac.Sum(nil)) {
-		return SignedCursor{}, newRuntimeFailure("invalid_cursor", "cursor authentication failed", "restart_query", false)
-	}
-	var cursor SignedCursor
-	if err := json.Unmarshal(raw, &cursor); err != nil || cursor.Version != 1 || cursor.Tool != expected.Tool || cursor.Operation != expected.Operation || cursor.Scope != expected.Scope || cursor.Filter != expected.Filter || cursor.Detail != expected.Detail || cursor.Order != expected.Order || (expected.Source != "" && cursor.Source != expected.Source) {
-		return SignedCursor{}, newRuntimeFailure("invalid_cursor", "cursor is bound to a different query", "restart_query", false)
-	}
-	return cursor, nil
+// DecodeCursor preserves the agent package API without accepting a database
+// handle. Production callers use Store.DecodeCursor directly.
+func DecodeCursor(ctx context.Context, s *store.Store, token string, expected SignedCursor) (SignedCursor, error) {
+	return s.DecodeCursor(ctx, token, expected)
 }

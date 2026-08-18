@@ -173,7 +173,7 @@ func launcherDurableCounts(t *testing.T, s *store.Store) map[string]int {
 	counts := make(map[string]int)
 	for _, table := range []string{"domain_events", "agent_grants", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
 		var count int
-		if err := s.DB().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
 			t.Errorf("count %s: %v", table, err)
 			return nil
 		}
@@ -444,17 +444,17 @@ func TestWorkerCLIRecordsLifecycleAndTypedModelMismatch(t *testing.T) {
 	}
 	defer s.Close()
 	var completed, failed int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerFailed).Scan(&failed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerFailed).Scan(&failed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 1 || failed != 2 {
 		t.Fatalf("worker lifecycle events = completed:%d failed:%d, want completed:1 failed:2", completed, failed)
 	}
 	var state, failureKind string
-	if err := s.DB().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, "attempt-3").Scan(&state, &failureKind); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, "attempt-3").Scan(&state, &failureKind); err != nil {
 		t.Fatal(err)
 	}
 	if state != "failed" || failureKind != string(store.KindModelIdentityMismatch) {
@@ -526,7 +526,7 @@ func TestWorkerCLIAcceptsRecordedFallbackAndCompletesOnMatchingReadback(t *testi
 	}
 	defer s.Close()
 	var state, role, reason, resolved, readback string
-	if err := s.DB().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model FROM worker_attempts WHERE attempt_id=?`, "attempt-fallback").Scan(&state, &role, &reason, &resolved, &readback); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model FROM worker_attempts WHERE attempt_id=?`, "attempt-fallback").Scan(&state, &role, &reason, &resolved, &readback); err != nil {
 		t.Fatal(err)
 	}
 	if state != "completed" || role != store.WorkerResolutionFallback || reason != "rate_limit" || resolved != policy.ResolutionSet[1] || readback != resolved {

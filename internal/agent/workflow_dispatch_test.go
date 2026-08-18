@@ -19,15 +19,9 @@ func seedAgentWorkflow(t *testing.T, s *store.Store, grant Grant) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.DB().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	version, err := workVersionForWorkflow(t, s)
@@ -40,7 +34,7 @@ func seedAgentWorkflow(t *testing.T, s *store.Store, grant Grant) int64 {
 func workVersionForWorkflow(t *testing.T, s *store.Store) (int64, error) {
 	t.Helper()
 	var version int64
-	err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version)
+	err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version)
 	return version, err
 }
 
@@ -62,10 +56,10 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		t.Fatalf("unknown workflow action response=%+v err=%v", refused, err)
 	}
 	var used, completed int
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if used != 0 || completed != 0 {
@@ -76,7 +70,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	if err != nil || duplicateResponse.Outcome != OutcomeError || duplicateResponse.Error == nil || duplicateResponse.Error.Kind != "invalid_input" {
 		t.Fatalf("duplicate JSON response=%+v err=%v", duplicateResponse, err)
 	}
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
 		t.Fatal(err)
 	}
 	if used != 0 {
@@ -92,17 +86,17 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		t.Fatalf("workflow action changed version=%s, want 5", first.ChangedRefs[0].Version)
 	}
 	var operations, records int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&operations); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&operations); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM idempotency_records WHERE operation_kind='workflow_action'`).Scan(&records); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM idempotency_records WHERE operation_kind='workflow_action'`).Scan(&records); err != nil {
 		t.Fatal(err)
 	}
 	if operations != 1 || records != 1 {
 		t.Fatalf("workflow durable state operations=%d idempotency=%d", operations, records)
 	}
 	var contractVersion string
-	if err := s.DB().QueryRow(`SELECT contract_version FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&contractVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&contractVersion); err != nil {
 		t.Fatal(err)
 	}
 	if contractVersion != ManifestVersion {
@@ -116,7 +110,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		}
 		t.Fatalf("workflow replay response=%+v err=%v", replay, err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 1 {
@@ -143,7 +137,7 @@ func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *test
 		t.Fatalf("malformed workflow request response=%+v err=%v", response, dispatchErr)
 	}
 	var used int
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
 		t.Fatal(err)
 	}
 	if used != 0 {
@@ -214,7 +208,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 				t.Fatalf("replay envelope validation: %v", err)
 			}
 			var durableResultKind string
-			if err := s.DB().QueryRow(`SELECT result_kind FROM durable_operations WHERE op_id=?`, opID).Scan(&durableResultKind); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT result_kind FROM durable_operations WHERE op_id=?`, opID).Scan(&durableResultKind); err != nil {
 				t.Fatal(err)
 			}
 			if durableResultKind != vector.resultKind {
@@ -296,17 +290,17 @@ func seedLegacyWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvelo
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
 	definition := store.BuiltinWorkflowDefinitions()[0]
-	_, err := s.DB().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Ref, definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), contractVersion)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Ref, definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), contractVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resultKind != "completed" {
-		if _, err := s.DB().Exec(`UPDATE durable_operations SET result_kind=? WHERE op_id=?`, resultKind, opID); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET result_kind=? WHERE op_id=?`, resultKind, opID); err != nil {
 			if resultKind == "future_result" {
-				if _, pragmaErr := s.DB().Exec(`PRAGMA ignore_check_constraints=ON`); pragmaErr != nil {
+				if _, pragmaErr := s.DatabaseForTesting().Exec(`PRAGMA ignore_check_constraints=ON`); pragmaErr != nil {
 					t.Fatal(pragmaErr)
 				}
-				if _, updateErr := s.DB().Exec(`UPDATE durable_operations SET result_kind=? WHERE op_id=?`, resultKind, opID); updateErr != nil {
+				if _, updateErr := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET result_kind=? WHERE op_id=?`, resultKind, opID); updateErr != nil {
 					t.Fatal(updateErr)
 				}
 			} else {
@@ -314,7 +308,7 @@ func seedLegacyWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvelo
 			}
 		}
 	}
-	_, err = s.DB().Exec(`INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, env.PrincipalRef, "concord_work_transition", "workflow_action", idempotencyKey(input), digest, opID, "[]", `{"changed_refs":[],"next_valid_intents":[]}`, idempotencyChanged, scope, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano))
+	_, err = s.DatabaseForTesting().Exec(`INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, env.PrincipalRef, "concord_work_transition", "workflow_action", idempotencyKey(input), digest, opID, "[]", `{"changed_refs":[],"next_valid_intents":[]}`, idempotencyChanged, scope, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +318,7 @@ func seedLegacyWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvelo
 func workflowReplayWorkVersion(t *testing.T, s *store.Store) int64 {
 	t.Helper()
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	return version
@@ -333,7 +327,7 @@ func workflowReplayWorkVersion(t *testing.T, s *store.Store) int64 {
 func countWorkflowEvents(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -342,7 +336,7 @@ func countWorkflowEvents(t *testing.T, s *store.Store) int {
 func countWorkflowApprovalChallenges(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -351,7 +345,7 @@ func countWorkflowApprovalChallenges(t *testing.T, s *store.Store) int {
 func workflowReplayGrantUses(t *testing.T, s *store.Store, grant Grant) int {
 	t.Helper()
 	var used int
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
 		t.Fatal(err)
 	}
 	return used
@@ -385,7 +379,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	versions := map[string]any{"work": 7}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "workflow-approval-0001")
 	var durableBefore int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
 		t.Fatal(err)
 	}
 	if durableBefore != 3 {
@@ -400,7 +394,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		t.Fatalf("approved workflow action response=%+v err=%v", approved, err)
 	}
 	var step string
-	if err := s.DB().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
 	if step != "execution" {

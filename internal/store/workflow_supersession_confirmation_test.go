@@ -45,7 +45,7 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	// elsewhere, but not on the premise). Instead of completing, assert the
 	// direct precondition: a confirmation row exists for the current version.
 	var confirmed int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id='cd31-work' AND contract_version=1`).Scan(&confirmed); err != nil || confirmed != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id='cd31-work' AND contract_version=1`).Scan(&confirmed); err != nil || confirmed != 1 {
 		t.Fatalf("v1 confirmation missing: %d err=%v", confirmed, err)
 	}
 
@@ -73,7 +73,7 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	// version. The v1 confirmation no longer counts — the operator must
 	// confirm the redirected premise, or completion refuses.
 	var current int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations c WHERE c.work_id='cd31-work' AND c.contract_version=(SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id='cd31-work' AND superseded_by IS NULL)`).Scan(&current); err != nil || current != 0 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations c WHERE c.work_id='cd31-work' AND c.contract_version=(SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id='cd31-work' AND superseded_by IS NULL)`).Scan(&current); err != nil || current != 0 {
 		t.Fatalf("superseded contract still premise-satisfied: %d err=%v", current, err)
 	}
 

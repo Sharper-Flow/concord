@@ -213,12 +213,15 @@ type WorktreeClaimResult struct {
 }
 
 func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
+	if s == nil || s.db == nil {
+		return WorktreeClaimResult{}, newFailure(KindUnavailable, "worktree_claim", "store is not open", false, "open the authority database")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorktreeClaimResult{}, wrapFailure(KindUnavailable, "worktree_claim", "cannot begin claim", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	out, err := ClaimWorktreeTx(ctx, tx, req)
+	out, err := claimWorktreeRawTx(ctx, tx, req)
 	if err != nil {
 		return WorktreeClaimResult{}, err
 	}
@@ -230,7 +233,15 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (Wo
 
 // ClaimWorktreeTx is the durable claim on an existing transaction, so the
 // agent tool surface can compose it with its own idempotency envelope.
-func ClaimWorktreeTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
+func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
+	tx, err := transactionSQL(transaction, "worktree_claim")
+	if err != nil {
+		return WorktreeClaimResult{}, err
+	}
+	return claimWorktreeRawTx(ctx, tx, req)
+}
+
+func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
 	out := WorktreeClaimResult{}
 	if req.OpID == "" || req.WorkID == "" || req.ProjectID == "" || req.PrincipalRef == "" || req.RequestID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_claim", "claim operation is missing identity fields", false, "supply op, work, project, principal, and request ids")
@@ -325,9 +336,9 @@ func ClaimWorktreeTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest) 
 	// Phase 3: append the verified locator as domain state and complete the
 	// claim in the same transaction.
 	payload, _ := json.Marshal(worktreeCreatedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: req.OpID, Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath, RepositoryID: facts.repositoryID, GitFacts: facts.raw()})
-	if _, err := ApplyOperationTx(ctx, tx, Operation{Events: []Event{{
+	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: fmt.Sprintf("%s:worktree-created", req.OpID), Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}); err != nil {
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false); err != nil {
 		return out, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=?`, worktreeStateVerified, now.Format(time.RFC3339Nano), req.OpID); err != nil {
@@ -356,12 +367,15 @@ type WorktreeReclaimRequest struct {
 }
 
 func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest) (WorktreeEntry, error) {
+	if s == nil || s.db == nil {
+		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_reclaim", "store is not open", false, "open the authority database")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_reclaim", "cannot begin reclaim", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	out, err := ReclaimWorktreeTx(ctx, tx, req)
+	out, err := reclaimWorktreeRawTx(ctx, tx, req)
 	if err != nil {
 		return WorktreeEntry{}, err
 	}
@@ -374,7 +388,15 @@ func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest)
 // ReclaimWorktreeTx derives reclamation from git facts on an existing
 // transaction. The verified reclamation event lands inside the caller's
 // transaction; the native remove follows it.
-func ReclaimWorktreeTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest) (WorktreeEntry, error) {
+func ReclaimWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest) (WorktreeEntry, error) {
+	tx, err := transactionSQL(transaction, "worktree_reclaim")
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
+	return reclaimWorktreeRawTx(ctx, tx, req)
+}
+
+func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest) (WorktreeEntry, error) {
 	var out WorktreeEntry
 	if req.WorkID == "" || req.ProjectID == "" || req.PrincipalRef == "" || req.RequestID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_reclaim", "reclaim operation is missing identity fields", false, "supply work, project, principal, and request ids")
@@ -550,9 +572,9 @@ func jsonMustMarshal(v any) json.RawMessage {
 
 func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID string, now time.Time, facts json.RawMessage) error {
 	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, GitFacts: facts})
-	_, err := ApplyOperationTx(ctx, tx, Operation{Events: []Event{{
+	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: fmt.Sprintf("%s:%s:worktree-reclaimed", req.WorkID, req.ProjectID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}})
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false)
 	return err
 }
 

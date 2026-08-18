@@ -206,7 +206,7 @@ func knowledgeProjectionSnapshot(t *testing.T, s *Store) string {
 		`SELECT source_law_id,kind,target_law_id,scanned_commit_oid FROM law_relations ORDER BY home_project_id,home_locator_id,source_law_id,kind,target_law_id`,
 		`SELECT scanned_commit_oid,scanned_at,complete FROM knowledge_index_watermark ORDER BY home_project_id,home_locator_id,head_ref`,
 	} {
-		rows, err := s.DB().Query(query)
+		rows, err := s.DatabaseForTesting().Query(query)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -387,7 +387,7 @@ func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) 
 		t.Fatal(err)
 	}
 	var before string
-	if err := s.DB().QueryRow(`SELECT id||'|'||commit_oid||'|'||content_hash FROM archived_work WHERE id='rollback'`).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT id||'|'||commit_oid||'|'||content_hash FROM archived_work WHERE id='rollback'`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	// Change the referenced blob without changing authored metadata or its old
@@ -401,7 +401,7 @@ func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) 
 		t.Fatal("tampered manifest blob was accepted")
 	}
 	var after string
-	if err := s.DB().QueryRow(`SELECT id||'|'||commit_oid||'|'||content_hash FROM archived_work WHERE id='rollback'`).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT id||'|'||commit_oid||'|'||content_hash FROM archived_work WHERE id='rollback'`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {
@@ -433,7 +433,7 @@ func TestLegacyManifestAbsenceCoverageIsExplicit(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := s.DB().Query(`SELECT kind,coverage FROM knowledge_kind_coverage WHERE home_project_id='project' ORDER BY kind`)
+	rows, err := s.DatabaseForTesting().Query(`SELECT kind,coverage FROM knowledge_kind_coverage WHERE home_project_id='project' ORDER BY kind`)
 	if err != nil {
 		t.Fatal(err)
 	}

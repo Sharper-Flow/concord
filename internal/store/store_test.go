@@ -38,7 +38,7 @@ func TestOpenAppliesRequiredPragmas(t *testing.T) {
 		{"foreign_keys", "1"},
 	} {
 		var got string
-		if err := s.DB().QueryRowContext(context.Background(), "PRAGMA "+tc.pragma).Scan(&got); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(context.Background(), "PRAGMA "+tc.pragma).Scan(&got); err != nil {
 			t.Fatalf("PRAGMA %s error = %v", tc.pragma, err)
 		}
 		if got != tc.want {
@@ -53,14 +53,14 @@ func TestOpenEnforcesForeignKeysBehaviorally(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 
-	if _, err := s.DB().ExecContext(ctx, `
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
 		CREATE TABLE fk_parent (id TEXT PRIMARY KEY);
 		CREATE TABLE fk_child (id TEXT PRIMARY KEY, parent_id TEXT NOT NULL REFERENCES fk_parent(id));
 	`); err != nil {
 		t.Fatalf("create fixture tables: %v", err)
 	}
 
-	_, err := s.DB().ExecContext(ctx, `INSERT INTO fk_child (id, parent_id) VALUES ('c', 'missing')`)
+	_, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fk_child (id, parent_id) VALUES ('c', 'missing')`)
 	if err == nil {
 		t.Fatal("insert violating a foreign key succeeded; enforcement is not active")
 	}

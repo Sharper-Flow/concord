@@ -30,7 +30,7 @@ func ReplaceWorkflowOutcome(ctx context.Context, s *Store, workID string) error 
 // and evidence validation instead of inventing a second check mutation path.
 func ReplaceWorkflowCheckTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	request.ActionID = "record_verdict"
-	return ApplyWorkflowActionTx(ctx, tx, registry, request)
+	return applyWorkflowActionRawTx(ctx, tx, registry, request)
 }
 
 // SupersedeWorkflowContract applies a contract revision and its consequential

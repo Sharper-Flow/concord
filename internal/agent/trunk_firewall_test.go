@@ -30,7 +30,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) (*Service, ed25519.Pr
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
 	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree}, nil

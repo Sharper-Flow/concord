@@ -21,9 +21,17 @@ type WorkflowInitializationRequest struct {
 // definition pin for an already-created work item. It is intentionally a
 // workflow-specific transaction seam, not a generic event append operation.
 // Capture and revise call it before their owning transaction commits.
-func InitializeWorkflowTx(ctx context.Context, tx *sql.Tx, request WorkflowInitializationRequest) error {
+func InitializeWorkflowTx(ctx context.Context, transaction *Transaction, request WorkflowInitializationRequest) error {
+	tx, err := transactionSQL(transaction, "workflow_initialize")
+	if err != nil {
+		return err
+	}
+	return initializeWorkflowRawTx(ctx, tx, request)
+}
+
+func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowInitializationRequest) error {
 	if tx == nil {
-		return newFailure(KindUnavailable, "workflow_initialize", "transaction is not open", false, "open a mutation transaction")
+		return newFailure(KindInvalidOperation, "workflow_initialize", "transaction is not open", false, "supply an active store transaction")
 	}
 	if request.WorkID == "" || request.Definition.Definition.Ref == "" {
 		return newFailure(KindInvalidOperation, "workflow_initialize", "work ID and registered definition are required", false, "resolve the workflow definition before initialization")

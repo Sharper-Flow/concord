@@ -132,8 +132,13 @@ func ClaimStep(ctx context.Context, s *Store, req ClaimRequest) (FenceResult, er
 // ClaimStepAuthorized runs an authorization callback in the same transaction
 // that creates the durable claim. It is used when approval consumption must be
 // committed together with the durable operation identity.
-func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, authorize func(*sql.Tx) error) (FenceResult, error) {
-	return claimStepObservedAuthorized(ctx, s, req, nil, authorize)
+func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, authorize func(*Transaction) error) (FenceResult, error) {
+	if authorize == nil {
+		return claimStepObservedAuthorized(ctx, s, req, nil, nil)
+	}
+	return claimStepObservedAuthorized(ctx, s, req, nil, func(tx *sql.Tx) error {
+		return authorize(&Transaction{tx: tx})
+	})
 }
 
 func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver) (FenceResult, error) {

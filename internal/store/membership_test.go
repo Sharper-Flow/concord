@@ -199,10 +199,10 @@ func TestPM5RolePromotionDemotesAndDemotionAllowsZeroPrimary(t *testing.T) {
 		t.Fatalf("promote: %v", err)
 	}
 	var firstRole, secondRole string
-	if err := s.DB().QueryRow(`SELECT role FROM product_projects WHERE product_id = 'product' AND project_id = 'project-a'`).Scan(&firstRole); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT role FROM product_projects WHERE product_id = 'product' AND project_id = 'project-a'`).Scan(&firstRole); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT role FROM product_projects WHERE product_id = 'product' AND project_id = 'project-b'`).Scan(&secondRole); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT role FROM product_projects WHERE product_id = 'product' AND project_id = 'project-b'`).Scan(&secondRole); err != nil {
 		t.Fatal(err)
 	}
 	if firstRole != "secondary" || secondRole != "primary" {
@@ -214,7 +214,7 @@ func TestPM5RolePromotionDemotesAndDemotionAllowsZeroPrimary(t *testing.T) {
 		t.Fatalf("demote: %v", err)
 	}
 	var primaries int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM product_projects WHERE product_id = 'product' AND role = 'primary'`).Scan(&primaries); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM product_projects WHERE product_id = 'product' AND role = 'primary'`).Scan(&primaries); err != nil {
 		t.Fatal(err)
 	}
 	if primaries != 0 {
@@ -294,10 +294,10 @@ func TestPM5MembershipTablesAreFoldOnlyAndProjectDeletionIsRestricted(t *testing
 	s := openTemp(t)
 	createProductProject(t, s, "product", "project")
 	ctx := context.Background()
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO product_projects(product_id, project_id, role) VALUES ('product', 'project', 'secondary')`); err == nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO product_projects(product_id, project_id, role) VALUES ('product', 'project', 'secondary')`); err == nil {
 		t.Fatal("direct membership insert succeeded")
 	}
-	if _, err := s.DB().ExecContext(ctx, `DELETE FROM projects WHERE id = 'project'`); err == nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM projects WHERE id = 'project'`); err == nil {
 		t.Fatal("deleting referenced Project succeeded")
 	}
 }
@@ -313,7 +313,7 @@ func TestPM5RemovingLastMembershipIsRejectedAndWorkStateIsUntouched(t *testing.T
 	}
 	var beforeTitle, beforeLifecycle string
 	var beforePriority, beforeVersion int64
-	if err := s.DB().QueryRow(`SELECT title, lifecycle, priority, version FROM work_items WHERE id = 'work'`).Scan(&beforeTitle, &beforeLifecycle, &beforePriority, &beforeVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT title, lifecycle, priority, version FROM work_items WHERE id = 'work'`).Scan(&beforeTitle, &beforeLifecycle, &beforePriority, &beforeVersion); err != nil {
 		t.Fatal(err)
 	}
 	err := ApplyOperation(ctx, s, Operation{Events: []Event{membershipEvent("remove-last-work-project", "work_project.removed", SubjectWorkItem, "work", map[string]any{
@@ -322,7 +322,7 @@ func TestPM5RemovingLastMembershipIsRejectedAndWorkStateIsUntouched(t *testing.T
 	assertFailureKind(t, err, KindMembershipInvariant)
 	var afterTitle, afterLifecycle string
 	var afterPriority, afterVersion int64
-	if err := s.DB().QueryRow(`SELECT title, lifecycle, priority, version FROM work_items WHERE id = 'work'`).Scan(&afterTitle, &afterLifecycle, &afterPriority, &afterVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT title, lifecycle, priority, version FROM work_items WHERE id = 'work'`).Scan(&afterTitle, &afterLifecycle, &afterPriority, &afterVersion); err != nil {
 		t.Fatal(err)
 	}
 	if beforeTitle != afterTitle || beforeLifecycle != afterLifecycle || beforePriority != afterPriority || beforeVersion != afterVersion {
@@ -340,13 +340,13 @@ func TestPM5OpenRejectsExistingOrphanProjection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orphan.db")
 	s := openTempAtPath(t, path)
 	ctx := context.Background()
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO products(id, display_name, stage_maturity, stage_audience_commitment, version, created_at, updated_at) VALUES ('orphan', 'orphan', 'prototype', 'operator_only', 1, 'now', 'now')`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO products(id, display_name, stage_maturity, stage_audience_commitment, version, created_at, updated_at) VALUES ('orphan', 'orphan', 'prototype', 'operator_only', 1, 'now', 'now')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

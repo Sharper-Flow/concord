@@ -3,14 +3,12 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -290,7 +288,7 @@ type compactReconcileInput struct {
 	Evidence                 []EvidenceRef  `json:"evidence"`
 }
 
-type mutationEffect func(context.Context, *sql.Tx, Grant) (json.RawMessage, []string, []ChangedRef, error)
+type mutationEffect func(context.Context, *store.Transaction, Grant) (json.RawMessage, []string, []ChangedRef, error)
 
 func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, bool, error) {
 	key := idempotencyKey(raw)
@@ -302,17 +300,17 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if r.Tool == "concord_work_compact" {
 		operationKind = "claim"
 	}
-	var storedDigest, opID, payload, changed, scopeJSON string
-	err := r.Store.DB().QueryRowContext(ctx, `SELECT canonical_digest,op_id,COALESCE(result_payload,''),changed_refs,authorized_scope_snapshot FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, grant.PrincipalRef, r.Tool, operationKind, key).Scan(&storedDigest, &opID, &payload, &changed, &scopeJSON)
-	if err == sql.ErrNoRows {
-		return Envelope{}, false, nil
-	}
+	record, found, err := r.Store.LookupMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key})
 	if err != nil {
 		return Envelope{}, false, err
 	}
+	if !found {
+		return Envelope{}, false, nil
+	}
+	storedDigest, opID, payload, changed, scopeJSON := record.CanonicalDigest, record.OperationID, record.ResultPayload, record.ChangedRefs, record.AuthorizedScopeSnapshot
 	if r.Tool == "concord_work_compact" {
-		var accepted string
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT accepted_inputs_digest FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&accepted); err != nil {
+		accepted, err := r.Store.AcceptedInputsDigest(ctx, opID)
+		if err != nil {
 			return Envelope{}, false, err
 		}
 		storedDigest = accepted
@@ -341,7 +339,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if replay.Outcome == OutcomeError {
 			return replay, true, nil
 		}
-		if _, err := r.Store.DB().ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, operationKind, key); err != nil {
+		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
 			return Envelope{}, false, err
 		}
 		return replay, true, nil
@@ -355,7 +353,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if _, err := r.Store.DB().ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, operationKind, key); err != nil {
+		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
 			return Envelope{}, false, err
 		}
 		return response, true, nil
@@ -370,12 +368,12 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if _, err := r.Store.DB().ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, operationKind, key); err != nil {
+		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
 			return Envelope{}, false, err
 		}
 		return response, true, nil
 	}
-	if _, err := r.Store.DB().ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, operationKind, key); err != nil {
+	if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
 		return Envelope{}, false, err
 	}
 	ref := operationRefFromFence(step, "pending", "git_proof")
@@ -579,15 +577,16 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	// An exact durable replay is allowed to bypass the now-advanced expected
 	// version. The digest comparison remains strict; no authorization callback
 	// or mutation is reached until the normal replay path validates the grant.
-	var priorDigest string
 	key := in.IdempotencyKey
-	if err := s.DB().QueryRowContext(ctx, `SELECT canonical_digest FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind='workflow_action' AND idempotency_key=?`, env.PrincipalRef, "concord_work_transition", key).Scan(&priorDigest); err == nil {
-		if priorDigest != mutationDigest("concord_work_transition", "workflow_action", env, raw) {
+	prior, found, err := s.LookupMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: env.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: key})
+	if err != nil {
+		return err
+	}
+	if found {
+		if prior.CanonicalDigest != mutationDigest("concord_work_transition", "workflow_action", env, raw) {
 			return store.IdempotencyConflict("workflow_action", key)
 		}
 		return nil
-	} else if err != sql.ErrNoRows {
-		return err
 	}
 	if err := store.ValidateWorkflowOperatorSelection(ctx, s, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
 		return err
@@ -675,18 +674,22 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	approvalConsequence := string(op.Consequence)
 	contractVersion := int64(0)
 	if in.ActionID == "confirm_premise" {
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT COALESCE((SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1),0)`, in.WorkID).Scan(&contractVersion); err != nil {
+		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)
+		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
+		contractVersion = version
 		if contractVersion == 0 {
 			return coreError(base, "invalid_input", "confirm_premise requires an approved workflow contract", "reread_entities", false), nil
 		}
 		versions["contract"] = contractVersion
 	}
 	if in.ActionID == "supersede_contract" {
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, in.WorkID).Scan(&contractVersion); err != nil {
+		contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID)
+		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
+		contractVersion = contract.Version
 		versions["contract"] = contractVersion
 	}
 	approval := ""
@@ -709,22 +712,21 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		inv.HostAssertionDigest = digest
 	}
 	if requiresApproval && approval == "" {
-		tx, txErr := r.Store.DB().BeginTx(ctx, nil)
+		var challengeRef string
+		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+			var err error
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			return err
+		})
 		if txErr != nil {
 			return failureEnvelope(base, txErr), nil
-		}
-		challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
-		if challengeErr != nil {
-			_ = tx.Rollback()
-			return failureEnvelope(base, challengeErr), nil
-		}
-		if err := tx.Commit(); err != nil {
-			return failureEnvelope(base, err), nil
 		}
 		response := coreError(base, "approval_required", "core approval is required for this workflow action", "request_approval", false)
 		premiseSummary := ""
 		if in.ActionID == "confirm_premise" {
-			_ = r.Store.DB().QueryRowContext(ctx, `SELECT premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, in.WorkID).Scan(&premiseSummary)
+			if contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID); err == nil {
+				premiseSummary = contract.Premise
+			}
 		}
 		if len([]rune(premiseSummary)) > 256 {
 			premiseSummary = string([]rune(premiseSummary)[:256])
@@ -742,7 +744,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractVersion: grant.SurfaceVersion, Now: r.Authority.now()}
-	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor}, nil, time.Time{}, func(tx *sql.Tx) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor}, nil, time.Time{}, func(tx *store.Transaction) error {
 		if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 			return err
 		}
@@ -755,9 +757,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				operatorActor = &verifiedOperator
 			}
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, grant.PrincipalRef, r.Tool, "workflow_action", in.IdempotencyKey, digest, operationID, "[]", "{}", "[]", string(scopeJSON), r.Authority.now().Format(time.RFC3339Nano), r.Authority.now().Format(time.RFC3339Nano))
-		return err
-	}, func(tx *sql.Tx) error {
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: digest, OperationID: operationID, ResultEventIDs: "[]", ResultPayload: "{}", ChangedRefs: "[]", AuthorizedScopeSnapshot: string(scopeJSON), ObservedAt: r.Authority.now()})
+	}, func(tx *store.Transaction) error {
 		actionRequest.OperatorActor = operatorActor
 		var err error
 		execution, err = store.ApplyWorkflowActionTx(ctx, tx, registry, actionRequest)
@@ -776,8 +777,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return errors.New("mutation result rejected")
 		}
 		changedJSON, _ := json.Marshal(changed)
-		_, err = tx.ExecContext(ctx, `UPDATE idempotency_records SET result_event_ids=?,result_payload=?,changed_refs=?,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind='workflow_action' AND idempotency_key=?`, marshalEventIDs(execution.EventIDs), string(execution.Result), string(changedJSON), r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, in.IdempotencyKey)
-		return err
+		return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: string(execution.Result), ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
 	})
 	if err != nil {
 		if resultRejected {
@@ -924,7 +924,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		scope["project_ids"] = in.ProjectIDs
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			priority := in.Priority
 			urgency := in.Urgency
 			if urgency == "" {
@@ -977,13 +977,12 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 		}
 		intents = []NextIntent{{Tool: "concord_work_transition", Operation: "lifecycle", ReasonCode: "continue_work", RequiredFields: []string{"work_id", "expected_version"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
-			var existingDefinitionRef string
-			existingErr := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, in.WorkID).Scan(&existingDefinitionRef)
-			if existingErr != nil && existingErr != sql.ErrNoRows {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
+			if existingErr != nil {
 				return nil, nil, nil, existingErr
 			}
-			if existingErr == nil && in.WorkflowTypeRef != "" && existingDefinitionRef != in.WorkflowTypeRef {
+			if definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef {
 				return nil, nil, nil, fmt.Errorf("workflow definition cannot be changed after initialization")
 			}
 			urgency := in.Urgency
@@ -995,14 +994,14 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			if in.WorkflowTypeRef != "" && existingErr == sql.ErrNoRows {
+			if in.WorkflowTypeRef != "" && !definitionFound {
 				actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 				if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
 					return nil, nil, nil, err
 				}
 			}
 			changedVersion := in.ExpectedVersion + 1
-			if in.WorkflowTypeRef != "" && existingErr == sql.ErrNoRows {
+			if in.WorkflowTypeRef != "" && !definitionFound {
 				changedVersion += 2
 			}
 			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
@@ -1026,7 +1025,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		workID := "epic-" + digest[7:31]
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_epic"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			if products, err := deriveEpicProductsTx(ctx, tx, in.ProjectIDs); err != nil {
 				return nil, nil, nil, err
 			} else if len(products) != 1 {
@@ -1078,7 +1077,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if in.Required != nil {
 			required = *in.Required
 		}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			event, err := store.EpicEntryEvent(digest+":entry", kind, in.EpicWorkID, store.EpicEntry{EpicWorkID: in.EpicWorkID, ChildWorkID: in.ChildWorkID, Position: in.Position, Required: required}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
@@ -1098,7 +1097,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["epic"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.EpicWorkID, in.ChildWorkID}
 		intents = []NextIntent{{Tool: "concord_work_epic", Operation: "entries", QueryID: "C21.EpicEntries", ReasonCode: "inspect_removed_epic_entry"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			event, err := store.EpicEntryEvent(digest+":entry", "epic_entry.removed", in.EpicWorkID, store.EpicEntry{EpicWorkID: in.EpicWorkID, ChildWorkID: in.ChildWorkID}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
@@ -1118,7 +1117,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["epic"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.EpicWorkID}
 		intents = []NextIntent{{Tool: "concord_work_epic", Operation: "entries", QueryID: "C21.EpicEntries", ReasonCode: "refresh_epic_context"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			event, err := store.EpicNarrativeEvent(digest+":narrative", in.EpicWorkID, in.Narrative, in.Reason, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
@@ -1155,7 +1154,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"from": "", "to": in.Target, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 			from, err := currentLifecycle(ctx, tx, in.WorkID)
 			if err != nil {
@@ -1179,7 +1178,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		scope["work_ids"] = []string{in.OwnerWorkID}
 		intents = []NextIntent{{Tool: "concord_work_define", Operation: "research_finding_record", ReasonCode: "record_findings", RequiredFields: []string{"pack_id", "expected_version"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			pack, err := store.CreateResearchPackWithinTx(ctx, tx, store.CreateResearchPackRequest{OwnerWorkID: in.OwnerWorkID, Revision: storeResearchRevision(in.Revision), Freshness: store.ResearchFreshness(in.Freshness)})
 			if err != nil {
 				return nil, nil, nil, err
@@ -1192,7 +1191,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
 				return nil, nil, nil, err
 			}
@@ -1204,7 +1203,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			freshness := in.Finding.Freshness
 			if freshness == "" {
 				freshness = "current"
@@ -1229,7 +1228,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
 			if err != nil {
 				return nil, nil, nil, err
@@ -1242,7 +1241,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
 				return nil, nil, nil, err
 			}
@@ -1259,8 +1258,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		requiresApproval = true
 		scope["work_ids"] = []string{in.WorkID}
-		var workVersion int64
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, in.WorkID).Scan(&workVersion); err != nil {
+		workVersion, err := r.Store.WorkVersion(ctx, in.WorkID)
+		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
 		versions["work"] = workVersion
@@ -1272,7 +1271,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			return failureEnvelope(base, homeErr), nil
 		}
 		intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_published_lesson"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			scopes := store.KnowledgeRecordScopes{Mode: "home"}
 			if in.Scopes != nil {
 				scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, ComponentIDs: in.Scopes.ComponentIDs, TagIDs: in.Scopes.TagIDs}
@@ -1295,7 +1294,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason, "holder_agent": grant.AgentRef, "holder_session": grant.SessionRef})
 			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 				return nil, nil, nil, err
@@ -1311,7 +1310,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey})
 			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 				return nil, nil, nil, err
@@ -1336,7 +1335,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			scope["work_ids"] = []string{in.WorkID, in.RecipientWorkID}
 		}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			// Broadcast resolves the recipient set now, inside the caller's
 			// transaction, so the fan-out sees a consistent Product snapshot.
 			recipients := []string{in.RecipientWorkID}
@@ -1382,7 +1381,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID})
 			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":withdraw", Kind: "work.message_withdrawn", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 				return nil, nil, nil, err
@@ -1397,7 +1396,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			observationID := in.ObservationID
 			if observationID == "" {
 				sum := sha256.Sum256([]byte(digest))
@@ -1418,7 +1417,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			opID := digest + ":worktree-claim:" + in.ProjectID
 			if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
 				OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
@@ -1439,7 +1438,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
 				WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 				PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
@@ -1466,7 +1465,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		scope["work_ids"] = []string{in.WorkID}
 		scope["project_ids"] = membershipIDs(in.Memberships)
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_membership_scope", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"memberships": in.Memberships, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 			if err != nil {
@@ -1490,7 +1489,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["to"] = in.ToExpectedVersion
 		scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
 		intents = []NextIntent{{Tool: "concord_work_relate", Operation: "unlink", ReasonCode: "remove_relation"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"from": in.FromWorkID, "to": in.ToWorkID, "kind": in.Kind, "reason": in.Reason, "expected_version": in.FromExpectedVersion, "resulting_version": in.FromExpectedVersion + 1, "to_expected_version": in.ToExpectedVersion, "to_resulting_version": in.ToExpectedVersion + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":link", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: in.FromWorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.FromWorkID): in.FromExpectedVersion, store.VersionRef(store.SubjectWorkItem, in.ToWorkID): in.ToExpectedVersion}})
 			if err != nil {
@@ -1537,7 +1536,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["successor"] = in.SuccessorExpected
 		scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
 		intents = []NextIntent{{Tool: "concord_work_relate", Operation: "restore_superseded", ReasonCode: "restore_or_replace_successor"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"successor": in.SuccessorID, "superseded": in.PredecessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":supersede", Kind: "work.superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
 			if err != nil {
@@ -1558,7 +1557,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["successor"] = in.SuccessorExpected
 		scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "inspect_restored_work"}}
-		effect = func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"superseded": in.PredecessorID, "replacement_successor": in.ReplacementSuccessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":restore", Kind: "work.reopened_from_superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
 			if err != nil {
@@ -1628,65 +1627,36 @@ func uniqueProducts(byProject map[string][]string, projectIDs []string) []string
 	return products
 }
 
-func deriveEpicProductsTx(ctx context.Context, tx *sql.Tx, projectIDs []string) ([]string, error) {
-	if len(projectIDs) == 0 {
-		return nil, nil
-	}
-	placeholders := make([]string, len(projectIDs))
-	args := make([]any, len(projectIDs))
-	for i, projectID := range projectIDs {
-		placeholders[i] = "?"
-		args[i] = projectID
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT product_id FROM product_projects WHERE project_id IN (`+strings.Join(placeholders, ",")+") ORDER BY product_id", args...)
+func deriveEpicProductsTx(ctx context.Context, tx *store.Transaction, projectIDs []string) ([]string, error) {
+	byProject, err := store.ProductsForProjectIDsTx(ctx, tx, projectIDs)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var products []string
-	for rows.Next() {
-		var productID string
-		if err := rows.Scan(&productID); err != nil {
-			return nil, err
-		}
-		products = append(products, productID)
-	}
-	return products, rows.Err()
+	return uniqueProducts(byProject, projectIDs), nil
 }
 
-func deriveMutationProductsTx(ctx context.Context, tx *sql.Tx, scope map[string]any) ([]string, error) {
+func deriveMutationProductsTx(ctx context.Context, tx *store.Transaction, scope map[string]any) ([]string, error) {
 	products := map[string]bool{}
-	queryProducts := func(query string, ids []string) error {
-		if len(ids) == 0 {
-			return nil
-		}
-		placeholders := make([]string, len(ids))
-		args := make([]any, len(ids))
-		for i, id := range ids {
-			placeholders[i], args[i] = "?", id
-		}
-		rows, err := tx.QueryContext(ctx, query+strings.Join(placeholders, ",")+")", args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var product string
-			if err := rows.Scan(&product); err != nil {
-				return err
-			}
-			products[product] = true
-		}
-		return rows.Err()
-	}
 	if ids, ok := scope["work_ids"].([]string); ok {
-		if err := queryProducts(`SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`, ids); err != nil {
+		byWork, err := store.ProductsForWorkIDsTx(ctx, tx, ids)
+		if err != nil {
 			return nil, err
+		}
+		for _, values := range byWork {
+			for _, product := range values {
+				products[product] = true
+			}
 		}
 	}
 	if ids, ok := scope["project_ids"].([]string); ok {
-		if err := queryProducts(`SELECT DISTINCT product_id FROM product_projects WHERE project_id IN (`, ids); err != nil {
+		byProject, err := store.ProductsForProjectIDsTx(ctx, tx, ids)
+		if err != nil {
 			return nil, err
+		}
+		for _, values := range byProject {
+			for _, product := range values {
+				products[product] = true
+			}
 		}
 	}
 	result := make([]string, 0, len(products))
@@ -1758,7 +1728,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		}
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractVersion: ManifestVersion}
 		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
-		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *sql.Tx) error {
+		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 			if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 				return err
 			}
@@ -1805,16 +1775,18 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if reconcile.ExpectedWorkVersion <= 0 {
 			return coreError(base, "invalid_input", "orphan discovery requires expected_work_version", "reread_entities", false), nil
 		}
-		var currentVersion int64
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=? AND lifecycle IN ('completed','cancelled','superseded')`, reconcile.WorkID).Scan(&currentVersion); err != nil {
+		currentVersion, err := r.Store.TerminalWorkVersion(ctx, reconcile.WorkID)
+		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
 		if currentVersion != reconcile.ExpectedWorkVersion {
 			return coreError(base, "version_conflict", "terminal work version changed before orphan discovery", "reread_entities", false), nil
 		}
-		if err := r.Store.DB().QueryRowContext(ctx, `SELECT op_id FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial')) ORDER BY attempt_epoch DESC LIMIT 1`, reconcile.WorkID).Scan(&reconcile.OperationID); err != nil {
+		pending, err := r.Store.PendingOperationForWork(ctx, reconcile.WorkID)
+		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
+		reconcile.OperationID = pending.OperationID
 	}
 	if reconcile.OperationID == "" {
 		return coreError(base, "invalid_input", "reconcile requires an operation reference or terminal work identity", "reread_entities", false), nil
@@ -2051,12 +2023,8 @@ func membershipIDs(values []mutationMembership) []string {
 	return out
 }
 
-func currentLifecycle(ctx context.Context, tx *sql.Tx, id string) (string, error) {
-	var lifecycle string
-	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, id).Scan(&lifecycle); err != nil {
-		return "", err
-	}
-	return lifecycle, nil
+func currentLifecycle(ctx context.Context, tx *store.Transaction, id string) (string, error) {
+	return store.WorkLifecycleTx(ctx, tx, id)
 }
 
 // mutationResult is the sole producer for inline and replayed mutation success.
@@ -2088,126 +2056,114 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 }
 
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect) (Envelope, error) {
-	tx, err := r.Store.DB().BeginTx(ctx, nil)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	rollback := func(err error) (Envelope, error) { _ = tx.Rollback(); return failureEnvelope(base, err), nil }
-	inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: capabilityForMutation(r.Tool), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
-	if inv.HostAssertionDigest == "" {
-		inv.HostAssertionDigest = digest
-	}
-	grant, err := r.Authority.ValidateGrantTx(ctx, tx, inv)
-	if err != nil {
-		return rollback(err)
-	}
-	derivedProducts, deriveErr := deriveMutationProductsTx(ctx, tx, scope)
-	if deriveErr != nil {
-		return rollback(deriveErr)
-	}
-	if expected, ok := scope["product_ids"].([]string); ok && !equalStrings(expected, derivedProducts) {
-		return rollback(newRuntimeFailure("version_conflict", "derived Product scope changed after authorization preflight", "reread_entities", false))
-	}
-	crossProduct := false
-	for _, product := range derivedProducts {
-		if !contains(grant.ProductScope, product) {
-			return rollback(newRuntimeFailure("unauthorized", fmt.Sprintf("mutation work Product %s is outside grant Product scope %v", product, grant.ProductScope), "contact_operator", false))
+	var response Envelope
+	var resultRejected bool
+	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: capabilityForMutation(r.Tool), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+		if inv.HostAssertionDigest == "" {
+			inv.HostAssertionDigest = digest
 		}
-		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
-			crossProduct = true
-			if !containsCapability(grant.Capabilities, Capability("cross_scope")) {
-				return rollback(newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false))
+		grant, err := r.Authority.ValidateGrantTx(ctx, tx, inv)
+		if err != nil {
+			return err
+		}
+		derivedProducts, err := deriveMutationProductsTx(ctx, tx, scope)
+		if err != nil {
+			return err
+		}
+		if expected, ok := scope["product_ids"].([]string); ok && !equalStrings(expected, derivedProducts) {
+			return newRuntimeFailure("version_conflict", "derived Product scope changed after authorization preflight", "reread_entities", false)
+		}
+		crossProduct := false
+		for _, product := range derivedProducts {
+			if !contains(grant.ProductScope, product) {
+				return newRuntimeFailure("unauthorized", fmt.Sprintf("mutation work Product %s is outside grant Product scope %v", product, grant.ProductScope), "contact_operator", false)
+			}
+			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
+				crossProduct = true
+				if !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+					return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
+				}
 			}
 		}
-	}
-	scope["product_ids"] = derivedProducts
-	if crossProduct {
-		requiresApproval = true
-	}
-	var priorDigest, priorPayload, priorChanged string
-	err = tx.QueryRowContext(ctx, `SELECT canonical_digest,result_payload,changed_refs FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, grant.PrincipalRef, r.Tool, r.Operation, idempotencyKey(raw)).Scan(&priorDigest, &priorPayload, &priorChanged)
-	if err == nil {
-		if priorDigest != digest {
-			return rollback(storeIdempotencyConflict(r.Operation, idempotencyKey(raw)))
+		scope["product_ids"] = derivedProducts
+		if crossProduct {
+			requiresApproval = true
 		}
-		var changed []ChangedRef
-		_ = json.Unmarshal([]byte(priorChanged), &changed)
-		base.Replayed = true
-		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-		response := r.mutationResult(base, json.RawMessage(priorPayload), changed, intents)
-		if response.Outcome == OutcomeError {
-			_ = tx.Rollback()
-			return response, nil
+		key := idempotencyKey(raw)
+		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+		if err != nil {
+			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, r.Authority.now().Format(time.RFC3339Nano), grant.PrincipalRef, r.Tool, r.Operation, idempotencyKey(raw)); err != nil {
-			return rollback(err)
+		if found {
+			if prior.CanonicalDigest != digest {
+				return storeIdempotencyConflict(r.Operation, key)
+			}
+			var changed []ChangedRef
+			_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
+			base.Replayed = true
+			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, intents)
+			if response.Outcome == OutcomeError {
+				resultRejected = true
+				return errors.New("mutation result rejected")
+			}
+			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
-		if err := tx.Commit(); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		return response, nil
-	}
-	if err != sql.ErrNoRows {
-		return rollback(err)
-	}
-	if requiresApproval && approval == "" {
-		challengeScope := boundedApprovalScope(scope)
-		challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
-		if challengeErr != nil {
-			return rollback(challengeErr)
-		}
-		if err := tx.Commit(); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
-		if len(governingConflict) > 0 {
-			// The operator's three resolutions travel with a real challenge the
-			// accept_scope_cut branch can be approved against.
-			response := governingConflictEnvelope(base, governingConflict)
-			details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
+		if requiresApproval && approval == "" {
+			challengeScope := boundedApprovalScope(scope)
+			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			if err != nil {
+				return err
+			}
+			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+			if len(governingConflict) > 0 {
+				response = governingConflictEnvelope(base, governingConflict)
+				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
+			} else {
+				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
+			}
 			response.Error.Details = details
+			return nil
+		}
+		if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
+			return err
+		}
+		if requiresApproval {
+			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
+			if _, err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
+				response = coreError(base, "approval_invalid", err.Error(), "request_approval", false)
+				resultRejected = true
+				return errors.New("approval invalid")
+			}
+		}
+		payload, eventIDs, changed, err := effect(ctx, tx, grant)
+		if err != nil {
+			return err
+		}
+		base.ResolvedScope = scopeFromMap(scope)
+		if base.ResolvedScope == nil {
+			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+		}
+		response = r.mutationResult(base, payload, changed, intents)
+		if response.Outcome == OutcomeError {
+			resultRejected = true
+			return errors.New("mutation result rejected")
+		}
+		changedJSON, _ := json.Marshal(changed)
+		authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+	})
+	if err != nil {
+		if resultRejected {
 			return response, nil
 		}
-		response := coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
-		response.Error.Details = details
-		return response, nil
-	}
-	if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
-		return rollback(err)
-	}
-	if requiresApproval {
-		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
-		if _, err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
-			_ = tx.Rollback()
-			return coreError(base, "approval_invalid", err.Error(), "request_approval", false), nil
-		}
-	}
-	payload, eventIDs, changed, err := effect(ctx, tx, grant)
-	if err != nil {
-		return rollback(err)
-	}
-	base.ResolvedScope = scopeFromMap(scope)
-	if base.ResolvedScope == nil {
-		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-	}
-	result := r.mutationResult(base, payload, changed, intents)
-	if result.Outcome == OutcomeError {
-		_ = tx.Rollback()
-		return result, nil
-	}
-	key := idempotencyKey(raw)
-	changedJSON, _ := json.Marshal(changed)
-	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
-	if _, err := tx.ExecContext(ctx, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, grant.PrincipalRef, r.Tool, r.Operation, key, digest, "mutation-"+digest[7:31], marshalEventIDs(eventIDs), string(payload), string(changedJSON), string(authorizedScope), r.Authority.now().Format(time.RFC3339Nano), r.Authority.now().Format(time.RFC3339Nano)); err != nil {
-		return rollback(err)
-	}
-	if err := tx.Commit(); err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	return result, nil
+	return response, nil
 }
 
-func (r runtime) consumeApprovalTx(ctx context.Context, tx *sql.Tx, inv Invocation, grant Grant, check ApprovalCheck) (store.WorkflowActor, error) {
+func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Grant, check ApprovalCheck) (store.WorkflowActor, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
 		return operator, fmt.Errorf("signed host approval assertion is required")
@@ -2282,35 +2238,29 @@ func capabilityForMutation(tool string) Capability {
 }
 
 func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEndpoints []string, intents []NextIntent) mutationEffect {
-	return func(ctx context.Context, tx *sql.Tx, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+	return func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 		relationID, err := strconv.ParseInt(in.RelationID, 10, 64)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("invalid relation ID")
 		}
-		var from, to, kind string
-		if err := tx.QueryRowContext(ctx, `SELECT work_id_from,work_id_to,kind FROM relations WHERE id=?`, relationID).Scan(&from, &to, &kind); err != nil {
-			return nil, nil, nil, err
-		}
-		if len(preflightEndpoints) != 2 || from != preflightEndpoints[0] || to != preflightEndpoints[1] {
-			return nil, nil, nil, newRuntimeFailure("version_conflict", "relation endpoints changed after scope preflight", "reread_relations", false)
-		}
-		rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (?,?)`, from, to)
+		relation, err := store.RelationByIDTx(ctx, tx, relationID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		for rows.Next() {
-			var product string
-			if err := rows.Scan(&product); err != nil {
-				rows.Close()
-				return nil, nil, nil, err
-			}
-			if !contains(grant.ProductScope, product) || (r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID && !containsCapability(grant.Capabilities, Capability("cross_scope"))) {
-				rows.Close()
-				return nil, nil, nil, newRuntimeFailure("unauthorized", "relation endpoint is outside authorized Product scope", "contact_operator", false)
-			}
+		from, to, kind := relation.FromWorkID, relation.ToWorkID, relation.Kind
+		if len(preflightEndpoints) != 2 || from != preflightEndpoints[0] || to != preflightEndpoints[1] {
+			return nil, nil, nil, newRuntimeFailure("version_conflict", "relation endpoints changed after scope preflight", "reread_relations", false)
 		}
-		if err := rows.Close(); err != nil {
+		byWork, err := store.ProductsForWorkIDsTx(ctx, tx, []string{from, to})
+		if err != nil {
 			return nil, nil, nil, err
+		}
+		for _, products := range byWork {
+			for _, product := range products {
+				if !contains(grant.ProductScope, product) || (r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID && !containsCapability(grant.Capabilities, Capability("cross_scope"))) {
+					return nil, nil, nil, newRuntimeFailure("unauthorized", "relation endpoint is outside authorized Product scope", "contact_operator", false)
+				}
+			}
 		}
 		versions := map[string]int64{}
 		for _, item := range in.ExpectedVersions {
@@ -2393,19 +2343,6 @@ func messageIDFor(digest, recipient string) string {
 	return "msg:" + hex.EncodeToString(sum[:16])
 }
 
-func activeWorkIDsTx(ctx context.Context, tx *sql.Tx, productID string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT 100`, productID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
+func activeWorkIDsTx(ctx context.Context, tx *store.Transaction, productID string) ([]string, error) {
+	return store.ActiveWorkIDsTx(ctx, tx, productID)
 }

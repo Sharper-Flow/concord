@@ -249,19 +249,19 @@ func AuthorizeWorkflowAction(ctx context.Context, s *Store, registry DefinitionR
 // authorizing a cross-authority or external-effect action. It intentionally
 // leaves ordinary internal SQLite actions untouched.
 func AuthorizeWorkflowActionAtBoundary(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, authorize func() error) error {
-	return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, registry, request, resolver, now, func(*sql.Tx) error {
+	return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, registry, request, resolver, now, func(*Transaction) error {
 		if authorize != nil {
 			return authorize()
 		}
 		return nil
-	}, func(*sql.Tx) error { return nil })
+	}, func(*Transaction) error { return nil })
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction
 // coordinator. Condition resolution, the second preflight, authorization, and
 // the persisted action callback all share one transaction and one fold guard.
 // A callback error or mutation failure rolls back every condition event.
-func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, authorize func(*sql.Tx) error, mutate func(*sql.Tx) error) error {
+func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, authorize func(*Transaction) error, mutate func(*Transaction) error) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_action_boundary", "store is not open", false, "open the authority database")
 	}
@@ -275,7 +275,9 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot begin owning action", true, "retry once the database is writable", err)
 	}
-	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
+	transaction := &Transaction{tx: tx}
+	rollback := func(cause error) error { _ = tx.Rollback(); transaction.tx = nil; return cause }
+	defer func() { transaction.tx = nil }()
 	if err := enterFold(ctx, tx); err != nil {
 		return rollback(err)
 	}
@@ -305,11 +307,11 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 		return rollback(err)
 	}
 	if authorize != nil {
-		if err := authorize(tx); err != nil {
+		if err := authorize(transaction); err != nil {
 			return rollback(err)
 		}
 	}
-	if err := mutate(tx); err != nil {
+	if err := mutate(transaction); err != nil {
 		return rollback(err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -108,7 +108,7 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 		t.Fatalf("server-selected surface = %s, want %s", grant.SurfaceVersion, ManifestVersion)
 	}
 	var persistedRef string
-	if err := db.QueryRow(`SELECT grant_ref FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&persistedRef); err != nil {
+	if err := db.DatabaseForTesting().QueryRow(`SELECT grant_ref FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&persistedRef); err != nil {
 		t.Fatal(err)
 	}
 	if persistedRef == grant.Token {
@@ -136,6 +136,16 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 	}
 	if _, err := service.IssueGrant(context.Background(), request); err == nil {
 		t.Fatal("replayed nonce accepted")
+	}
+	var grants, nonces int
+	if err := db.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM agent_grants`).Scan(&grants); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM agent_nonce_replay`).Scan(&nonces); err != nil {
+		t.Fatal(err)
+	}
+	if grants != 1 || nonces != 1 {
+		t.Fatalf("failed or replayed issuance persisted partial state: grants=%d nonces=%d", grants, nonces)
 	}
 	tampered := grantRequest(privateKey, "nonce-tampered-0001")
 	tampered.Assertion.RequestedCapabilities = []Capability{"cross_scope"}
@@ -218,7 +228,7 @@ func TestEpicMajorRefusesV2GrantBeforeIssuance(t *testing.T) {
 		t.Fatal("v2 adapter received a v3 Epic grant")
 	}
 	var grants int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM agent_grants`).Scan(&grants); err != nil {
+	if err := db.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM agent_grants`).Scan(&grants); err != nil {
 		t.Fatal(err)
 	}
 	if grants != 0 {
@@ -245,17 +255,10 @@ func TestGrantUseLimitIsAtomicInsideCallerTransaction(t *testing.T) {
 	results := make(chan error, workers)
 	for i := 0; i < workers; i++ {
 		go func() {
-			tx, e := db.BeginTx(context.Background(), nil)
-			if e != nil {
-				results <- e
-				return
-			}
-			_, e = service.ValidateAndConsumeGrantTx(context.Background(), tx, Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"})
-			if e == nil {
-				e = tx.Commit()
-			} else {
-				_ = tx.Rollback()
-			}
+			e := db.Transact(context.Background(), func(tx *store.Transaction) error {
+				_, err := service.ValidateAndConsumeGrantTx(context.Background(), tx, Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"})
+				return err
+			})
 			results <- e
 		}()
 	}
@@ -285,78 +288,145 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	invocation := Invocation{GrantToken: grant.Token, ClientRef: grant.ClientRef, ClientVersion: grant.ClientVersion, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, SurfaceVersion: grant.SurfaceVersion, EnvelopeVersion: grant.EnvelopeVersion, ManifestDigest: grant.ManifestDigest, RequiredCapability: Capability("product_read"), HostAssertionDigest: "sha256:host-resolution"}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	challenge, err := service.CreateApprovalChallengeTx(ctx, tx, invocation, ApprovalChallengeSpec{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", HostAssertionDigest: invocation.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
+	var challenge string
+	err = db.Transact(ctx, func(tx *store.Transaction) error {
+		var err error
+		challenge, err = service.CreateApprovalChallengeTx(ctx, tx, invocation, ApprovalChallengeSpec{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", HostAssertionDigest: invocation.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
+		if err != nil {
+			return err
+		}
+		spoof := invocation
+		spoof.PrincipalRef = "spoofed"
+		if _, err := service.CreateApprovalFromChallengeTx(ctx, tx, spoof, challenge); err == nil {
+			return errors.New("spoofed principal accepted")
+		}
+		wrongHost := invocation
+		wrongHost.HostAssertionDigest = "sha256:other"
+		if _, err := service.CreateApprovalFromChallengeTx(ctx, tx, wrongHost, challenge); err == nil {
+			return errors.New("wrong host correlation accepted")
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var status string
 	var maxUses, usedCount int
-	if err := tx.QueryRow(`SELECT status,max_uses,used_count FROM agent_approval_challenges WHERE challenge_ref=?`, challenge).Scan(&status, &maxUses, &usedCount); err != nil {
+	if err := db.DatabaseForTesting().QueryRowContext(ctx, `SELECT status,max_uses,used_count FROM agent_approval_challenges WHERE challenge_ref=?`, challenge).Scan(&status, &maxUses, &usedCount); err != nil {
 		t.Fatal(err)
 	}
 	if status != "active" || maxUses != 1 || usedCount != 0 {
 		t.Fatalf("challenge durability = status %q max_uses %d used_count %d", status, maxUses, usedCount)
 	}
-	spoof := invocation
-	spoof.PrincipalRef = "spoofed"
-	if _, err := service.CreateApprovalFromChallengeTx(ctx, tx, spoof, challenge); err == nil {
-		t.Fatal("spoofed principal accepted")
-	}
-	wrongHost := invocation
-	wrongHost.HostAssertionDigest = "sha256:other"
-	if _, err := service.CreateApprovalFromChallengeTx(ctx, tx, wrongHost, challenge); err == nil {
-		t.Fatal("wrong host correlation accepted")
-	}
-	ref, err := service.CreateApprovalFromChallengeTx(ctx, tx, invocation, challenge)
+	var ref string
+	err = db.Transact(ctx, func(tx *store.Transaction) error {
+		var err error
+		ref, err = service.CreateApprovalFromChallengeTx(ctx, tx, invocation, challenge)
+		return err
+	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	check := ApprovalCheck{ApprovalRef: ref, OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
-	tx, err = db.BeginTx(ctx, nil)
-	if err != nil {
+	if err := db.Transact(ctx, func(tx *store.Transaction) error {
+		if err := service.ValidateAndConsumeApprovalTx(ctx, tx, ref, check); err != nil {
+			return err
+		}
+		return errors.New("sentinel rollback")
+	}); err == nil || err.Error() != "sentinel rollback" {
+		t.Fatalf("sentinel rollback error = %v", err)
+	}
+	if err := db.Transact(ctx, func(tx *store.Transaction) error { return service.ValidateAndConsumeApprovalTx(ctx, tx, ref, check) }); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ValidateAndConsumeApprovalTx(ctx, tx, ref, check); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	tx, err = db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := service.ValidateAndConsumeApprovalTx(ctx, tx, ref, check); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	tx, err = db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := service.ValidateAndConsumeApprovalTx(ctx, tx, ref, check); err == nil {
+	if err := db.Transact(ctx, func(tx *store.Transaction) error { return service.ValidateAndConsumeApprovalTx(ctx, tx, ref, check) }); err == nil {
 		t.Fatal("single-use approval reused")
 	}
-	_ = tx.Rollback()
 	wrong := check
 	wrong.OperationDigest = "sha256:changed"
-	tx, err = db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := service.ValidateAndConsumeApprovalTx(ctx, tx, ref, wrong); err == nil {
+	if err := db.Transact(ctx, func(tx *store.Transaction) error { return service.ValidateAndConsumeApprovalTx(ctx, tx, ref, wrong) }); err == nil {
 		t.Fatal("changed approval input accepted")
 	}
-	_ = tx.Rollback()
+}
+
+func TestDirectApprovalAssertionConsumesExistingApprovalWithoutChallenge(t *testing.T) {
+	db := openAgentDB(t)
+	service := NewService(db)
+	service.Now = fixedTime
+	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
+	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-1", KeyID: "key", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const approvalRef = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const operationDigest = "sha256:operation"
+	scope := map[string]any{"product_id": "product-1"}
+	versions := map[string]any{"work": 3}
+	invocation := Invocation{ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Worktree: "/repo-wt", HostAssertionDigest: "sha256:host-resolution"}
+	check := ApprovalCheck{ApprovalRef: approvalRef, OperationDigest: operationDigest, Scope: scope, Versions: versions, Consequence: "publication", ClientRef: invocation.ClientRef, SessionRef: invocation.SessionRef}
+	if err := db.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InsertApprovalTx(ctx, tx, store.ApprovalInsert{ApprovalRef: approvalRef, OperationDigest: operationDigest, ScopeJSON: `{"product_id":"product-1"}`, VersionJSON: `{"work":3}`, Consequence: check.Consequence, HumanPrincipalRef: invocation.PrincipalRef, ClientRef: invocation.ClientRef, SessionRef: invocation.SessionRef, IssuedAt: fixedTime().Format(time.RFC3339Nano), ExpiresAt: fixedTime().Add(time.Hour).Format(time.RFC3339Nano), MaxUses: 1, ProtectedEvidenceRef: "direct-approval-test", ProtectedEvidenceDigest: "sha256:evidence"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertion := signedHostApproval(privateKey, approvalRef, operationDigest, scope, versions, invocation.SessionRef, invocation.AgentRef, invocation.Worktree, invocation.ClientVersion, fixedTime(), "direct-approval-0001")
+	if err := db.Transact(ctx, func(tx *store.Transaction) error {
+		isChallenge, err := service.ValidateHostApprovalAssertionTx(ctx, tx, invocation, *assertion, check)
+		if err != nil {
+			return err
+		}
+		if isChallenge {
+			return errors.New("existing approval was treated as a challenge")
+		}
+		return service.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var challenges, used int
+	if err := db.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM agent_approval_challenges`).Scan(&challenges); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, approvalRef).Scan(&used); err != nil {
+		t.Fatal(err)
+	}
+	if challenges != 0 || used != 1 {
+		t.Fatalf("direct approval state = challenges %d used %d, want 0 and 1", challenges, used)
+	}
+	assertion = signedHostApproval(privateKey, approvalRef, operationDigest, scope, versions, invocation.SessionRef, invocation.AgentRef, invocation.Worktree, invocation.ClientVersion, fixedTime(), "direct-approval-0002")
+	if err := db.Transact(ctx, func(tx *store.Transaction) error {
+		isChallenge, err := service.ValidateHostApprovalAssertionTx(ctx, tx, invocation, *assertion, check)
+		if err != nil {
+			return err
+		}
+		if isChallenge {
+			return errors.New("existing approval was treated as a challenge on reuse")
+		}
+		if err := service.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check); err == nil {
+			return errors.New("existing approval was consumed twice")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAuthorityMethodsGuardNilServiceAndStore(t *testing.T) {
+	ctx := context.Background()
+	var nilService *Service
+	if _, err := nilService.ValidateInvocation(ctx, Invocation{}); err == nil {
+		t.Fatal("nil service invocation did not fail")
+	}
+	if err := nilService.RevokeClient(ctx, "client-1"); err == nil {
+		t.Fatal("nil service revocation did not fail")
+	}
+	service := &Service{}
+	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "principal-1"}); err == nil {
+		t.Fatal("nil store policy update did not fail")
+	}
+	var failure *store.Failure
+	if !errors.As(service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "principal-1"}), &failure) || failure.Kind != store.KindUnavailable {
+		t.Fatalf("nil store policy failure=%v, want %s", failure, store.KindUnavailable)
+	}
 }
 
 func grantRequest(privateKey ed25519.PrivateKey, nonce string) GrantRequest {
@@ -365,12 +435,12 @@ func grantRequest(privateKey ed25519.PrivateKey, nonce string) GrantRequest {
 	return GrantRequest{Assertion: assertion, SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ExpiresAt: fixedTime().Add(time.Hour)}
 }
 
-func openAgentDB(t *testing.T) *sql.DB {
+func openAgentDB(t *testing.T) *store.Store {
 	t.Helper()
 	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	return s.DB()
+	return s
 }

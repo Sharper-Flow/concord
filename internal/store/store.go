@@ -41,9 +41,16 @@ type Store struct {
 	path string
 }
 
-// DB exposes the underlying handle. Callers append through AppendEvent rather
-// than writing the log directly.
-func (s *Store) DB() *sql.DB { return s.db }
+// DatabaseForTesting exposes the raw handle only to tests and fixtures.
+// Production code must use typed store operations so the store owns its
+// transaction and projection boundaries. scripts/check-store-boundary.py
+// enforces this seam.
+func (s *Store) DatabaseForTesting() *sql.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
 
 // Path reports the database file backing this store.
 func (s *Store) Path() string { return s.path }

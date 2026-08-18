@@ -224,7 +224,7 @@ func terminalizeResearchOwner(t *testing.T, s *Store, id string) {
 
 func linkArchivedResearchOwner(t *testing.T, s *Store, id string) {
 	t.Helper()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?, 'work_note', ?, '2026-08-07T00:00:00Z', 'completed', '[]', 'completed', 1, 'durable summary', 'home', 'locator', 'notes/`+id+`.md', 'commit', 'hash'); DELETE FROM fold_guard`, id, id); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?, 'work_note', ?, '2026-08-07T00:00:00Z', 'completed', '[]', 'completed', 1, 'durable summary', 'home', 'locator', 'notes/`+id+`.md', 'commit', 'hash'); DELETE FROM fold_guard`, id, id); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -311,7 +311,7 @@ func TestTerminalResearchCleanupRefusesRequiredCompaction(t *testing.T) {
 		assertFailureKind(t, err, KindResearchConsumerBlocked)
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("blocked pack count=%d err=%v", count, err)
 	}
 }
@@ -327,7 +327,7 @@ func TestTerminalResearchCleanupDeletesUnblockedPack(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 0 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("deleted pack count=%d err=%v", count, err)
 	}
 }
@@ -343,7 +343,7 @@ func TestInterruptedTerminalCleanupFinishesAtNextPackMutation(t *testing.T) {
 		t.Fatal("mutation unexpectedly wrote a terminal-owner pack")
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 0 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("reconciled pack count=%d err=%v", count, err)
 	}
 }
@@ -414,7 +414,7 @@ func TestTerminalConsumerTransitionRemovesBindingAndAdvancesPack(t *testing.T) {
 				t.Fatal(err)
 			}
 			var bindings int
-			if err := s.DB().QueryRow(`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=?`, "consumer").Scan(&bindings); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=?`, "consumer").Scan(&bindings); err != nil {
 				t.Fatal(err)
 			}
 			if bindings != 0 {
@@ -422,7 +422,7 @@ func TestTerminalConsumerTransitionRemovesBindingAndAdvancesPack(t *testing.T) {
 			}
 			for _, pack := range []ResearchPack{packA, packB} {
 				var version int
-				if err := s.DB().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&version); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&version); err != nil {
 					t.Fatal(err)
 				}
 				if version != 3 {
@@ -465,13 +465,13 @@ func TestPublishCompactionLinkPreflightsRequiredResearchConsumer(t *testing.T) {
 		assertFailureKind(t, err, KindResearchConsumerBlocked)
 	}
 	var archived, events, active int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM archived_work WHERE id='owner'`).Scan(&archived); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work WHERE id='owner'`).Scan(&archived); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&active); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&active); err != nil {
 		t.Fatal(err)
 	}
 	if archived != 0 || events != 0 || active != 1 || countRows(t, s, "domain_events") != beforeEvents {
@@ -522,10 +522,10 @@ func TestProofBackedCompactionDeletesResearchAndNeverStoresBody(t *testing.T) {
 		}
 	}
 	var bodyEvents, bodySummary int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE payload LIKE ?`, "%"+secret+"%").Scan(&bodyEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE payload LIKE ?`, "%"+secret+"%").Scan(&bodyEvents); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM archived_work WHERE summary LIKE ?`, "%"+secret+"%").Scan(&bodySummary); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work WHERE summary LIKE ?`, "%"+secret+"%").Scan(&bodySummary); err != nil {
 		t.Fatal(err)
 	}
 	if bodyEvents != 0 || bodySummary != 0 {
@@ -634,7 +634,7 @@ func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing
 		assertFailureKind(t, err, KindDecisionRecordRequired)
 	}
 	var lifecycle string
-	if err := s.DB().QueryRow(`SELECT lifecycle FROM work_items WHERE id='spike'`).Scan(&lifecycle); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id='spike'`).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
 	}
 	if lifecycle != "needed" || countRows(t, s, "domain_events") != beforeEvents {
@@ -645,19 +645,19 @@ func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing
 func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
-	if _, err := s.DB().Exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('bad-owner','missing',1,'current',1,'now','now')`); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('bad-owner','missing',1,'current',1,'now','now')`); err == nil {
 		t.Fatal("missing owner FK accepted")
 	}
-	if _, err := s.DB().Exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('schema-pack','owner',1,'current',1,'now','now'); INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES('schema-pack',1,'q','{}','{}','{}','m','now')`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('schema-pack','owner',1,'current',1,'now','now'); INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES('schema-pack',1,'q','{}','{}','{}','m','now')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status) VALUES('schema-pack',1,'f','not-an-enum','x','high','current','active')`); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status) VALUES('schema-pack',1,'f','not-an-enum','x','high','current','active')`); err == nil {
 		t.Fatal("finding enum CHECK accepted")
 	}
-	if _, err := s.DB().Exec(`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES('schema-pack',2,'q','not-json','{}','{}','m','now')`); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES('schema-pack',2,'q','not-json','{}','{}','m','now')`); err == nil {
 		t.Fatal("JSON CHECK accepted invalid scope")
 	}
-	if _, err := s.DB().Exec(`INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES('schema-pack',1,'missing','context',1,'now')`); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES('schema-pack',1,'missing','context',1,'now')`); err == nil {
 		t.Fatal("consumer FK accepted")
 	}
 }
@@ -666,7 +666,7 @@ func TestEpicEntriesFoldAndCompletionGate(t *testing.T) {
 	ctx := context.Background()
 	guarded := openTemp(t)
 	seedResearchWork(t, guarded, "guarded")
-	if _, err := guarded.DB().Exec(`UPDATE work_items SET kind='epic' WHERE id='guarded'`); err == nil {
+	if _, err := guarded.DatabaseForTesting().Exec(`UPDATE work_items SET kind='epic' WHERE id='guarded'`); err == nil {
 		t.Fatal("direct work kind mutation bypassed fold-only authority")
 	}
 	// The operation below establishes the Epic kind through work.created.
@@ -698,10 +698,10 @@ func TestEpicEntriesFoldAndCompletionGate(t *testing.T) {
 		t.Fatalf("entries=%+v err=%v", entries, err)
 	}
 	var parentDirection, reverseDirection int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='epic' AND work_id_to='child2'`).Scan(&parentDirection); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='epic' AND work_id_to='child2'`).Scan(&parentDirection); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='child2' AND work_id_to='epic'`).Scan(&reverseDirection); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='child2' AND work_id_to='epic'`).Scan(&reverseDirection); err != nil {
 		t.Fatal(err)
 	}
 	if parentDirection != 1 || reverseDirection != 0 {
@@ -736,7 +736,7 @@ func TestEpicEntriesFoldAndCompletionGate(t *testing.T) {
 
 func TestReadEpicEntriesRejectsOverflow(t *testing.T) {
 	s := openTemp(t)
-	tx, err := s.DB().Begin()
+	tx, err := s.DatabaseForTesting().Begin()
 	if err != nil {
 		t.Fatal(err)
 	}

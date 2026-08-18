@@ -39,19 +39,13 @@ func researchSurfaceFixture(t *testing.T) (*store.Store, *Service, Grant, string
 		t.Fatal(defErr)
 	}
 	execActor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}
-	tx, err := s.DB().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: execActor, Now: fixedTime()}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: execActor, Now: fixedTime()})
+	}); err != nil {
 		t.Fatal(err)
 	}
 
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = fixedTime
 	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil

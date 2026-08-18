@@ -198,7 +198,7 @@ func TestWorkflowCorpusWF39DispatchesThroughAgentWorkflowAction(t *testing.T) {
 	}
 	assertWF39Corpus(t, response, selected.Expected.Assertions)
 	var fallback int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned'`).Scan(&fallback); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned'`).Scan(&fallback); err != nil {
 		t.Fatal(err)
 	}
 	if fallback != 0 {
@@ -225,15 +225,9 @@ func seedCorpusWorkflowWork(t *testing.T, s *store.Store, grant Grant, workID st
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.DB().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent-engineer", SessionRef: "session-executor", ActorClass: store.ActorAgent}, Now: occurredAt.UTC()}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent-engineer", SessionRef: "session-executor", ActorClass: store.ActorAgent}, Now: occurredAt.UTC()})
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

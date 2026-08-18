@@ -69,10 +69,10 @@ func TestWorkflowCorpusWF37UsesAgentAvailabilityBeforePayloadOrAuth(t *testing.T
 		t.Fatalf("WF37 response outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	var used, started int
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
 		t.Fatal(err)
 	}
 	if used != 0 || started != 0 {
@@ -107,7 +107,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 		t.Fatalf("approved action=%+v", response)
 	}
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	return approvalEnv, version
@@ -125,7 +125,7 @@ func TestWorkflowCorpusWF38UsesStrictInvokeBoundaryForStepActorAndPayload(t *tes
 	env, version := advanceWorkflowBoundaryToExecution(t, s, service, grant, privateKey, env)
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": scenario.Request.ActionID, "fields": []any{map[string]any{"name": "payload", "value": `{"current_step":"plan"}`}}, "idempotency_key": scenario.Request.Idempotency.Key}
 	var before int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
@@ -133,7 +133,7 @@ func TestWorkflowCorpusWF38UsesStrictInvokeBoundaryForStepActorAndPayload(t *tes
 		t.Fatalf("WF38 malformed step/payload response=%+v", response)
 	}
 	var after int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {
@@ -195,18 +195,18 @@ func TestWorkflowCorpusWF46ReplaysThroughAgentEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	var beforeVersion int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
 		t.Fatal(err)
 	}
 	var afterVersion int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
 		t.Fatal(err)
 	}
 	var futureCount, validCount int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, future["event_id"]).Scan(&futureCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, future["event_id"]).Scan(&futureCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, validBeforeFuture["event_id"]).Scan(&validCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, validBeforeFuture["event_id"]).Scan(&validCount); err != nil {
 		t.Fatal(err)
 	}
 	observation := map[string]any{

@@ -45,7 +45,7 @@ func applyWorkflowTestOperation(ctx context.Context, s *Store, operation Operati
 func replayWorkflowAuthority(ctx context.Context, s *Store, opID, workID, principal, requestID string, evidence []string) error {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	workflowTypeRef, workflowTypeVersion, stepID := "workflow.test", 1, "evidence"
-	_ = s.DB().QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeVersion, &stepID)
+	_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeVersion, &stepID)
 	if stepID == "start" {
 		if definition, definitionErr := BuiltinWorkflowDefinitionForRef(workflowTypeRef); definitionErr == nil {
 			stepID = definition.Definition.StepGraph.StartStep

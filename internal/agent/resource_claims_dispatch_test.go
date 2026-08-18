@@ -39,7 +39,7 @@ func claimsFixture(t *testing.T) (*store.Store, *Service, Grant) {
 			t.Fatal(err)
 		}
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = fixedTime
 	_, service, grant, _ := claimsGrant(t, s, service)
 	return s, service, grant

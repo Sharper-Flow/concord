@@ -76,7 +76,7 @@ func TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase(t *testi
 		t.Fatal(err)
 	}
 	defer restored.Close()
-	integrity, quick, foreign, err := verifySQLiteTriple(ctx, restored.DB())
+	integrity, quick, foreign, err := verifySQLiteTriple(ctx, restored.DatabaseForTesting())
 	if err != nil {
 		t.Fatal(err)
 	}

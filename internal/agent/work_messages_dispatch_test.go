@@ -44,7 +44,7 @@ func messagesFixture(t *testing.T) (*store.Store, *Service, Grant) {
 			t.Fatal(err)
 		}
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = fixedTime
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_relate", "work_transition"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
@@ -124,15 +124,9 @@ func TestMessagesDirectBroadcastWithdrawAndRestartSurvival(t *testing.T) {
 	if defErr != nil {
 		t.Fatal(defErr)
 	}
-	ctTx, txErr := s.DB().BeginTx(ctx, nil)
-	if txErr != nil {
-		t.Fatal(txErr)
-	}
-	if err := store.InitializeWorkflowTx(ctx, ctTx, store.WorkflowInitializationRequest{WorkID: "work-target", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()}); err != nil {
-		_ = ctTx.Rollback()
-		t.Fatal(err)
-	}
-	if err := ctTx.Commit(); err != nil {
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-target", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-target", Limit: 10})
@@ -210,7 +204,7 @@ func TestMessagesCarryNoAuthority(t *testing.T) {
 		t.Fatalf("peer message must not substitute for approval: %+v", approvalGated.Error)
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind LIKE 'work.message%' AND payload LIKE '%approved by the operator%'`).Scan(&count); err != nil || count == 0 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind LIKE 'work.message%' AND payload LIKE '%approved by the operator%'`).Scan(&count); err != nil || count == 0 {
 		t.Fatalf("message event count=%d err=%v (audit trail must exist)", count, err)
 	}
 }

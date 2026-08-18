@@ -43,15 +43,9 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	if defErr != nil {
 		t.Fatal(defErr)
 	}
-	tx, txErr := s.DB().BeginTx(ctx, nil)
-	if txErr != nil {
-		t.Fatal(txErr)
-	}
-	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-holder", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-holder", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-holder", Limit: 10})
@@ -98,7 +92,7 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 		t.Fatalf("replay=%+v", replay.Error)
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_observations WHERE work_id='work-holder'`).Scan(&count); err != nil || count != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_observations WHERE work_id='work-holder'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("observation count=%d err=%v", count, err)
 	}
 }

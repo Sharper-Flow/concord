@@ -17,7 +17,7 @@ func workflowInstancePin(t *testing.T, s *Store, workID string) (string, int64, 
 	t.Helper()
 	var ref, digest string
 	var version int64
-	if err := s.DB().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version, &digest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version, &digest); err != nil {
 		t.Fatal(err)
 	}
 	return ref, version, digest
@@ -28,7 +28,7 @@ func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition Reg
 	ctx := context.Background()
 	seedWork(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:evolution", ClientRef: "client:evolution", AgentRef: "agent:evolution", SessionRef: "session:evolution", ActorClass: ActorAgent}
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition Reg
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition Reg
 		t.Fatal(err)
 	}
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	actorRef, err := WorkflowActorRef(actor)

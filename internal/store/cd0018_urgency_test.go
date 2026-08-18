@@ -38,7 +38,7 @@ func seedWorkWithUrgency(t *testing.T, s *Store, id, urgency string, priority in
 func seedProductAndProject(t *testing.T, s *Store) {
 	t.Helper()
 	var projectCount int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM projects`).Scan(&projectCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM projects`).Scan(&projectCount); err != nil {
 		t.Fatal(err)
 	}
 	if projectCount > 0 {
@@ -67,7 +67,7 @@ func TestCD0018UrgencyRoundTripPersistence(t *testing.T) {
 	seedWorkWithUrgency(t, s, "expedite-item", "expedite", 10)
 
 	var urgency string
-	if err := s.DB().QueryRow(`SELECT urgency FROM work_items WHERE id=?`, "expedite-item").Scan(&urgency); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT urgency FROM work_items WHERE id=?`, "expedite-item").Scan(&urgency); err != nil {
 		t.Fatalf("select urgency: %v", err)
 	}
 	if urgency != "expedite" {
@@ -80,7 +80,7 @@ func TestCD0018UrgencyDefaultsToStandard(t *testing.T) {
 	seedWork(t, s, "default-item")
 
 	var urgency string
-	if err := s.DB().QueryRow(`SELECT urgency FROM work_items WHERE id=?`, "default-item").Scan(&urgency); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT urgency FROM work_items WHERE id=?`, "default-item").Scan(&urgency); err != nil {
 		t.Fatalf("select urgency: %v", err)
 	}
 	if urgency != "standard" {

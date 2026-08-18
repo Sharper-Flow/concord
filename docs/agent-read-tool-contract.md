@@ -110,6 +110,10 @@ bounded file/resource path. Index lag and canonical-git reachability remain expl
   another operation cannot consume them.
 - Empty, unknown, ambiguous, degraded, stale, unreachable, and invariant violation
   remain distinct TS7 result/error variants.
+- Degraded enumeration is opted in, never assumed (CD-0008 D3). `concord_knowledge.search`
+  carries `allow_degraded`; omitted, a knowledge index behind its git head refuses rather
+  than answering. An opted-in caller receives the readable items plus degraded authority,
+  the omissions, and the watermark the answer actually reflects.
 - Reads never mutate, repair, reconcile, or trigger background work.
 
 ## 4. Why four tools

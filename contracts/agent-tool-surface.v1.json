@@ -2,7 +2,7 @@
   "$schema": "contracts/agent-tool-surface.schema.json",
   "schema_version": "1.0",
   "surface": {
-    "version": "3.7.0",
+    "version": "3.8.0",
     "name": "concord-agent-tool-surface",
     "tool_count": 9
   },
@@ -1382,6 +1382,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:0d6da74ece2d03cc21375612d2cdbf232178b0390cfe8c5be5af8c29e9a5a32b",
-  "digest": "sha256:f587fdc943321f3a36328fd05114b51870ecf4c845fdbc422649e02618f3c68a"
+  "payload_digest": "sha256:2487d68856fb378ba0f900b32cfd78d58898c0327d290d423e2b5b49c3c4aa10",
+  "digest": "sha256:949bf84a2e220a7c32ee6bcece5431a880a1399dc29c6bb8793d9b63574c5c88"
 }

@@ -1116,6 +1116,9 @@ const GeneratedPayloadSchemaDocument = `{
     "knowledge_search_input": {
       "additionalProperties": false,
       "properties": {
+        "allow_degraded": {
+          "type": "boolean"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -2526,7 +2529,7 @@ const GeneratedPayloadSchemaDocument = `{
           "const": "operator"
         },
         "surface_version": {
-          "const": "3.7.0"
+          "const": "3.8.0"
         },
         "work_id": {
           "$ref": "#/$defs/id"

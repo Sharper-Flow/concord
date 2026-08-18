@@ -373,6 +373,45 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	return GitKnowledge{Home: home, CommitAlias: commitAlias, HashAlias: hashAlias}, nil
 }
 
+// SeedLaggingKnowledge commits one further indexable decision into an already
+// seeded knowledge home and deliberately does not rebuild the SQLite index. The
+// projection is then behind the git head by exactly one accepted decision, which
+// is the deterministic form of the TS1 `knowledge_index_lagging` fault.
+//
+// It returns the stable ID of the decision the index cannot yet see. A caller
+// asserting honest degradation needs that ID: the omission is only real when
+// there is a specific accepted record the answer is missing, so a query that
+// silently reported completeness would be making a false claim rather than an
+// unlucky one.
+func SeedLaggingKnowledge(home store.KnowledgeHome) (string, error) {
+	const id = "knowledge-decision-lagging"
+	const path = "docs/decisions/CD-0003-lagging-authority.md"
+	manifestBody, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash("docs/concord-knowledge-index.v1.json")))
+	if err != nil {
+		return "", fmt.Errorf("pm1fixture: read knowledge manifest: %w", err)
+	}
+	var manifest store.KnowledgeManifest
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+		return "", fmt.Errorf("pm1fixture: parse knowledge manifest: %w", err)
+	}
+	if err := writeKnowledgeFile(home.RepoPath, path, canonicalKnowledgeNote(id, "decision", "2026-08-06T12:00:00Z", []string{"sqlite", "governance"})); err != nil {
+		return "", fmt.Errorf("pm1fixture: write lagging decision: %w", err)
+	}
+	content, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(path)))
+	if err != nil {
+		return "", fmt.Errorf("pm1fixture: read lagging decision: %w", err)
+	}
+	records := append(append([]store.KnowledgeRecord{}, manifest.Records...),
+		manifestRecordFromFile(id, "decision", path, "accepted", "2026-08-06T12:00:00Z", "Lagging decision", "Unscanned summary", []string{"sqlite", "governance"}, store.KnowledgeRecordScopes{Mode: "home"}, content))
+	if err := writeKnowledgeManifest(home.RepoPath, records); err != nil {
+		return "", fmt.Errorf("pm1fixture: write extended knowledge manifest: %w", err)
+	}
+	if _, err := commitKnowledgeRepo(home.RepoPath, "accepted decision the index has not scanned"); err != nil {
+		return "", fmt.Errorf("pm1fixture: commit lagging decision: %w", err)
+	}
+	return id, nil
+}
+
 // fixtureEvent is the local helper that builds a store.Event. It mirrors the
 // historical fixtureEvent helper that lived inside internal/store's test
 // package; behaviour and payload-version rule (work.created uses v2, all

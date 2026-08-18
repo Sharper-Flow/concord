@@ -337,6 +337,15 @@ func invariantGroundTruthCleanup(t *testing.T, obs jobObservation) {
 // shape end-to-end.
 func invariantHonestRecovery(t *testing.T, obs jobObservation) {
 	t.Helper()
+	// A degraded answer is a recovery path even when the outcome is ok: the
+	// caller is handed an incomplete result and must be told what is missing.
+	// Checking this before the error branch keeps the invariant from passing
+	// vacuously on every successful-but-degraded read.
+	if status, _ := obs.Authority["status"].(string); status == string(AuthorityDegraded) {
+		if omissions, _ := obs.Authority["omissions"].([]any); len(omissions) == 0 {
+			t.Error("honest_recovery: degraded authority names no omission")
+		}
+	}
 	commErr, ok := obs.Communication["error"].(map[string]any)
 	if !ok {
 		return // success path — no error to recover from
@@ -1042,6 +1051,25 @@ func envelopeToObservation(resp Envelope) jobObservation {
 	}
 	obs.Authority["tool"] = resp.Tool
 	obs.Authority["operation"] = resp.Operation
+	// Authority status, omissions, and the source watermark are typed envelope
+	// fields, so the corpus reads them from the response rather than letting a
+	// binding assert its own prose about how authoritative the answer was.
+	if resp.Authority != "" {
+		obs.Authority["status"] = string(resp.Authority)
+	}
+	if len(resp.Omissions) > 0 {
+		omissions := make([]any, len(resp.Omissions))
+		for i, omission := range resp.Omissions {
+			omissions[i] = omission.Kind
+		}
+		obs.Authority["omissions"] = omissions
+	}
+	for _, watermark := range resp.SourceVersionWatermark {
+		if watermark.Version != "" {
+			obs.Authority["index_watermark"] = watermark.Version
+			break
+		}
+	}
 	return obs
 }
 
@@ -1169,6 +1197,10 @@ func init() {
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
 	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
 	jobBindings["AJ8-ground-truth-reclamation"] = bindAJ8GroundTruthReclamation
+	// AJ7 knowledge bindings (#160). The handlers live in
+	// agent_jobs_knowledge_bindings_test.go.
+	jobBindings["AJ7-search-knowledge"] = bindAJ7SearchKnowledge
+	jobBindings["AJ7-degraded-index"] = bindAJ7DegradedIndex
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
@@ -1180,8 +1212,6 @@ func init() {
 	// Deferred scenarios with precise reasons.
 	jobDeferrals["AJ6-compact-terminal-work"] = "#161 compaction tranche: needs observed git publication ordering"
 	jobDeferrals["AJ6-partial-publication"] = "#161 compaction tranche: needs a commit-verification fault injector"
-	jobDeferrals["AJ7-search-knowledge"] = "#160 knowledge tranche: needs SeedKnowledge wired through the agent surface"
-	jobDeferrals["AJ7-degraded-index"] = "#160 knowledge tranche: needs deterministic knowledge-index lag"
 	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"
 	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
 	jobDeferrals["AJ8-budget-refused"] = "#173 budget tranche: needs a declared seconds-denominated operation budget with a supported ceiling"

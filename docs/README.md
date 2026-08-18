@@ -8,7 +8,12 @@
 > **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module `github.com/sharper-flow/concord`.
 > **Canonical priorities:** [`priorities.md`](./priorities.md)
 
-Concord is a **Product-first, agent-native planning and coordination surface** for one operator and many concurrent local AI agents working on one machine. It is vision-led, not Advance-led: its operating envelope, ranked priorities, and quality governance are defined in [`priorities.md`](./priorities.md).
+Concord is a **Product-law-first, agent-native planning and coordination
+surface** for one operator and many concurrent local AI agents working on one
+machine. Product → Domain architecture binds specifications, work, and evidence
+so independently clean changes cannot silently enact contradictory Product
+truth. Concord is vision-led, not Advance-led: its operating envelope, ranked
+priorities, and quality governance are defined in [`priorities.md`](./priorities.md).
 
 ---
 
@@ -60,20 +65,20 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | **Accepted CD-0010:** GitHub-native development authority before Concord can replace its predecessor. |
 | [`decisions/CD-0011-retain-sqlite-after-conformance.md`](./decisions/CD-0011-retain-sqlite-after-conformance.md) | **Accepted CD-0011:** retain direct local SQLite after reviewing environment-sensitive ten-process latency evidence; correctness and recovery remain clean, with explicit future reopen conditions. |
 | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) | **Accepted CD-0008:** one shared Product authority with isolated worktree sets, immutable-subject evidence binding, dependency-aware unreadable-record policy, workflow checkpoints/attempt fencing, typed external conditions, event upcasters/history reads, and confirmed SQLite authority with alternative comparison only after a falsifier. |
-| [`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md) | **Accepted CD-0009:** Epics and research remain ordinary work-item kinds; active research packs are versioned SQLite working context, never retained events/Git knowledge, and are deleted after proof-backed archive compaction. |
+| [`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md) | **Accepted CD-0009, amended by CD-0041:** Initiative and research are ordinary work-item kinds; Initiative is secondary business/outcome context, while active research packs remain versioned SQLite working context and are deleted after proof-backed archive compaction. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012:** three-part outcome contract (premise, required end-state, candidate set) with separate revision authorities; end-state approved at planning beside the CD-0006 D10 spec mandate and verified at completion; strengthen-only delivery comparison; mid-execution discoveries forward-link rather than substitute. |
 | [`decisions/CD-0013-workflow-engine-mechanism.md`](./decisions/CD-0013-workflow-engine-mechanism.md) | **Accepted CD-0013:** workflow definitions as code-defined versioned registry, workflow state as work-item-subject events with typed projections, closed outcome-predicate union, executing-identity evaluator distinctness, entity-keyed impact notices, forward-link-only composition, and a completion gate binding evidence, conditions, spec mandate, verdict, and premise confirmation in one transaction. |
 | [`decisions/CD-0014-terminal-launcher-rendering.md`](./decisions/CD-0014-terminal-launcher-rendering.md) | **Accepted CD-0014:** Bubble Tea v2 behind an isolated launcher adapter, Product-only query scope, no autonomous state polling, exact dependency/license inventory, and tcell v3 fallback/reopen rules. |
 | [`decisions/CD-0015-typed-law-relations.md`](./decisions/CD-0015-typed-law-relations.md) | **Accepted CD-0015:** Git-authoritative typed law relations, derived SQLite projection, and bounded workflow conflict checks with an explicit amendment path. |
 | [`decisions/CD-0016-context-continuity.md`](./decisions/CD-0016-context-continuity.md) | **Accepted CD-0016:** durable context checkpoints and boundaries, derived pinned continuity, summary-only fallback, and closed restart unavailability until #120. |
 | [`decisions/CD-0017-typed-workers-and-model-routing.md`](./decisions/CD-0017-typed-workers-and-model-routing.md) | **Accepted CD-0017:** Concord-owned typed lane registry with capability-class model routing, pinned preferred dispatch, recorded declared fallback resolution and readback identity evidence, workflow-declared reviewer/model distinctness, and a hard worker authority boundary preserving R1/CD-0013. |
-| [`decisions/CD-0018-declared-urgency-and-provenance.md`](./decisions/CD-0018-declared-urgency-and-provenance.md) | **Accepted CD-0018:** closed two-band urgency enum (`standard` / `expedite`) prepended to ranking with `priority` retained as within-band tiebreak, and a typed non-blocking acyclic `raised_from` provenance relation; no assignment, claim, or parallel-safety mechanism. |
+| [`decisions/CD-0018-declared-urgency-and-provenance.md`](./decisions/CD-0018-declared-urgency-and-provenance.md) | **Accepted CD-0018, amended by CD-0041:** closed two-band urgency plus typed `raised_from` provenance; no assignment or lease, while Product-changing parallel safety now uses Domain-overlap detection and operator-approved resolution. |
 | [`decisions/CD-0019-predecessor-strength-preservation.md`](./decisions/CD-0019-predecessor-strength-preservation.md) | **Accepted CD-0019:** six predecessor strengths (specs, narrative artifacts, knowledge index, conformance, triage, reflection) preservation-mandated, each research-informed in its Concord shape rather than inherited; umbrella mandate binding existing partial treatments. |
 | [`decisions/CD-0020-retain-knowledge-index-shape.md`](./decisions/CD-0020-retain-knowledge-index-shape.md) | **Accepted CD-0020:** retain the manifest-primary, Git-authoritative, SQLite-derived knowledge-index shape; keep Q9/Q10 bounded, compose with independent code intelligence, and repair conformance drift without expanding the architecture. |
 | [`decisions/CD-0021-floor-condition-1-scope.md`](./decisions/CD-0021-floor-condition-1-scope.md) | **Accepted CD-0021:** floor condition 1 means reach, not an operator authoring surface; planning happens through an agent session and cross-Product result sets stay excluded. |
 | [`decisions/CD-0022-active-research-finding-scope.md`](./decisions/CD-0022-active-research-finding-scope.md) | **Accepted CD-0022:** active research findings reuse durable knowledge’s applies-to scope vocabulary while keeping active context disposable and writerless. |
 | [`decisions/CD-0023-verdict-read-scope.md`](./decisions/CD-0023-verdict-read-scope.md) | **Accepted CD-0023:** recorded verdicts become readable, read-scoped results — every session except the recorded executing actor audits an acceptance; influence stays with CD-0013 D5. |
-| [`decisions/CD-0024-epic-agent-surface-and-ts9-exception.md`](./decisions/CD-0024-epic-agent-surface-and-ts9-exception.md) | **Accepted CD-0024:** Epic reachability ships as a fail-closed 3.0.0 agent-surface major under one narrow, explicit TS9 evidence exception. |
+| [`decisions/CD-0024-epic-agent-surface-and-ts9-exception.md`](./decisions/CD-0024-epic-agent-surface-and-ts9-exception.md) | **Accepted CD-0024, amended by CD-0041:** the fail-closed 3.0.0 Epic surface is legacy evidence; Initiative replaces it through a normal future major, and the one-time TS9 exception cannot recur. |
 | [`decisions/CD-0025-research-surface.md`](./decisions/CD-0025-research-surface.md) | **Accepted CD-0025:** research authoring on `concord_work_define` under a `research` capability, one read path on `concord_work_trace.research`, and engine-proven reliance — `workflow_action` declares bindings that bind consumers and fail closed on stale required revisions. |
 | [`decisions/CD-0026-learning-capture.md`](./decisions/CD-0026-learning-capture.md) | **Accepted CD-0026:** lessons publish through `concord_work_compact.lesson_publish` with operator approval into git and the manifest; promotion is explicit scope; reflections are tagged lessons; manifest records carry `evidence` paths the validator keeps honest as a structural drift audit. |
 | [`decisions/CD-0027-typed-restart-excluded.md`](./decisions/CD-0027-typed-restart-excluded.md) | **Accepted CD-0027:** typed restart after a boundary is deliberately excluded — CD-0016's per-call re-derived pinned continuity already prevents silent authority loss; restart would only preserve in-flight working memory, which the host owns. |
@@ -89,6 +94,7 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`decisions/CD-0038-per-operation-seconds-budgets.md`](./decisions/CD-0038-per-operation-seconds-budgets.md) | **Accepted CD-0038:** every operation declares a seconds-denominated ceiling in the manifest; unsupported requests refuse before effects and accepted budgets become one propagated deadline, never a silent clamp. |
 | [`decisions/CD-0039-attributed-native-run-outcomes.md`](./decisions/CD-0039-attributed-native-run-outcomes.md) | **Accepted CD-0039:** native-run outcomes are typed reports attributed to the authenticated trusted client; failed health plus rollback records durable status and returns a workflow-action partial without making Concord the native executor. |
 | [`decisions/CD-0040-verifiable-external-observations.md`](./decisions/CD-0040-verifiable-external-observations.md) | **Accepted CD-0040:** external observations share typed provenance and append-only verification; presence is broad, while absence and consequential use require pinned completeness/current proof. |
+| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | **Accepted CD-0041:** Product law and architectural concordance become Priority 1; canonical Domains own law and bind Product-changing work; concurrent Domain overlap requires version-pinned resolution; Initiative is secondary context; SQLite remains sole local authority. |
 | [`agent-lanes-contract.md`](./agent-lanes-contract.md) + [`agent-lanes.v1.json`](../contracts/agent-lanes.v1.json) + [`agent-lanes.schema.json`](../contracts/agent-lanes.schema.json) | **CD-0017 Phase 1:** generated closed lane registry, packet/report schemas, pinned models, budgets, lifecycle states, and evidence obligations. |
 | [`routing-policy-contract.md`](./routing-policy-contract.md) + [`routing-policy.v1.json`](../contracts/routing-policy.v1.json) + [`routing-policy.schema.json`](../contracts/routing-policy.schema.json) | **CD-0017 amendment:** generated capability-class resolution sets, pinned preferred-model cross-validation, declared fallback reasons, and digest-pinned routing evidence. |
 | [`workflow-engine-contract.md`](./workflow-engine-contract.md) + [`workflow-engine.v1.json`](../scenarios/workflow-engine.v1.json) + [`workflow-definition.schema.json`](../contracts/workflow-definition.schema.json) | **CD-0013 implementation contract, amended by CD-0016:** registry digest pinning, V15/V22 projections and folds, closed event payloads, outcome comparison, completion gate, conditions, impact notices, context continuity, dispatch, family graphs, strict schemas, and all 48 conformance carriers. |
@@ -105,8 +111,8 @@ Concord is a **Product-first, agent-native planning and coordination surface** f
 | [`compaction-retention-policy.md`](./compaction-retention-policy.md) | **Accepted PM7:** bounded lazy projection pruning, retained event authority, immutable pruned IDs, git-rebuildable historical index, and separate `archived_work_linked` follow-up events—not PM4 live relations. |
 | [`workflows.md`](./workflows.md) | Purpose-built workflow types. |
 | [`decisions/`](./decisions/) | Concord decision records (`CD-NNNN`) produced by architecture spikes. Binding until superseded. |
-| [`architecture-spike.md`](./architecture-spike.md) | The architecture-spike workflow type: Epic entries that decide rather than ship; binding decision records and supersession. |
-| [`product-data-model.md`](./product-data-model.md) | Product ownership and membership model, lifecycle stage, shared resources, and the replacement relation. |
+| [`architecture-spike.md`](./architecture-spike.md) | The architecture-spike workflow type: Initiative entries that decide rather than ship; binding decision records and supersession. |
+| [`product-data-model.md`](./product-data-model.md) | Product ownership, canonical Domain architecture, Initiative's secondary role, lifecycle stage, shared resources, and typed replacement homes. |
 | [`specs-as-laws.md`](./specs-as-laws.md) | Spec-law conflict surfacing and evolution. |
 | [`self-documentation.md`](./self-documentation.md) | Browsable specs and durable workflow docs. |
 | [`feature-inventory.md`](./feature-inventory.md) | Capability inventory and placement rubric. |
@@ -154,14 +160,20 @@ CD-0007 fixes the public repository, migration, governance, release/install,
 platform/privacy, workflow/conformance, and skill boundaries. CD-0010 fixes the
 pre-readiness development authority; Concord must not self-host its own development
 workflow before replacement readiness.
-CD-0012 gives Priority 2's *intent fidelity* and *no silent drift* attributes a mechanism,
+CD-0012 gives Priority 3's *intent fidelity* and *no silent drift* attributes a mechanism,
 extending CD-0006 D10's approved-mandate pattern from specs authorized for modification to
 end-state required for delivery: a delivered outcome weaker than the approved one fails,
 and work discovered mid-execution forward-links rather than substituting.
-CD-0016 gives Priority 3's continuity requirement a durable mechanism: bounded
+CD-0016 gives Priority 4's continuity requirement a durable mechanism: bounded
 workflow checkpoints and boundaries, pinned state derived from authority, and a
 canonical continuity read. Summary prose is never an authority source, and
 typed-agent restart remains unavailable until issue #120.
+CD-0041 makes Product law and architectural concordance Priority 1. It replaces
+opaque component authority with canonical Domains, binds Product-changing work
+to exact Domain/law footprints, requires version-pinned resolution for concurrent
+Domain overlap, demotes and renames Epic to Initiative, and retains CD-0002/
+CD-0011 SQLite authority. Its runtime mechanisms remain follow-up work; this
+constitutional record does not claim the floor is satisfied.
 The ordered decisions, current non-authorizing leans, evidence plans,
 dependencies, and decision artifacts live in
 [`clarifications.md`](./clarifications.md) under the Product-memory and minimal

@@ -11,6 +11,10 @@
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
 > tools, workflow/gate ceremony, PM8 WIP-byte exclusion, PM9 no-receipt boundary, PM10 recovery, or
 > external-system polling.
+> **Amended by CD-0041:** Initiative replaces Epic; new Initiative membership
+> uses the dedicated `includes`/entry projection rather than generic `parent`;
+> architecture-overlap resolutions extend the work-pair grammar in the next
+> normal major. Legacy Epic/parent records remain readable through upcasters.
 
 ## 1. Decision
 
@@ -38,16 +42,17 @@ summary flags to drift from truth. Accepted PM5 now supplies Q6 membership ident
 `blocked`, `ready`, `active`, and `terminal` are not lifecycle states. No independent
 `is_blocked`, `is_ready`, or `is_terminal` column exists.
 
-CD-0009 fixes two ordinary work-item kinds without adding lifecycle states:
+CD-0009 as amended by CD-0041 fixes two ordinary work-item kinds without adding
+lifecycle states:
 
-- `epic`: finite single-Product initiative; non-Epic child entries use `parent`,
-  retain independent workflows/recovery, and project bounded
-  `epic_entries(epic_work_id, child_work_id, position, required)` metadata;
+- `initiative`: finite single-Product business/outcome context; entries retain
+  independent workflows/recovery/architecture bindings and project bounded
+  `initiative_entries(initiative_work_id, child_work_id, position, required)` metadata;
 - `research`: independently trackable investigation that may conclude `no change`.
 
-New Epic entries default to `required=true`; optionality is explicit. An Epic cannot
+New Initiative entries default to `required=true`; optionality is explicit. An Initiative cannot
 complete while any required child or typed external condition remains nonterminal.
-Removing an entry atomically removes its `parent` edge/order metadata without
+Removing an entry atomically removes its Initiative entry relation/order metadata without
 cancelling the child. Embedded research is not another work item.
 
 ### 2.2 Allowed transitions
@@ -102,6 +107,12 @@ read names are part of the contract; callers never create mirrored rows.
 | `blocks`: A blocks B | B depends-on A (`blocked-by` display alias) | B is not ready while A is nonterminal | no self-edge, duplicate, or cycle |
 | `supersedes`: A supersedes B | B superseded-by A | A is B's canonical replacement | no self-edge, duplicate, cycle, or second direct successor for B |
 | `implements`: A implements B | B implemented-by A | A fulfills another work item | no self-edge or duplicate; no lifecycle effect |
+
+CD-0041 makes `parent` legacy for Initiative membership. The future canonical
+work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
+architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
+implementation issue must update this table, schemas, events, and conformance in
+one major rather than partially accepting new relation strings.
 
 `depends_on` is not a second stored relation kind. “A depends on B” is stored once
 as `B blocks A`. This removes mirrored-edge reconciliation and follows the relation

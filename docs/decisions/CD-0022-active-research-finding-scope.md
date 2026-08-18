@@ -7,6 +7,8 @@
 **Issue:** [#118](https://github.com/Sharper-Flow/concord/issues/118).
 **Depends on:** [#117](https://github.com/Sharper-Flow/concord/issues/117).
 **Preserves:** CD-0009 D7/D8, PM6, CD-0020, and C18.
+**Amended by:** CD-0041 replaces `component_ids` with `domain_ids` and makes
+Domain references validate against the Git-derived canonical Domain projection.
 
 ## Context
 
@@ -16,7 +18,7 @@ carries a closed scope tuple:
 
 ```text
 Scopes { mode: home | explicit,
-         product_ids, project_ids, component_ids, tag_ids }
+         product_ids, project_ids, domain_ids, tag_ids }
 ```
 
 `home` means no explicit IDs; `explicit` means exactly the declared scope. That
@@ -24,7 +26,7 @@ shape is validated and projected into typed lookup tables.
 
 Active research packs previously carried only `owner_work_id`. It recorded where a
 pack was found, but not what an individual finding applied to. A finding discovered
-while working on one component could not say that it applied to another component,
+while working in one Domain could not say that it applied to another Domain,
 a sibling Project, or a cross-cutting tag. Archive promotion therefore depended on
 memory at the exact point the pack was deleted.
 
@@ -35,7 +37,7 @@ of a writer. It does not make the inactive subsystem appear reachable.
 ## Decision
 
 **D1. Finding scope uses the durable knowledge vocabulary verbatim.** Every active
-research finding carries `mode`, `product_ids`, `project_ids`, `component_ids`, and
+research finding carries `mode`, `product_ids`, `project_ids`, `domain_ids`, and
 `tag_ids`. `home` carries no IDs. `explicit` carries one or more IDs. The finding,
 not the pack, owns applicability: one pack can yield conclusions for different
 contexts while the pack's owner remains its provenance.
@@ -46,11 +48,12 @@ document, with a closed-kind scope relation and cascade deletion. This matches t
 durable vocabulary without mechanically copying its four-table physical layout.
 
 **D3. Validation is structural where Concord has an authority.** Product and Project
-IDs are verified against their canonical tables in the mutation transaction. Component
-and tag IDs are bounded, clean, unique declared identifiers: Concord has no canonical
-component/tag registry, so treating them as known by an empty lookup would be an
-unvalidated join. The `home`-implies-no-IDs invariant is also enforced by a database
-trigger, not just mutation code.
+IDs are verified against their canonical projections in the mutation transaction.
+Domain IDs resolve through CD-0041's Git-derived Domain projection. Tag IDs remain
+bounded, clean, unique declared identifiers because Concord has no canonical tag
+registry; treating tags as known by an empty lookup would be an unvalidated join.
+The `home`-implies-no-IDs invariant is also enforced by a database trigger, not
+just mutation code.
 
 **D4. Scope copies with revision content.** A successor revision retains its
 findings' applies-to scope under #117's copy-forward rule. Later revision changes do
@@ -65,9 +68,10 @@ Pack scope would either over-broaden every finding or force one pack per context
 scope needs typed, independently queryable relations and direct cascade guarantees.
 A document would turn those into write-time conventions.
 
-**A component/tag lookup now.** No canonical registry exists. Adding one merely to
-validate this relation would create another authority before there is a demonstrated
-owner or writer.
+**A tag lookup now.** No canonical tag registry exists. Adding one merely to
+validate this relation would create another authority before there is a
+demonstrated owner or writer. CD-0041 later creates the Git-authoritative Domain
+registry, so Domain lookup is now required rather than rejected.
 
 **A research tool surface.** Rejected by operator direction. The schema does not
 imply a tool, writer, durable `research` knowledge kind, or retention change.

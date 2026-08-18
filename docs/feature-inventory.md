@@ -95,8 +95,10 @@ the old catalog only so evidence remains traceable.
   `adv_delta_modify`, `adv_delta_remove`, `adv_delta_rename`,
   `adv_delta_retract`, `adv_delta_show`.
 - Archive remains the sole global-spec writer.
-- **Why transfer:** the spec/delta model is the correctness substrate.
-  Unchanged.
+- **Why preserve the outcome:** accepted Product law is Concord's primary
+  deliverable. CD-0041 redesigns it around canonical Domain ownership,
+  architecture-bound work, concurrent-overlap resolution, and Git-only law
+  authority; predecessor tool identity does not transfer.
 
 ### 1.4 Contract system
 - `adv_contract_mint`, `adv_contract_review_matrix_set`.
@@ -185,18 +187,18 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
 - **Bucket call:** predecessor failure evidence, not a projection implementation
   plan.
 
-### 2.3 Epics under the Product entity
+### 2.3 Initiative context under the Product entity
 - **Today:** `adv_epic_create` (scope_kind repo/product), `adv_epic_add_shell`,
   `adv_epic_promote_shell`, `adv_epic_link_change`, `adv_epic_move_change`,
   `adv_epic_list`, `adv_epic_show`, `adv_epic_reorder`, `adv_epic_retire`,
   `adv_epic_unlink_change`, `adv_epic_update`. Initiative-grouping containers.
-- **Concord:** promote the *Product* concept to first-class — a Product groups
-  multiple repos + external systems (azure jobs, ops MCP servers) into one
-  navigable instance; CD-0009 fixes an Epic as a Product-scoped canonical work item
-  with child `parent` edges and a bounded order projection.
-- **Bucket call:** Refactor/Extend — builds directly on the Epic primitive and
-  its scope_repos/scope_kind machinery. This is the *largest* refactor and the
-  one most likely to spawn net-new sub-capabilities (see §3.1, §3.4).
+- **Concord:** CD-0041 replaces Epic with Product-scoped Initiative through a
+  bounded major migration. Narrative, ordering, requiredness, and independent
+  entry lifecycles remain; Initiative is secondary business/outcome context and
+  owns no architecture or law authority.
+- **Bucket call:** Refactor/Extend — preserve the initiative-framing outcome,
+  discard predecessor hierarchy as architecture, and rebuild entries over
+  Domain-bound work (see §3.1, §3.4, §3.20, §3.21).
 
 ### 2.4 Ops runbooks decoupled from change
 - **Today:** `adv_ops_run_upsert`, `adv_ops_run_evidence_add`,
@@ -263,32 +265,34 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
 Capabilities with no complete Advance precedent. Built fresh on the accepted
 Concord core/domain model. The list
 is the inventory; the full model for each lives in the doc linked in its
-*Where detailed* column. Sections §3.1, §3.13a, §3.18, §3.19 retain their full
+*Where detailed* column. Sections §3.1, §3.13a, §3.18–§3.21 retain their full
 descriptions because they are referenced from elsewhere in the docset.
 
 | # | Capability | One-line summary | Where detailed |
 |---|---|---|---|
-| 3.1 | Product entity (first-class) + ownership data model | Durable Product that declaratively owns repos/infra/SaaS — no bridges, no API calls. Product → component navigation. | [`product-data-model.md`](./product-data-model.md) |
+| 3.1 | Product entity (first-class) + ownership data model | Durable Product that declaratively owns Domains, Projects, and managed resources — no bridges or external API authority. Product → Domain navigation. | [`product-data-model.md`](./product-data-model.md) |
 | 3.2 | Fast read-path / portfolio dashboard | Sub-100ms cross-Product read layer (Go) over the materialised state + external signals. | [`core-architecture.md`](./core-architecture.md) §1 |
 | 3.3 | External-signal ingestion | Pull azure/cron/health/MCP outputs into Product view as **opaque read-only signals** (not ADV-authored state). | [`product-data-model.md`](./product-data-model.md) §3.3 |
 | 3.4 | Cross-Product scoped read | Reads one global local authority through explicit Product/Project scope; no per-repo fan-out or identity reconciliation. | [`product-memory-authority-scope.md`](./product-memory-authority-scope.md), [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) |
 | 3.5 | Standalone ops runbook host | Container for ops runs not tied to a change. (Runbook *shape* is Refactor; the *host* is New.) | [`workflows.md`](./workflows.md) §4 |
 | 3.6 | Research trackable (Option B only) | **Rejected by CD-0009:** active packs are outputs/context owned by ordinary work, not a peer entity. | [`workflows.md`](./workflows.md) §4 |
 | 3.7 | Portfolio-review tooling + cadence | "What should I work on across everything" with a periodic portfolio-review cadence, Product-scoped (per-repo `/adv-triage` and `/adv-cleanup` Transfer). | — |
-| 3.8 | Product wishlist | Attach wishlist items directly to a Product entity (distinct from repo-scoped backlog and Epic-scoped initiatives). | [`product-data-model.md`](./product-data-model.md) |
+| 3.8 | Product wishlist | Attach wishlist items directly to a Product entity (distinct from repo-scoped backlog and Initiative context). | [`product-data-model.md`](./product-data-model.md) |
 | 3.9 | Infra status tracking | Tracked surface over §3.3 signal ingestion; presents azure/cron/health/ops status within a Product. | [`product-data-model.md`](./product-data-model.md) |
 | 3.10 | Admin panel (lightweight grid/table projection) | Optional human-facing projection over the fast read-path; **not** the primary operator surface (terminal launcher is). ZLauncher stays the session bootstrap layer. | [`design-constraints.md`](./design-constraints.md) §5 |
 | 3.11 | Work-type taxonomy / phase-spanning work | First-class handling of idea/bug/optimization/research/ops work spanning phases; each may mature into the 7-gate lifecycle when ready. | [`workflows.md`](./workflows.md) |
-| 3.12 | Spec & document browse surface (self-documentation) | Navigable Product → component browse surface over spec law and durable workflow docs. | [`self-documentation.md`](./self-documentation.md) |
+| 3.12 | Spec & document browse surface (self-documentation) | Navigable Product → Domain browse surface over current Product law, evidence, and durable workflow docs. | [`self-documentation.md`](./self-documentation.md) |
 | 3.13 | Workflow-type system (plurality of workflows) | Registry of purpose-built workflow types — implementation change, research/investigation, static-analysis variants, ops runbooks, break-fix, db/config/infra. | [`workflows.md`](./workflows.md) |
-| 3.13a | Architecture spike workflow type | Decide-rather-than-ship Epic entry that **binds downstream until superseded** via a typed decision record and `supersedes`/`superseded_by` chain. | [`architecture-spike.md`](./architecture-spike.md) |
+| 3.13a | Architecture spike workflow type | Decide-rather-than-ship Initiative entry that **binds downstream until superseded** via a typed decision record and `supersedes`/`superseded_by` chain. | [`architecture-spike.md`](./architecture-spike.md) |
 | 3.14 | Capability-placement rubric (optimal shape) | Rubric for placing each capability by shape; **kept dynamic** as tooling evolves. | [`capability-placement.md`](./capability-placement.md) |
 | 3.15 | Cross-project GitHub-issue integration | Native cross-project GH-issue create/update — bugs canonical in GH, not in `target_path` ADV backlog. | [`design-constraints.md`](./design-constraints.md) §13 |
-| 3.16 | One-sentence value statement invariant | Every Epic and change carries `If this succeeds, what concrete product capability or risk is changed?` | [`workflows.md`](./workflows.md) §2.1 |
+| 3.16 | One-sentence value statement invariant | Every Initiative and work item carries `If this succeeds, what concrete product capability or risk is changed?` | [`workflows.md`](./workflows.md) §2.1 |
 | 3.16a | Outcome contract (goal bound to delivery) | Three-part premise / required end-state / candidate set, approved at planning and verified at completion; a weaker delivered end-state fails. | [`workflows.md`](./workflows.md) §2.1a; CD-0012 |
-| 3.17 | Lifecycle stage + proportional-rigor governance | Independent `maturity` + user-declared `audience_commitment` bands at Product/repo/resource; global evidence floor with upward-only local overrides. | [`product-data-model.md`](./product-data-model.md) §8; CD-0006 |
+| 3.17 | Lifecycle stage + proportional-rigor governance | Independent `maturity` + user-declared `audience_commitment` bands at Product/Domain/Project/resource; global evidence floor with upward-only local overrides. | [`product-data-model.md`](./product-data-model.md) §8; CD-0006 |
 | 3.18 | Managed-resource inventory with cross-Product linking | First-class declarative identity for shared infra/SaaS — underneath §3.3 (live status) and §3.9 (presented surface). | [`product-data-model.md`](./product-data-model.md) §9 |
-| 3.19 | Replacement relation | Typed directional stateful relation (product↔product, repo↔repo, resource↔resource, workflow-type↔workflow-type) with `declared → building → coexisting → cutover → retired`. | [`product-data-model.md`](./product-data-model.md) §10 |
+| 3.19 | Replacement relation | Typed directional stateful relation with endpoint-owned persistence; CD-0041 fixes Domain↔Domain and C15 fixes resource↔resource while other endpoint homes remain open. | [`product-data-model.md`](./product-data-model.md) §10 |
+| 3.20 | Canonical Domain architecture | Stable Product-internal Domain identity, hierarchy, law ownership, and endpoint-specific `depends_on` / shared-contract / replacement relations. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D2–D4 |
+| 3.21 | Concurrent architecture-overlap control | Product-changing contracts declare Domain/law footprints; unresolved overlap blocks consequential authority until a version-pinned operator resolution exists. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D5–D7 |
 
 ### 3.1 Product entity (first-class) + ownership data model
 - A durable `Product` type that **declaratively owns its members**: repositories,
@@ -296,21 +300,21 @@ descriptions because they are referenced from elsewhere in the docset.
   (Supabase, PostHog, …). Concord records *what they are* and *which Product owns
   them* — it does **not** bridge to them or call their APIs. Full model in
   [`product-data-model.md`](./product-data-model.md).
-- Product knowledge is navigated **Product → component**, with workflows and changes
-  as linked history from each component.
-- **Why new:** Epics group *initiatives* (changes/shells); `scope_repos` is
+- Product knowledge is navigated **Product → Domain**, with current law and
+  architecture-bound work together.
+- **Why new:** predecessor Epics group initiatives; `scope_repos` is
   per-*change*; nothing today is a durable cross-repo+external-system *product*
   identity that records ownership and that a dashboard pivots on.
-- **Builds on:** Epic scope_kind/scope_repos machinery (§2.3), `target_path`
-  cross-project tools.
+- **Builds on:** Product/Project scope evidence, not predecessor hierarchy or
+  cross-project ambient-path mutation.
 
 ### 3.13a Architecture spike workflow type
-- A registered workflow type, peer to the implementation change, for Epic entries
+- A registered workflow type, peer to the implementation change, for Initiative entries
   that **decide rather than ship**: frame question → research → options with
   evidence → optional throwaway POC → decision record → reviewer → user
   acceptance. Flat (has tasks, no sub-spikes), no timebox, and its POC code never
   merges to a product repo.
-- The output is a **binding decision record** that constrains downstream Epic
+- The output is a **binding decision record** that constrains downstream Initiative
   entries **until superseded** — contradiction surfaces as a conflict (reusing the
   §2.8 spec-conflict flow), not as silent divergence. Decisions form a
   `supersedes`/`superseded_by` chain that is the Product's architectural history.
@@ -360,7 +364,7 @@ descriptions because they are referenced from elsewhere in the docset.
 | **New** | Product memory, lifecycle/ownership semantics, workflow plurality, and self-documentation have no complete Advance precedent. | New outcomes still do not automatically earn tools. |
 
 **Headline:** this is a **capability-evidence map, not a port or tool plan**. The
-net-new cluster spans six
+net-new cluster spans seven
 themes: (a) the Product concept + fast read-path (§3.1–§3.4, §3.7); (b) the
 **product-facing surfaces** — wishlist, infra status, admin panel projection
 (§3.8–§3.10); (c) the **all-phase work model** — a work-type taxonomy for
@@ -370,7 +374,8 @@ shape discipline** — purpose-built workflow types (§3.13), the
 capability-placement rubric (§3.14), and the value-statement invariant (§3.16);
 (f) **ownership semantics** — lifecycle stage governing proportional rigor
 (§3.17), a shareable managed-resource inventory (§3.18), and replacement as a
-first-class relation (§3.19).
+first-class relation (§3.19); and (g) **Product-law architecture** — canonical
+Domains plus concurrent architecture-overlap control (§3.20–§3.21).
 The hard *constraints* governing how these outcomes are rebuilt (no-locks/no-repair,
 workflow-evolution, agent-buildable UI) live in
 [`design-constraints.md`](./design-constraints.md).
@@ -381,7 +386,7 @@ workflow-evolution, agent-buildable UI) live in
 
 | Capability | Call | Why it's not the other bucket |
 |---|---|---|
-| Epics → Product (§2.3) | Refactor/Extend | Builds directly on Epic + scope_repos; not greenfield. But spawns New sub-caps (§3.1, §3.4). |
+| Initiative context under Product (§2.3) | Refactor/Extend | Preserves narrative/order/requiredness while CD-0041 removes Epic hierarchy from architecture and binds entries to Domains. |
 | Product aggregation extension in §2.1 | Refactor (shades New) | Reuses the aggregator; the Product pivot is the New-flavored part. Kept in Refactor to avoid double-counting with §3.1. |
 | Ops runbook shape vs host (§2.4 / §3.5) | Split | Shape = Refactor (reuse primitives); host = New (no precedent). Deliberate split. |
 | Research trackable (§2.5 / §3.6) | Refactor | CD-0009 accepts Option A: ordinary work item plus active pack output; no peer entity. |
@@ -392,8 +397,9 @@ workflow-evolution, agent-buildable UI) live in
 
 ## 6. Open questions specific to this inventory
 
-1. **Epic shape — resolved by CD-0009.** An Epic is a Product-scoped canonical work
-   item (`kind=epic`), not another Product or table-level authority.
+1. **Initiative shape — resolved by CD-0041 amending CD-0009.** Initiative is a
+   Product-scoped canonical work item and secondary business/outcome view over
+   Domain-bound entries, not another Product or architecture authority.
 2. **Is the fast read-path inside ADV or a separate tool?** (§3.2, [`clarifications.md`](./clarifications.md) C1 and [`rollout-plan.md`](./rollout-plan.md)) Inside-ADV keeps one source of truth + agent-native mutations;
    separate keeps the orchestrator untouched. Phase 2 design.
 3. **Research trackable — resolved by CD-0009:** Option A.

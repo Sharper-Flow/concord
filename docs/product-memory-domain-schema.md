@@ -7,6 +7,9 @@
 > **Research basis:** Exa-discovered/public source models (Plane, Bugzilla, Beads, Fossil, Linear public model), official SQLite/Context7 docs, and accepted Concord Product invariants. No benchmark or PoC is part of this decision.
 > **Supersedes narrowly:** CD-0003 D1's generic `entities` materialized spine;
 > CD-0003 D2/D3 and the generic authoritative event log remain binding.
+> **Amended by CD-0041:** `domains` replace `components` as canonical
+> Product-internal architecture; `initiative` replaces new `epic` writes; typed
+> architecture relation families and bounded compatibility upcasters are required.
 
 ## 1. Decision
 
@@ -29,8 +32,8 @@ PM4/PM5/C15 semantics (now settled separately).
 |---|---|---|---|
 | `products` | first-class typed projection | Q1/Q2 Product root | Product-row fields beyond stable identity/stage (C14) |
 | `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3/Q6 scope | repo/deploy packaging, Project kind details |
-| `components` | first-class Product-owned grouping | Q3/Q9 component filter; primary navigation | component hierarchy depth/ownership details |
-| `work_items` | one canonical typed work projection; extensible `kind`; rare metadata JSON; CD-0009 fixes `epic` and `research` as ordinary kinds | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope |
+| `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite owns separate local stage/Project/resource attachments | Q3/Q9 Domain filter; Product → Domain primary navigation | CD-0041 follow-up implements D2–D4 and legacy component upcasting |
+| `work_items` | one canonical typed work projection; extensible `kind`; rare metadata JSON; CD-0041 amends CD-0009 so `initiative` and `research` are ordinary kinds | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; legacy Epic events upcast |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
 | Work↔Project membership | typed relational edge; no copied status | Q6 both directions | PM5: role-only, optional singular primary, derived Product scope |
 | `relations` | typed edge structure with real FK endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
@@ -44,7 +47,7 @@ PM4/PM5/C15 semantics (now settled separately).
 ### Minimum typed fields
 
 A field is typed/indexed when it is a stable identity, foreign key, invariant, PM1
-filter/order key, or frequent join. At minimum this includes IDs, Product/Component
+filter/order key, or frequent join. At minimum this includes IDs, Product/Domain
 ownership, work kind, lifecycle projection, priority, terminal time, versions, and
 relation/membership endpoints. PM4/PM5 supply semantics; exact columns follow
 implementation design.
@@ -103,7 +106,7 @@ one deterministic event fold owns all projections.
 | JSON field becomes a repeated PM1 filter | promote to typed/generated indexed projection field |
 | New work kind | discriminator/registry + typed handler; no new core table |
 | Category/tag | labels + join table |
-| Domain relation | real typed edge table with FK endpoints; generic event headers are not domain relations |
+| Endpoint-specific relation family | dedicated typed table/columns with FK endpoints and closed kind rules; generic event headers are not architecture relations |
 | External system reference | opaque `external_refs`; external object is not Concord authority |
 
 **Forbidden:** EAV core, JSON-everything, unbounded JSON scans, table-per-work-kind,

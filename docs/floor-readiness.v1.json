@@ -8,12 +8,12 @@
     {
       "id": "fc1",
       "ordinal": 1,
-      "title": "The operator can see, plan, and act across the full Product scope from the launcher."
+      "title": "The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context."
     },
     {
       "id": "fc2",
       "ordinal": 2,
-      "title": "Agents can read, write, and execute within that Product context through tools."
+      "title": "Agents can read, write, and execute within that Product and Domain context through tools."
     },
     {
       "id": "fc3",
@@ -23,12 +23,12 @@
     {
       "id": "fc4",
       "ordinal": 4,
-      "title": "Required authority/freshness is explicit and CD-0006 R3's accepted cross-workflow impact policy is enforced."
+      "title": "Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority."
     },
     {
       "id": "fc5",
       "ordinal": 5,
-      "title": "Concord-owned data and workflow boundaries satisfy Priority 1 (no locks, no hand-repair, safe evolution)."
+      "title": "Concord-owned data and workflow boundaries satisfy Priority 2 (no locks, no hand-repair, safe evolution)."
     },
     {
       "id": "fc6",
@@ -92,6 +92,14 @@
         "docs/terminal-launcher-contract.md",
         "internal/launcher/model.go"
       ]
+    },
+    {
+      "id": "fc1-domain-navigation",
+      "condition": "fc1",
+      "title": "Product detail is navigated through canonical Domains",
+      "requirement": "The launcher opens Product detail through a bounded Domain hierarchy and shows current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap before subordinate work or Initiative views.",
+      "state": "outstanding",
+      "issue": 197
     },
     {
       "id": "fc2-read-tools",
@@ -172,6 +180,22 @@
       "issue": 165
     },
     {
+      "id": "fc2-domain-authority",
+      "condition": "fc2",
+      "title": "Agents resolve and address canonical Domain identity",
+      "requirement": "Agent reads and mutations resolve the Product Git home's canonical Domain registry, law homes, and typed local attachments without accepting legacy component identity as new authority.",
+      "state": "outstanding",
+      "issue": 193
+    },
+    {
+      "id": "fc2-domain-read-surface",
+      "condition": "fc2",
+      "title": "Agents can read complete bounded Domain context",
+      "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
+      "state": "outstanding",
+      "issue": 197
+    },
+    {
       "id": "fc3-workflow-types",
       "condition": "fc3",
       "title": "Purpose-built workflow types exist for every supported work kind",
@@ -245,6 +269,22 @@
       ]
     },
     {
+      "id": "fc3-product-truth-classification",
+      "condition": "fc3",
+      "title": "Every workflow type declares whether it changes Product truth",
+      "requirement": "The workflow registry structurally classifies every definition with `changes_product_truth`; Product-changing contracts require a complete architecture binding, while non-Product-changing and generic work cannot write Product law or architecture.",
+      "state": "outstanding",
+      "issue": 194
+    },
+    {
+      "id": "fc3-initiative-migration",
+      "condition": "fc3",
+      "title": "Initiative replaces Epic without gaining architecture authority",
+      "requirement": "Initiative preserves narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles through a normal major migration while remaining secondary to each entry's Domain/law contract.",
+      "state": "outstanding",
+      "issue": 196
+    },
+    {
       "id": "fc3-external-systems-retain-authority",
       "condition": "fc3",
       "title": "External systems retain authority for their own execution and enforcement",
@@ -306,6 +346,14 @@
       ]
     },
     {
+      "id": "fc4-domain-overlap",
+      "condition": "fc4",
+      "title": "Concurrent Domain overlap blocks until explicitly resolved",
+      "requirement": "Two nonterminal Product-changing contracts with intersecting affected Domains cannot both hold execution authority without a current operator-approved resolution pinned to both contract versions, and every consequential mutation revalidates it transactionally.",
+      "state": "outstanding",
+      "issue": 195
+    },
+    {
       "id": "fc5-append-only-authority",
       "condition": "fc5",
       "title": "One append-only event log is the sole state authority",
@@ -337,6 +385,14 @@
       "evidence": [
         "internal/store/inflight_evolution_test.go"
       ]
+    },
+    {
+      "id": "fc5-domain-migration",
+      "condition": "fc5",
+      "title": "Domain and law-home migration preserves authority and rebuilds",
+      "requirement": "Legacy component/Epic manifests, notes, events, and projections migrate to Domain/Initiative vocabulary through deterministic upcasters without rewriting history, introducing a second authority, or regressing backup, restore, rebuild, or concurrent-write conformance.",
+      "state": "outstanding",
+      "issue": 193
     },
     {
       "id": "fc6-predecessor-surface-enumeration",

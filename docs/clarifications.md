@@ -18,12 +18,15 @@ Two ordered, build-authorizing backlogs now govern the foundation:
 - **PM1–PM10:** Product-memory and per-store decisions.
 - **TS1–TS9:** minimal agent tool-surface decisions.
 
-**PM1–PM10, TS1–TS9, C7, C14, C15, and CD-0006 through CD-0009 are accepted.**
+**PM1–PM10, TS1–TS9, C7, C14, C15, and CD-0006 through CD-0041 are accepted.**
 Storage/core and agent-adapter/tool acceptance slices may begin once the implementation
 repo/package is chosen and separately authorized; release remains subject to TS9.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
-mechanics; CD-0009 fixes Epic/research work identity and active-pack retention. Open
+mechanics; CD-0009 fixes Initiative/research work identity and active-pack
+retention as amended by CD-0041. CD-0041 makes Product law and architectural
+concordance Priority 1, replaces opaque component authority with canonical
+Domains, and makes Initiative secondary business/outcome context. Open
 clarifications remain open; acceptance of these records does not close C8–C10,
 C20, or other explicitly deferred questions.
 
@@ -71,7 +74,7 @@ re-litigate them silently.
   decisions happen inside the selected Product/workflow.
 
 ### R2. Cross-workflow impact propagation / freshness
-- **Problem:** one workflow may change a shared spec, dependency, component, or
+- **Problem:** one workflow may change shared law, a Domain relation, dependency, or
   resource assumption used by another workflow. The downstream agent must see and
   classify that impact before consequential work.
 - **Decision (2026-08-06):** accepted by CD-0006 R3. Work declares `modifies` and
@@ -80,6 +83,10 @@ re-litigate them silently.
   breaking change blocks. Version stamps are the deterministic fallback.
 - **Constraint:** no polling, timers, automatic downstream rewrites, or heuristic
   blockers. Heuristics may suggest edges but cannot authorize them.
+- **Amended by CD-0041:** Product-changing contracts declare one home Domain,
+  all affected Domains, exact law revisions, and authorized writes. Intersecting
+  affected Domains require an operator-approved resolution pinned to both
+  contract versions before both items hold execution authority.
 
 ### R3. Factored lifecycle truth
 - **Direction:** Each workflow's designated durable orchestrator owns its single
@@ -90,12 +97,13 @@ re-litigate them silently.
   the architecture chaos-proof by design.
 - **Effect:** recorded in `workflows.md` §2.2 and `self-documentation.md` §1.3.
 
-### R4. Product → component primary navigation
-- **Direction:** Durable product knowledge is navigated **Product → component**.
-  Workflows and changes are linked history from the component view, not the
+### R4. Product → Domain primary navigation
+- **Direction, amended by CD-0041:** Durable Product knowledge is navigated
+  **Product → Domain**. Workflows and changes are architecture-bound history from
+  the Domain view, not the
   top-level browse path.
-- **Why:** enforces locality of behavior (P04) and makes ownership obvious at a
-  glance.
+- **Why:** enforces locality of behavior (P04) and makes architecture, law, and
+  ownership obvious at a glance. Initiative remains a secondary overlay.
 - **Effect:** recorded in `product-data-model.md` §6, `self-documentation.md` §1.1,
   and `workflows.md` §2.5.
 
@@ -228,8 +236,8 @@ re-litigate them silently.
 ### C17. What does the Product coordination drill-down render?
 - **Question:** After a Product row is selected, what does the coordination detail
   show for dependencies, blockage, and next work? (`product-row-contract.md` §1,
-  `priorities.md` §4)
-- **Why:** Priority 4 requires that dependencies and sequences are visible before
+  `priorities.md` §5)
+- **Why:** Priority 5 requires that dependencies and sequences are visible before
   they become blockers, and that the operator sees what is ready, what is blocked,
   and what is next. Accepted C14 deliberately answers none of this: the row is an
   orientation projection with one focus item and explicitly excludes the raw blocker
@@ -260,7 +268,7 @@ re-litigate them silently.
   container to the launcher.
 - **Operator direction (2026-08-09):** the launcher exists to see status and resume
    work in the OpenCode TUI. It performs no durable write. Durable knowledge belongs to
-   its owning Product, Project, Epic, or change rather than to a global browse surface,
+   its owning Product, Domain, Project, Initiative, or work item rather than to a global browse surface,
    and its section uses the shipped resolver once launcher wiring is implemented.
 - **Accepted by CD-0014 (2026-08-10):** three closed screens (portfolio, Product, work) with
   knowledge as a scoped section rather than a screen; stack navigation; ambient context
@@ -400,7 +408,7 @@ re-litigate them silently.
 - **Why:** lifecycle stage is only useful once it resolves to a concrete evidence
   bar. Until then, stage is declared but inert.
 - **Decision (CD-0006):** independent maturity and user-declared audience-commitment
-  obligation bands. Concord defines a global floor; Product/component/resource
+  obligation bands. Concord defines a global floor; Product/Domain/resource
   policy may only strengthen it. Audience commitment is independent of repository/
   deployment visibility and replaces reachability-style `exposure` semantics.
 - **Decision (CD-0006 R2):** all work carries stated purpose/owner, at least one
@@ -508,6 +516,10 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > replaces CD-0003 D1's generic materialized spine with explicit typed Product-memory
 > projections, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
 > C15 and TS1–TS9 are now accepted separately.
+> **Amended by CD-0041:** component is not a lasting first-class projection.
+> Follow-up implementation migrates stable component identities one-for-one into
+> canonical Domains and adds endpoint-specific Domain relations; historical PM3
+> evidence remains intact.
 | **PM4 ✅ Accepted 2026-08-05** Work lifecycle + relation semantics. *Binding:* [`product-memory-lifecycle-relations.md`](./product-memory-lifecycle-relations.md). | Five stored states: `needed`, `in_progress`, `completed`, `cancelled`, `superseded`. Blocked/ready/active/terminal are derived. Store `parent`, `blocks`, `supersedes`, and `implements`; depends-on/blocked-by are inverse reads. Supersession is one atomic edge + terminal transition. | Local predecessor mapping + official/public Linear/Jira/Bugzilla/GitHub/Plane/Fossil models. Reopen on bounded-query failure, legitimate soft/hard dependency need, external-blocker model failure, multi-successor need, non-work implements targets, frequent superseded reopen, or a new accepted PM1 job. | PM3 → **PM4 lifecycle/relation + PM5 input**, operator-approved. |
 > **PM4 is accepted and binding.** It fixes lifecycle, derived status, relation
 > direction/inverses, graph validation, reopen, supersession, and external-blocker

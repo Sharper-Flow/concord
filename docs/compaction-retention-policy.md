@@ -10,6 +10,9 @@
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, agent tools, or exact maintenance thresholds.
+> **Amended by CD-0041:** historical scope uses `domain_ids` and
+> `archived_work_domains`; legacy component scope upcasts during the bounded
+> migration.
 
 ## 1. Proposed decision
 
@@ -102,14 +105,14 @@ priority
 summary                   # bounded value/outcome summary
 product_ids[]             # scope at compaction
 project_ids[]             # memberships at compaction
-component_ids[]
+domain_ids[]
 tag_ids[]
 successor_work_id?        # required when terminal_state=superseded
 ```
 
 These values live in bounded PM6 front matter and normalize into disposable
 `archived_work`, `archived_work_products`, `archived_work_projects`,
-`archived_work_components`, and `archived_work_tags` projections. They describe the
+`archived_work_domains`, and `archived_work_tags` projections. They describe the
 historical scope at compaction; later Product/Project membership moves do not rewrite
 the canonical note.
 
@@ -131,7 +134,7 @@ not a second live relation authority.
 
 - Product/project terminal counts and listings union live terminal projections with
   historical projections, deduplicated by work ID before count/order/pagination.
-- Historical filters use compacted Product/Project/component/tag associations.
+- Historical filters use compacted Product/Project/Domain/tag associations.
 - Lifecycle state comes from `terminal_state`; terminal time from `completed_at`.
 - `COUNT(DISTINCT work_id)` remains mandatory across the combined population.
 - The combined answer is `authority=authoritative` only when the live event/projection

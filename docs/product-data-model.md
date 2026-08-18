@@ -1,30 +1,38 @@
 # Concord Product Data Model
 
-> **Status:** Aligned v3. Companion to [`README.md`](./README.md),
+> **Status:** Aligned v4 under CD-0041. Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`design-constraints.md`](./design-constraints.md),
 > [`self-documentation.md`](./self-documentation.md),
 > [`workflows.md`](./workflows.md).
-> **Purpose:** The canonical model of *what a Product owns* and *how that
-> ownership is recorded* — the heart of Concord's product-mindset.
-> **Primary navigation:** Durable product knowledge is navigated by
-> **Product → component**, with workflows and changes as linked history.
+> **Purpose:** The canonical model of *what a Product owns*, *what architecture
+> governs it*, and *how that authority is recorded*.
+> **Primary navigation:** Durable Product knowledge is navigated by
+> **Product → Domain**, with current law and architecture-bound work together.
 > **Origin:** User direction, 2026-07-25. Lifecycle stage (§8), shared resources
 > (§9), and the replacement relation (§10) added by user direction, 2026-07-31;
-> resource-first C15 shape accepted 2026-08-06.
+> resource-first C15 shape accepted 2026-08-06; Domain and Initiative shape
+> accepted by CD-0041 on 2026-08-18.
 
 ## TL;DR
 
-A Product **declaratively owns or consumes** repositories, infrastructure, SaaS
-solutions, and **components**. Concord records canonical identity plus ownership/use
-links—it does **not** bridge to them or call their APIs. The model makes "what owns
-what" legible to agents and obeys strict locality of behavior.
+A Product **declaratively owns or consumes** Projects, infrastructure, SaaS
+solutions, and **Domains**. A Domain is the canonical Product-internal
+architectural unit that owns behavior, invariants, and law. Concord records
+canonical identity plus ownership/use links—it does **not** bridge to external
+members or call their APIs. The model makes both ownership and architecture
+legible to agents.
 
 Ownership alone is not enough to act safely. Each owned thing also declares a
 **lifecycle stage** (§8), may be **shared with other Products** (§9), and may
 stand in a **replacement relation** to something it succeeds (§10). Those three
 compose into the rules that decide how much rigor a piece of work must carry
 (§11).
+
+Product-changing work additionally binds to one home Domain, every affected
+Domain, exact governing law revisions, authorized law changes, and verification
+obligations. Initiative supplies business/outcome context only; it never owns
+architecture or law.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -46,9 +54,11 @@ follows them without restating the ranked list.
 
 ---
 
-## 2. Member types
+## 2. Member and architecture types
 
-A Product owns durable members. Three are physical; one is a grouping lens.
+A Product owns durable members and one canonical architecture. Projects and
+managed resources identify physical or external scope. Domains identify the
+Product-internal architecture through which law and work are organized.
 
 ### 2.1 Repositories
 - Git repos are locators on stable Project identities (e.g. `alpha-web`,
@@ -71,22 +81,35 @@ A Product owns durable members. Three are physical; one is a grouping lens.
 - Concord knows *"Alpha uses Supabase for its DB and PostHog for analytics"*
   as a **fact** — not by querying them.
 
-### 2.4 Components (grouping lens)
-- A **component** is a Product-internal grouping: a repo, a service, a
-  capability, or a domain module that an agent reasons about as a unit.
-- Components are **not necessarily new physical members**; they are the primary
-  navigation path for durable product knowledge.
-- Example: "Alpha → Sync Engine → cron jobs, sync-ops integration, `alpha-sync` repo."
-- Components are where specs, active workflows, wishlist items, and recent
-  changes are surfaced together.
+### 2.4 Domains (architecture authority)
+- A **Domain** is a stable Product-internal architectural identity: a capability,
+  subsystem, service, or cross-cutting concern that owns behavior, invariants,
+  and architectural contracts.
+- Every Domain belongs to exactly one Product. It may refer to Projects and
+  managed resources without becoming either one.
+- Domain identity, hierarchy, and architecture relations are declared in the
+  Product's Git knowledge manifest. SQLite projects that law and owns only local
+  stage/Project/resource attachments. Neither side infers identity from paths,
+  tags, repository names, or Initiative membership.
+- A Domain may have zero or one parent Domain. The `subdomain_of` hierarchy is
+  acyclic; additional architecture relations follow CD-0041's endpoint-specific
+  grammar.
+- Example: "Alpha → Sync Domain → accepted sync law, active changes, cron
+  resource, sync API dependency, and `alpha-sync` Project."
+- Domains are where current law, active workflows, evidence, decisions,
+  resources, and recent changes are surfaced together.
+
+`component` is a retired authority term. It may appear in historical records or
+ordinary UI prose during migration, but no second component identity or generic
+grouping store survives the CD-0041 target state.
 
 ---
 
 ## 3. Locality of behavior (P04, reinforced for Concord)
 
 - Everything a Product owns is **co-located and navigable together**. An agent
-  working on a Product immediately sees: its repos, its infra, its SaaS deps,
-  its components, its changes, its wishlist, its ops.
+  working on a Product immediately sees its Domains and, through them, current
+  law, Projects, managed resources, active work, evidence, initiatives, and ops.
 - *"Where things belong"* must be **obvious** — no hunting across disconnected
   systems to learn what a Product comprises.
 - This is a **first-class design goal**, not a nice-to-have. The data model
@@ -99,8 +122,8 @@ A Product owns durable members. Three are physical; one is a grouping lens.
 
 Both query directions are first-class:
 
-- **Product → members:** *"What does Alpha own?"* → its repos, infra, SaaS,
-  components, changes, wishlist, ops.
+- **Product → members:** *"What does Alpha own?"* → its Domains, Projects,
+  resources, current law, active work, initiatives, and ops.
 - **Member → Product:** *"Which Product owns this azure job / repo / SaaS?"* →
   Alpha.
 
@@ -123,10 +146,14 @@ Product {
   resource_links: [
     { resource_id, role: owner|consumer, purpose, environments },
   ],                                    // accepted C15 membership
-  components: [
-    { id, name, member_refs, spec_refs, active_workflows, recent_changes, stage? }
+  domains: [
+    { id, name, purpose, parent_domain_id?, status, registry_content_hash,
+      project_links: [{ project_id, role: primary|supporting }],
+      resource_links: [{ resource_id, purpose, environments }],
+      current_law_refs, active_workflows, recent_changes, stage_override? }
   ],
-  ...wishlist, ops, epics scoped to this Product
+  domain_relations,
+  ...wishlist, ops, initiatives scoped to this Product
 }
 
 ManagedResource {
@@ -140,27 +167,30 @@ ManagedResource {
 non-Project resources attach and resource replacement lives follows accepted C15;
 other entity replacement homes remain separate decisions (§10/§12).
 
-CD-0009 resolves `epics` in the sketch as a derived Product view over canonical
-`work_items.kind = epic`, PM5 scope, PM4 `parent` edges, and the bounded Epic-entry
-`epic_entries(..., position, required)` projection. Product does not embed mutable
-Epic records, and Epic is not a
-second Product entity.
+CD-0041 amends CD-0009's Epic shape. Initiative is a derived Product view over
+canonical `work_items.kind = initiative`, PM5 scope, and the bounded
+Initiative-entry projection. Product does not embed mutable Initiative records,
+and Initiative is not a second Product, Domain, or architecture authority.
+Legacy Epic events remain readable only through the bounded major migration.
 
 Member records carry **identity + role + metadata** — not credentials, not live
 connections.
 
 ---
 
-## 6. Primary navigation: Product → component
+## 6. Primary navigation: Product → Domain
 
-Durable Concord knowledge is navigated primarily by **Product → component**, not by
-a flat list of changes or workflows.
+Durable Concord knowledge is navigated primarily by **Product → Domain**, not by
+a flat list of changes, workflows, or initiatives.
 
-- Open a Product and see its component tree.
-- Drill into a component to see its specs, active workflows, wishlist, recent
-  changes, and operational signals.
-- A change or workflow is **linked history** from the component; it is not the
+- Open a Product and see its Domain hierarchy and typed architecture relations.
+- Drill into a Domain to see its current law, dependencies, active workflows,
+  evidence, decisions, resources, wishlist, recent changes, and operational
+  signals.
+- A change or workflow is **architecture-bound history** from the Domain; it is not the
   top-level browse path.
+- An Initiative may group work across Domains for business/outcome context, but
+  it never replaces Domain navigation or supplies architecture truth.
 - Completed history, archived work, and passive context are available through
   explicit drill-down, not in the default view.
 
@@ -171,7 +201,7 @@ read surfaces.
 
 ## 7. Active-work visibility
 
-The default Product/component view is intentionally minimal:
+The default Product/Domain view is intentionally minimal:
 
 - **Active gates** and **active problems** are shown first.
 - **What blocks execution right now** is surfaced as a problem indicator.
@@ -190,7 +220,7 @@ This is a property of the read surfaces, not an optional filter.
 > below are decided; the mapping from stage to concrete evidence requirements is
 > not (§12).
 
-[`priorities.md`](./priorities.md) §2 names **proportional rigor** — "the depth
+[`priorities.md`](./priorities.md) §3 names **proportional rigor** — "the depth
 of process matches the risk of the work" — as a quality attribute. Nothing in the
 model declared that risk. Lifecycle stage is the declaration.
 
@@ -214,7 +244,7 @@ promise exists.
 ### 8.2 Where stage attaches
 
 - **Product** declares the default.
-- **Repo or component** may override it. A Product can hold a production web app
+- **Project or Domain** may override it. A Product can hold a production web app
   and a prototype sibling repo; one stage for the whole Product would be a lie
   about one of them.
 - **Infrastructure and SaaS resources** carry their own stage. A shared
@@ -289,16 +319,19 @@ cost or billing attribution is not part of this model.
 
 ## 10. Replacement relation
 
-> **Status:** Captured need, 2026-07-31.
+> **Status:** Partially accepted. C15 owns managed-resource replacement;
+> CD-0041 owns Domain replacement; other endpoint homes remain open.
 
 Building a replacement for something is a normal event, and the fact that
-something *is* a replacement is load-bearing information. It is currently
-recorded only as prose (§10.4).
+something *is* a replacement is load-bearing information. Domain and managed-
+resource replacement now have typed owners; other endpoint families remain
+prose until their owning decisions land (§10.4).
 
 ### 10.1 Shape
 
 A replacement is a **typed, directional relation between two things of the same
-kind** — product↔product, repo↔repo, resource↔resource, workflow-type↔workflow-type.
+kind** — product↔product, Domain↔Domain, Project↔Project, resource↔resource, or
+workflow-type↔workflow-type.
 It is not a boolean flag on either side, and not a sentence in a document.
 
 Both query directions are first-class, matching the legibility principle in §4:
@@ -350,8 +383,9 @@ are maintained entirely by hand:
 Prose supersession decays silently: the labels have to be re-verified by hand on
 every refresh, and a stale one is indistinguishable from a current one.
 
-**Retro-fitting these into structured relations is follow-on work, not part of
-this capture.**
+CD-0041 assigns Domain replacement to a stateful, same-Product Domain relation.
+Product, Project, and workflow-type replacement still require their own typed
+homes; no polymorphic weak-FK relation is implied.
 
 ### 10.5 Scope boundary
 
@@ -373,18 +407,17 @@ Stage (§8.5), sharing (§9), and replacement (§10.3) compose into two cross-fi
 
 ## 12. Open questions
 
-C1, C15, and C16 are accepted by CD-0007, the managed-resource contract, and
-CD-0006 respectively. The model-internal open questions are:
+C1, C15, C16, and Domain authority are accepted by CD-0007, the managed-resource
+contract, CD-0006, and CD-0041 respectively. The remaining model-internal open
+questions are:
 
 1. **Typing depth.** Are members typed further (e.g. infra sub-kinds:
    job/cron/service/db), or kept as opaque tagged records? **Lean:** light typing
    + tags — enough to be legible, not so much it ossifies.
-2. **Component authority.** Are components declared in typed configuration, or
-   derived from repo/service tags? **Lean:** typed configuration for primary
-   components; derived tags for cross-cutting views.
-3. **Non-resource replacement relation home.** C15 fixes a typed resource relation
-   table with real FKs. Product, repo/Project, and workflow-type replacement homes
-   remain their owning decisions; no polymorphic weak-FK relation is implied.
+2. **Non-Domain replacement relation home.** C15 fixes a typed resource relation
+   table with real FKs, and CD-0041 fixes Domain replacement. Product, Project,
+   and workflow-type replacement homes remain their owning decisions; no
+   polymorphic weak-FK relation is implied.
 
 ---
 
@@ -397,13 +430,14 @@ CD-0006 respectively. The model-internal open questions are:
 | `feature-inventory.md` §3.17 | Lifecycle stage + proportional-rigor governance — §8 and §11 detail its model. |
 | `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
 | `feature-inventory.md` §3.19 | Replacement relation — §10 details its states and rules. |
-| `priorities.md` §2 | Proportional rigor is the quality attribute that §8 supplies the input for. |
+| `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
-| `self-documentation.md` §1 | The browse surface uses Product → component navigation. |
-| `workflows.md` §2.5 | Workflows are reached from Product → component. |
+| `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
+| `workflows.md` §2.5 | Workflows are reached from Product → Domain. |
 | `vertical-integration.md` | Whether lgrep/vision/episode become Product-scoped touches this model. |
 
 ---
 
-*The product-mindset lives or dies on whether ownership is obvious. This model
-exists to make it obvious, navigated first by Product and then by component.*
+*The Product mindset lives or dies on whether law, architecture, and ownership
+are obvious. This model makes them legible, navigated first by Product and then
+by Domain.*

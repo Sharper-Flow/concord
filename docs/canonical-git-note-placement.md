@@ -13,6 +13,8 @@
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, C15 resources, agent tools, or exact implementation.
+> **Amended by CD-0041:** `domain_ids` replace `component_ids` in new note
+> front matter; legacy notes upcast during the bounded Domain migration.
 
 ## 1. Decision
 
@@ -98,7 +100,7 @@ priority: {priority}
 summary: {bounded value/outcome summary}
 product_ids: [product-...]
 project_ids: [project-...]
-component_ids: [component-...]
+domain_ids: [domain-...]
 tag_ids: [tag-...]
 # successor_work_id is required only when terminal_state=superseded
 ---
@@ -110,6 +112,10 @@ path and commit come from the scanned git tree. Generated metadata does not turn
 note into a state dump. Accepted PM7 requires these bounded historical-scope fields
 before a note's live work can become projection-prune-eligible; older notes need the
 specified backfill and proof verification first.
+
+During CD-0041 migration, a legacy `component_ids` field maps one-for-one to
+`domain_ids` with retained IDs. New compaction writes only `domain_ids`; the
+legacy field is never emitted after the manifest/Domain cutover.
 
 CD-0009 research packs are never canonical notes and do not gain a Git path. During
 archive, the reviewed work note may preserve selected enduring reasoning/source links

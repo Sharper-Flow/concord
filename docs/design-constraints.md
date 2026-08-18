@@ -1,6 +1,6 @@
 # Concord Design Constraints
 
-> **Status:** Draft v2. Companion to [`priorities.md`](./priorities.md).
+> **Status:** Aligned v3 under CD-0006 and CD-0041. Companion to [`priorities.md`](./priorities.md).
 > **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. These constraints are derived from the ranked priorities and operating envelope in [`priorities.md`](./priorities.md); if a companion document or future decision contradicts this file, `priorities.md` is the authority.
 
 ---
@@ -25,22 +25,28 @@ non-blocking for reads and serialize writes without retry storms.
 
 **Direction.** Product-scoped partitioning; single-writer-per-entity or append-only writes. Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
 
-This supports Priority 1 (Data governance, reliability, and safe evolution) and Priority 4 (Planning and coordination).
+This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 5 (Planning and coordination).
 
 ---
-## 2. Structural cross-workflow impact / freshness
+## 2. Structural Product-law impact, architecture overlap, and freshness
 
-**Requirement.** No workflow may silently proceed when a known structurally related
-workflow invalidates a spec, dependency, component, or resource assumption it relies
-on. Non-authoritative snapshots never masquerade as current authority.
+**Requirement.** No Product-changing workflow may silently proceed when another
+active or newly landed workflow overlaps its Domain footprint or invalidates a
+law, architecture relation, dependency, or resource assumption. Non-authoritative
+snapshots never masquerade as current authority.
 
-**Implication.** CD-0006 R3 requires declared `modifies` and hard/soft `depends_on`
-edges, completion-time breaking/non-breaking notices, and one bounded downstream
-check at consequential boundaries. Only a declared hard edge plus a breaking change
-blocks. Soft breaking and every non-breaking notice warn. Version stamps supply deterministic fallback. Polling, timers, automatic
-downstream rewrites, and heuristic authority are forbidden.
+**Implication.** CD-0006 R3 retains declared `modifies` and hard/soft
+`depends_on` edges, completion-time breaking/non-breaking notices, and bounded
+downstream checks. CD-0041 adds a typed architecture binding to every
+Product-changing contract. Intersecting affected Domains require a resolution
+pinned to both contract versions before both items hold execution authority;
+exact law/Domain/relation writes are marked as write overlap. The check reruns
+inside every consequential mutation. Version stamps supply deterministic
+fallback. Polling, timers, automatic downstream rewrites, and heuristic
+authority are forbidden.
 
-This supports Priority 2 (Quality governance) and Priority 3 (Visibility and continuity).
+This directly enforces Priority 1 and supports Priority 3 (Quality governance),
+Priority 4 (Visibility and continuity), and Priority 5 (Planning and coordination).
 
 ---
 
@@ -55,7 +61,7 @@ versioned built-ins, and one generic one-off type. Active runs stay pinned.
 Composition uses forward-linked successors with independent authority/recovery; no
 nested child execution or parent waiting.
 
-This supports Priority 1 (Data governance, reliability, and safe evolution) and Priority 5 (Workflow versatility).
+This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 6 (Workflow versatility).
 
 ---
 
@@ -67,7 +73,7 @@ This supports Priority 1 (Data governance, reliability, and safe evolution) and 
 
 **Direction.** **Resolved by [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3 (2026-08-05):** one global local SQLite authority — append-only `domain_events` log + explicit typed projections in one transaction, `synchronous=NORMAL`, WAL, one writer at a time. State authority is SQLite sole authority per CD-0002 (invariants I1–I6).
 
-This supports Priority 1 (Data governance, reliability, and safe evolution).
+This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 ---
 
@@ -79,7 +85,7 @@ This supports Priority 1 (Data governance, reliability, and safe evolution).
 
 **Direction.** Target sub-100ms for typical Product views; per-read latency budgets; on-disk projections as the primary read input. The read-path language is Go (see §7 and [`core-architecture.md`](./core-architecture.md)).
 
-This supports Priority 3 (Visibility and continuity).
+This supports Priority 4 (Visibility and continuity).
 
 ---
 
@@ -93,7 +99,7 @@ CD-0024** and `concord.ts` adapter. Grid/table views are secondary projections.
 
 **Direction.** Terminal-first, Product-scoped navigation; optional web/TUI grid views later; no IDE-specific integrations. The interface is simple enough that an agent can scaffold or extend views without fighting a heavy frontend stack.
 
-This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 3 (Visibility and continuity).
+This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 4 (Visibility and continuity).
 
 ---
 
@@ -105,7 +111,7 @@ the core. Accepted TS6 permits one global TypeScript custom-tool module as a thi
 OpenCode adapter; it contains no plugin hooks or domain logic. CD-0003's short-lived
 CLI remains the internal/domain boundary, not the model-visible surface.
 
-This supports Priority 1 and Priority 3 without compromising the operating envelope.
+This supports Priority 2 and Priority 4 without compromising the operating envelope.
 
 ---
 
@@ -121,7 +127,7 @@ TS8/TS9 evidence. No IDE-specific integration is built.
 short-lived Go core invocation behind the generated `concord.ts` module. Do not map
 storage tables or CLI commands 1:1 to tools.
 
-This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 3.
+This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 4.
 
 ---
 
@@ -131,15 +137,19 @@ This supports the operating envelope in [`priorities.md`](./priorities.md) and P
 
 **Implication.** The storage model (§4) must serve read-heavy documentation from day one. Documents are content-addressed, projections are derived, and memory is bounded (lazy, paginated, or streamed).
 
-**Direction.** Treat the doc store as a designed read surface, not a side effect of file persistence. A component's specs, changes, and runbooks are co-located. See [`self-documentation.md`](./self-documentation.md) and [`product-data-model.md`](./product-data-model.md).
+**Direction.** Treat the doc store as a designed read surface, not a side effect
+of file persistence. A Domain's current law, changes, evidence, decisions, and
+runbooks are co-located. See [`self-documentation.md`](./self-documentation.md)
+and [`product-data-model.md`](./product-data-model.md).
 
-This supports Priority 6 (Durable product knowledge).
+This directly serves Priority 1 (Product law and architectural concordance) and
+Priority 4 (Visibility and continuity).
 
 ---
 
 ## 10. Quality governance by evidence, not by gate count
 
-**Requirement.** Concord's quality governance is defined by the attributes in [`priorities.md`](./priorities.md) §2: intent fidelity, end-to-end traceability, evidence-backed completion, independent challenge, no silent drift, required-obligation blocking, human authority at consequence boundaries, durable proof, and proportional rigor.
+**Requirement.** Concord's quality governance is defined by the attributes in [`priorities.md`](./priorities.md) §3: intent fidelity, end-to-end traceability, evidence-backed completion, independent challenge, no silent drift, required-obligation blocking, human authority at consequence boundaries, durable proof, and proportional rigor.
 
 **Implication.** Quality is **not** achieved by mandating Advance's seven-gate lifecycle for every work kind. Different workflow types may use different gates or none at all; the common denominator is the quality attributes above.
 
@@ -147,19 +157,28 @@ This supports Priority 6 (Durable product knowledge).
 
 Accepted CD-0012 additionally requires completion criteria to include an **outcome contract**: the premise, the required end-state as falsifiable postconditions, and the candidate set those postconditions range over. The contract is approved at planning and verified at completion, and a delivered end-state weaker than the approved one fails. This is what makes *intent fidelity* and *no silent drift* enforceable rather than aspirational. Binding form: [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 
-This supports Priority 2 (Quality governance) and Priority 5 (Workflow versatility).
+This supports Priority 3 (Quality governance) and Priority 6 (Workflow versatility).
 
 ---
 
 ## 11. Product ownership is declarative, not bridged
 
-**Requirement.** A Product declaratively owns its members (repos, infrastructure, SaaS), but Concord does not bridge to those systems or call their APIs by default. Membership is a recorded fact, not an active integration.
+**Requirement.** A Product declaratively owns its Domains, Projects, and managed
+resources, but Concord does not bridge to external systems or call their APIs by
+default. Ownership and architecture are recorded facts, not active integrations.
 
 **Implication.** External systems may be pulled in as signals (e.g. azure job status), but those signals are read-only inputs, not Concord-authored state. Concord does not take responsibility for operational state it cannot authoritatively track.
 
-**Direction.** Typed, schema-validated configuration is the canonical ownership form. See [`product-data-model.md`](./product-data-model.md) and [`capability-placement.md`](./capability-placement.md).
+**Direction.** Typed, schema-validated state is the canonical ownership form.
+The Product Git knowledge home owns shared Domain identity, hierarchy, and
+architecture relations; SQLite projects that law and owns local
+Domain→Project/resource attachments. Domains are never derived from tags, paths,
+or Initiative membership. See
+[`product-data-model.md`](./product-data-model.md) and
+[`capability-placement.md`](./capability-placement.md).
 
-This supports Priority 4 (Planning and coordination) and Priority 1 (Data governance).
+This supports Priority 1 (Product law and architectural concordance), Priority 2
+(Data governance), and Priority 5 (Planning and coordination).
 
 ---
 
@@ -167,7 +186,7 @@ This supports Priority 4 (Planning and coordination) and Priority 1 (Data govern
 
 See [`capability-placement.md`](./capability-placement.md) for the canonical direction.
 
-This supports Priority 1 (Data governance, reliability, and safe evolution) and Priority 2 (Quality governance).
+This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 3 (Quality governance).
 
 ---
 
@@ -186,13 +205,15 @@ explicit path-confirmation plumbing is the recorded anti-pattern reference — s
 [`feature-inventory.md`](./feature-inventory.md) §1.2 and the public lessons in
 [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md).
 
-This supports Priority 4 (Planning and coordination), Priority 3 (Visibility and continuity), and Priority 2 (Quality governance — durable proof and no silent drift).
+This supports Priority 5 (Planning and coordination), Priority 4 (Visibility and continuity), and Priority 3 (Quality governance — durable proof and no silent drift).
 
 ---
 
 ## 14. Single derivation — one log, no parallel authority
 
-**Requirement.** All Concord-owned state derives from exactly one authoritative log. No component may hold a second writable authority for the same entity, and two readers must not be *able* to return different answers to the same question.
+**Requirement.** All Concord-owned state derives from exactly one authoritative
+log. No subsystem may hold a second writable authority for the same entity, and
+two readers must not be *able* to return different answers to the same question.
 
 **Implication.** This is stricter than §4, and it is the constraint §4 does not supply. An append-only log does not prevent this failure if a separate projection is also written directly — divergence then has no owner. Projections are derived, disposable, and rebuildable from the log; they are never a write target. A projection that cannot be rebuilt from the log is a second authority wearing a projection's name.
 
@@ -203,7 +224,7 @@ than a recovery ritual.
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 1 (Data governance, reliability, and safe evolution) and Priority 3 (Visibility and continuity).
+This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 4 (Visibility and continuity).
 
 ---
 
@@ -217,7 +238,7 @@ This supports Priority 1 (Data governance, reliability, and safe evolution) and 
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 1 (Data governance, reliability, and safe evolution).
+This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 ---
 
@@ -231,7 +252,7 @@ This supports Priority 1 (Data governance, reliability, and safe evolution).
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 2 (Quality governance — durable proof and no silent drift) and Priority 1 (Data governance, reliability, and safe evolution).
+This supports Priority 3 (Quality governance — durable proof and no silent drift) and Priority 2 (Data governance, reliability, and safe evolution).
 
 ---
 
@@ -245,7 +266,7 @@ This supports Priority 2 (Quality governance — durable proof and no silent dri
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 1 (Data governance, reliability, and safe evolution).
+This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 ---
 
@@ -259,7 +280,7 @@ This supports Priority 1 (Data governance, reliability, and safe evolution).
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 3 (Visibility and continuity) and the operating envelope.
+This supports Priority 4 (Visibility and continuity) and the operating envelope.
 
 ---
 
@@ -273,7 +294,7 @@ This supports Priority 3 (Visibility and continuity) and the operating envelope.
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 1 (Data governance, reliability, and safe evolution) and Priority 2 (Quality governance).
+This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 3 (Quality governance).
 
 ---
 
@@ -302,25 +323,25 @@ traceability and implementation conformance, not as active blockers.
 
 | Constraint | Touched priority | Companion doc |
 |---|---|---|
-| §1 concurrency | 1, 4 | [`product-data-model.md`](./product-data-model.md) |
-| §2 staleness review | 2, 3 | [`clarifications.md`](./clarifications.md) |
-| §3 idle-boundary updates | 1, 5 | [`workflows.md`](./workflows.md) |
-| §4 no locks / no repair | 1 | [`clarifications.md`](./clarifications.md) C2 |
-| §5 fast read-path | 3 | [`rollout-plan.md`](./rollout-plan.md) |
+| §1 concurrency | 2, 5 | [`product-data-model.md`](./product-data-model.md) |
+| §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) |
+| §3 idle-boundary updates | 2, 6 | [`workflows.md`](./workflows.md) |
+| §4 no locks / no repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
+| §5 fast read-path | 4 | [`rollout-plan.md`](./rollout-plan.md) |
 | §6 lightweight interface | Operating envelope | [`priorities.md`](./priorities.md) |
-| §7 language choice | 1, 3 | [`core-architecture.md`](./core-architecture.md) |
+| §7 language choice | 2, 4 | [`core-architecture.md`](./core-architecture.md) |
 | §8 client portability | Operating envelope | [`priorities.md`](./priorities.md) |
-| §9 self-documentation | 6 | [`self-documentation.md`](./self-documentation.md) |
-| §10 quality governance | 2, 5 | [`workflows.md`](./workflows.md) |
-| §11 declarative ownership | 1, 4 | [`product-data-model.md`](./product-data-model.md) |
-| §12 ownership-aligned placement | 1, 2 | [`capability-placement.md`](./capability-placement.md) |
-| §13 ambient product context | 2, 3, 4 | [`product-data-model.md`](./product-data-model.md) |
-| §14 single derivation | 1, 3 | [`advance-postmortem.md`](./advance-postmortem.md) §C1 |
-| §15 atomic terminal transition | 1 | [`advance-postmortem.md`](./advance-postmortem.md) §C2 |
-| §16 partial completion honesty | 1, 2 | [`advance-postmortem.md`](./advance-postmortem.md) §C3 |
-| §17 reclamation ground truth | 1 | [`advance-postmortem.md`](./advance-postmortem.md) §C4 |
-| §18 operations scale with data | 3, Operating envelope | [`advance-postmortem.md`](./advance-postmortem.md) §C5 |
-| §19 non-destructive recovery | 1, 2 | [`advance-postmortem.md`](./advance-postmortem.md) §C6 |
+| §9 self-documentation | 1, 4 | [`self-documentation.md`](./self-documentation.md) |
+| §10 quality governance | 3, 6 | [`workflows.md`](./workflows.md) |
+| §11 declarative ownership | 1, 2, 5 | [`product-data-model.md`](./product-data-model.md) |
+| §12 ownership-aligned placement | 2, 3 | [`capability-placement.md`](./capability-placement.md) |
+| §13 ambient product context | 3, 4, 5 | [`product-data-model.md`](./product-data-model.md) |
+| §14 single derivation | 2, 4 | [`advance-postmortem.md`](./advance-postmortem.md) §C1 |
+| §15 atomic terminal transition | 2 | [`advance-postmortem.md`](./advance-postmortem.md) §C2 |
+| §16 partial completion honesty | 2, 3 | [`advance-postmortem.md`](./advance-postmortem.md) §C3 |
+| §17 reclamation ground truth | 2 | [`advance-postmortem.md`](./advance-postmortem.md) §C4 |
+| §18 operations scale with data | 4, Operating envelope | [`advance-postmortem.md`](./advance-postmortem.md) §C5 |
+| §19 non-destructive recovery | 2, 3 | [`advance-postmortem.md`](./advance-postmortem.md) §C6 |
 
 ---
 

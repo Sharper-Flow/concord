@@ -34,7 +34,7 @@ the existing decision; durable markdown knowledge remains PM6/PM7 git content. N
 is a general binary-evidence store.
 
 CD-0009 narrows one structured-artifact case further: active research-pack text lives
-only in retention-bounded SQLite pack tables while its Epic/change/research owner is
+only in retention-bounded SQLite pack tables while its Initiative/change/research owner is
 active. It never enters retained `domain_events` or Git as a research pack and is
 deleted after proof-backed archive. Selected durable decisions/specs/lessons/reasoning
 are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is

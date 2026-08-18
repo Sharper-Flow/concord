@@ -107,7 +107,7 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
   resolution (`product-memory-query-contract.md` §§4–5).
 - Concord's first-usable floor requires one Product view, required work capture,
   visible ready/blocked/next work, evidence-backed completion, and durable Product
-  knowledge (`priorities.md` §§3–6).
+  knowledge and architecture-bound Product law (`priorities.md` §§1, 3–6).
 - Workflow plurality includes implementation, research, static analysis, and ops;
   completion is a contract outcome rather than a process-liveness flag
   (`workflows.md` §§2–4).

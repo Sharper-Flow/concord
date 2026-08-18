@@ -1,10 +1,10 @@
 # Product coordination view — accepted contract
 
-**Status:** Accepted C17 contract, approved by the operator on 2026-08-11.
+**Status:** Accepted C17 contract, amended by CD-0041.
 **Implementation status:** Issue #51 wires the bounded S2 relation tree and ranked
 work projection; replacement readiness remains unclaimed.
 
-This document binds the Product coordination view required by Priority 4 and launcher
+This document binds the Product coordination view required by Priority 5 and launcher
 S2. It preserves the previously reviewed candidate behavior: two bounded modes over
 canonical Product-scoped reads, structural grouping only, stored-priority ranking,
 and visible incomplete coverage.
@@ -13,9 +13,18 @@ Terminal-launcher interaction and prototype detail are explicitly reserved as
 implementation design by [`rollout-plan.md`](./rollout-plan.md) and CD-0006 D6, so a
 contract at this layer does not require a new decision record.
 
+**CD-0041 amendment.** These two bounded work projections remain valid, but they
+are no longer the Product's primary architecture view. Product detail opens
+through Product → Domain. Each Domain shows current law, typed Domain relations,
+active architecture-bound work, and unresolved overlap before the work relation
+tree or ranked table. Q8 work relations remain a subordinate coordination view;
+Initiative grouping remains optional business context. Runtime support for the
+Domain/overlap layer is outstanding follow-up work and is not claimed by issue
+#51's existing implementation.
+
 ## 1. The gap
 
-Priority 4 in [`priorities.md`](./priorities.md) requires that dependencies and
+Priority 5 in [`priorities.md`](./priorities.md) requires that dependencies and
 sequences are visible before they become blockers, and that the operator can see what
 is ready, what is blocked, and what is next.
 
@@ -105,7 +114,7 @@ unstable across runs.
    model-assigned numeric importance is heuristic authority over correctness.
 2. **No activity-derived priority.** Last-update recency may appear on explicit
    drill-down with a non-priority label, never as an ordering input.
-3. **No thematic clustering.** Components come from declared relation edges only.
+3. **No thematic clustering.** Connected work subgraphs come from declared relation edges only.
 4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
 5. **No silent truncation.** A result the query could not fully cover renders
    `unavailable`, never a shorter table presented as whole.

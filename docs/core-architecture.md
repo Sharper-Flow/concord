@@ -114,14 +114,16 @@ is stated once; companion documents reference this section rather than restating
 | 5 | **Ground-truth reclamation** | postmortem C4 | Resource reclamation keys off the resource's own facts, not a derived status field. Status disagreements are reconcilable, not silently vetoed. |
 | 6 | **Honest partial completion** | postmortem C3 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
 | 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. |
-| 8 | **No lock waits** | Priority 1 | Many concurrent agents write to the same local state without database-lock contention, lock waits, or failed-writes-retry storms. Per-entity serialization, not a global mutex. |
-| 9 | **Bounded authoritative reads** | Priority 3 | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3's declared-edge and breaking-verdict policy. |
-| 10 | **Typed degradation** | Priority 3 | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
-| 11 | **Safe idle-boundary evolution** | Priority 1, 5 | Workflow and schema changes are safe for in-flight work. Active executions stay pinned to their definition; idle work picks up the new version. Updates are additive and versioned. |
+| 8 | **No lock waits** | Priority 2 | Many concurrent agents write to the same local state without database-lock contention, lock waits, or failed-writes-retry storms. Per-entity serialization, not a global mutex. |
+| 9 | **Bounded authoritative reads** | Priority 4 | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0041's architecture-overlap policy. |
+| 10 | **Typed degradation** | Priority 4 | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
+| 11 | **Safe idle-boundary evolution** | Priority 2, 6 | Workflow and schema changes are safe for in-flight work. Active executions stay pinned to their definition; idle work picks up the new version. Updates are additive and versioned. |
+| 12 | **Architecture-bound Product truth** | Priority 1 | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
 
-A Go core topology must satisfy all eleven invariants. The invariants are derived
+A Go core topology must satisfy all twelve invariants. The first eleven are derived
 from the public predecessor postmortem's failure classes; they are not aspirational,
-they are evidence-backed.
+they are evidence-backed. CD-0041 adds the twelfth from Concord's defining
+many-agent Product-concordance requirement.
 
 ---
 
@@ -136,8 +138,9 @@ This table records accepted architecture decisions that previously remained open
 | **Evidence-resolution architecture** | **Resolved by CD-0008 D2:** immutable-subject binding records the attributable producer proof that authorized a transition; the producer remains verdict authority and current re-resolution is typed when unavailable. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2; [`design-constraints.md`](./design-constraints.md) Research backlog item 6. |
 | **Validation-failure isolation** | **Resolved by CD-0008 D3:** unreadable records contribute unknown; typed degraded omissions are allowed for independently provable positive reads, while safety conclusions fail closed only over their bounded dependency/touch closure. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3; [`design-constraints.md`](./design-constraints.md) Research backlog item 7. |
 | **Migrations / schema evolution** | **Resolved by CD-0008 D6:** typed ordered upcasters, projection schema versions, deterministic replay tests, fail-closed newer versions, pinned active workflow versions, point-in-time reconstruction, and falsifier-driven snapshots. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D6; CD-0002 §7. |
+| **Product architecture and concurrent-law coordination** | **Resolved by CD-0041:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution; Initiative is secondary context. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md). |
 
-All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008—not by
+All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008/CD-0041—not by
 implication from Go, storage, or CLI choice.
 
 ---
@@ -149,8 +152,9 @@ implication from Go, storage, or CLI choice.
 | [`priorities.md`](./priorities.md) | Canonical authority | Ranked priorities and operating envelope; this document follows them. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
+| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | Product-law architecture | Adds canonical Domain identity, architecture-bound work contracts, overlap revalidation, and the Initiative migration while preserving SQLite. |
 | [`storage-spine-slice.md`](./storage-spine-slice.md) | Implementation acceptance plan | Runs against accepted PM1–PM10 and CD-0002/CD-0006/CD-0007/CD-0008 mechanics; validates the accepted shape rather than choosing it. |
-| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the agent tool surface; CD-0006/CD-0007/CD-0008 settle root policy, repository boundary, and mechanism hardening. |
+| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0041 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects custom-tool adapter and rejects plugin/MCP v1. |

@@ -1213,8 +1213,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if entry.Definition.Version >= 2 && (p.ActionID == "" || p.StepID != currentStep || !definitionStepAllows(entry.Definition, currentStep, p.ActionID)) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
+	advancesStep := false
 	if p.ActionID != "" {
-		if entry.Definition.Version >= 2 && workflowActionAdvancesStep(p.ActionID) {
+		executionMode, ok := workflowActionExecutionMode(entry.Definition, p.ActionID)
+		if !ok {
+			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
+		}
+		advancesStep = executionMode == ActionAdvance
+		if entry.Definition.Version >= 2 && advancesStep {
 			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, event.SubjectID, currentStep, p.ActionID); err != nil {
 				return err
 			}
@@ -1232,17 +1238,13 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
-	if err != nil || p.ActionID == "" || !workflowActionAdvancesStep(p.ActionID) {
+	if err != nil || p.ActionID == "" || !advancesStep {
 		return err
 	}
 	if next := workflowNextStep(entry.Definition, currentStep); next != "" {
 		_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=? WHERE work_id=?`, next, event.SubjectID)
 	}
 	return err
-}
-
-func workflowActionAdvancesStep(action string) bool {
-	return !strings.HasPrefix(action, "start_") && !strings.HasPrefix(action, "run_") && !strings.HasPrefix(action, "rollback_") && !strings.HasPrefix(action, "checkpoint_") && action != "bind_evidence" && action != "declare_impact" && action != "link_successor" && action != "record_decision" && action != "record_verdict" && action != "accept_decision" && action != "cleanup_run" && action != "complete"
 }
 
 func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string) error {

@@ -111,7 +111,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1); !ok {
 		t.Fatal("legacy implementation definition was not registered")
 	}
-	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 2); !ok {
+	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 3); !ok {
 		t.Fatal("latest implementation definition was not registered")
 	}
 }
@@ -159,11 +159,11 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 	}
 }
 
-func TestBuiltinWorkflowHistoryPinsV1AndLatestV2WorkerAcceptance(t *testing.T) {
+func TestBuiltinWorkflowHistoryPinsV1V2AndLatestV3WorkerAcceptance(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	for _, latest := range BuiltinWorkflowDefinitions() {
-		if latest.Version != 2 {
-			t.Fatalf("latest %s version=%d, want 2", latest.Ref, latest.Version)
+		if latest.Version != 3 {
+			t.Fatalf("latest %s version=%d, want 3", latest.Ref, latest.Version)
 		}
 		v1, ok := registry.Lookup(latest.Ref, 1)
 		if !ok {
@@ -176,12 +176,19 @@ func TestBuiltinWorkflowHistoryPinsV1AndLatestV2WorkerAcceptance(t *testing.T) {
 		if v1.Digest == v2.Digest {
 			t.Fatalf("%s v1 and v2 unexpectedly share digest %q", latest.Ref, v1.Digest)
 		}
+		v3, ok := registry.Lookup(latest.Ref, 3)
+		if !ok {
+			t.Fatalf("%s v3 definition is not registered", latest.Ref)
+		}
+		if v2.Digest == v3.Digest {
+			t.Fatalf("%s v2 and v3 unexpectedly share digest %q", latest.Ref, v2.Digest)
+		}
 		resolved, err := BuiltinWorkflowDefinitionForRef(latest.Ref)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolved.Definition.Version != 2 || resolved.Digest != v2.Digest {
-			t.Fatalf("latest resolver for %s = v%d %s, want v2 %s", latest.Ref, resolved.Definition.Version, resolved.Digest, v2.Digest)
+		if resolved.Definition.Version != 3 || resolved.Digest != v3.Digest {
+			t.Fatalf("latest resolver for %s = v%d %s, want v3 %s", latest.Ref, resolved.Definition.Version, resolved.Digest, v3.Digest)
 		}
 		for _, step := range latest.StepGraph.Steps {
 			hasAcceptance := containsString(step.Actions, "accept_worker_result")

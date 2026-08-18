@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+func workflowImplementationV2Digest(t *testing.T) string {
+	t.Helper()
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 2)
+	if !ok {
+		t.Fatal("workflow.implementation v2 is not registered")
+	}
+	return definition.Digest
+}
+
 // CD-0017 §D4 draws the worker authority boundary in both directions. A worker
 // run is the bounded execution attempt of one workflow step — the position
 // workflow.action_started and workflow.action_checkpointed already model — so a
@@ -44,10 +53,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 	// item, with the implementation definition selected — the position a worker
 	// holds when it executes one step.
 	workerRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/worker", "session/worker-1")
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := workflowImplementationV2Digest(t)
 	setup := []Event{
 		workflowEvent("authority-actor", WorkflowActorRecorded, "authority-work", map[string]any{"work_id": "authority-work", "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/worker", "session_ref": "session/worker-1", "actor_class": "agent"}),
 		workflowEvent("authority-definition", WorkflowDefinitionSelected, "authority-work", map[string]any{"work_id": "authority-work", "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 2, "digest": digest, "work_kind": "implementation"}),
@@ -538,10 +544,7 @@ func seedV2CompletionReady(t *testing.T, workID string) (*Store, Event) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := workflowImplementationV2Digest(t)
 	events := []Event{
 		workflowEvent("v2-executor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": executorRef, "principal_ref": executor.PrincipalRef, "client_ref": executor.ClientRef, "agent_ref": executor.AgentRef, "session_ref": executor.SessionRef, "actor_class": "agent"}),
 		workflowEvent("v2-operator-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"}),
@@ -810,10 +813,7 @@ func seedWorkerAtExecution(t *testing.T, workID string) (*Store, string, Workflo
 		t.Fatal(err)
 	}
 	lane := BuiltinLaneDefinitions()[0]
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := workflowImplementationV2Digest(t)
 	setup := []Event{
 		workflowEvent("worker-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": workerActor.PrincipalRef, "client_ref": workerActor.ClientRef, "agent_ref": workerActor.AgentRef, "session_ref": workerActor.SessionRef, "actor_class": "agent"}),
 		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
@@ -852,10 +852,7 @@ func seedDispatchedWorkerAtExecution(t *testing.T, workID string) (*Store, strin
 	seedWorkflowLaw(t, s)
 	lane := BuiltinLaneDefinitions()[0]
 	workerRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/worker", "session/"+workID)
-	digest, err := WorkflowDefinitionDigest(BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := workflowImplementationV2Digest(t)
 	setup := []Event{
 		workflowEvent("actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/worker", "session_ref": "session/" + workID, "actor_class": "agent"}),
 		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 2, "digest": digest, "work_kind": "implementation"}),

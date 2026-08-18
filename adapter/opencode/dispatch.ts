@@ -28,6 +28,11 @@ export interface SessionMetadata {
   fallback_reason: "rate_limit" | "provider_unavailable" | "budget_exhausted" | "other" | null
 }
 
+export interface RunSessionMetadata {
+  session_id: string
+  fallback_reason: SessionMetadata["fallback_reason"]
+}
+
 export interface AgentResultEnvelope {
   schema_version: "1.0"
   outcome: "ok" | "blocked" | "fallback" | "error"
@@ -107,68 +112,73 @@ export function validateAgentLanePacket(value: unknown): value is AgentLanePacke
   return validateSchema(agentLanePacketSchema, value, agentLanePacketSchema)
 }
 
-function modelFromValue(value: unknown): string | null {
-  if (typeof value === "string" && MODEL_PATTERN.test(value)) return value
-  if (!isRecord(value)) return null
-  if (typeof value.providerID === "string" && typeof value.modelID === "string") {
-    const model = `${value.providerID}/${value.modelID}`
-    return MODEL_PATTERN.test(model) ? model : null
-  }
-  if (typeof value.provider_id === "string" && typeof value.model_id === "string") {
-    const model = `${value.provider_id}/${value.model_id}`
-    return MODEL_PATTERN.test(model) ? model : null
-  }
-  return null
+const RUN_EVENT_TYPES = new Set(["step_start", "step_finish", "text", "reasoning", "tool_use", "error"])
+
+function typedFallbackReason(reason: unknown): SessionMetadata["fallback_reason"] {
+  if (reason === "account_rate_limit" || reason === "rate_limit") return "rate_limit"
+  if (reason === "provider_unavailable" || reason === "provider_error") return "provider_unavailable"
+  if (reason === "budget_exhausted" || reason === "quota_exhausted") return "budget_exhausted"
+  return typeof reason === "string" && reason.length > 0 ? "other" : null
 }
 
-function walkMetadata(value: unknown, models: string[], sessions: string[]): void {
-  if (Array.isArray(value)) {
-    for (const item of value) walkMetadata(item, models, sessions)
-    return
-  }
-  if (!isRecord(value)) return
-  const directModel = modelFromValue(value.model)
-  if (directModel) models.push(directModel)
-  const nestedModel = isRecord(value.message) ? modelFromValue(value.message.model) : modelFromValue(value.message)
-  if (nestedModel) models.push(nestedModel)
-  for (const key of ["sessionID", "sessionId", "session_id"]) if (typeof value[key] === "string") sessions.push(value[key] as string)
-  for (const [key, child] of Object.entries(value)) if (key !== "model") walkMetadata(child, models, sessions)
+function hostStatusMetadata(value: Record<string, unknown>): { sessionID: string; reason: unknown } | null {
+  if (value.type !== "message.updated" || !isRecord(value.properties)) return null
+  const properties = value.properties
+  const sessionID = typeof properties.sessionId === "string" ? properties.sessionId : typeof properties.sessionID === "string" ? properties.sessionID : null
+  if (!sessionID) return null
+  const reason = isRecord(properties.status) && isRecord(properties.status.action) ? properties.status.action.reason : null
+  return { sessionID, reason }
 }
 
-function fallbackReasonFromOutput(stdout: string): SessionMetadata["fallback_reason"] {
-  const reasons = new Set<string>()
-  for (const line of stdout.split("\n")) {
-    if (!line.trim()) continue
-    try {
-      const value = JSON.parse(line)
-      const visit = (node: unknown): void => {
-        if (Array.isArray(node)) { for (const item of node) visit(item); return }
-        if (!isRecord(node)) return
-        if (typeof node.reason === "string") reasons.add(node.reason)
-        for (const child of Object.values(node)) visit(child)
-      }
-      visit(value)
-    } catch { return "other" }
-  }
-  for (const reason of reasons) {
-    if (reason === "account_rate_limit" || reason === "rate_limit") return "rate_limit"
-    if (reason === "provider_unavailable" || reason === "provider_error") return "provider_unavailable"
-    if (reason === "budget_exhausted" || reason === "quota_exhausted") return "budget_exhausted"
-  }
-  return reasons.size > 0 ? "other" : null
-}
-
-export function readSessionMetadata(stdout: string): SessionMetadata | null {
+export function readRunSessionMetadata(stdout: string): RunSessionMetadata | null {
   if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
-  const models: string[] = []
-  const sessions: string[] = []
+  const sessions = new Set<string>()
+  const reasons = new Set<NonNullable<SessionMetadata["fallback_reason"]>>()
+  let officialEvents = 0
+  let completed = false
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue
-    try { walkMetadata(JSON.parse(line), models, sessions) } catch { return null }
+    let value: unknown
+    try { value = JSON.parse(line) } catch { return null }
+    if (!isRecord(value) || typeof value.type !== "string") return null
+    if (RUN_EVENT_TYPES.has(value.type)) {
+      if (typeof value.timestamp !== "number" || typeof value.sessionID !== "string" || value.sessionID.length === 0) return null
+      officialEvents++
+      sessions.add(value.sessionID)
+      if (value.type === "step_finish" && isRecord(value.part) && value.part.reason === "stop") completed = true
+      continue
+    }
+    const status = hostStatusMetadata(value)
+    if (!status) return null
+    sessions.add(status.sessionID)
+    const reason = typedFallbackReason(status.reason)
+    if (reason) reasons.add(reason)
   }
-  const readbackModel = models.at(-1)
-  if (!readbackModel) return null
-  return { readback_model: readbackModel, session_id: sessions[0] ?? null, fallback_reason: fallbackReasonFromOutput(stdout) }
+  if (officialEvents === 0 || !completed || sessions.size !== 1) return null
+  return { session_id: [...sessions][0], fallback_reason: reasons.size === 0 ? null : reasons.size === 1 ? [...reasons][0] : "other" }
+}
+
+export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "session_id"> | null {
+  if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
+  let value: unknown
+  try { value = JSON.parse(stdout) } catch { return null }
+  if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages)) return null
+  const seen = new Set<string>()
+  const assistants: { id: string; created: number; model: string }[] = []
+  for (const message of value.messages) {
+    if (!isRecord(message) || !isRecord(message.info) || !Array.isArray(message.parts)) return null
+    const info = message.info
+    if (typeof info.id !== "string" || typeof info.sessionID !== "string" || info.sessionID !== expectedSessionID || !isRecord(info.time) || typeof info.time.created !== "number" || seen.has(info.id)) return null
+    seen.add(info.id)
+    if (info.role === "user") continue
+    if (info.role !== "assistant" || typeof info.providerID !== "string" || typeof info.modelID !== "string") return null
+    const model = `${info.providerID}/${info.modelID}`
+    if (!MODEL_PATTERN.test(model)) return null
+    assistants.push({ id: info.id, created: info.time.created, model })
+  }
+  assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
+  const latest = assistants.at(-1)
+  return latest ? { readback_model: latest.model, session_id: expectedSessionID } : null
 }
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
@@ -194,13 +204,9 @@ function hostReportedFallbackExhausted(result: { stdout: string; fallbackExhaust
     if (!line.trim()) continue
     try {
       const value = JSON.parse(line)
-      const visit = (node: unknown): boolean => {
-        if (Array.isArray(node)) return node.some(visit)
-        if (!isRecord(node)) return false
-        if (node.fallback_exhausted === true || node.reason === "fallback_exhausted") return true
-        return Object.values(node).some(visit)
-      }
-      if (visit(value)) return true
+      if (!isRecord(value)) return false
+      const status = hostStatusMetadata(value)
+      if (status?.reason === "fallback_exhausted") return true
     } catch { return false }
   }
   return false
@@ -282,7 +288,7 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 32) }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -291,7 +297,8 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (!lane.pinned_model || !MODEL_PATTERN.test(lane.pinned_model)) return errorEnvelope(lane, packet, "error", "invalid_input", "registered lane has no valid pinned model", "contact_operator")
   const signal = options.signal ?? new AbortController().signal
   const childRunner = options.runner ?? runner
-  const argv = [options.binary ?? "opencode", "run", "--agent", `concord-${lane.id}`, "--model", lane.pinned_model, "--format", "json", JSON.stringify(packet)]
+  const binary = options.binary ?? "opencode"
+  const argv = [binary, "run", "--agent", `concord-${lane.id}`, "--model", lane.pinned_model, "--format", "json", JSON.stringify(packet)]
   let result: { exitCode: number; stdout: string; stderr: string; fallbackExhausted?: boolean }
   try { result = await childRunner.run(argv, "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "blocked", "blocked", String(error), "retry_same_request")
@@ -301,8 +308,17 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     if (hostReportedFallbackExhausted(result)) return errorEnvelope(lane, packet, "blocked", "blocked", result.stderr.slice(0, MAX_ERROR_BYTES) || "declared routing-policy resolution set was exhausted", "retry_same_request")
     return errorEnvelope(lane, packet, "error", "error", result.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode worker spawn failed without fallback exhaustion evidence", "reconcile_operation")
   }
-  const metadata = readSessionMetadata(result.stdout)
-  if (!metadata) return errorEnvelope(lane, packet, "error", "error", "worker output did not contain exactly one executing model readback", "reconcile_operation")
+  const runMetadata = readRunSessionMetadata(result.stdout)
+  if (!runMetadata) return errorEnvelope(lane, packet, "error", "error", "worker output did not contain one typed session identity", "reconcile_operation")
+  const readbackRunner = options.readbackRunner ?? options.runner ?? runner
+  let exported: { exitCode: number; stdout: string; stderr: string }
+  try { exported = await readbackRunner.run([binary, "export", runMetadata.session_id, "--sanitize"], "", signal) } catch (error) {
+    return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
+  }
+  if (exported.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output", "reconcile_operation")
+  const readback = readExportSessionMetadata(exported.stdout, runMetadata.session_id)
+  if (!readback) return errorEnvelope(lane, packet, "error", "error", "OpenCode session export did not contain one typed executing-model readback", "reconcile_operation")
+  const metadata: SessionMetadata = { ...readback, fallback_reason: runMetadata.fallback_reason }
   const resolutionIndex = policy.resolution_set.indexOf(metadata.readback_model)
   if (resolutionIndex < 0) return errorEnvelope(lane, packet, "error", "model_identity_mismatch", "host readback model is outside the declared routing-policy resolution set", "reconcile_operation")
   const isFallback = resolutionIndex > 0

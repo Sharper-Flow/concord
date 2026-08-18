@@ -109,12 +109,13 @@ closed `agent-lane-packet.v1` shape before spawning, and invokes:
 opencode run --agent concord-<lane> --model <provider/model> --format json <packet>
 ```
 
-The adapter reads the executing model and session identity from the JSON event
-metadata, then checks the model against the capability class's generated
-resolution set. A declared fallback emits `resolution_role: fallback` and a
-typed reason; an exhausted set emits blocked. An undeclared model or a
-readback different from the resolved model is an error. Neither is silent
-substitution. Worker lifecycle evidence is recorded by the internal
+The adapter reads one consistent session identity from the closed JSON event
+stream, then runs `opencode export <session> --sanitize` and reads the latest
+typed assistant `providerID`/`modelID` as executing-model evidence. It checks
+that exported model against the capability class's generated resolution set.
+A declared fallback emits `resolution_role: fallback` and a typed reason; an
+exhausted set emits blocked. An undeclared model or an ambiguous/malformed
+event or export shape fails closed. Worker lifecycle evidence is recorded by the internal
 `worker-dispatch`, `worker-complete`, and `worker-fail` CLI verbs; workers never
 record workflow transitions, verdicts, or completion.
 

@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
 import { agentLanes, routingPolicies, routingPolicyManifestDigest, routingPolicyVersion } from "./generated-agent-lanes"
-import { dispatchWorker, readSessionMetadata, validateAgentLanePacket, type AgentLanePacket } from "./dispatch"
+import { dispatchWorker, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 
 const lane = agentLanes[0]
 const packet = (): AgentLanePacket => ({
@@ -14,7 +14,24 @@ const packet = (): AgentLanePacket => ({
   inputs: { task: "Run the bounded worker fixture." },
 })
 
-const metadata = (model = lane.pinned_model) => JSON.stringify({ type: "step_start", properties: { sessionID: "session-1", part: { model: { providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/") } } } })
+const runOutput = (extra = "") => [
+  JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
+  JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
+  extra,
+].filter(Boolean).join("\n")
+
+const exportedSession = (model = lane.pinned_model) => JSON.stringify({
+  info: { id: "session-1" },
+  messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] }],
+})
+
+const workerRunner = (model = lane.pinned_model, output = runOutput()): DispatchRunner => ({
+  async run(argv) {
+    if (argv[1] === "run") return { exitCode: 0, stdout: output, stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model), stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  },
+})
 
 test("generated adapter routing policy digest and preferred cross-validation are deterministic", async () => {
   const digest = (await Bun.file(new URL("../../contracts/routing-policy.digest", import.meta.url)).text()).trim()
@@ -30,7 +47,7 @@ test("packet validation is closed before any runner call", async () => {
   let calls = 0
   const invalid = { ...packet(), inputs: { task: "" } }
   expect(validateAgentLanePacket(invalid)).toBe(false)
-  const result = await dispatchWorker(invalid, { runner: { async run() { calls++; return { exitCode: 0, stdout: metadata(), stderr: "" } } } })
+  const result = await dispatchWorker(invalid, { runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } } })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(calls).toBe(0)
@@ -59,10 +76,10 @@ test("spawn failure without exhaustion evidence is not mislabeled blocked", asyn
 
 test("recorded session metadata proves the executing model and exposes fallback", async () => {
   const fallback = "zai-coding-plan/glm-5.2"
-  const fallbackOutput = `${metadata(lane.pinned_model)}\n${JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.2" } }, status: { action: { reason: "account_rate_limit" } } } })}`
-  const readback = readSessionMetadata(fallbackOutput)
-  expect(readback).toEqual({ readback_model: fallback, session_id: "session-1", fallback_reason: "rate_limit" })
-  const result = await dispatchWorker(packet(), { runner: { async run() { return { exitCode: 0, stdout: fallbackOutput, stderr: "" } } } })
+  const fallbackOutput = runOutput(JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", status: { action: { reason: "account_rate_limit" } } } }))
+  expect(readRunSessionMetadata(fallbackOutput)).toEqual({ session_id: "session-1", fallback_reason: "rate_limit" })
+  expect(readExportSessionMetadata(exportedSession(fallback), "session-1")).toEqual({ readback_model: fallback, session_id: "session-1" })
+  const result = await dispatchWorker(packet(), { runner: workerRunner(fallback, fallbackOutput) })
   expect(result.outcome).toBe("fallback")
   expect(result.readback_model).toBe(fallback)
   expect(result.error?.kind).toBe("fallback")
@@ -71,7 +88,7 @@ test("recorded session metadata proves the executing model and exposes fallback"
 })
 
 test("matching recorded session metadata returns bounded ok envelope", async () => {
-  const result = await dispatchWorker(packet(), { runner: { async run() { return { exitCode: 0, stdout: metadata(), stderr: "" } } } })
+  const result = await dispatchWorker(packet(), { runner: workerRunner() })
   expect(result.outcome).toBe("ok")
   expect(result.agent).toBe("concord-research")
   expect(result.resolved_model).toBe(lane.pinned_model)
@@ -81,8 +98,20 @@ test("matching recorded session metadata returns bounded ok envelope", async () 
   expect(result.session_id).toBe("session-1")
 })
 
+test("dispatch obtains readback from a sanitized session export", async () => {
+  const calls: string[][] = []
+  const base = workerRunner()
+  const result = await dispatchWorker(packet(), {
+    runner: { async run(argv, input, signal) { calls.push(argv); return base.run(argv, input, signal) } },
+    evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("ok")
+  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "run"], ["opencode", "export"]])
+  expect(calls[1]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+})
+
 test("undeclared readback is rejected instead of becoming an implicit fallback", async () => {
-  const result = await dispatchWorker(packet(), { runner: { async run() { return { exitCode: 0, stdout: metadata("openai/not-declared"), stderr: "" } } } })
+  const result = await dispatchWorker(packet(), { runner: workerRunner("openai/not-declared") })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("model_identity_mismatch")
 })
@@ -91,7 +120,7 @@ test("a successful run records dispatch evidence before completion evidence", as
   const calls: { argv: string[]; input: string }[] = []
   const result = await dispatchWorker(packet(), {
     concordBinary: "concord-test",
-    runner: { async run() { return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+    runner: workerRunner(),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("ok")
@@ -121,10 +150,10 @@ test("a successful run records dispatch evidence before completion evidence", as
 })
 
 test("a declared fallback is recorded as fallback evidence, not as a failure", async () => {
-  const fallbackOutput = `${metadata(lane.pinned_model)}\n${JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.2" } }, status: { action: { reason: "account_rate_limit" } } } })}`
+  const fallbackOutput = runOutput(JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", status: { action: { reason: "account_rate_limit" } } } }))
   const calls: { argv: string[]; input: string }[] = []
   const result = await dispatchWorker(packet(), {
-    runner: { async run() { return { exitCode: 0, stdout: fallbackOutput, stderr: "" } } },
+    runner: workerRunner("zai-coding-plan/glm-5.2", fallbackOutput),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("fallback")
@@ -140,7 +169,7 @@ test("a declared fallback is recorded as fallback evidence, not as a failure", a
 test("a run whose evidence cannot be recorded is not reported as a success", async () => {
   const refuse = async (argv: string[]) => argv[1] === "worker-dispatch" ? { exitCode: 1, stdout: "", stderr: "resolved model is not a declared routing-policy member" } : { exitCode: 0, stdout: "", stderr: "" }
   const result = await dispatchWorker(packet(), {
-    runner: { async run() { return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+    runner: workerRunner(),
     evidenceRunner: { async run(argv) { return refuse(argv) } },
   })
   expect(result.outcome).toBe("error")
@@ -152,7 +181,7 @@ test("a run whose evidence cannot be recorded is not reported as a success", asy
 test("a completion that cannot be recorded is not reported as a success", async () => {
   let recorded = 0
   const result = await dispatchWorker(packet(), {
-    runner: { async run() { return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+    runner: workerRunner(),
     evidenceRunner: { async run(argv) { recorded++; return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(recorded).toBe(2)
@@ -165,7 +194,7 @@ test("generic host agents are not dispatchable and never spawn or record", async
     let spawned = 0
     let recorded = 0
     const result = await dispatchWorker({ ...packet(), lane_id: generic }, {
-      runner: { async run() { spawned++; return { exitCode: 0, stdout: metadata(), stderr: "" } } },
+      runner: { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } },
       evidenceRunner: { async run() { recorded++; return { exitCode: 0, stdout: "", stderr: "" } } },
     })
     expect(result.outcome).toBe("error")

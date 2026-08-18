@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/workflow-definition.schema.json",
-  "title": "Concord workflow definition manifest v1.1",
+  "title": "Concord workflow definition manifest v1.2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "ref", "version", "digest", "work_kind", "step_graph", "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules", "staleness_rules", "composition_rules", "evaluator_independence"],
   "properties": {
     "$schema": {"type": "string", "minLength": 1, "maxLength": 256},
-    "schema_version": {"enum": ["1.0", "1.1"]},
+    "schema_version": {"enum": ["1.0", "1.1", "1.2"]},
     "ref": {"type": "string", "pattern": "^workflow\\.[a-z][a-z0-9_.-]{1,62}$", "minLength": 10, "maxLength": 64},
     "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
@@ -23,6 +23,7 @@
     "evaluator_independence": {"$ref": "#/$defs/evaluatorIndependence"}
   },
   "allOf": [
+    {"if": {"properties": {"schema_version": {"const": "1.2"}}, "required": ["schema_version"]}, "then": {"properties": {"action_definitions": {"items": {"required": ["id", "consequence", "approval", "execution_mode", "payload"]}}}}},
     {"if": {"properties": {"work_kind": {"const": "implementation"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "check"}, "allowed_kinds": {"const": ["exists", "absent", "check"]}, "allowed_outcome_tokens": {"const": []}, "decision_record_required": {"const": false}}}}}},
     {"if": {"properties": {"work_kind": {"const": "break_fix"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "absent"}, "allowed_kinds": {"const": ["exists", "absent", "check"]}, "allowed_outcome_tokens": {"const": []}, "decision_record_required": {"const": false}}}}}},
     {"if": {"properties": {"work_kind": {"const": "research"}}, "required": ["work_kind"]}, "then": {"required": ["outcome_schema"], "properties": {"outcome_schema": {"properties": {"default_kind": {"const": "outcome"}, "allowed_kinds": {"const": ["outcome"]}, "allowed_outcome_tokens": {"const": ["no_change", "resolved", "report_recorded"]}, "decision_record_required": {"const": false}}}}}},
@@ -70,6 +71,7 @@
         "id": {"$ref": "#/$defs/id"},
         "consequence": {"enum": ["internal_sqlite", "cross_authority", "external_effect"]},
         "approval": {"enum": ["none", "conditional", "required"]},
+        "execution_mode": {"enum": ["advance", "hold", "fenced", "checkpoint"]},
         "payload": {"$ref": "#/$defs/payloadDefinition"}
       }
     },

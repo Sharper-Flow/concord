@@ -645,7 +645,7 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Grant) (Envelope, error) {
+func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
 	if r.Store == nil {
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
 	}
@@ -672,7 +672,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	operationID := "workflow-" + digest[7:31]
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{in.WorkID}, "scope_version": r.Envelope.ScopeVersion}
 	versions := map[string]any{"work": in.ExpectedVersion}
-	approvalConsequence := "workflow_action"
+	approvalConsequence := string(op.Consequence)
 	contractVersion := int64(0)
 	if in.ActionID == "confirm_premise" {
 		if err := r.Store.DB().QueryRowContext(ctx, `SELECT COALESCE((SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1),0)`, in.WorkID).Scan(&contractVersion); err != nil {
@@ -694,7 +694,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		approval = in.Approval.ApprovalRef
 	}
 	requiresApproval := action.Approval == store.ActionApprovalRequired
-	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, ContractOperation{ID: "concord_work_transition.workflow_action"}); replayErr != nil || handled {
+	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
 		}
@@ -853,7 +853,7 @@ func decodeWorkflowReplayEvents(raw []byte, workID string) ([]store.Event, error
 
 func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_transition.workflow_action" {
-		return r.mutateWorkflowAction(ctx, base, raw, grant)
+		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {
@@ -861,7 +861,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 	}
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "scope_version": r.Envelope.ScopeVersion}
 	versions := map[string]any{}
-	consequence := mutationConsequence(op.ID)
+	consequence := string(op.Consequence)
 	approval := ""
 	requiresApproval := op.Approval == ApprovalClass("required")
 	// governingConflict names the scope requirements a capture failed to carry.
@@ -1258,7 +1258,6 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			approval = in.Approval.ApprovalRef
 		}
 		requiresApproval = true
-		consequence = "publication"
 		scope["work_ids"] = []string{in.WorkID}
 		var workVersion int64
 		if err := r.Store.DB().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, in.WorkID).Scan(&workVersion); err != nil {
@@ -1763,7 +1762,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 				return err
 			}
-			_, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: "publication", ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+			_, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
 			return err
 		})
 		if claimErr != nil {
@@ -1996,27 +1995,6 @@ func mutationDigest(tool, operation string, env CallEnvelope, raw []byte) string
 	}{tool, operation, env.SelectedProductID, env.AmbientProjectID, input})
 	sum := sha256.Sum256(canonical)
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func mutationConsequence(id string) string {
-	switch {
-	case strings.Contains(id, "supersede"):
-		return "supersession"
-	case strings.Contains(id, "restore"):
-		return "recovery"
-	case strings.Contains(id, "transition"):
-		return "lifecycle"
-	case strings.Contains(id, "membership"):
-		return "scope"
-	case strings.Contains(id, "link"), strings.Contains(id, "unlink"):
-		return "relation"
-	default:
-		return "intent"
-	}
-}
-
-func actionIsFenced(action string) bool {
-	return strings.HasPrefix(action, "start_") || strings.HasPrefix(action, "run_") || strings.HasPrefix(action, "rollback_")
 }
 
 func mutationPayload(changed []ChangedRef, intents []NextIntent) json.RawMessage {

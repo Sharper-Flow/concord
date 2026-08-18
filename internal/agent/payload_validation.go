@@ -10,31 +10,20 @@ import (
 	"strings"
 )
 
-var operationPayloadSchemas = map[string]string{
-	"concord_product_view.resolve": "product_context", "concord_product_view.snapshot": "product_snapshot", "concord_product_view.portfolio": "product_row_page", "concord_product_view.blocked_sessions": "blocked_sessions_page",
-	"concord_work_browse.list": "work_page", "concord_work_browse.ready": "work_page", "concord_work_browse.blocked": "blocked_work_page", "concord_work_browse.scope": "work_scope", "concord_work_browse.resource_claims": "resource_claims_page", "concord_work_browse.messages": "work_messages_page",
-	"concord_work_trace.history": "work_event_page", "concord_work_trace.continuity": "continuity_snapshot", "concord_work_trace.relations": "work_relation_graph", "concord_work_trace.research": "research_pack", "concord_knowledge.search": "knowledge_page", "concord_knowledge.resolve_note": "canonical_note_result",
-	"concord_work_define.capture": "mutation_result", "concord_work_define.revise_intent": "mutation_result", "concord_work_define.observation_record": "mutation_result", "concord_work_transition.lifecycle": "mutation_result", "concord_work_transition.workflow_action": "mutation_result", "concord_work_transition.worktree_claim": "mutation_result", "concord_work_transition.worktree_reclaim": "mutation_result",
-	"concord_work_epic.create": "mutation_result", "concord_work_define.research_pack_create": "mutation_result", "concord_work_define.research_revision_append": "mutation_result", "concord_work_define.research_finding_record": "mutation_result", "concord_work_define.research_source_record": "mutation_result", "concord_work_define.research_freshness_set": "mutation_result", "concord_work_epic.add_entry": "mutation_result", "concord_work_epic.remove_entry": "mutation_result", "concord_work_epic.reorder_entry": "mutation_result", "concord_work_epic.change_requiredness": "mutation_result", "concord_work_epic.revise_narrative": "mutation_result", "concord_work_epic.entries": "epic_entries_result",
-	"concord_work_relate.set_memberships": "mutation_result", "concord_work_relate.link": "mutation_result", "concord_work_relate.unlink": "mutation_result", "concord_work_relate.supersede": "mutation_result", "concord_work_relate.restore_superseded": "mutation_result", "concord_work_relate.resource_claim": "mutation_result", "concord_work_relate.resource_release": "mutation_result", "concord_work_relate.message_send": "mutation_result", "concord_work_relate.message_withdraw": "mutation_result",
-	"concord_work_compact.publish": "mutation_result", "concord_work_compact.lesson_publish": "mutation_result", "concord_work_compact.reconcile": "mutation_result",
-}
-var operationInputSchemas = map[string]string{
-	"concord_product_view.resolve": "product_view_resolve_input", "concord_product_view.snapshot": "product_view_snapshot_input", "concord_product_view.portfolio": "product_row_portfolio_input", "concord_product_view.blocked_sessions": "product_view_blocked_sessions_input", "concord_work_browse.list": "work_browse_list_input", "concord_work_browse.ready": "work_browse_ready_input", "concord_work_browse.blocked": "work_browse_blocked_input", "concord_work_browse.scope": "work_browse_scope_input", "concord_work_browse.resource_claims": "work_browse_resource_claims_input", "concord_work_browse.messages": "work_browse_messages_input", "concord_work_trace.history": "work_trace_history_input", "concord_work_trace.continuity": "work_trace_continuity_input", "concord_work_trace.relations": "work_trace_relations_input", "concord_work_trace.research": "work_trace_research_input", "concord_work_define.research_pack_create": "work_define_research_pack_create_input", "concord_work_define.research_revision_append": "work_define_research_revision_append_input", "concord_work_define.research_finding_record": "work_define_research_finding_record_input", "concord_work_define.research_source_record": "work_define_research_source_record_input", "concord_work_define.research_freshness_set": "work_define_research_freshness_set_input", "concord_knowledge.search": "knowledge_search_input", "concord_knowledge.resolve_note": "knowledge_resolve_input", "concord_work_define.capture": "work_define_capture_input", "concord_work_define.revise_intent": "work_define_revise_input", "concord_work_define.observation_record": "work_define_observation_record_input", "concord_work_transition.lifecycle": "work_transition_lifecycle_input", "concord_work_transition.workflow_action": "work_transition_action_input", "concord_work_transition.worktree_claim": "work_transition_worktree_claim_input", "concord_work_transition.worktree_reclaim": "work_transition_worktree_reclaim_input", "concord_work_relate.set_memberships": "work_relate_memberships_input", "concord_work_relate.link": "work_relate_link_input", "concord_work_relate.unlink": "work_relate_unlink_input", "concord_work_relate.supersede": "work_relate_supersede_input", "concord_work_relate.restore_superseded": "work_relate_restore_input", "concord_work_relate.resource_claim": "work_relate_resource_claim_input", "concord_work_relate.resource_release": "work_relate_resource_release_input", "concord_work_relate.message_send": "work_relate_message_send_input", "concord_work_relate.message_withdraw": "work_relate_message_withdraw_input", "concord_work_compact.publish": "work_compact_publish_input", "concord_work_compact.lesson_publish": "work_compact_lesson_publish_input", "concord_work_compact.reconcile": "work_compact_reconcile_input",
-	"concord_work_epic.create": "epic_create_input", "concord_work_epic.add_entry": "epic_add_entry_input", "concord_work_epic.remove_entry": "epic_remove_entry_input", "concord_work_epic.reorder_entry": "epic_reorder_entry_input", "concord_work_epic.change_requiredness": "epic_change_requiredness_input", "concord_work_epic.revise_narrative": "epic_revise_narrative_input", "concord_work_epic.entries": "epic_entries_input",
-}
-
 func ValidateOperationPayload(tool, operation string, data []byte, result bool) error {
 	if err := validateUniqueJSON(data); err != nil {
 		return err
 	}
-	key := tool + "." + operation
-	name := operationPayloadSchemas[key]
+	contract, ok := ValidateContractOperation(tool, operation)
+	if !ok {
+		return fmt.Errorf("unknown operation payload %s.%s", tool, operation)
+	}
+	name := contract.ResultSchema
 	if !result {
-		name = operationInputSchemas[key]
+		name = contract.InputSchema
 	}
 	if name == "" {
-		return fmt.Errorf("unknown operation payload %s", key)
+		return fmt.Errorf("operation payload schema is not generated for %s", contract.ID)
 	}
 	if err := ValidateGeneratedPayload(name, data); err != nil {
 		return err
@@ -401,7 +390,3 @@ func matchesAnyType(value any, raw any) bool {
 	return false
 }
 func numberInt(value json.Number) int { n, _ := strconv.Atoi(string(value)); return n }
-
-func inputPayloadSchema(tool, operation string) string {
-	return operationInputSchemas[tool+"."+operation]
-}

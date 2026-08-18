@@ -549,8 +549,8 @@ reproducible.
 
 ## 12. Built-in family graphs and actions
 
-The v2 built-ins retain every v1 definition for pinned replay and add
-`accept_worker_result` to external-effect steps. Action IDs are stable data, not
+The v3 built-ins retain every v1/v2 definition for pinned replay, preserve v2's
+`accept_worker_result` actions, and add typed action execution modes. Action IDs are stable data, not
 caller-invented commands. Every terminal path declares the universal
 `record_verdict → confirm_premise → complete` sequence; no family can reach
 `complete` through an undeclared action.
@@ -568,7 +568,8 @@ caller-invented commands. Every terminal path declares the universal
 ### 12.1 Action-to-event mapping
 
 The dispatcher validates every action above against its root `action_definitions`
-entry. The following table is exhaustive; an action not listed is invalid. An
+entry. Each v3 entry carries one closed `execution_mode`: `advance`, `hold`,
+`fenced`, or `checkpoint`. The following table is exhaustive; an action not listed is invalid. An
 internal action uses `workflow.action_completed` plus the listed semantic event;
 a fenced action first emits `workflow.action_started` and may emit
 `workflow.action_checkpointed`, then emits `workflow.action_completed` or
@@ -602,7 +603,13 @@ a fenced action first emits `workflow.action_started` and may emit
 | `record_report` | `workflow.action_completed` plus `workflow.evidence_bound` for the report's immutable subject |
 | `accept_worker_result` | `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; the fold rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing |
 
-`action_definitions` carry closed payload field definitions for each ID. The
+`action_definitions` carry closed payload field definitions and execution modes
+for each ID. Historical v1/v2 canonical definitions omit `execution_mode` and
+retain their original digests; their immutable built-ins still carry explicit
+runtime modes. The registry normalizes separately registered legacy definitions
+through the frozen v1/v2 naming contract without changing their historical
+canonical digest, and v1 replay retains the same compatibility parser for event
+action IDs that predate root action declarations. The
 definition validator rejects duplicate action IDs, graph references not present
 in the root action list, action definitions missing from that list, undeclared
 step endpoints, undeclared start/terminal nodes, and non-retry cycles. The runtime

@@ -294,7 +294,11 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 	actor := eventActor
 	events := []Event{}
 	versionCursor := request.ExpectedVersion
-	workflowActionEpoch, epochErr := workflowActionStartEpochForDispatch(ctx, tx, request.WorkID, currentStep, actionIsFenced(request.ActionID))
+	executionMode, ok := workflowActionExecutionMode(entry.Definition, request.ActionID)
+	if !ok {
+		return result, newFailure(KindInvariantViolation, "workflow_action", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
+	}
+	workflowActionEpoch, epochErr := workflowActionStartEpochForDispatch(ctx, tx, request.WorkID, currentStep, executionMode == ActionFenced)
 	if epochErr != nil {
 		return result, epochErr
 	}
@@ -306,7 +310,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 		events = append(events, workflowTypedEvent(request.OperationID+":operator", WorkflowActorRecorded, request.WorkID, operatorRef, request.Now, versionCursor, map[string]any{"actor_ref": operatorRef, "principal_ref": request.OperatorActor.PrincipalRef, "client_ref": request.OperatorActor.ClientRef, "agent_ref": request.OperatorActor.AgentRef, "session_ref": request.OperatorActor.SessionRef, "actor_class": string(ActorOperator)}))
 		versionCursor++
 	}
-	if actionIsFenced(request.ActionID) {
+	if executionMode == ActionFenced {
 		resultVersion := versionCursor + 1
 		startPayload, _ := json.Marshal(map[string]any{
 			"work_id": request.WorkID, "expected_version": versionCursor, "resulting_version": resultVersion,
@@ -316,7 +320,7 @@ func ApplyWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionR
 		events = append(events, Event{EventID: request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: startPayload})
 		resultVersion++
 	}
-	if actionIsCheckpoint(request.ActionID) {
+	if executionMode == ActionCheckpoint {
 		resultVersion := versionCursor + int64(len(events)-int(versionCursor-request.ExpectedVersion)) + 1
 		checkpointPayload, _ := json.Marshal(map[string]any{"action_id": request.ActionID, "fields": json.RawMessage(payload)})
 		checkpoint, _ := json.Marshal(map[string]any{
@@ -865,14 +869,6 @@ func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {
 		}
 	}
 	return nil
-}
-
-func actionIsFenced(action string) bool {
-	return strings.HasPrefix(action, "start_") || strings.HasPrefix(action, "run_") || strings.HasPrefix(action, "rollback_")
-}
-
-func actionIsCheckpoint(action string) bool {
-	return (strings.HasPrefix(action, "checkpoint_") && action != "checkpoint_context") || action == "record_decision"
 }
 
 func nullableWorkflowText(value string) any {

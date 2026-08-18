@@ -71,6 +71,15 @@ const (
 	ActionApprovalRequired    ActionApproval = "required"
 )
 
+type ActionExecutionMode string
+
+const (
+	ActionAdvance    ActionExecutionMode = "advance"
+	ActionHold       ActionExecutionMode = "hold"
+	ActionFenced     ActionExecutionMode = "fenced"
+	ActionCheckpoint ActionExecutionMode = "checkpoint"
+)
+
 type PayloadValueType string
 
 const (
@@ -99,10 +108,11 @@ type WorkflowPayloadDefinition struct {
 }
 
 type WorkflowActionDefinition struct {
-	ID          string                    `json:"id"`
-	Consequence ActionConsequence         `json:"consequence"`
-	Approval    ActionApproval            `json:"approval"`
-	Payload     WorkflowPayloadDefinition `json:"payload"`
+	ID            string                    `json:"id"`
+	Consequence   ActionConsequence         `json:"consequence"`
+	Approval      ActionApproval            `json:"approval"`
+	ExecutionMode ActionExecutionMode       `json:"execution_mode,omitempty"`
+	Payload       WorkflowPayloadDefinition `json:"payload"`
 }
 
 type WorkflowStep struct {
@@ -206,6 +216,18 @@ func registryKey(ref string, version int64) string { return fmt.Sprintf("%s\x00%
 func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (RegisteredDefinition, error) {
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return RegisteredDefinition{}, err
+	}
+	if definition.Version < 3 {
+		for i := range definition.ActionDefinitions {
+			if definition.ActionDefinitions[i].ExecutionMode == "" {
+				definition.ActionDefinitions[i].ExecutionMode = legacyActionExecutionMode(definition.ActionDefinitions[i].ID)
+			}
+		}
+	}
+	for _, action := range definition.ActionDefinitions {
+		if !validActionExecutionMode(action.ExecutionMode) {
+			return RegisteredDefinition{}, definitionFailure(KindInvalidDefinition, "registered action execution mode is not declared")
+		}
 	}
 	digest, err := WorkflowDefinitionDigest(definition)
 	if err != nil {
@@ -318,7 +340,8 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 	}
 	actions := make(map[string]WorkflowActionDefinition, len(definition.ActionDefinitions))
 	for _, action := range definition.ActionDefinitions {
-		if !validWorkflowID(action.ID) || !validActionConsequence(action.Consequence) || !validActionApproval(action.Approval) || len(action.Payload.Fields) > 32 {
+		modeInvalid := !validActionExecutionMode(action.ExecutionMode) && (definition.Version >= 3 || action.ExecutionMode != "")
+		if !validWorkflowID(action.ID) || !validActionConsequence(action.Consequence) || !validActionApproval(action.Approval) || modeInvalid || len(action.Payload.Fields) > 32 {
 			return definitionFailure(KindInvalidDefinition, "action definition is invalid")
 		}
 		if _, exists := actions[action.ID]; exists {
@@ -410,6 +433,13 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	// json.Marshal follows the field order below. The digest is deliberately not
 	// part of this manifest, and nil arrays are normalized to schema arrays.
 	definition = normalizeWorkflowDefinition(definition)
+	schemaVersion := "1.2"
+	if definition.Version < 3 {
+		schemaVersion = "1.1"
+		for i := range definition.ActionDefinitions {
+			definition.ActionDefinitions[i].ExecutionMode = ""
+		}
+	}
 	manifest := struct {
 		SchemaVersion         string                        `json:"schema_version"`
 		Ref                   string                        `json:"ref"`
@@ -424,7 +454,7 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 		StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
 		CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
 		EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
-	}{"1.1", definition.Ref, definition.Version, definition.WorkKind, definition.StepGraph, definition.AvailableActions, definition.ActionDefinitions, definition.RequiredEvidenceKinds, definition.OutcomeSchema, definition.RigorRules, definition.StalenessRules, definition.CompositionRules, definition.EvaluatorIndependence}
+	}{schemaVersion, definition.Ref, definition.Version, definition.WorkKind, definition.StepGraph, definition.AvailableActions, definition.ActionDefinitions, definition.RequiredEvidenceKinds, definition.OutcomeSchema, definition.RigorRules, definition.StalenessRules, definition.CompositionRules, definition.EvaluatorIndependence}
 	return json.Marshal(manifest)
 }
 
@@ -489,14 +519,21 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 }
 
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	return []WorkflowDefinition{
-		builtinWorkflowV2(builtinImplementation()), builtinWorkflowV2(builtinBreakFix()), builtinWorkflowV2(builtinResearch()), builtinWorkflowV2(builtinArchitectureSpike()), builtinWorkflowV2(builtinOpsRunbook()), builtinWorkflowV2(builtinStaticAnalysis()), builtinWorkflowV2(builtinGenericOneOff()),
+	latest := builtinWorkflowV2Definitions()
+	for i := range latest {
+		latest[i].Version = 3
 	}
+	return latest
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	registry := NewWorkflowDefinitionRegistry()
 	for _, definition := range builtinWorkflowV1Definitions() {
+		if _, err := registry.Register(definition); err != nil {
+			panic(err)
+		}
+	}
+	for _, definition := range builtinWorkflowV2Definitions() {
 		if _, err := registry.Register(definition); err != nil {
 			panic(err)
 		}
@@ -538,6 +575,12 @@ func builtinWorkflowV1Definitions() []WorkflowDefinition {
 	}
 }
 
+func builtinWorkflowV2Definitions() []WorkflowDefinition {
+	return []WorkflowDefinition{
+		builtinWorkflowV2(builtinImplementation()), builtinWorkflowV2(builtinBreakFix()), builtinWorkflowV2(builtinResearch()), builtinWorkflowV2(builtinArchitectureSpike()), builtinWorkflowV2(builtinOpsRunbook()), builtinWorkflowV2(builtinStaticAnalysis()), builtinWorkflowV2(builtinGenericOneOff()),
+	}
+}
+
 func builtinWorkflowV2(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	definition.Version = 2
@@ -545,7 +588,7 @@ func builtinWorkflowV2(definition WorkflowDefinition) WorkflowDefinition {
 		return definition
 	}
 	acceptance := WorkflowActionDefinition{
-		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone,
+		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance,
 		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
 			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
 			{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
@@ -579,6 +622,9 @@ func validActionConsequence(value ActionConsequence) bool {
 }
 func validActionApproval(value ActionApproval) bool {
 	return value == ActionApprovalNone || value == ActionApprovalConditional || value == ActionApprovalRequired
+}
+func validActionExecutionMode(value ActionExecutionMode) bool {
+	return value == ActionAdvance || value == ActionHold || value == ActionFenced || value == ActionCheckpoint
 }
 func validReference(value string) bool {
 	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\r\n")
@@ -745,23 +791,119 @@ func uniqueWorkKinds(values []WorkKind) bool {
 	return true
 }
 
-func actionDefinitions(ids []string, external map[string]bool, approvals map[string]ActionApproval) []WorkflowActionDefinition {
+type builtinActionPolicy struct {
+	Consequence   ActionConsequence
+	Approval      ActionApproval
+	ExecutionMode ActionExecutionMode
+}
+
+func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode) builtinActionPolicy {
+	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode}
+}
+
+var builtinActionPolicies = map[string]builtinActionPolicy{
+	"record_proposal":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_discovery":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_design":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"approve_contract":       actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
+	"start_execution":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
+	"checkpoint_execution":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
+	"bind_evidence":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
+	"declare_impact":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
+	"link_successor":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
+	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
+	"confirm_premise":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
+	"complete":               actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
+	"record_reproduction":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_root_cause":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"start_repair":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
+	"checkpoint_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
+	"frame_research":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_finding":         actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
+	"revise_candidates":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_report":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_conclusion":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"frame_question":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_research":        actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
+	"record_option":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
+	"start_poc":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
+	"checkpoint_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
+	"discard_poc":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionCheckpoint),
+	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold),
+	"approve_operation":      actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
+	"start_run":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
+	"checkpoint_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
+	"add_condition":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"resolve_condition":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"cancel_condition":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"record_health":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
+	"rollback_run":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
+	"cleanup_run":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
+	"declare_scope":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"run_analysis":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
+	"checkpoint_analysis":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
+	"start_action":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
+	"checkpoint_action":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
+	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
+	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
+	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
+}
+
+func actionDefinitions(ids []string) []WorkflowActionDefinition {
 	result := make([]WorkflowActionDefinition, 0, len(ids))
 	for _, id := range ids {
-		consequence := ActionInternalSQLite
-		if external[id] {
-			consequence = ActionExternalEffect
+		policy, ok := builtinActionPolicies[id]
+		if !ok {
+			panic("built-in workflow action policy is not declared: " + id)
 		}
-		if strings.HasPrefix(id, "record_research") || id == "record_finding" || id == "record_option" || id == "record_health" {
-			consequence = ActionCrossAuthority
-		}
-		approval := ActionApprovalNone
-		if value, ok := approvals[id]; ok {
-			approval = value
-		}
-		result = append(result, WorkflowActionDefinition{ID: id, Consequence: consequence, Approval: approval, Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{}}})
+		result = append(result, WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{}}})
 	}
 	return result
+}
+
+func workflowActionExecutionMode(definition WorkflowDefinition, actionID string) (ActionExecutionMode, bool) {
+	for _, action := range definition.ActionDefinitions {
+		if action.ID != actionID {
+			continue
+		}
+		if validActionExecutionMode(action.ExecutionMode) {
+			return action.ExecutionMode, true
+		}
+		break
+	}
+	// supersede_contract is a recovery-only action outside the pinned root list.
+	if actionID == "supersede_contract" {
+		policy, ok := builtinActionPolicies[actionID]
+		return policy.ExecutionMode, ok
+	}
+	// Version 1 accepted undeclared completion action IDs. Replaying those
+	// historical events must retain their exact naming-contract semantics.
+	if definition.Version == 1 {
+		return legacyActionExecutionMode(actionID), true
+	}
+	return "", false
+}
+
+func legacyActionExecutionMode(actionID string) ActionExecutionMode {
+	if strings.HasPrefix(actionID, "start_") || strings.HasPrefix(actionID, "run_") || strings.HasPrefix(actionID, "rollback_") {
+		return ActionFenced
+	}
+	if strings.HasPrefix(actionID, "checkpoint_") {
+		if actionID == "checkpoint_context" {
+			return ActionHold
+		}
+		return ActionCheckpoint
+	}
+	switch actionID {
+	case "bind_evidence", "declare_impact", "link_successor", "record_verdict", "accept_decision", "cleanup_run", "complete":
+		return ActionHold
+	case "record_decision":
+		return ActionCheckpoint
+	default:
+		return ActionAdvance
+	}
 }
 
 func workflowInt(value int64) *int64 { return &value }
@@ -787,8 +929,8 @@ func withContinuityActions(definition WorkflowDefinition) WorkflowDefinition {
 		{Name: "summary", ValueType: PayloadString, Required: true, MinLength: workflowInt(1), MaxLength: workflowInt(16384)},
 	}
 	continuity := []WorkflowActionDefinition{
-		{ID: "checkpoint_context", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, Payload: WorkflowPayloadDefinition{Fields: checkpointFields}},
-		{ID: "cross_context_boundary", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, Payload: WorkflowPayloadDefinition{Fields: boundaryFields}},
+		{ID: "checkpoint_context", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionHold, Payload: WorkflowPayloadDefinition{Fields: checkpointFields}},
+		{ID: "cross_context_boundary", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance, Payload: WorkflowPayloadDefinition{Fields: boundaryFields}},
 	}
 	definition.AvailableActions = append(definition.AvailableActions, "checkpoint_context", "cross_context_boundary")
 	definition.ActionDefinitions = append(definition.ActionDefinitions, continuity...)
@@ -815,7 +957,7 @@ func addEdge(edges []WorkflowEdge, from, to string, kind WorkflowEdgeKind) []Wor
 	return append(edges, WorkflowEdge{From: from, To: to, Kind: kind})
 }
 func baseDefinition(ref string, kind WorkKind, g WorkflowStepGraph, actions []string, evidence []EvidenceKind, outcome WorkflowOutcomeSchema, successors []WorkKind) WorkflowDefinition {
-	return WorkflowDefinition{Ref: ref, Version: 1, WorkKind: kind, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions, map[string]bool{}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired, "accept_decision": ActionApprovalRequired, "approve_operation": ActionApprovalRequired}), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
+	return WorkflowDefinition{Ref: ref, Version: 1, WorkKind: kind, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
 }
 
 func builtinImplementation() WorkflowDefinition {
@@ -825,7 +967,6 @@ func builtinImplementation() WorkflowDefinition {
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch})
-	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_execution": true, "checkpoint_execution": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
 	return withContinuityActions(d)
 }
 func builtinBreakFix() WorkflowDefinition {
@@ -835,7 +976,6 @@ func builtinBreakFix() WorkflowDefinition {
 	edges = addEdge(edges, "repair", "repair", WorkflowEdgeRetry)
 	actions := []string{"record_reproduction", "record_root_cause", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch})
-	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_repair": true, "checkpoint_repair": true}, map[string]ActionApproval{"confirm_premise": ActionApprovalRequired})
 	return withContinuityActions(d)
 }
 func builtinResearch() WorkflowDefinition {
@@ -843,7 +983,6 @@ func builtinResearch() WorkflowDefinition {
 	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_research", "approve_contract"), step("investigate", WorkflowStepCrossAuthority, "record_finding", "revise_candidates", "bind_evidence"), step("findings", WorkflowStepInternalSQLite, "record_report", "link_successor"), step("conclude", WorkflowStepHumanCheckpoint, "record_conclusion", "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	actions := []string{"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis})
-	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
 	return withContinuityActions(d)
 }
 func builtinArchitectureSpike() WorkflowDefinition {
@@ -854,7 +993,6 @@ func builtinArchitectureSpike() WorkflowDefinition {
 	edges = addEdge(edges, "poc_optional", "poc_optional", WorkflowEdgeRetry)
 	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis})
-	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_poc": true, "checkpoint_poc": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "accept_decision": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
 	return withContinuityActions(d)
 }
 func builtinOpsRunbook() WorkflowDefinition {
@@ -865,7 +1003,6 @@ func builtinOpsRunbook() WorkflowDefinition {
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.ops_runbook", WorkKindOpsRunbook, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
-	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_run": true, "checkpoint_run": true, "rollback_run": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "approve_operation": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
 	return withContinuityActions(d)
 }
 func builtinStaticAnalysis() WorkflowDefinition {
@@ -875,7 +1012,6 @@ func builtinStaticAnalysis() WorkflowDefinition {
 	edges = addEdge(edges, "analyze", "analyze", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.static_analysis", WorkKindStaticAnalysis, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
-	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"run_analysis": true, "checkpoint_analysis": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
 	return withContinuityActions(d)
 }
 func builtinGenericOneOff() WorkflowDefinition {
@@ -885,6 +1021,5 @@ func builtinGenericOneOff() WorkflowDefinition {
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff})
-	d.ActionDefinitions = actionDefinitions(actions, map[string]bool{"start_action": true, "checkpoint_action": true}, map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired})
 	return withContinuityActions(d)
 }

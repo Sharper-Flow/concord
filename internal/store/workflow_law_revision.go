@@ -41,7 +41,7 @@ const staleLawRecoveryActions = "supersede_contract,terminal_work"
 
 func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 	return WorkflowActionDefinition{
-		ID: "supersede_contract", Consequence: ActionInternalSQLite, Approval: ActionApprovalRequired,
+		ID: "supersede_contract", Consequence: ActionInternalSQLite, Approval: ActionApprovalRequired, ExecutionMode: ActionAdvance,
 		// The recovery payload contains a registered outcome predicate object;
 		// semantic validation below owns this closed object rather than lying
 		// about it as one of the scalar payload field types.

@@ -415,8 +415,21 @@ func validateRequiredCommandFields(command string, raw []byte) error {
 		return nil
 	}
 	for _, field := range spec.RequiredFields {
-		if _, ok := object[field.Name]; !ok {
+		raw, ok := object[field.Name]
+		if !ok {
 			return fmt.Errorf("missing required field %s", field.Name)
+		}
+		if len(field.Nested) == 0 {
+			continue
+		}
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &nested); err != nil || nested == nil {
+			return fmt.Errorf("required field %s must be an object", field.Name)
+		}
+		for _, name := range field.Nested {
+			if _, ok := nested[name]; !ok {
+				return fmt.Errorf("missing required field %s.%s", field.Name, name)
+			}
 		}
 	}
 	return nil

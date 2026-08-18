@@ -88,7 +88,11 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err := e.validate(); err != nil {
 		return 0, err
 	}
-	if isWorkflowAdvancementEvent(e.Kind) && !allowCompletion {
+	prepared, err := prepareRegisteredEvent(e)
+	if err != nil {
+		return 0, err
+	}
+	if prepared.registration.Authority == EventAppendAuthorityWorkflow && !allowCompletion {
 		return 0, workflowDispatcherRequired(e.Kind)
 	}
 

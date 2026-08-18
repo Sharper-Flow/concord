@@ -41,15 +41,11 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 
 func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 	s := openTemp(t)
-	reserved := []string{
-		WorkflowDefinitionSelected, WorkflowContractApproved, WorkflowContractSuperseded,
-		WorkflowCandidateSetRevised, WorkflowActorRecorded, WorkflowActionStarted,
-		WorkflowActionCheckpointed, WorkflowActionCompleted, WorkflowActionFailed,
-		WorkflowEvidenceBound, WorkflowVerdictRecorded, WorkflowPremiseConfirmed,
-		WorkflowSuccessorLinked, WorkflowImpactDeclared, WorkflowImpactNoticeRecorded,
-		WorkflowConditionAdded, WorkflowConditionResolved, WorkflowConditionCancelled,
-		WorkflowContextCheckpointed, WorkflowContextBoundaryCrossed,
-		WorkflowCompleted,
+	var reserved []string
+	for kind, registration := range eventKindRegistry {
+		if registration.Authority == EventAppendAuthorityWorkflow {
+			reserved = append(reserved, kind)
+		}
 	}
 	for _, kind := range reserved {
 		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{

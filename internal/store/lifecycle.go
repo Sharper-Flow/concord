@@ -10,8 +10,11 @@ import (
 )
 
 type workCreatedPayload struct {
+	WorkID          string   `json:"work_id,omitempty"`
 	WorkKind        string   `json:"work_kind"`
 	Title           string   `json:"title"`
+	From            string   `json:"from,omitempty"`
+	To              string   `json:"to,omitempty"`
 	ValueStatement  string   `json:"value_statement,omitempty"`
 	Priority        *int64   `json:"priority"`
 	Urgency         string   `json:"urgency,omitempty"`

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -40,6 +41,20 @@ type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
 	ExpectedVersion  *int64 `json:"expected_version"`
 	ResultingVersion *int64 `json:"resulting_version"`
+}
+
+func (f WorkflowVersionFields) workflowVersionFields() WorkflowVersionFields { return f }
+
+type workflowPayload interface {
+	workflowVersionFields() WorkflowVersionFields
+}
+
+func validateWorkflowPayload[T workflowPayload](event Event, payload T) error {
+	return workflowBase(event, payload.workflowVersionFields())
+}
+
+func workflowRegistration[T workflowPayload](currentVersion int, upcasters map[int]Upcaster, fold projectionMutation) EventKindRegistration {
+	return registerEventKind[T](currentVersion, 1, upcasters, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
 }
 
 type workflowDefinitionSelectedPayload struct {
@@ -289,20 +304,9 @@ var workflowKinds = map[string]bool{
 	"generic_one_off": true,
 }
 
-var workflowAdvancementEventKinds = map[string]struct{}{
-	WorkflowDefinitionSelected: {}, WorkflowContractApproved: {}, WorkflowContractSuperseded: {},
-	WorkflowCandidateSetRevised: {}, WorkflowActorRecorded: {}, WorkflowActionStarted: {},
-	WorkflowActionCheckpointed: {}, WorkflowActionCompleted: {}, WorkflowActionFailed: {},
-	WorkflowEvidenceBound: {}, WorkflowVerdictRecorded: {}, WorkflowPremiseConfirmed: {},
-	WorkflowSuccessorLinked: {}, WorkflowImpactDeclared: {}, WorkflowImpactNoticeRecorded: {},
-	WorkflowConditionAdded: {}, WorkflowConditionResolved: {}, WorkflowConditionCancelled: {},
-	WorkflowContextCheckpointed: {}, WorkflowContextBoundaryCrossed: {},
-	WorkflowCompleted: {},
-}
-
 func isWorkflowAdvancementEvent(kind string) bool {
-	_, ok := workflowAdvancementEventKinds[kind]
-	return ok
+	registration, ok := registeredEventKind(kind)
+	return ok && registration.Authority == EventAppendAuthorityWorkflow
 }
 
 func workflowDispatcherRequired(kind string) error {
@@ -310,34 +314,6 @@ func workflowDispatcherRequired(kind string) error {
 		return workflowCompletionRequired()
 	}
 	return newFailure(KindInvalidOperation, "apply_operation", "workflow event "+kind+" is reserved for an authoritative workflow route", false, "dispatch the workflow action or use the workflow initialization/completion entry point")
-}
-
-func workflowRegistration(f projectionMutation) EventKindRegistration {
-	return EventKindRegistration{CurrentVersion: 1, MinSupported: 1, Upcasters: map[int]Upcaster{}, Fold: f}
-}
-
-func init() {
-	eventKindRegistry[WorkflowDefinitionSelected] = workflowRegistration(foldWorkflowDefinitionSelected)
-	eventKindRegistry[WorkflowContractApproved] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowContractApprovedV1}, Fold: foldWorkflowContractApproved}
-	eventKindRegistry[WorkflowContractSuperseded] = workflowRegistration(foldWorkflowContractSuperseded)
-	eventKindRegistry[WorkflowCandidateSetRevised] = workflowRegistration(foldWorkflowCandidateSetRevised)
-	eventKindRegistry[WorkflowActorRecorded] = workflowRegistration(foldWorkflowActorRecorded)
-	eventKindRegistry[WorkflowActionStarted] = workflowRegistration(foldWorkflowActionStarted)
-	eventKindRegistry[WorkflowActionCheckpointed] = workflowRegistration(foldWorkflowActionCheckpointed)
-	eventKindRegistry[WorkflowActionCompleted] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowActionCompletedV1}, Fold: foldWorkflowActionCompleted}
-	eventKindRegistry[WorkflowActionFailed] = workflowRegistration(foldWorkflowActionFailed)
-	eventKindRegistry[WorkflowEvidenceBound] = workflowRegistration(foldWorkflowEvidenceBound)
-	eventKindRegistry[WorkflowVerdictRecorded] = workflowRegistration(foldWorkflowVerdictRecorded)
-	eventKindRegistry[WorkflowPremiseConfirmed] = workflowRegistration(foldWorkflowPremiseConfirmed)
-	eventKindRegistry[WorkflowSuccessorLinked] = workflowRegistration(foldWorkflowSuccessorLinked)
-	eventKindRegistry[WorkflowImpactDeclared] = workflowRegistration(foldWorkflowImpactDeclared)
-	eventKindRegistry[WorkflowImpactNoticeRecorded] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowImpactNoticeRecordedV1}, Fold: foldWorkflowImpactNoticeRecorded}
-	eventKindRegistry[WorkflowConditionAdded] = workflowRegistration(foldWorkflowConditionAdded)
-	eventKindRegistry[WorkflowConditionResolved] = workflowRegistration(foldWorkflowConditionResolved)
-	eventKindRegistry[WorkflowConditionCancelled] = workflowRegistration(foldWorkflowConditionCancelled)
-	eventKindRegistry[WorkflowContextCheckpointed] = workflowRegistration(foldWorkflowContextCheckpointed)
-	eventKindRegistry[WorkflowContextBoundaryCrossed] = workflowRegistration(foldWorkflowContextBoundaryCrossed)
-	eventKindRegistry[WorkflowCompleted] = EventKindRegistration{CurrentVersion: 2, MinSupported: 1, Upcasters: map[int]Upcaster{1: upcastWorkflowCompletedV1}, Fold: foldWorkflowCompleted}
 }
 
 // DeriveWorkflowActorRef implements the contract's byte-length-prefixed,
@@ -354,6 +330,9 @@ func actorField(name, value string) string {
 }
 
 func decodeWorkflowPayload(event Event, target any) error {
+	if !isJSONObject(event.Payload) {
+		return newFailure(KindInvalidPayload, "fold_event", "workflow payload is not a JSON object", false, "repair the workflow event payload")
+	}
 	decoder := json.NewDecoder(strings.NewReader(string(event.Payload)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -361,106 +340,13 @@ func decodeWorkflowPayload(event Event, target any) error {
 		failure.Stage = StageDecode
 		return failure
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		failure := newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("event %s payload contains trailing data", event.EventID), false, "repair the workflow event payload")
+		failure.Stage = StageDecode
+		return failure
+	}
 	return nil
-}
-
-func validateWorkflowPayloadShape(event Event) error {
-	var target any
-	switch event.Kind {
-	case WorkflowDefinitionSelected:
-		target = &workflowDefinitionSelectedPayload{}
-	case WorkflowContractApproved:
-		target = &workflowContractApprovedPayload{}
-	case WorkflowContractSuperseded:
-		target = &workflowContractSupersededPayload{}
-	case WorkflowCandidateSetRevised:
-		target = &workflowCandidateSetRevisedPayload{}
-	case WorkflowActorRecorded:
-		target = &workflowActorRecordedPayload{}
-	case WorkflowActionStarted:
-		target = &workflowActionStartedPayload{}
-	case WorkflowActionCheckpointed:
-		target = &workflowActionCheckpointedPayload{}
-	case WorkflowActionCompleted:
-		target = &workflowActionCompletedPayload{}
-	case WorkflowActionFailed:
-		target = &workflowActionFailedPayload{}
-	case WorkflowContextCheckpointed:
-		target = &workflowContextCheckpointedPayload{}
-	case WorkflowContextBoundaryCrossed:
-		target = &workflowContextBoundaryCrossedPayload{}
-	case WorkflowEvidenceBound:
-		target = &workflowEvidenceBoundPayload{}
-	case WorkflowVerdictRecorded:
-		target = &workflowVerdictRecordedPayload{}
-	case WorkflowPremiseConfirmed:
-		target = &workflowPremiseConfirmedPayload{}
-	case WorkflowSuccessorLinked:
-		target = &workflowSuccessorLinkedPayload{}
-	case WorkflowImpactDeclared:
-		target = &workflowImpactDeclaredPayload{}
-	case WorkflowImpactNoticeRecorded:
-		target = &workflowImpactNoticeRecordedPayload{}
-	case WorkflowConditionAdded:
-		target = &workflowConditionAddedPayload{}
-	case WorkflowConditionResolved:
-		target = &workflowConditionResolvedPayload{}
-	case WorkflowConditionCancelled:
-		target = &workflowConditionCancelledPayload{}
-	case WorkflowCompleted:
-		target = &workflowCompletedPayload{}
-	default:
-		return unknownEventKind(event.Kind)
-	}
-	if err := decodeWorkflowPayload(event, target); err != nil {
-		return err
-	}
-	var fields WorkflowVersionFields
-	switch payload := target.(type) {
-	case *workflowDefinitionSelectedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowContractApprovedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowContractSupersededPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowCandidateSetRevisedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowActorRecordedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowActionStartedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowActionCheckpointedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowActionCompletedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowActionFailedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowContextCheckpointedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowContextBoundaryCrossedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowEvidenceBoundPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowVerdictRecordedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowPremiseConfirmedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowSuccessorLinkedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowImpactDeclaredPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowImpactNoticeRecordedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowConditionAddedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowConditionResolvedPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowConditionCancelledPayload:
-		fields = payload.WorkflowVersionFields
-	case *workflowCompletedPayload:
-		fields = payload.WorkflowVersionFields
-	}
-	return workflowBase(event, fields)
 }
 
 func workflowBase(event Event, fields WorkflowVersionFields) error {

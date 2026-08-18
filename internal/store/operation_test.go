@@ -215,12 +215,23 @@ func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 func TestRebuildRejectsUnknownEventKind(t *testing.T) {
 	s := openTemp(t)
 	e := operationEvent("event-1", "future.created", SubjectProduct, "product-1", map[string]string{"display_name": "future"})
-	if _, err := appendInTx(t, s, e); err != nil {
-		t.Fatalf("AppendEvent() error = %v", err)
+	result, err := s.DB().ExecContext(context.Background(), `
+		INSERT INTO domain_events
+			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.EventID, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
+	if err != nil {
+		t.Fatalf("insert synthetic unknown event: %v", err)
+	}
+	if _, err := result.LastInsertId(); err != nil {
+		t.Fatalf("unknown event sequence: %v", err)
 	}
 
-	err := RebuildFromLog(context.Background(), s)
-	assertFailureKind(t, err, KindUnknownEventKind)
+	err = RebuildFromLog(context.Background(), s)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnknownEventKind || failure.Stage != StageFold {
+		t.Fatalf("failure = %+v, want unknown event at fold stage", failure)
+	}
 	assertFoldGuardEmpty(t, s)
 	assertTableCount(t, s, "products", 0)
 }
@@ -228,12 +239,23 @@ func TestRebuildRejectsUnknownEventKind(t *testing.T) {
 func TestRebuildRejectsMalformedEventPayload(t *testing.T) {
 	s := openTemp(t)
 	e := operationEvent("event-1", "product.created", SubjectProduct, "product-1", map[string]int{"display_name": 7})
-	if _, err := appendInTx(t, s, e); err != nil {
-		t.Fatalf("AppendEvent() error = %v", err)
+	result, err := s.DB().ExecContext(context.Background(), `
+		INSERT INTO domain_events
+			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.EventID, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
+	if err != nil {
+		t.Fatalf("insert synthetic malformed event: %v", err)
+	}
+	if _, err := result.LastInsertId(); err != nil {
+		t.Fatalf("malformed event sequence: %v", err)
 	}
 
-	err := RebuildFromLog(context.Background(), s)
-	assertFailureKind(t, err, KindInvalidPayload)
+	err = RebuildFromLog(context.Background(), s)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Stage != StageDecode {
+		t.Fatalf("failure = %+v, want invalid payload at decode stage", failure)
+	}
 	assertFoldGuardEmpty(t, s)
 	assertTableCount(t, s, "products", 0)
 }

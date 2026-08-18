@@ -102,14 +102,22 @@ func TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes(t *testing.T) 
 	_ = commit
 }
 
-func TestPublishCanonicalNoteCommitsAndVerifiesOneNote(t *testing.T) {
+// TestPublishCanonicalNoteCommitsOneNote covers the git half of the publication
+// seam. Publication commits the note and returns an unverified proof; verifying
+// that proof is the caller's separately ordered step, so this asserts the commit
+// and then verifies it explicitly, in the order the contract requires.
+func TestPublishCanonicalNoteCommitsOneNote(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	content := canonicalWorkNote("publish-work", "2026-08-07T00:00:00Z")
 	sum := sha256.Sum256([]byte(content))
 	hash := "sha256:" + hex.EncodeToString(sum[:])
 	note, err := PublishCanonicalNote(context.Background(), KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}, "publish-work", content, hash)
-	if err != nil || note.ID != "publish-work" || note.CommitOID == "" || note.NotePath == "" {
+	if err != nil || note.CommitOID == "" || note.NotePath == "" {
 		t.Fatalf("published note=%#v err=%v", note, err)
+	}
+	verified, err := VerifyCommittedNote(context.Background(), repo, note.CommitOID, note.NotePath, hash)
+	if err != nil || verified.ID != "publish-work" {
+		t.Fatalf("verified note=%#v err=%v", verified, err)
 	}
 	repeat, err := PublishCanonicalNote(context.Background(), KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}, "publish-work", content, hash)
 	if err != nil || repeat.CommitOID != note.CommitOID || repeat.NotePath != note.NotePath {

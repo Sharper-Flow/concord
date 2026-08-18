@@ -60,25 +60,38 @@ type VerifiedNote struct {
 	Content       []byte
 }
 
-// PublishCanonicalNote writes one approved note into the selected git home,
-// commits only that path, and verifies the exact committed proof before the
-// caller records SQLite linkage. It is intentionally separate from the SQLite
-// transaction because Git and SQLite cannot share one atomic commit.
-func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, content, expectedHash string) (VerifiedNote, error) {
+// CommittedNote is the git-side proof of a publish: the commit that was made
+// and the path it carries. It is deliberately not a VerifiedNote.
+//
+// Verification is a separately ordered step owned by the caller. The accepted
+// cross-authority order is publish, then verify, then record the SQLite locator
+// (docs/agent-mutation-tool-contract.md). Returning an unverified proof here
+// keeps that boundary visible: a caller holding a CommittedNote has written to
+// git and has not yet earned the right to record a locator.
+type CommittedNote struct {
+	CommitOID string
+	NotePath  string
+}
+
+// PublishCanonicalNote writes one approved note into the selected git home and
+// commits only that path. It is intentionally separate from the SQLite
+// transaction because Git and SQLite cannot share one atomic commit, and
+// intentionally separate from verification so the caller orders the two.
+func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, content, expectedHash string) (CommittedNote, error) {
 	if home.RepoPath == "" || workID == "" || content == "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "canonical note publication is missing home, work, or content", false, "supply the approved note and git home")
+		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "canonical note publication is missing home, work, or content", false, "supply the approved note and git home")
 	}
 	note, err := parseKnowledgeNote([]byte(content))
 	if err != nil {
-		return VerifiedNote{}, err
+		return CommittedNote{}, err
 	}
 	if note.ID != workID || note.Kind != "work_note" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved note identity does not match the terminal work", false, "publish the canonical work note for the requested work ID")
+		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved note identity does not match the terminal work", false, "publish the canonical work note for the requested work ID")
 	}
 	if expectedHash != "" {
 		sum := sha256.Sum256([]byte(content))
 		if expectedHash != "sha256:"+hex.EncodeToString(sum[:]) {
-			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved content digest does not match note bytes", false, "recompute the content digest over the exact approved bytes")
+			return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved content digest does not match note bytes", false, "recompute the content digest over the exact approved bytes")
 		}
 	}
 	date := time.Now().UTC().Format("2006-01-02")
@@ -92,31 +105,34 @@ func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, conte
 	}
 	notePath := "docs/work/" + date + "-" + name + "-" + suffix + ".md"
 	fullPath := path.Join(home.RepoPath, notePath)
+	// Detecting an already-published note is a precondition probe, not the
+	// ordered verification step: it decides whether this call has anything to
+	// write at all. The caller still verifies the proof it is handed back.
 	if head, headErr := runGit(ctx, home.RepoPath, "rev-parse", "HEAD"); headErr == nil {
 		if existing, verifyErr := VerifyCommittedNote(ctx, home.RepoPath, strings.TrimSpace(string(head)), notePath, expectedHash); verifyErr == nil {
 			if existing.ID != workID {
-				return VerifiedNote{}, newFailure(KindKnowledgeAmbiguous, "publish_note", "canonical path already claims a different work ID", false, "resolve the competing canonical note before retrying")
+				return CommittedNote{}, newFailure(KindKnowledgeAmbiguous, "publish_note", "canonical path already claims a different work ID", false, "resolve the competing canonical note before retrying")
 			}
-			return existing, nil
+			return CommittedNote{CommitOID: existing.CommitOID, NotePath: existing.NotePath}, nil
 		}
 	}
 	if err := os.MkdirAll(path.Dir(fullPath), 0o755); err != nil {
-		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot create the canonical note directory", true, "restore write access to the git home", err)
+		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot create the canonical note directory", true, "restore write access to the git home", err)
 	}
 	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
-		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot write the canonical note draft", true, "restore write access to the git home", err)
+		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot write the canonical note draft", true, "restore write access to the git home", err)
 	}
 	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath); err != nil {
-		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot stage the canonical note", true, "restore git write access and retry", err)
+		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot stage the canonical note", true, "restore git write access and retry", err)
 	}
 	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord work note", "--", notePath); err != nil {
-		return VerifiedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot commit the canonical note", true, "complete the native git commit and reconcile", err)
+		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot commit the canonical note", true, "complete the native git commit and reconcile", err)
 	}
 	commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
 	if err != nil {
-		return VerifiedNote{}, err
+		return CommittedNote{}, err
 	}
-	return VerifyCommittedNote(ctx, home.RepoPath, strings.TrimSpace(string(commit)), notePath, expectedHash)
+	return CommittedNote{CommitOID: strings.TrimSpace(string(commit)), NotePath: notePath}, nil
 }
 
 func slugifyKnowledgeTitle(value string) string {

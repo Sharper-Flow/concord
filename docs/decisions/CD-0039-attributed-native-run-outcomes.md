@@ -11,6 +11,7 @@
   ([`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md)),
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
 - **Supersedes:** nothing
+- **Amended by:** CD-0040 external observation provenance, verification, and consumption rules
 
 ## Context
 
@@ -60,8 +61,10 @@ changing who reported the claim.
 
 ### D3. One typed event records the report
 
-The workflow event vocabulary gains `workflow.native_run_recorded`. Its closed
-payload contains:
+The workflow event vocabulary gains `workflow.native_run_recorded`. Per
+CD-0040, every native-run event also embeds the shared external-observation
+capture component before this event is implemented. Its closed domain payload
+contains:
 
 ```text
 run_id                 # stable ID, 1–128 characters

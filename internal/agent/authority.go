@@ -31,6 +31,13 @@ type Service struct {
 	// gives tests a deterministic git runner while ensuring routine model input
 	// cannot supply a Project or Product authority.
 	ProjectResolver func(context.Context, string, string) (store.ProjectResolution, error)
+	// publicationObserver, when set, is called with each publication phase as
+	// that phase completes, and may return an error to interrupt the sequence.
+	// It is an unexported white-box surface for conformance tests that must
+	// observe real cross-authority ordering or inject a fault between two
+	// phases; production construction leaves it nil. It mirrors the unexported
+	// observer surface internal/store uses for the same purpose.
+	publicationObserver func(phase string) error
 }
 
 func NewService(db *sql.DB) *Service {

@@ -119,6 +119,9 @@ var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
 	"bounded_context":      invariantBoundedContext,
 	"no_silent_scope_cut":  invariantNoSilentScopeCut,
 	"ground_truth_cleanup": invariantGroundTruthCleanup,
+	// AJ6 binds the publication seam, so cross-authority ordering is now
+	// checkable from observed execution rather than assumed.
+	"ordered_cross_authority": invariantOrderedCrossAuthority,
 	// AJ3/AJ4/AJ5 mutation scenarios exercise the four core mutation
 	// invariants; the bindings write durable state that lets the
 	// checks run with real evidence rather than vacuous assertions.
@@ -132,8 +135,48 @@ var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
 // The test fails if a scenario names an invariant that is neither here nor in
 // implementedInvariants.
 var uncheckedInvariants = map[string]string{
-	"ordered_cross_authority": "requires git publication sequencing — not yet bound",
-	"stable_evolution":        "requires contract version drift testing — not yet bound",
+	"stable_evolution": "requires contract version drift testing — not yet bound",
+}
+
+// invariantOrderedCrossAuthority enforces that a step sequence crossing git and
+// SQLite is ordered, attributed, and honest about partial outcomes.
+//
+// A cross-authority operation exposes its sequence one of two ways: a completed
+// publication reports the order it ran, and an interrupted one reports the steps
+// that finished. Both must be a prefix of the accepted order — an operation
+// cannot claim a later step completed without the ones before it — and an
+// interrupted operation must offer a way to recover.
+func invariantOrderedCrossAuthority(t *testing.T, obs jobObservation) {
+	t.Helper()
+	if order, ok := obs.Effects["publication_order"].([]any); ok {
+		if len(order) == 0 {
+			t.Error("ordered_cross_authority: publication_order is empty")
+		}
+		for i, phase := range order {
+			if i >= len(publicationPhases) {
+				t.Errorf("ordered_cross_authority: publication_order has %d phases, accepted order has %d", len(order), len(publicationPhases))
+				break
+			}
+			if phase != publicationPhases[i] {
+				t.Errorf("ordered_cross_authority: phase %d is %v, accepted order requires %q", i, phase, publicationPhases[i])
+			}
+		}
+	}
+	steps, ok := obs.Communication["completed_steps"].([]any)
+	if !ok {
+		return
+	}
+	if len(steps) == 0 {
+		t.Error("ordered_cross_authority: an interrupted operation reported no completed steps")
+		return
+	}
+	// A partial outcome must name a recovery route; a cross-authority effect
+	// that stopped halfway and offers no way forward is an orphan.
+	if outcome, _ := obs.Communication["outcome"].(string); outcome == string(OutcomePartial) {
+		if action, _ := obs.Communication["recovery_action"].(string); action == "" {
+			t.Error("ordered_cross_authority: partial outcome carries no recovery action")
+		}
+	}
 }
 
 func invariantCorrectScope(t *testing.T, obs jobObservation) {
@@ -1199,6 +1242,10 @@ func init() {
 	jobBindings["AJ8-ground-truth-reclamation"] = bindAJ8GroundTruthReclamation
 	// AJ7 knowledge bindings (#160). The handlers live in
 	// agent_jobs_knowledge_bindings_test.go.
+	// AJ6 compaction bindings (#161). The handlers live in
+	// agent_jobs_compaction_bindings_test.go.
+	jobBindings["AJ6-compact-terminal-work"] = bindAJ6CompactTerminalWork
+	jobBindings["AJ6-partial-publication"] = bindAJ6PartialPublication
 	jobBindings["AJ7-search-knowledge"] = bindAJ7SearchKnowledge
 	jobBindings["AJ7-degraded-index"] = bindAJ7DegradedIndex
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
@@ -1210,8 +1257,6 @@ func init() {
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 
 	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ6-compact-terminal-work"] = "#161 compaction tranche: needs observed git publication ordering"
-	jobDeferrals["AJ6-partial-publication"] = "#161 compaction tranche: needs a commit-verification fault injector"
 	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"
 	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
 	jobDeferrals["AJ8-budget-refused"] = "#173 budget tranche: needs a declared seconds-denominated operation budget with a supported ceiling"

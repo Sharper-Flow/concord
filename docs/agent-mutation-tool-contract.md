@@ -125,6 +125,11 @@ terminal version before recording that link.
   durable operation reference with structural `pending|partial|failed` state.
 - `reconcile` resumes or explains that operation; it never restarts from scratch.
 - SQLite never records an authoritative locator before git proof.
+- The publication phases are executed from one declared sequence rather than from
+  the order statements happen to appear in, and the sequence is checked as it
+  runs. A partial outcome reports the steps that actually completed, so an
+  operator recovering from an interrupted publication is told how far the
+  cross-authority effect really got.
 
 PM7 pruning/backfill maintenance is not agent-exposed in v1: no accepted TS1
 scenario requires an agent batch tool. Native bounded maintenance may exist behind

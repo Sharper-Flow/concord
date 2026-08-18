@@ -47,7 +47,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 		PublicKey: publicKey,
 		Policy: TrustedClientPolicy{
 			PrincipalRef: "human-operator",
-			Capabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate"},
+			Capabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"},
 			ProductScope: []string{"prod-alpha", "prod-beta"},
 			ProjectScope: []string{"proj-web", "proj-api", "proj-shared"},
 		},
@@ -63,7 +63,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 		Worktree:              "/repo-wt",
 		RequestedProductID:    "prod-alpha",
 		RequestedProjectIDs:   []string{"proj-web", "proj-api", "proj-shared"},
-		RequestedCapabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate"},
+		RequestedCapabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"},
 		IssuedAt:              fixedTime(),
 		Nonce:                 "agent-jobs-mutation-nonce",
 		SurfaceRange:          ManifestVersion + "-" + ManifestVersion,

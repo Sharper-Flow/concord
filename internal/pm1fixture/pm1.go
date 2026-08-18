@@ -527,18 +527,30 @@ func trimNewline(s string) string {
 }
 
 func canonicalWorkNote(id, completed string) string {
+	return CanonicalWorkNote(id, completed, "completed", "proj-web")
+}
+
+// CanonicalWorkNote builds the canonical durable work note for a terminal work
+// item. terminalState and project vary because compaction verifies the note's
+// terminal state against the work item's own lifecycle, so publishing a note for
+// cancelled work needs a note that says cancelled.
+func CanonicalWorkNote(id, completed, terminalState, project string) string {
+	outcome := "shipped"
+	if terminalState != "completed" {
+		outcome = "abandoned"
+	}
 	return "---\n" +
 		"concord_work_id: " + id + "\n" +
 		"work_type: implementation\n" +
 		"title: Auth release\n" +
 		"completed_at: " + completed + "\n" +
-		"outcome_tag: shipped\n" +
+		"outcome_tag: " + outcome + "\n" +
 		"lesson_tags: [sqlite, state-authority]\n" +
-		"terminal_state: completed\n" +
+		"terminal_state: " + terminalState + "\n" +
 		"priority: 2\n" +
 		"summary: Bounded summary\n" +
 		"product_ids: [prod-alpha]\n" +
-		"project_ids: [proj-web]\n" +
+		"project_ids: [" + project + "]\n" +
 		"component_ids: [auth]\n" +
 		"tag_ids: [auth, release]\n" +
 		"---\n\nDurable note.\n"

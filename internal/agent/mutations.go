@@ -1775,17 +1775,28 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
 			return r.mutationResult(base, mutationPayload(changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}}), changed, nil), nil
 		}
-		note, proofErr := store.PublishCanonicalNote(ctx, resolvedHome, workID, publish.Content, publish.ContentDigest)
-		if proofErr != nil {
-			return pendingCompaction(base, workID, claim, "git_proof", proofErr), nil
-		}
-		if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: opID + ":link", WorkID: workID, ExpectedVersion: publish.ExpectedVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: resolvedHome, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: publish.ContentDigest, Reason: "agent compaction publish"}); linkErr != nil {
-			return pendingCompaction(base, workID, claim, "sqlite_link", linkErr), nil
+		var committed store.CommittedNote
+		var verified store.VerifiedNote
+		completed, failedStep, publishErr := r.runPublication([]publicationStep{
+			{ID: "git_write", Phase: "git_publish", Run: func() (err error) {
+				committed, err = store.PublishCanonicalNote(ctx, resolvedHome, workID, publish.Content, publish.ContentDigest)
+				return err
+			}},
+			{ID: "commit_verification", Phase: "verify_commit", Run: func() (err error) {
+				verified, err = store.VerifyCommittedNote(ctx, resolvedHome.RepoPath, committed.CommitOID, committed.NotePath, publish.ContentDigest)
+				return err
+			}},
+			{ID: "sqlite_link", Phase: "record_locator", Run: func() error {
+				return store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: opID + ":link", WorkID: workID, ExpectedVersion: publish.ExpectedVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: resolvedHome, CommitOID: verified.CommitOID, NotePath: verified.NotePath, ExpectedHash: publish.ContentDigest, Reason: "agent compaction publish"})
+			}},
+		})
+		if publishErr != nil {
+			return pendingCompaction(base, workID, claim, failedStep, completed, publishErr), nil
 		}
 		changedJSON, _ := json.Marshal(changed[0])
 		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(payload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 		if completeErr != nil {
-			return pendingCompaction(base, workID, claim, "sqlite_link", completeErr), nil
+			return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
 		}
 		base.Replayed = complete.Replayed
 		result.Replayed = complete.Replayed
@@ -1852,14 +1863,14 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		home, homeErr = r.Store.ResolveCompactionHome(ctx, reconcile.WorkID)
 	}
 	if homeErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "resolve_home", homeErr), nil
+		return pendingCompaction(base, reconcile.WorkID, step, "resolve_home", nil, homeErr), nil
 	}
 	note, proofErr := store.FindVerifiedWorkNote(ctx, home, reconcile.WorkID, proofDigest)
 	if proofErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "git_proof", proofErr), nil
+		return pendingCompaction(base, reconcile.WorkID, step, "git_proof", nil, proofErr), nil
 	}
 	if workVersion <= 0 {
-		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", fmt.Errorf("durable publication did not retain terminal work version")), nil
+		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", nil, fmt.Errorf("durable publication did not retain terminal work version")), nil
 	}
 	changed := []ChangedRef{{EntityKind: "work_item", ID: reconcile.WorkID, Version: strconv.FormatInt(workVersion+1, 10)}}
 	payload := mutationPayload(changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}})
@@ -1869,22 +1880,66 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		return result, nil
 	}
 	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note"}); linkErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", linkErr), nil
+		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
 	}
 	changedJSON, _ := json.Marshal(changed[0])
 	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(payload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 	if completeErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", completeErr), nil
+		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
 	}
 	base.Replayed = complete.Replayed
 	result.Replayed = complete.Replayed
 	return result, nil
 }
 
-func pendingCompaction(base Envelope, workID string, claim store.FenceResult, step string, cause error) Envelope {
+// publicationStep is one phase of the CD-0006/PM6 cross-authority publication
+// seam. ID names the operation step an envelope reports as completed; Phase
+// names the cross-authority ordering position. The corpus uses both vocabularies
+// — `completed_steps` carries step IDs, `publication_order` carries phases — so
+// the pipeline carries both rather than conflating them.
+type publicationStep struct {
+	ID    string
+	Phase string
+	Run   func() error
+}
+
+// publicationPhases is the accepted publication order, declared as data. The
+// order is a contract (docs/agent-mutation-tool-contract.md: commit to git,
+// verify the commit, then append the SQLite compaction link), so it lives in one
+// declared sequence rather than being an emergent property of statement order.
+var publicationPhases = []string{"git_publish", "verify_commit", "record_locator"}
+
+// runPublication executes the publication steps in declared order and returns
+// the steps that actually completed. On failure it returns the honest completed
+// prefix and the step that failed, so a partial outcome tells the operator
+// exactly how far the cross-authority effect got.
+func (r runtime) runPublication(steps []publicationStep) ([]string, string, error) {
+	completed := make([]string, 0, len(steps)+1)
+	completed = append(completed, "operation_claimed")
+	for i, step := range steps {
+		if step.Phase != publicationPhases[i] {
+			return completed, step.ID, fmt.Errorf("publication step %d is %q but the accepted order requires %q", i, step.Phase, publicationPhases[i])
+		}
+		if err := step.Run(); err != nil {
+			return completed, step.ID, err
+		}
+		completed = append(completed, step.ID)
+		if r.Authority != nil && r.Authority.publicationObserver != nil {
+			if err := r.Authority.publicationObserver(step.Phase); err != nil {
+				return completed, step.ID, err
+			}
+		}
+	}
+	return completed, "", nil
+}
+
+func pendingCompaction(base Envelope, workID string, claim store.FenceResult, step string, completed []string, cause error) Envelope {
 	ref := operationRefFromFence(claim, "pending", step)
 	base.ResolvedScope = &Scope{WorkIDs: []string{workID}}
-	return NewPartial(base, ref, []string{"operation_claimed"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial, Message: cause.Error()})
+	if len(completed) == 0 {
+		completed = []string{"operation_claimed"}
+	}
+	return NewPartial(base, ref, completed, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial, Message: cause.Error()})
 }
 
 func decodeChangedRefs(values []string) []ChangedRef {

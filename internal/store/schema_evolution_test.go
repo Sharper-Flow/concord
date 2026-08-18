@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 )
@@ -163,9 +161,18 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	beforeWorkAndRelations := fullPM4Snapshot(t, s)
 	poison := workCreatedEvent("work-poison", "event-poison")
 	poison.PayloadVersion = 3
-	poisonSeq, err := appendInTx(t, s, poison)
+	result, err := s.DB().ExecContext(context.Background(), `
+		INSERT INTO domain_events
+			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		poison.EventID, poison.Kind, poison.SubjectType, poison.SubjectID, poison.Actor,
+		poison.OccurredAt.UTC().Format(time.RFC3339Nano), poison.PayloadVersion, string(poison.Payload))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("insert synthetic poison event: %v", err)
+	}
+	poisonSeq, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("poison sequence: %v", err)
 	}
 	err = RebuildFromLog(context.Background(), s)
 	var failure *Failure
@@ -189,55 +196,83 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	if err := validateEventKindRegistry(); err != nil {
 		t.Fatal(err)
 	}
-	wantWorkflowKinds := map[string]struct{}{
-		WorkflowDefinitionSelected: {}, WorkflowContractApproved: {}, WorkflowContractSuperseded: {}, WorkflowCandidateSetRevised: {},
-		WorkflowActorRecorded: {}, WorkflowActionStarted: {}, WorkflowActionCheckpointed: {}, WorkflowActionCompleted: {}, WorkflowActionFailed: {},
-		WorkflowEvidenceBound: {}, WorkflowVerdictRecorded: {}, WorkflowPremiseConfirmed: {}, WorkflowSuccessorLinked: {}, WorkflowImpactDeclared: {},
-		WorkflowImpactNoticeRecorded: {}, WorkflowConditionAdded: {}, WorkflowConditionResolved: {}, WorkflowConditionCancelled: {}, WorkflowContextCheckpointed: {}, WorkflowContextBoundaryCrossed: {}, WorkflowCompleted: {},
-	}
-	var gotWorkflowKinds []string
-	for kind := range eventKindRegistry {
-		if strings.HasPrefix(kind, "workflow.") {
-			gotWorkflowKinds = append(gotWorkflowKinds, kind)
+	for kind, registration := range eventKindRegistry {
+		if registration.Authority != EventAppendAuthorityGeneric && registration.Authority != EventAppendAuthorityWorkflow {
+			t.Fatalf("%s registration has invalid authority %d", kind, registration.Authority)
+		}
+		if registration.ValidatePayload == nil || registration.Fold == nil || registration.Upcasters == nil || registration.MinSupported < 1 || registration.MinSupported > registration.CurrentVersion {
+			t.Fatalf("%s registration is incomplete: %+v", kind, registration)
+		}
+		for version := registration.MinSupported; version < registration.CurrentVersion; version++ {
+			if registration.Upcasters[version] == nil {
+				t.Fatalf("%s registration lacks upcaster from version %d", kind, version)
+			}
+		}
+		event := Event{EventID: "registry-" + kind, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: "work", Actor: "actor:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: registration.CurrentVersion + 1, Payload: []byte(`{}`)}
+		var failure *Failure
+		if err := validateRegisteredEvent(event); !errors.As(err, &failure) || failure.Kind != KindUnsupportedPayloadVersion {
+			t.Fatalf("%s newer payload version error = %v, want %s", kind, err, KindUnsupportedPayloadVersion)
 		}
 	}
-	sort.Strings(gotWorkflowKinds)
-	wantKinds := make([]string, 0, len(wantWorkflowKinds))
-	for kind := range wantWorkflowKinds {
-		wantKinds = append(wantKinds, kind)
+}
+
+func TestValidateEventKindRegistryRejectsIncompleteRegistration(t *testing.T) {
+	valid := eventKindRegistry["product.created"]
+	versioned := eventKindRegistry["project.created"]
+	cases := []struct {
+		name         string
+		key          string
+		registration EventKindRegistration
+	}{
+		{"empty key", "", valid},
+		{"invalid authority", "__test_invalid_authority__", func() EventKindRegistration {
+			registration := valid
+			registration.Authority = EventAppendAuthorityInvalid
+			return registration
+		}()},
+		{"nil validator", "__test_nil_validator__", func() EventKindRegistration {
+			registration := valid
+			registration.ValidatePayload = nil
+			return registration
+		}()},
+		{"nil fold", "__test_nil_fold__", func() EventKindRegistration {
+			registration := valid
+			registration.Fold = nil
+			return registration
+		}()},
+		{"invalid version bounds", "__test_invalid_bounds__", func() EventKindRegistration {
+			registration := valid
+			registration.MinSupported = 0
+			return registration
+		}()},
+		{"nil upcaster map", "__test_nil_upcasters__", func() EventKindRegistration {
+			registration := valid
+			registration.Upcasters = nil
+			return registration
+		}()},
+		{"missing required upcaster", "__test_missing_upcaster__", func() EventKindRegistration {
+			registration := versioned
+			registration.Upcasters = map[int]Upcaster{}
+			return registration
+		}()},
 	}
-	sort.Strings(wantKinds)
-	if !reflect.DeepEqual(gotWorkflowKinds, wantKinds) {
-		t.Fatalf("workflow event set = %v, want %v", gotWorkflowKinds, wantKinds)
-	}
-	for kind := range wantWorkflowKinds {
-		registration := eventKindRegistry[kind]
-		wantVersion := 1
-		if kind == WorkflowCompleted || kind == WorkflowImpactNoticeRecorded || kind == WorkflowActionCompleted || kind == WorkflowContractApproved {
-			wantVersion = 2
-		}
-		if registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
-			t.Fatalf("%s registration lacks v1 fold/upcaster scaffolding: %+v", kind, registration)
-		}
-		event := Event{EventID: "registry-" + kind, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: "work", Actor: "actor:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"work","expected_version":1,"resulting_version":2}`)}
-		if err := event.validate(); err != nil {
-			t.Fatalf("%s subject/payload envelope validation: %v", kind, err)
-		}
-		event.PayloadVersion = wantVersion + 1
-		if err := validateRegisteredEvent(event); err == nil || !strings.Contains(err.Error(), "supported range") {
-			t.Fatalf("%s newer payload version was accepted: %v", kind, err)
-		}
-	}
-	for _, kind := range []string{WorkerDispatched, WorkerCompleted, WorkerFailed} {
-		registration, ok := eventKindRegistry[kind]
-		wantVersion := 1
-		if kind == WorkerDispatched {
-			// v3 adds host prompt provenance (CD-0032).
-			wantVersion = 3
-		}
-		if !ok || registration.CurrentVersion != wantVersion || registration.MinSupported != 1 || registration.Upcasters == nil || registration.Fold == nil {
-			t.Fatalf("%s registration lacks expected fold/upcaster scaffolding: %+v", kind, registration)
-		}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			previous, existed := eventKindRegistry[tc.key]
+			eventKindRegistry[tc.key] = tc.registration
+			defer func() {
+				if existed {
+					eventKindRegistry[tc.key] = previous
+				} else {
+					delete(eventKindRegistry, tc.key)
+				}
+			}()
+
+			if err := validateEventKindRegistry(); err == nil {
+				t.Fatalf("validateEventKindRegistry() accepted malformed %q registration", tc.key)
+			}
+		})
 	}
 }
 

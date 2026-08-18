@@ -11,13 +11,13 @@ import (
 func testEvent() Event {
 	return Event{
 		EventID:        "evt-0001",
-		Kind:           "work_item.created",
-		SubjectType:    SubjectWorkItem,
-		SubjectID:      "work-0001",
+		Kind:           "product.created",
+		SubjectType:    SubjectProduct,
+		SubjectID:      "product-0001",
 		Actor:          "operator",
 		OccurredAt:     time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
 		PayloadVersion: 1,
-		Payload:        []byte(`{"title":"first"}`),
+		Payload:        []byte(`{"display_name":"First Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`),
 	}
 }
 
@@ -142,6 +142,52 @@ func TestAppendEventRejectsInvalidEvents(t *testing.T) {
 			}
 			if f.Kind != tc.want {
 				t.Errorf("Kind = %q, want %q", f.Kind, tc.want)
+			}
+		})
+	}
+}
+
+func TestAppendEventRejectsUnregisteredEventsBeforeMutation(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Event)
+		want   FailureKind
+	}{
+		{"unknown event kind", func(e *Event) { e.Kind = "event.not_registered" }, KindUnknownEventKind},
+		{"unsupported payload version", func(e *Event) {
+			e.PayloadVersion = eventKindRegistry[e.Kind].CurrentVersion + 1
+		}, KindUnsupportedPayloadVersion},
+		{"invalid registered payload", func(e *Event) {
+			e.Payload = []byte(`{"display_name":7,"stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)
+		}, KindInvalidPayload},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTemp(t)
+			ctx := context.Background()
+			tx, err := s.DB().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatalf("BeginTx() error = %v", err)
+			}
+			defer tx.Rollback()
+
+			e := testEvent()
+			tc.mutate(&e)
+			_, appendErr := AppendEvent(ctx, tx, e)
+
+			var f *Failure
+			if !errors.As(appendErr, &f) {
+				t.Fatalf("AppendEvent() error = %v, want *Failure", appendErr)
+			}
+			if f.Kind != tc.want {
+				t.Errorf("Kind = %q, want %q", f.Kind, tc.want)
+			}
+
+			var count int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+				t.Fatalf("count events in rejected transaction: %v", err)
+			}
+			if count != 0 {
+				t.Errorf("events after rejected append = %d, want 0", count)
 			}
 		})
 	}

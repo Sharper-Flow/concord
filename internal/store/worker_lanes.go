@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 )
@@ -124,47 +123,26 @@ type WorkerAttempt struct {
 var workerModelPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]*/[^/ ]+$`)
 var workerVersionPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
 
-func validateWorkerPayloadShape(event Event) error {
-	switch event.Kind {
-	case WorkerDispatched:
-		var payload WorkerDispatchedPayload
-		if err := decodeClosedWorkerPayload(event, &payload); err != nil {
-			return err
-		}
-		return validateWorkerDispatched(event, payload)
-	case WorkerCompleted:
-		var payload WorkerCompletedPayload
-		if err := decodeClosedWorkerPayload(event, &payload); err != nil {
-			return err
-		}
-		if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
-			return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
-		}
-	case WorkerFailed:
-		var payload WorkerFailedPayload
-		if err := decodeClosedWorkerPayload(event, &payload); err != nil {
-			return err
-		}
-		if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || !validWorkerFailureKind(payload.FailureKind) || len(payload.Detail) < 1 || len(payload.Detail) > 4096 {
-			return invalidWorkerPayload("worker.failed payload has invalid identity or failure")
-		}
-	default:
-		return newFailure(KindUnknownEventKind, "validate_worker_event", "unknown worker event kind", false, "use a registered worker event kind")
+func validateWorkerDispatchedPayload(event Event, payload WorkerDispatchedPayload) error {
+	return validateWorkerDispatched(event, payload)
+}
+
+func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) error {
+	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
+		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
+	}
+	return nil
+}
+
+func validateWorkerFailedPayload(_ Event, payload WorkerFailedPayload) error {
+	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || !validWorkerFailureKind(payload.FailureKind) || len(payload.Detail) < 1 || len(payload.Detail) > 4096 {
+		return invalidWorkerPayload("worker.failed payload has invalid identity or failure")
 	}
 	return nil
 }
 
 func decodeClosedWorkerPayload(event Event, target any) error {
-	decoder := json.NewDecoder(strings.NewReader(string(event.Payload)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return invalidWorkerPayload("worker event payload does not match its closed schema")
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return invalidWorkerPayload("worker event payload contains trailing data")
-	}
-	return nil
+	return decodeRegisteredPayload(event, target)
 }
 
 func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) error {

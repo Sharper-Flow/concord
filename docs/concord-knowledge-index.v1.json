@@ -824,6 +824,87 @@
       ]
     },
     {
+      "id": "CD-0037",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md",
+      "status": "accepted",
+      "date": "2026-08-17T00:00:00Z",
+      "title": "Approval consequence summaries are derived from validated facts",
+      "summary": "Core-issued approval challenges carry a typed summary derived only from the exact operation, consequence, digest, scope, versions, and expiry the approval binds.",
+      "tags": [
+        "approval",
+        "agent-surface",
+        "authority"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:700c9184b4da80c3228dfb9f5fccf6714547f125b0562398de8b57a6fd01ec27",
+      "evidence": [
+        "internal/agent/authority.go",
+        "docs/agent-call-context-contract.md",
+        "scenarios/agent-jobs.v1.json"
+      ]
+    },
+    {
+      "id": "CD-0038",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0038-per-operation-seconds-budgets.md",
+      "status": "accepted",
+      "date": "2026-08-17T00:00:00Z",
+      "title": "Operation time budgets are explicit, per-operation, and never clamped",
+      "summary": "Every operation declares a seconds ceiling; unsupported requests refuse before effects and accepted budgets become one propagated deadline.",
+      "tags": [
+        "budgets",
+        "agent-surface",
+        "bounds"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:f4dbff5656cd932ac1ec30e00398e16d743317d220b3c77a102bab3069700673",
+      "evidence": [
+        "internal/agent/runtime.go",
+        "contracts/agent-tool-surface.v1.json",
+        "scenarios/agent-jobs.v1.json"
+      ]
+    },
+    {
+      "id": "CD-0039",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0039-attributed-native-run-outcomes.md",
+      "status": "accepted",
+      "date": "2026-08-17T00:00:00Z",
+      "title": "Native-run outcomes are attributed reports, not Concord findings",
+      "summary": "Native-run status is a typed report attributed to the authenticated trusted client; failed health plus rollback records durable state and returns a workflow-action partial.",
+      "tags": [
+        "workflow",
+        "evidence",
+        "native-authority"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:992cba631b3a2b369f1a924d2e979159a7f68edb2dc003cb8932c4a2e87c0d14",
+      "evidence": [
+        "internal/store/workflow_registry.go",
+        "docs/workflow-engine-contract.md",
+        "scenarios/agent-jobs.v1.json"
+      ]
+    },
+    {
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",

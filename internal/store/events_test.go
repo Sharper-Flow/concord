@@ -25,7 +25,7 @@ func testEvent() Event {
 func appendInTx(t *testing.T, s *Store, e Event) (int64, error) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("BeginTx() error = %v", err)
 	}
@@ -72,7 +72,7 @@ func TestAppendEventIsTransactional(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("BeginTx() error = %v", err)
 	}
@@ -84,7 +84,7 @@ func TestAppendEventIsTransactional(t *testing.T) {
 	}
 
 	var count int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
 		t.Fatalf("count events: %v", err)
 	}
 	if count != 0 {
@@ -164,7 +164,7 @@ func TestAppendEventRejectsUnregisteredEventsBeforeMutation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openTemp(t)
 			ctx := context.Background()
-			tx, err := s.DB().BeginTx(ctx, nil)
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 			if err != nil {
 				t.Fatalf("BeginTx() error = %v", err)
 			}
@@ -211,14 +211,14 @@ func TestDomainEventsRejectUpdateAndDelete(t *testing.T) {
 		{"delete", `DELETE FROM domain_events`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := s.DB().ExecContext(ctx, tc.stmt); err == nil {
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, tc.stmt); err == nil {
 				t.Fatalf("%s on domain_events succeeded; the log is not append-only", tc.name)
 			}
 		})
 	}
 
 	var count int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
 		t.Fatalf("count events: %v", err)
 	}
 	if count != 1 {
@@ -238,7 +238,7 @@ func TestAppendEventRoundTripsEveryField(t *testing.T) {
 
 	var got Event
 	var occurredAt string
-	err = s.DB().QueryRowContext(ctx, `
+	err = s.DatabaseForTesting().QueryRowContext(ctx, `
 		SELECT event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload
 		FROM domain_events WHERE seq = ?`, seq).
 		Scan(&got.EventID, &got.Kind, &got.SubjectType, &got.SubjectID, &got.Actor,
@@ -276,7 +276,7 @@ func TestAppendEventNormalizesTimeZone(t *testing.T) {
 	}
 
 	var occurredAt string
-	if err := s.DB().QueryRowContext(ctx, `SELECT occurred_at FROM domain_events WHERE seq = ?`, seq).Scan(&occurredAt); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT occurred_at FROM domain_events WHERE seq = ?`, seq).Scan(&occurredAt); err != nil {
 		t.Fatalf("read back time: %v", err)
 	}
 	if want := "2026-08-07T12:00:00Z"; occurredAt != want {

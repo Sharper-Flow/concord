@@ -46,7 +46,7 @@ func undeclaredModelFixture(t *testing.T) (*Store, LaneDefinition, RoutingPolicy
 func appendWorkerEvent(t *testing.T, s *Store, event Event) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestTerminalDispatchRefusesWrongShapes(t *testing.T) {
 func appendWorkerEventErr(t *testing.T, s *Store, event Event) error {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ func agentJobsCompactionFixture(t *testing.T) (*store.Store, *Service, Grant, ed
 func archivedWorkLocator(t *testing.T, s *store.Store, workID string) (locator, commitOID string, ok bool) {
 	t.Helper()
 	var notePath, commit string
-	err := s.DB().QueryRowContext(context.Background(),
+	err := s.DatabaseForTesting().QueryRowContext(context.Background(),
 		`SELECT note_path, commit_oid FROM archived_work WHERE id=?`, workID).Scan(&notePath, &commit)
 	if err != nil {
 		return "", "", false
@@ -62,7 +62,7 @@ func archivedWorkLocator(t *testing.T, s *store.Store, workID string) (locator, 
 func archivedWorkCount(t *testing.T, s *store.Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRowContext(context.Background(),
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
 		`SELECT count(*) FROM archived_work WHERE id=?`, workID).Scan(&count); err != nil {
 		t.Fatalf("count archived_work: %v", err)
 	}
@@ -116,16 +116,13 @@ func mintPublicationChallenge(t *testing.T, s *store.Store, service *Service, gr
 	t.Helper()
 	ctx := context.Background()
 	inv := Invocation{GrantToken: grant.Token, ClientRef: grant.ClientRef, ClientVersion: grant.ClientVersion, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, SurfaceVersion: env.SurfaceVersion, EnvelopeVersion: env.EnvelopeVersion, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
-	tx, err := s.DB().BeginTx(ctx, nil)
+	var ref string
+	err := s.Transact(ctx, func(tx *store.Transaction) error {
+		var err error
+		ref, err = service.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: scope, Versions: versions, Consequence: "publication", HostAssertionDigest: env.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
+		return err
+	})
 	if err != nil {
-		t.Fatalf("begin approval challenge: %v", err)
-	}
-	ref, err := service.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: scope, Versions: versions, Consequence: "publication", HostAssertionDigest: env.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
-	if err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("CreateApprovalChallengeTx: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit approval challenge: %v", err)
 	}
 	return ref
@@ -258,7 +255,7 @@ func bindAJ6PartialPublication(t *testing.T, sc jobScenario) jobObservation {
 func durableOperationCompleted(t *testing.T, s *store.Store, workID string) bool {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRowContext(context.Background(),
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
 		`SELECT count(*) FROM durable_operations WHERE work_id=? AND result_kind='completed'`, workID).Scan(&count); err != nil {
 		t.Fatalf("count durable_operations: %v", err)
 	}

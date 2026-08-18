@@ -30,14 +30,14 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	}
 	workID := captured.ChangedRefs[0].ID
 	var definition string
-	if err := s.DB().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition); err != nil {
 		t.Fatal(err)
 	}
 	if definition != "workflow.implementation" {
 		t.Fatalf("definition=%q", definition)
 	}
 	var eventKinds []string
-	rows, err := s.DB().Query(`SELECT kind FROM domain_events WHERE subject_id=? ORDER BY seq`, workID)
+	rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id=? ORDER BY seq`, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,10 +65,10 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 		t.Fatalf("first action response=%+v err=%v", acted, err)
 	}
 	var completed, currentStep int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id=? AND current_step='discovery'`, workID).Scan(&currentStep); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id=? AND current_step='discovery'`, workID).Scan(&currentStep); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 1 || currentStep != 1 {
@@ -127,7 +127,7 @@ func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing
 		}
 	}
 	var used int
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
 		t.Fatal(err)
 	}
 	if used != 0 {
@@ -167,7 +167,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	invokeWorkflowIssue31Action(t, s, service, env, "work-1", "start_execution", workflowIssue31Version(t, s), "issue31-start")
 	// The identity boundary is the subject of this test; place the fixture at
 	// its accepted checkpoint without bypassing the fold-only trigger policy.
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
 	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "work-1", "record_verdict", workflowIssue31Version(t, s), "issue31-verdict")
@@ -191,14 +191,14 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 		t.Fatalf("confirmed premise=%+v error=%+v", response, response.Error)
 	}
 	var actorClass, confirmedBy, eventActor string
-	if err := s.DB().QueryRow(`SELECT a.actor_class,pc.confirmed_by,e.actor FROM workflow_premise_confirmations pc JOIN workflow_actors a ON a.actor_ref=pc.confirmed_by JOIN domain_events e ON e.subject_id=pc.work_id AND e.kind=?`, store.WorkflowPremiseConfirmed).Scan(&actorClass, &confirmedBy, &eventActor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class,pc.confirmed_by,e.actor FROM workflow_premise_confirmations pc JOIN workflow_actors a ON a.actor_ref=pc.confirmed_by JOIN domain_events e ON e.subject_id=pc.work_id AND e.kind=?`, store.WorkflowPremiseConfirmed).Scan(&actorClass, &confirmedBy, &eventActor); err != nil {
 		t.Fatal(err)
 	}
 	if actorClass != string(store.ActorOperator) || confirmedBy != eventActor {
 		t.Fatalf("operator confirmation actor_class=%q confirming=%q event_actor=%q", actorClass, confirmedBy, eventActor)
 	}
 	var actorRows int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_class=?`, store.ActorOperator).Scan(&actorRows); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_class=?`, store.ActorOperator).Scan(&actorRows); err != nil {
 		t.Fatal(err)
 	}
 	if actorRows != 1 || countWorkflowEvents(t, s) <= beforeEvents {
@@ -210,10 +210,10 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 		t.Fatalf("stable replay=%+v error=%+v", replay, replay.Error)
 	}
 	var replayActors, replayPremises int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_class=?`, store.ActorOperator).Scan(&replayActors); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_class=?`, store.ActorOperator).Scan(&replayActors); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations`).Scan(&replayPremises); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations`).Scan(&replayPremises); err != nil {
 		t.Fatal(err)
 	}
 	if replayActors != 1 || replayPremises != 1 || countWorkflowEvents(t, s) <= beforeEvents {
@@ -254,7 +254,7 @@ func invokeWorkflowIssue31(t *testing.T, s *store.Store, service *Service, env C
 func workflowIssue31Version(t *testing.T, s *store.Store) int64 {
 	t.Helper()
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	return version
@@ -388,30 +388,30 @@ type workflowIssue31AuthorityState struct {
 func workflowIssue31AuthoritySnapshot(t *testing.T, s *store.Store, grant Grant) workflowIssue31AuthorityState {
 	t.Helper()
 	state := workflowIssue31AuthorityState{Projections: map[string]int{}}
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&state.Version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&state.Version); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&state.GrantUsed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&state.GrantUsed); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1'`).Scan(&state.Events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1'`).Scan(&state.Events); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&state.Actors); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&state.Actors); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&state.Challenges); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&state.Challenges); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM agent_approvals`).Scan(&state.Approvals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approvals`).Scan(&state.Approvals); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT instance_state,current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&state.InstanceState, &state.CurrentStep); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state,current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&state.InstanceState, &state.CurrentStep); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors", "workflow_checkpoints", "workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices", "workflow_decision_records", "workflow_premise_confirmations"} {
 		var count int
-		if err := s.DB().QueryRow(fmt.Sprintf(`SELECT count(*) FROM %s`, table)).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(fmt.Sprintf(`SELECT count(*) FROM %s`, table)).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		state.Projections[table] = count
@@ -423,7 +423,7 @@ func workflowIssue31AuthoritySnapshot(t *testing.T, s *store.Store, grant Grant)
 
 func workflowIssue31Rows(t *testing.T, s *store.Store, query string) string {
 	t.Helper()
-	rows, err := s.DB().Query(query)
+	rows, err := s.DatabaseForTesting().Query(query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func workflowIssue31Rows(t *testing.T, s *store.Store, query string) string {
 func countWorkflowActorRowsIssue31(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -490,7 +490,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Grant, ed25519
 		t.Fatalf("contract approval response=%+v", response)
 	}
 	invokeWorkflowIssue31Action(t, s, service, env, "work-1", "start_execution", workflowIssue31Version(t, s), "prepare-start")
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
 	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)

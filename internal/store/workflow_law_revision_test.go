@@ -17,7 +17,7 @@ func TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible(t *testing.T) {
 	insertLawRevisionFixture(t, s, "law-amendment", "spec:stable", "sha256:"+strings.Repeat("a", 64))
 	insertAcceptedLaw(t, s, "spec:stable", "sha256:"+strings.Repeat("b", 64))
 
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DB(), "p", "l", "law-amendment", 1, []string{"spec:stable"})
+	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-amendment", 1, []string{"spec:stable"})
 	if err != nil {
 		t.Fatalf("same-ID amendment check: %v", err)
 	}
@@ -32,11 +32,11 @@ func TestWorkflowLawRevisionSupersessionRefusesPinnedConsumer(t *testing.T) {
 	insertLawRevisionFixture(t, s, "law-supersession", "spec:old", "sha256:"+strings.Repeat("a", 64))
 	insertSupersededLaw(t, s, "spec:old", "sha256:"+strings.Repeat("a", 64))
 	insertAcceptedLaw(t, s, "spec:new", "sha256:"+strings.Repeat("b", 64))
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','spec:new','supersedes','spec:old','commit'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','spec:new','supersedes','spec:old','commit'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DB(), "p", "l", "law-supersession", 1, []string{"spec:old"})
+	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-supersession", 1, []string{"spec:old"})
 	if err != nil {
 		t.Fatalf("supersession check: %v", err)
 	}
@@ -49,15 +49,15 @@ func TestWorkflowLawRevisionSupersessionRefusesLegacyUnpinnedConsumer(t *testing
 	s := openTemp(t)
 	seedWork(t, s, "law-legacy")
 	insertLawRevisionFixture(t, s, "law-legacy", "spec:legacy", "sha256:"+strings.Repeat("a", 64))
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contract_law_revisions; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contract_law_revisions; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	insertSupersededLaw(t, s, "spec:legacy", "sha256:"+strings.Repeat("a", 64))
 	insertAcceptedLaw(t, s, "spec:successor", "sha256:"+strings.Repeat("c", 64))
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','spec:successor','supersedes','spec:legacy','commit'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','spec:successor','supersedes','spec:legacy','commit'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DB(), "p", "l", "law-legacy", 1, []string{"spec:legacy"})
+	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-legacy", 1, []string{"spec:legacy"})
 	if err != nil || got == nil {
 		t.Fatalf("legacy supersession diagnosis = %+v err=%v", got, err)
 	}
@@ -67,7 +67,7 @@ func TestWorkflowLawRevisionMissingProjectionFailsClosed(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "law-missing")
 	insertLawRevisionFixture(t, s, "law-missing", "spec:missing", "sha256:"+strings.Repeat("a", 64))
-	_, err := findStaleWorkflowLawRevision(context.Background(), s.DB(), "p", "l", "law-missing", 1, []string{"spec:missing"})
+	_, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-missing", 1, []string{"spec:missing"})
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:missing" {
 		t.Fatalf("missing law diagnosis = %v, want typed projection_not_found with candidate", err)
@@ -79,7 +79,7 @@ func TestWorkflowLawRevisionSupersededWithoutSuccessorFailsClosed(t *testing.T) 
 	seedWork(t, s, "law-no-successor")
 	insertLawRevisionFixture(t, s, "law-no-successor", "spec:orphan", "sha256:"+strings.Repeat("a", 64))
 	insertSupersededLaw(t, s, "spec:orphan", "sha256:"+strings.Repeat("a", 64))
-	_, err := findStaleWorkflowLawRevision(context.Background(), s.DB(), "p", "l", "law-no-successor", 1, []string{"spec:orphan"})
+	_, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-no-successor", 1, []string{"spec:orphan"})
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:orphan" {
 		t.Fatalf("orphan supersession diagnosis = %v, want typed projection_not_found with candidate", err)
@@ -93,7 +93,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	cutoverLawProjection(t, s, "spec:one", "spec:two")
 	version := readWorkVersion(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	tx, err := s.DB().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	result, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(map[string]any{"contract_version": 2, "premise": "continue under successor law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype/internal", "supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}}), Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
 	})
@@ -117,24 +117,24 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		t.Fatal("successor contract approval did not produce a workflow result")
 	}
 	var pinnedHash string
-	if err := s.DB().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=2 AND law_id='spec:two'`, workID).Scan(&pinnedHash); err != nil || pinnedHash != "sha256:"+strings.Repeat("b", 64) {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=2 AND law_id='spec:two'`, workID).Scan(&pinnedHash); err != nil || pinnedHash != "sha256:"+strings.Repeat("b", 64) {
 		t.Fatalf("successor contract pin=%q err=%v", pinnedHash, err)
 	}
 	var activeCount, oldConfirmationCount, successorConfirmationCount int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil || activeCount != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil || activeCount != 1 {
 		t.Fatalf("active contract count=%d err=%v, want exactly one", activeCount, err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&oldConfirmationCount); err != nil || oldConfirmationCount != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&oldConfirmationCount); err != nil || oldConfirmationCount != 1 {
 		t.Fatalf("prior premise confirmations=%d err=%v, want one historical confirmation", oldConfirmationCount, err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(&successorConfirmationCount); err != nil || successorConfirmationCount != 0 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(&successorConfirmationCount); err != nil || successorConfirmationCount != 0 {
 		t.Fatalf("successor premise confirmations=%d err=%v, want zero", successorConfirmationCount, err)
 	}
 	if got := currentStep(t, s, workID); got != "execution" {
 		t.Fatalf("recontracted workflow step=%q, want unchanged execution step", got)
 	}
 	version = result.ResultingVersion
-	tx, err = s.DB().BeginTx(context.Background(), nil)
+	tx, err = s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	startResult, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+	startResult, err := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 	_ = leaveFold(context.Background(), tx)
 	if err != nil {
 		tx.Rollback()
@@ -189,7 +189,7 @@ func TestWorkflowLawRevisionRecoveryRequiresAcceptedSuccessorPin(t *testing.T) {
 	cutoverLawProjection(t, s, "spec:one", "spec:two")
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	currentVersion := readWorkVersion(t, s, workID)
-	tx, err := s.DB().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestWorkflowLawRevisionRecoveryRequiresAcceptedSuccessorPin(t *testing.T) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	_, err = ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "supersede_contract", Payload: mustJSONValue(map[string]any{"contract_version": 2, "premise": "incorrectly omit the accepted successor", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype/internal", "supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}}), Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-missing-successor", OperationID: "recontract-missing-successor", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-missing-successor", RequestID: "request:recontract-missing-successor", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
 	})
@@ -215,14 +215,14 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 	cutoverLawProjection(t, s, "spec:one", "spec:two")
 	version := readWorkVersion(t, s, workID)
 	var currentLifecycle string
-	if err := s.DB().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&currentLifecycle); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&currentLifecycle); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workTransitionEvent("law-terminal-cancel", workID, currentLifecycle, "cancelled", version, version+1)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("terminal lifecycle route after cutover: %v", err)
 	}
 	var lifecycle string
-	if err := s.DB().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil || lifecycle != "cancelled" {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil || lifecycle != "cancelled" {
 		t.Fatalf("terminal lifecycle=%q err=%v, want cancelled", lifecycle, err)
 	}
 }
@@ -242,7 +242,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 	cutoverErr := make(chan error, 1)
 	crossVersion := readWorkVersion(t, s1, workID)
 	go func() {
-		tx, beginErr := s1.DB().BeginTx(context.Background(), nil)
+		tx, beginErr := s1.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if beginErr != nil {
 			cutoverErr <- beginErr
 			return
@@ -285,7 +285,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 	go func() {
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
 		close(acceptanceStarted)
-		tx, beginErr := s2.DB().BeginTx(context.Background(), nil)
+		tx, beginErr := s2.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if beginErr != nil {
 			acceptanceDone <- beginErr
 			return
@@ -295,7 +295,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 			acceptanceDone <- foldErr
 			return
 		}
-		_, actionErr := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		_ = leaveFold(context.Background(), tx)
 		if actionErr == nil {
 			tx.Rollback()
@@ -401,7 +401,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 
 	switch role {
 	case "cutover":
-		tx, err := s.DB().BeginTx(context.Background(), nil)
+		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -435,7 +435,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 		}
 		fmt.Println("cutover=committed")
 	case "acceptance":
-		tx, err := s.DB().BeginTx(context.Background(), nil)
+		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -444,7 +444,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
-		_, actionErr := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross-process", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross-process", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		_ = leaveFold(context.Background(), tx)
 		tx.Rollback()
 		var failure *Failure
@@ -468,14 +468,14 @@ func mustEnvInt64(t *testing.T, name string) int64 {
 
 func attachWorkflowLawPin(t *testing.T, s *Store, workID, lawID, hash string) {
 	t.Helper()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,?,?,?); DELETE FROM fold_guard`, workID, 1, lawID, hash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,?,?,?); DELETE FROM fold_guard`, workID, 1, lawID, hash); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func cutoverLawProjection(t *testing.T, s *Store, oldID, successorID string) {
 	t.Helper()
-	db := s.DB()
+	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -510,13 +510,13 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 		t.Fatal(err)
 	}
 	var hash string
-	if err := s.DB().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("folded law pin = %q err=%v", hash, err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("rebuilt law pin = %q err=%v", hash, err)
 	}
 }
@@ -533,7 +533,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	if err != nil {
 		t.Fatalf("claim before cutover: %v", err)
 	}
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -544,13 +544,13 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		t.Fatalf("raw durable completion must remain recordable after cutover: %v", err)
 	}
 	var resultKind string
-	if err := s.DB().QueryRow(`SELECT result_kind FROM durable_operations WHERE op_id=? AND attempt_epoch=?`, claim.OpID, claim.AttemptEpoch).Scan(&resultKind); err != nil || resultKind != string(ResultCompleted) {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT result_kind FROM durable_operations WHERE op_id=? AND attempt_epoch=?`, claim.OpID, claim.AttemptEpoch).Scan(&resultKind); err != nil || resultKind != string(ResultCompleted) {
 		t.Fatalf("raw completion result=%q err=%v, want completed", resultKind, err)
 	}
 	var failure *Failure
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
 	currentVersion := readWorkVersion(t, s, workID)
-	tx, err := s.DB().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +558,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	_, err = ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:stale", "attempt_epoch": 1}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-stale", OperationID: "accept-stale", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-stale", RequestID: "request:accept-stale", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 2, 0, time.UTC),
 	})
@@ -573,7 +573,7 @@ func insertLawRevisionFixture(t *testing.T, s *Store, workID, lawID, hash string
 	t.Helper()
 	specMandate := "[\"" + lawID + "\"]"
 	actorRef := "actor:" + strings.Repeat("a", 64)
-	db := s.DB()
+	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -593,14 +593,14 @@ func insertLawRevisionFixture(t *testing.T, s *Store, workID, lawID, hash string
 
 func insertAcceptedLaw(t *testing.T, s *Store, lawID, hash string) {
 	t.Helper()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','accepted','docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','accepted','docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func insertSupersededLaw(t *testing.T, s *Store, lawID, hash string) {
 	t.Helper()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','superseded','docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','superseded','docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
 		t.Fatal(err)
 	}
 }

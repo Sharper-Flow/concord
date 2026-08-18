@@ -34,7 +34,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 		t.Fatal(err)
 	}
 
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = fixedTime
 	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil
@@ -59,15 +59,9 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 		t.Fatal(defErr)
 	}
 	execActor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent}
-	tx, err := s.DB().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: execActor, Now: fixedTime()}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: execActor, Now: fixedTime()})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	// Drive the real engine to the external repair step: record, record,
@@ -84,7 +78,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 			RequestID: "verdict-seed-request-" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractVersion: "2.4.0", Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: execActor}
-		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, fixedTime(), nil, func(tx *sql.Tx) error {
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, fixedTime(), nil, func(tx *store.Transaction) error {
 			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
 			return err
 		}); err != nil {
@@ -99,7 +93,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	record("record_reproduction")
 	record("record_root_cause")
 	engineAction(6, "start_repair", map[string]any{"payload": map[string]any{"work": "work-1", "outcome": nil}})
-	seedVerdictEvent(t, s.DB(), execRef)
+	seedVerdictEvent(t, s.DatabaseForTesting(), execRef)
 	return s, service, keys[0], keys[1]
 }
 

@@ -49,11 +49,11 @@ func TestProductRowsC14ReturnsFiveGroups(t *testing.T) {
 func seedProductRowFixture(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
-	if _, err := s.DB().ExecContext(ctx, `
+	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES
 		('product-row','Portfolio','alpha','limited',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('project-row','Project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
@@ -74,7 +74,7 @@ func seedProductRowFixture(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,started_at) VALUES (?,?,?,?,?,?,?)`, "approval-work", definition.Definition.Ref, definition.Definition.Version, definition.Digest, "planning", "ready", "2026-08-01T00:00:00Z"); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,started_at) VALUES (?,?,?,?,?,?,?)`, "approval-work", definition.Definition.Ref, definition.Definition.Version, definition.Digest, "planning", "ready", "2026-08-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -82,11 +82,11 @@ func seedProductRowFixture(t *testing.T, s *Store) {
 func productRowExec(t *testing.T, s *Store, statement string, args ...any) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
-	if _, err := s.DB().ExecContext(ctx, statement, args...); err != nil {
+	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, statement, args...); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -296,7 +296,7 @@ func TestProductRowsC14HundredPageAndQueryPlan(t *testing.T) {
 	if err != nil || len(page.Rows) != 100 || page.NextCursor == nil {
 		t.Fatalf("100 page=%#v err=%v", page, err)
 	}
-	planRows, err := s.DB().Query(`EXPLAIN QUERY PLAN `+productRowPageSQL, "", "", "", "", "", "", 21)
+	planRows, err := s.DatabaseForTesting().Query(`EXPLAIN QUERY PLAN `+productRowPageSQL, "", "", "", "", "", "", 21)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func seedProductRowPerformanceFixture(t *testing.T, s *Store) {
 		fmt.Fprintf(&statements, "INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('%s','perf-work-%03d-02','blocks','2026-08-05T00:00:00Z'),('%s','perf-work-%03d-04','blocks','2026-08-05T00:00:00Z');", blockerID, product, blockerID, product)
 	}
 	statements.WriteString("DELETE FROM fold_guard;")
-	if _, err := s.DB().ExecContext(context.Background(), statements.String()); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(context.Background(), statements.String()); err != nil {
 		t.Fatal(err)
 	}
 }

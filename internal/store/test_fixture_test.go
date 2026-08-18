@@ -104,31 +104,31 @@ func TestOpenTempCopiesIsolatedLatestSchema(t *testing.T) {
 	second := openTemp(t)
 	ctx := context.Background()
 
-	if _, err := first.DB().ExecContext(ctx, `INSERT INTO domain_events
+	if _, err := first.DatabaseForTesting().ExecContext(ctx, `INSERT INTO domain_events
 		(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
 		VALUES ('first-only', 'test.event', 'product', 'product-1', 'test', '2026-01-01T00:00:00Z', 1, '{}')`); err != nil {
 		t.Fatalf("insert first store event: %v", err)
 	}
 
 	var firstEvents, secondEvents int
-	if err := first.DB().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&firstEvents); err != nil {
+	if err := first.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&firstEvents); err != nil {
 		t.Fatalf("count first store events: %v", err)
 	}
-	if err := second.DB().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&secondEvents); err != nil {
+	if err := second.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&secondEvents); err != nil {
 		t.Fatalf("count second store events: %v", err)
 	}
 	if firstEvents != 1 || secondEvents != 0 {
 		t.Fatalf("store event counts = (%d, %d), want (1, 0)", firstEvents, secondEvents)
 	}
 
-	if got, err := SchemaVersion(ctx, second.DB()); err != nil {
+	if got, err := SchemaVersion(ctx, second.DatabaseForTesting()); err != nil {
 		t.Fatalf("schema version: %v", err)
 	} else if got != CurrentSchemaVersion() {
 		t.Fatalf("second store schema version = %d, want %d", got, CurrentSchemaVersion())
 	}
 	for _, table := range []string{"products", "projects", "work_items", "relations"} {
 		var count int
-		if err := second.DB().QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
+		if err := second.DatabaseForTesting().QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
 			t.Fatalf("count empty %s table: %v", table, err)
 		}
 		if count != 0 {

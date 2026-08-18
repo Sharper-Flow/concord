@@ -16,7 +16,7 @@ func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActo
 		t.Fatal(err)
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:continuity", ClientRef: "client:continuity", AgentRef: "agent:continuity", SessionRef: "session:continuity", ActorClass: ActorAgent}
-	tx, err := s.DB().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActo
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActo
 		t.Fatal(err)
 	}
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	actorRef, err := WorkflowActorRef(actor)
@@ -58,7 +58,7 @@ func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActo
 
 func continuityAction(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, fields map[string]any, actor WorkflowActor) (int64, error) {
 	t.Helper()
-	tx, err := s.DB().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func continuityAction(t *testing.T, s *Store, workID string, version int64, acti
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(fields)
-	result, actionErr := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractVersion: "2.3.0", Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
+	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractVersion: "2.3.0", Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
 	_ = leaveFold(context.Background(), tx)
 	if actionErr != nil {
 		_ = tx.Rollback()
@@ -90,7 +90,7 @@ func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	var current int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, "continuity-work").Scan(&current); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "continuity-work").Scan(&current); err != nil {
 		t.Fatal(err)
 	}
 	if checkpointVersion != current {
@@ -138,7 +138,7 @@ func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T)
 		t.Fatal(err)
 	}
 	var current int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, "continuity-reject").Scan(&current); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "continuity-reject").Scan(&current); err != nil {
 		t.Fatal(err)
 	}
 	_, err = continuityAction(t, s, "continuity-reject", current, "cross_context_boundary", "reject-boundary", map[string]any{"boundary_kind": "summary", "mode": "summary", "checkpoint_id": "reject-checkpoint:context-checkpoint", "summary": "must not cross"}, actor)
@@ -150,7 +150,7 @@ func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T)
 		t.Fatal("checkpoint did not commit")
 	}
 	var boundaries int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_context_boundaries WHERE work_id=?`, "continuity-reject").Scan(&boundaries); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_context_boundaries WHERE work_id=?`, "continuity-reject").Scan(&boundaries); err != nil {
 		t.Fatal(err)
 	}
 	if boundaries != 0 {
@@ -162,7 +162,7 @@ func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T)
 		t.Fatalf("restart error=%v", err)
 	}
 	var events int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "continuity-reject", WorkflowContextBoundaryCrossed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "continuity-reject", WorkflowContextBoundaryCrossed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -272,10 +272,10 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 	}, actor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`UPDATE workflow_context_checkpoints SET active_unit='unit:mutated' WHERE work_id='continuity-v22-guards'`); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_context_checkpoints SET active_unit='unit:mutated' WHERE work_id='continuity-v22-guards'`); err == nil {
 		t.Fatal("context checkpoint update bypassed immutability guard")
 	}
-	if _, err := s.DB().Exec(`DELETE FROM workflow_context_checkpoints WHERE work_id='continuity-v22-guards'`); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM workflow_context_checkpoints WHERE work_id='continuity-v22-guards'`); err == nil {
 		t.Fatal("context checkpoint delete bypassed fold guard")
 	}
 	actorRef, err := WorkflowActorRef(actor)
@@ -286,7 +286,7 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',1,?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',1,?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
 		t.Fatal("context boundary insert bypassed fold guard")
 	}
 }

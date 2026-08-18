@@ -75,7 +75,7 @@ func TestApplyWorkCreatedV1RetainsStoredBytesAndFoldsAsV2(t *testing.T) {
 	}
 	var version int
 	var payload string
-	if err := s.DB().QueryRow(`SELECT payload_version, payload FROM domain_events WHERE event_id = ?`, event.EventID).Scan(&version, &payload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version, payload FROM domain_events WHERE event_id = ?`, event.EventID).Scan(&version, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if version != 1 || payload != string(event.Payload) {
@@ -83,7 +83,7 @@ func TestApplyWorkCreatedV1RetainsStoredBytesAndFoldsAsV2(t *testing.T) {
 	}
 	var kind, title string
 	var priority int64
-	if err := s.DB().QueryRow(`SELECT kind, title, priority FROM work_items WHERE id = ?`, event.SubjectID).Scan(&kind, &title, &priority); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT kind, title, priority FROM work_items WHERE id = ?`, event.SubjectID).Scan(&kind, &title, &priority); err != nil {
 		t.Fatal(err)
 	}
 	if kind != "task" || title != "legacy" || priority != 2 {
@@ -161,7 +161,7 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	beforeWorkAndRelations := fullPM4Snapshot(t, s)
 	poison := workCreatedEvent("work-poison", "event-poison")
 	poison.PayloadVersion = 3
-	result, err := s.DB().ExecContext(context.Background(), `
+	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
 		INSERT INTO domain_events
 			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -302,14 +302,14 @@ func TestIntentRevisionReplaysDeterministically(t *testing.T) {
 		t.Fatal(err)
 	}
 	var before string
-	if err := s.DB().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-work'`).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-work'`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 	var after string
-	if err := s.DB().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-work'`).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-work'`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if before != after {
@@ -319,7 +319,7 @@ func TestIntentRevisionReplaysDeterministically(t *testing.T) {
 
 func TestSchemaManifestCompatibilityReportsCurrentVersion(t *testing.T) {
 	s := openTemp(t)
-	compatibility, err := CheckSchemaCompatibility(context.Background(), s.DB())
+	compatibility, err := CheckSchemaCompatibility(context.Background(), s.DatabaseForTesting())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestReconstructSubjectAtDoesNotMutateLiveState(t *testing.T) {
 	}
 	before := projectionSnapshot(t, s)
 	var guardBefore int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guardBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guardBefore); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReconstructSubjectAt(context.Background(), s, VersionRef(SubjectWorkItem, event.SubjectID), 5, PurposeDiagnosis); err != nil {
@@ -401,7 +401,7 @@ func TestReconstructSubjectAtDoesNotMutateLiveState(t *testing.T) {
 		t.Fatalf("live projection changed:\n%s\nwant\n%s", got, before)
 	}
 	var guardAfter int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guardAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guardAfter); err != nil {
 		t.Fatal(err)
 	}
 	if guardAfter != guardBefore {
@@ -412,7 +412,7 @@ func TestReconstructSubjectAtDoesNotMutateLiveState(t *testing.T) {
 func TestNoPersistentPointInTimeTableOrSnapshot(t *testing.T) {
 	s := openTemp(t)
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND (name LIKE '%snapshot%' OR name LIKE '%reconstruct%')`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND (name LIKE '%snapshot%' OR name LIKE '%reconstruct%')`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {

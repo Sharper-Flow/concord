@@ -87,6 +87,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"tx scope drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    store_boundary_checker = ROOT / "scripts/check-store-boundary.py"
+    if store_boundary_checker.is_file():
+        checked = subprocess.run([sys.executable, str(store_boundary_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"store boundary drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     lane_eval_checker = ROOT / "scripts/check-lane-evals.py"
     if lane_eval_checker.is_file():
         checked = subprocess.run([sys.executable, str(lane_eval_checker)], cwd=ROOT, capture_output=True, text=True)

@@ -63,14 +63,14 @@ func manifestFixtureFromFile(t *testing.T, repo string, id, kind, path, status, 
 
 func authorizeKnowledgeLocator(t *testing.T, s *Store, home KnowledgeHome) {
 	t.Helper()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DB().Exec(`DELETE FROM fold_guard`)
-	if _, err := s.DB().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
+	defer s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?, ?, 'canonical_path', ?, ?, 'now', 'now')`, home.HomeLocatorID, home.HomeProjectID, home.RepoPath, home.RepoPath); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?, ?, 'canonical_path', ?, ?, 'now', 'now')`, home.HomeLocatorID, home.HomeProjectID, home.RepoPath, home.RepoPath); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -78,30 +78,30 @@ func authorizeKnowledgeLocator(t *testing.T, s *Store, home KnowledgeHome) {
 func authorizeKnowledgeProductHome(t *testing.T, s *Store, productID string, home KnowledgeHome, membershipProjects ...string) {
 	t.Helper()
 	authorizeKnowledgeLocator(t, s, home)
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DB().Exec(`DELETE FROM fold_guard`)
-	if _, err := s.DB().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
+	defer s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?, ?, ?)`, productID, home.HomeProjectID, home.HomeLocatorID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?, ?, ?)`, productID, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	for _, projectID := range membershipProjects {
-		if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DB().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, projectID, projectID); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, projectID, projectID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DB().Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?, ?, 'secondary')`, productID, projectID); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?, ?, 'secondary')`, productID, projectID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DB().Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -110,14 +110,14 @@ func authorizeKnowledgeProductHome(t *testing.T, s *Store, productID string, hom
 func authorizeKnowledgeProductMembership(t *testing.T, s *Store, productID, projectID string) {
 	t.Helper()
 	authorizeKnowledgeLocator(t, s, KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: "membership-" + projectID, RepoPath: t.TempDir()})
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DB().Exec(`DELETE FROM fold_guard`)
-	if _, err := s.DB().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
+	defer s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?, ?, 'secondary')`, productID, projectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?, ?, 'secondary')`, productID, projectID); err != nil {
 		t.Fatal(err)
 	}
 }

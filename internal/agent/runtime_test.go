@@ -181,11 +181,11 @@ func assertLauncherSnapshotMeta(t *testing.T, snapshot launcher.Snapshot, result
 func seedPortfolioParityFixture(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
-	_, err := s.DB().ExecContext(ctx, `
+	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	_, err := s.DatabaseForTesting().ExecContext(ctx, `
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES
 		 ('product-active','Active','production','public',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
 		 ('product-quiet','Quiet','prototype','operator_only',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
@@ -215,7 +215,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
@@ -264,7 +264,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"work_define"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
@@ -291,7 +291,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 		t.Fatalf("changed refs=%#v", response.ChangedRefs)
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_items w JOIN work_projects p ON p.work_id=w.id WHERE w.title='Need' AND p.project_id='project-1'`).Scan(&count); err != nil || count != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items w JOIN work_projects p ON p.work_id=w.id WHERE w.title='Need' AND p.project_id='project-1'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("capture projection count=%d err=%v", count, err)
 	}
 	env.RequestID = "capture-request-2"
@@ -319,18 +319,18 @@ func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
 	}
 	defer s.Close()
 	want := SignedCursor{Tool: "concord_work_browse", Operation: "list", Scope: "product|project", Filter: "filters", Detail: "summary", Order: "priority", Source: "7", Last: "work-a", Inner: "inner-cursor"}
-	token, err := EncodeCursor(context.Background(), s.DB(), want)
+	token, err := EncodeCursor(context.Background(), s, want)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := DecodeCursor(context.Background(), s.DB(), token, want)
+	got, err := DecodeCursor(context.Background(), s, token, want)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Inner != want.Inner || !strings.Contains(token, ".") {
 		t.Fatalf("cursor=%+v token=%q", got, token)
 	}
-	if _, err := DecodeCursor(context.Background(), s.DB(), token, SignedCursor{Tool: "concord_work_trace", Operation: "history", Scope: want.Scope, Filter: want.Filter, Detail: want.Detail, Order: want.Order}); err == nil {
+	if _, err := DecodeCursor(context.Background(), s, token, SignedCursor{Tool: "concord_work_trace", Operation: "history", Scope: want.Scope, Filter: want.Filter, Detail: want.Detail, Order: want.Order}); err == nil {
 		t.Fatal("wrong operation accepted")
 	}
 	first := byte('A')
@@ -338,7 +338,7 @@ func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
 		first = 'B'
 	}
 	tampered := string(first) + token[1:]
-	if _, err := DecodeCursor(context.Background(), s.DB(), tampered, want); err == nil {
+	if _, err := DecodeCursor(context.Background(), s, tampered, want); err == nil {
 		t.Fatal("tampered cursor accepted")
 	}
 }
@@ -407,7 +407,7 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES (1); INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('knowledge-b','lesson','B','2026-08-07T00:00:00Z','published','[]','completed',1,'summary','home','locator','note.md','commit','hash'); INSERT INTO archived_work_products(work_id,product_id) VALUES ('knowledge-b','product-b'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES (1); INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('knowledge-b','lesson','B','2026-08-07T00:00:00Z','published','[]','completed',1,'summary','home','locator','note.md','commit','hash'); INSERT INTO archived_work_products(work_id,product_id) VALUES ('knowledge-b','product-b'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Input: json.RawMessage(`{"knowledge_id":"knowledge-b"}`)}
@@ -544,31 +544,31 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('stored-project','Stored project',1,'now','now'); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('stored-locator','stored-project','canonical_path',?,?, 'now','now')`, repo, repo); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('stored-project','Stored project',1,'now','now'); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('stored-locator','stored-project','canonical_path',?,?, 'now','now')`, repo, repo); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}
 	for product := range memberships {
-		if _, err := s.DB().Exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now'); INSERT INTO product_projects(product_id,project_id,role) VALUES(?, 'stored-project', 'secondary')`, product, product); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now'); INSERT INTO product_projects(product_id,project_id,role) VALUES(?, 'stored-project', 'secondary')`, product, product); err != nil {
 			s.Close()
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DB().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Durable lesson", "2026-08-10T00:00:00Z", "published", "[]", "completed", 1, "Durable summary", "stored-project", "stored-locator", notePath, commit, contentHash, scopeMode); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Durable lesson", "2026-08-10T00:00:00Z", "published", "[]", "completed", 1, "Durable summary", "stored-project", "stored-locator", notePath, commit, contentHash, scopeMode); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}
 	for _, product := range frozenProducts {
-		if _, err := s.DB().Exec(`INSERT INTO archived_work_products(work_id,product_id) VALUES(?,?)`, id, product); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work_products(work_id,product_id) VALUES(?,?)`, id, product); err != nil {
 			s.Close()
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DB().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}

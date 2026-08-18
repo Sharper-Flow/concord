@@ -324,7 +324,7 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 		t.Fatal(err)
 	}
 	addScenario(&report, "precommit_sigkill", []WorkerResult{{Outcome: outcomeAccepted, Worker: 99, PID: os.Getpid(), Attempts: 1}})
-	if err := validateMembershipInvariants(ctx, s.DB()); err != nil {
+	if err := validateMembershipInvariants(ctx, s.DatabaseForTesting()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -693,7 +693,7 @@ func assertLifecycleRelationEffects(ctx context.Context, s *Store) error {
 	for worker := 0; worker < 10; worker++ {
 		prefix := fmt.Sprintf("lifecycle-%d", worker)
 		var events int
-		if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, prefix+"-%").Scan(&events); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, prefix+"-%").Scan(&events); err != nil {
 			return err
 		}
 		if events != 9 {
@@ -701,19 +701,19 @@ func assertLifecycleRelationEffects(ctx context.Context, s *Store) error {
 		}
 		var lifecycle string
 		var version int64
-		if err := s.DB().QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, prefix+"-first").Scan(&lifecycle, &version); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, prefix+"-first").Scan(&lifecycle, &version); err != nil {
 			return err
 		}
 		if lifecycle != "completed" || version != 4 {
 			return fmt.Errorf("lifecycle worker %d first projection = %s/v%d, want completed/v4", worker, lifecycle, version)
 		}
-		if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='blocks'`, prefix+"-first", prefix+"-second").Scan(&events); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='blocks'`, prefix+"-first", prefix+"-second").Scan(&events); err != nil {
 			return err
 		}
 		if events != 1 {
 			return fmt.Errorf("lifecycle worker %d relation count = %d, want 1", worker, events)
 		}
-		if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM product_projects WHERE product_id=? AND role='primary'`, prefix+"-product").Scan(&events); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM product_projects WHERE product_id=? AND role='primary'`, prefix+"-product").Scan(&events); err != nil {
 			return err
 		}
 		if events != 1 {
@@ -721,13 +721,13 @@ func assertLifecycleRelationEffects(ctx context.Context, s *Store) error {
 		}
 	}
 	var orphan, cycles, duplicatePrimary int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM relations r LEFT JOIN work_items f ON f.id=r.work_id_from LEFT JOIN work_items t ON t.id=r.work_id_to WHERE f.id IS NULL OR t.id IS NULL`).Scan(&orphan); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM relations r LEFT JOIN work_items f ON f.id=r.work_id_from LEFT JOIN work_items t ON t.id=r.work_id_to WHERE f.id IS NULL OR t.id IS NULL`).Scan(&orphan); err != nil {
 		return err
 	}
-	if err := s.DB().QueryRowContext(ctx, `WITH RECURSIVE reach(start,node) AS (SELECT work_id_from,work_id_to FROM relations UNION SELECT reach.start,r.work_id_to FROM reach JOIN relations r ON r.work_id_from=reach.node) SELECT count(*) FROM reach WHERE start=node`).Scan(&cycles); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `WITH RECURSIVE reach(start,node) AS (SELECT work_id_from,work_id_to FROM relations UNION SELECT reach.start,r.work_id_to FROM reach JOIN relations r ON r.work_id_from=reach.node) SELECT count(*) FROM reach WHERE start=node`).Scan(&cycles); err != nil {
 		return err
 	}
-	if err := s.DB().QueryRowContext(ctx, `SELECT (SELECT count(*) FROM (SELECT product_id FROM product_projects WHERE role='primary' GROUP BY product_id HAVING count(*)>1)) + (SELECT count(*) FROM (SELECT work_id FROM work_projects WHERE role='primary' GROUP BY work_id HAVING count(*)>1))`).Scan(&duplicatePrimary); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT (SELECT count(*) FROM (SELECT product_id FROM product_projects WHERE role='primary' GROUP BY product_id HAVING count(*)>1)) + (SELECT count(*) FROM (SELECT work_id FROM work_projects WHERE role='primary' GROUP BY work_id HAVING count(*)>1))`).Scan(&duplicatePrimary); err != nil {
 		return err
 	}
 	if orphan != 0 || cycles != 0 || duplicatePrimary != 0 {
@@ -955,14 +955,14 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 		return err
 	}
 	defer restoredStore.Close()
-	integrity, quick, foreign, err := verifySQLiteTriple(ctx, restoredStore.DB())
+	integrity, quick, foreign, err := verifySQLiteTriple(ctx, restoredStore.DatabaseForTesting())
 	if err != nil {
 		return err
 	}
 	if integrity != "ok" || quick != "ok" || len(foreign) != 0 {
 		return fmt.Errorf("restored SQLite triple verification failed: integrity=%q quick=%q foreign=%v", integrity, quick, foreign)
 	}
-	if err := validateMembershipInvariants(ctx, restoredStore.DB()); err != nil {
+	if err := validateMembershipInvariants(ctx, restoredStore.DatabaseForTesting()); err != nil {
 		return err
 	}
 	before := projectionSnapshot(t, restoredStore)
@@ -1012,14 +1012,14 @@ func dbIdentity(path string) string {
 
 func countDomainEvents(s *Store, eventID string) int {
 	var count int
-	_ = s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&count)
+	_ = s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&count)
 	return count
 }
 
 func maxAttemptEpoch(t *testing.T, s *Store, opID string) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DB().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM durable_operations WHERE op_id=?`, opID).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM durable_operations WHERE op_id=?`, opID).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	return epoch

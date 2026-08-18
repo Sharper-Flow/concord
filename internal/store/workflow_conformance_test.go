@@ -267,7 +267,7 @@ func executeCorpusCompletionFault(ctx context.Context, s *Store, workID string, 
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return workflowObservation{}, err
 	}
@@ -291,7 +291,7 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return workflowObservation{}, err
 	}
@@ -315,7 +315,7 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 	payload["successor"] = successor
 	fields["successor_work_id"] = successor
 	link := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: "link_successor", Payload: json.RawMessage(mustJSON(fields)), Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID + ":link", PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: request.Idempotency.Key + ":link", RequestID: request.Idempotency.RequestID + ":link", AcceptedScope: `{}`, ContractVersion: "2.0.0", Now: corpusNow}
-	result, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), link)
+	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), link)
 	if err != nil {
 		_ = leaveFold(ctx, tx)
 		_ = tx.Rollback()
@@ -660,13 +660,13 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		t.Fatal(err)
 	}
 	var beforeVersion, beforeContracts int
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&beforeVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&beforeVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&beforeContracts); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&beforeContracts); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +675,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(scenario.Request.Fields)
-	_, actionErr := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: scenario.Setup.FixtureRefs.WorkItem, ExpectedVersion: scenario.Request.ExpectedVersion, ActionID: scenario.Request.ActionID, Payload: payload, Actor: actor, AcceptedInputsDigest: scenario.Request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: scenario.Request.Idempotency.Key, OperationID: scenario.Request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: scenario.Request.Idempotency.Key, RequestID: scenario.Request.Idempotency.RequestID, AcceptedScope: `{}`, ContractVersion: "2.0.0", Now: corpusNow})
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: scenario.Setup.FixtureRefs.WorkItem, ExpectedVersion: scenario.Request.ExpectedVersion, ActionID: scenario.Request.ActionID, Payload: payload, Actor: actor, AcceptedInputsDigest: scenario.Request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: scenario.Request.Idempotency.Key, OperationID: scenario.Request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: scenario.Request.Idempotency.Key, RequestID: scenario.Request.Idempotency.RequestID, AcceptedScope: `{}`, ContractVersion: "2.0.0", Now: corpusNow})
 	_ = leaveFold(ctx, tx)
 	if actionErr != nil {
 		tx.Rollback()
@@ -685,13 +685,13 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		t.Fatal(err)
 	}
 	var eventCount, contracts, afterVersion int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, scenario.Request.Operation.OpID+":%").Scan(&eventCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, scenario.Request.Operation.OpID+":%").Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&contracts); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&contracts); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&afterVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&afterVersion); err != nil {
 		t.Fatal(err)
 	}
 	if eventCount != 0 || contracts != beforeContracts || afterVersion != beforeVersion {
@@ -1030,11 +1030,11 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if action == string(corpusActionCapture) {
 		// Capture is the production creation/initialization boundary. It owns the
 		// actor and definition events rather than the fixture loader.
-		tx, txErr := s.DB().BeginTx(ctx, nil)
+		tx, txErr := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if txErr != nil {
 			return workflowObservation{}, txErr
 		}
-		if txErr = InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); txErr != nil {
+		if txErr = initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); txErr != nil {
 			_ = tx.Rollback()
 			return observeWorkflowStore(ctx, s, workID, 0, txErr, nil)
 		}
@@ -1104,7 +1104,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 			poison := Event{EventID: workID + ":corpus-poison", Kind: "workflow.poisoned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: corpusNow, PayloadVersion: 1, Payload: json.RawMessage(`{"work_id":"poison","poison":true}`)}
 			poisonErr := ApplyOperation(ctx, s, Operation{Events: []Event{poison}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
 			var poisonEvents int
-			_ = s.DB().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id=?`, poison.EventID).Scan(&poisonEvents)
+			_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id=?`, poison.EventID).Scan(&poisonEvents)
 			versionAfter, _ := workflowCurrentVersion(ctx, s, workID)
 			return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"projection_corruption_rebuilt": true, "event_poison_quarantined": poisonErr != nil && poisonEvents == 0 && versionAfter == version, "history_retained": true})
 		}
@@ -1236,7 +1236,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, ReplaceWorkflowOutcome(ctx, s, workID), nil)
 	}
 
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return workflowObservation{}, err
 	}
@@ -1250,7 +1250,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if action == string(corpusActionReplaceCheck) {
 		result, actionErr = ReplaceWorkflowCheckTx(ctx, tx, actionRegistry, workflowRequest)
 	} else {
-		result, actionErr = ApplyWorkflowActionTx(ctx, tx, actionRegistry, workflowRequest)
+		result, actionErr = applyWorkflowActionRawTx(ctx, tx, actionRegistry, workflowRequest)
 	}
 	_ = leaveFold(ctx, tx)
 	if actionErr != nil {
@@ -1327,7 +1327,7 @@ func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any,
 
 func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64, error) {
 	var version int64
-	err := s.DB().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version)
+	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version)
 	return version, err
 }
 
@@ -1352,7 +1352,7 @@ func replayCorpusEventStream(ctx context.Context, s *Store, fields map[string]an
 			return workflowScenarioGap{"event_stream entry is missing typed identity or payload"}
 		}
 		var exists int
-		if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&exists); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&exists); err != nil {
 			return err
 		}
 		if exists != 0 {
@@ -1394,7 +1394,7 @@ func applyProjectionCorruptionFault(ctx context.Context, s *Store, input project
 	if input.WorkID == "" || input.Target != "workflow_instances" || input.Field != "current_step" || input.Value == "" {
 		return workflowScenarioGap{"projection_corruption must declare workflow_instances.current_step and a value"}
 	}
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -1480,7 +1480,7 @@ func seedCorpusCompletionPrerequisites(ctx context.Context, s *Store, workID str
 		return err
 	}
 	var contracts int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
 		return err
 	}
 	if contracts != 0 {
@@ -1524,14 +1524,14 @@ func seedCorpusCompletionPrerequisites(ctx context.Context, s *Store, workID str
 
 func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
 	var step string
-	if err := s.DB().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		return err
 	}
 	if step != "start" {
 		return nil
 	}
 	definitionRef := ""
-	if err := s.DB().QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef); err != nil {
 		return err
 	}
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract"}
@@ -1543,7 +1543,7 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 		if err != nil {
 			return err
 		}
-		tx, err := s.DB().BeginTx(ctx, nil)
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -1551,7 +1551,7 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 			_ = tx.Rollback()
 			return err
 		}
-		_, err = ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(`{}`), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractVersion: "2.0.0", Now: corpusNow})
+		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(`{}`), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractVersion: "2.0.0", Now: corpusNow})
 		_ = leaveFold(ctx, tx)
 		if err != nil {
 			_ = tx.Rollback()
@@ -1566,7 +1566,7 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 
 func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
 	var step string
-	if err := s.DB().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		return err
 	}
 	if step != "start" {
@@ -1611,7 +1611,7 @@ func uniqueStringsAny(values []any) []string {
 
 func workflowEventSequence(ctx context.Context, s *Store, workID string) (int64, error) {
 	var sequence int64
-	err := s.DB().QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&sequence)
+	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&sequence)
 	return sequence, err
 }
 
@@ -1643,11 +1643,11 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 			continue
 		}
 		if initializeMissing && !initialized[input.WorkID] && input.Kind != WorkflowActorRecorded && input.Kind != WorkflowDefinitionSelected {
-			tx, txErr := s.DB().BeginTx(ctx, nil)
+			tx, txErr := s.DatabaseForTesting().BeginTx(ctx, nil)
 			if txErr != nil {
 				return txErr
 			}
-			if txErr = InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: input.WorkID, Definition: registered, Actor: WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent-engineer", SessionRef: "session-executor", ActorClass: ActorAgent}, Now: event.OccurredAt}); txErr != nil {
+			if txErr = initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: input.WorkID, Definition: registered, Actor: WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent-engineer", SessionRef: "session-executor", ActorClass: ActorAgent}, Now: event.OccurredAt}); txErr != nil {
 				_ = tx.Rollback()
 				return txErr
 			}
@@ -1678,7 +1678,7 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 			}
 		}
 		if input.Kind == WorkflowContractApproved && corpusSetupInputDeclaresLaw(input) {
-			if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`); err != nil {
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`); err != nil {
 				return err
 			}
 		}
@@ -1722,14 +1722,14 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 
 func ensureCorpusWorkflowInitialized(ctx context.Context, s *Store, workID string, fallback RegisteredDefinition, now time.Time) error {
 	var existing int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=?`, workID).Scan(&existing); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=?`, workID).Scan(&existing); err != nil {
 		return err
 	}
 	if existing != 0 {
 		return nil
 	}
 	var kind string
-	if err := s.DB().QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
 		return err
 	}
 	definition := fallback
@@ -1739,12 +1739,12 @@ func ensureCorpusWorkflowInitialized(ctx context.Context, s *Store, workID strin
 			break
 		}
 	}
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent-engineer", SessionRef: "session-executor", ActorClass: ActorAgent}
-	if err := InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -1769,7 +1769,7 @@ func inlineTransactionEvidence(ctx context.Context, s *Store, workID string, bef
 	if !ok || operation == "" {
 		return nil, false
 	}
-	rows, err := s.DB().QueryContext(ctx, `SELECT seq,event_id,kind,json_extract(payload,'$.resulting_version') FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? AND event_id LIKE ? ORDER BY seq`, SubjectWorkItem, workID, beforeSeq, operation+":%")
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT seq,event_id,kind,json_extract(payload,'$.resulting_version') FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? AND event_id LIKE ? ORDER BY seq`, SubjectWorkItem, workID, beforeSeq, operation+":%")
 	if err != nil {
 		return nil, false
 	}
@@ -1792,7 +1792,7 @@ func inlineTransactionEvidence(ctx context.Context, s *Store, workID string, bef
 		return nil, false
 	}
 	var durableKind, stepKind string
-	if err := s.DB().QueryRowContext(ctx, `SELECT COALESCE(result_kind,''),COALESCE(step_kind,'') FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, operation).Scan(&durableKind, &stepKind); err != nil || durableKind != string(ResultCompleted) || stepKind != string(StepInternalSQLite) {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(result_kind,''),COALESCE(step_kind,'') FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, operation).Scan(&durableKind, &stepKind); err != nil || durableKind != string(ResultCompleted) || stepKind != string(StepInternalSQLite) {
 		return nil, false
 	}
 	return map[string]any{"count": 1, "operation_id": operation, "event_count": len(events), "first_event": events[0].kind, "last_event": events[len(events)-1].kind, "resulting_version": events[len(events)-1].version}, true
@@ -1848,7 +1848,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	}
 	var lifecycle string
 	var workVersion int64
-	if err := s.DB().QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &workVersion); err == nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &workVersion); err == nil {
 		observation.State["work"] = map[string]any{"lifecycle": lifecycle, "version": workVersion}
 		observation.State[workID] = map[string]any{"version": workVersion}
 	}
@@ -1888,7 +1888,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 			contract["premise_hash"] = projection.Contract.Premise
 			contract["outcome_hash"] = projection.Contract.OutcomePayload
 			var contractPayload []byte
-			if err := s.DB().QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowContractApproved).Scan(&contractPayload); err == nil {
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowContractApproved).Scan(&contractPayload); err == nil {
 				var typed map[string]any
 				if json.Unmarshal(contractPayload, &typed) == nil {
 					if value, ok := typed["premise_hash"].(string); ok && value != "" {
@@ -1902,7 +1902,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		}
 		observation.State["contract"] = contract
 		contracts := map[string]any{"versions": []any{}}
-		contractRows, contractErr := s.DB().QueryContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? ORDER BY contract_version`, workID)
+		contractRows, contractErr := s.DatabaseForTesting().QueryContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? ORDER BY contract_version`, workID)
 		if contractErr != nil {
 			return observation, contractErr
 		}
@@ -1921,11 +1921,11 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		contracts["versions"] = versions
 		observation.State["contracts"] = contracts
 		var supersedes int64
-		if err := s.DB().QueryRowContext(ctx, `SELECT COALESCE(MIN(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NOT NULL`, workID).Scan(&supersedes); err == nil && supersedes != 0 {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MIN(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NOT NULL`, workID).Scan(&supersedes); err == nil && supersedes != 0 {
 			observation.State["audit"] = map[string]any{"supersedes": supersedes}
 		}
 		var rigorClass string
-		if err := s.DB().QueryRowContext(ctx, `SELECT rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&rigorClass); err == nil && rigorClass != "" {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&rigorClass); err == nil && rigorClass != "" {
 			observation.State["rigor"] = map[string]any{"proof_depth": rigorClass}
 		}
 		if projection.CurrentStep == "planning" {
@@ -1963,13 +1963,13 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		observation.Authority["source"] = "event_log"
 		observation.State["workflow_instances"] = map[string]any{workID: map[string]any{"state": projection.State, "current_step": projection.CurrentStep}}
 		var decision string
-		if err := s.DB().QueryRowContext(ctx, `SELECT decision FROM workflow_decision_records WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&decision); err == nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT decision FROM workflow_decision_records WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&decision); err == nil {
 			observation.Authority["decision_record"] = map[string]any{"operator_accepted": decision == "accepted_decision" || decision == "insufficient_evidence"}
 		}
 		for _, condition := range projection.Conditions {
 			conditionMap := map[string]any{"state": condition.State, "await_type": condition.AwaitType, "resolution_authority": condition.ResolutionAuthority}
 			var cancellationAuthority, resolutionEvidence, cancellationEvidence string
-			_ = s.DB().QueryRowContext(ctx, `SELECT COALESCE(cancellation_authority,''),COALESCE(resolution_evidence,''),COALESCE(cancellation_evidence,'') FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, condition.ID).Scan(&cancellationAuthority, &resolutionEvidence, &cancellationEvidence)
+			_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(cancellation_authority,''),COALESCE(resolution_evidence,''),COALESCE(cancellation_evidence,'') FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, condition.ID).Scan(&cancellationAuthority, &resolutionEvidence, &cancellationEvidence)
 			if resolutionEvidence == "" {
 				resolutionEvidence = cancellationEvidence
 			}
@@ -1988,12 +1988,12 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		observation.Authority["condition"] = conditionStates
 	}
 	var successor, relation, successorKind, successorDefinition string
-	if err := s.DB().QueryRowContext(ctx, `SELECT e.target_work_id,e.edge_kind,COALESCE(w.kind,''),COALESCE(i.definition_ref,'') FROM workflow_impact_edges e LEFT JOIN work_items w ON w.id=e.target_work_id LEFT JOIN workflow_instances i ON i.work_id=e.target_work_id WHERE e.work_id=? AND e.edge_kind='forward_link' ORDER BY e.recorded_at,e.edge_id LIMIT 1`, workID).Scan(&successor, &relation, &successorKind, &successorDefinition); err == nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT e.target_work_id,e.edge_kind,COALESCE(w.kind,''),COALESCE(i.definition_ref,'') FROM workflow_impact_edges e LEFT JOIN work_items w ON w.id=e.target_work_id LEFT JOIN workflow_instances i ON i.work_id=e.target_work_id WHERE e.work_id=? AND e.edge_kind='forward_link' ORDER BY e.recorded_at,e.edge_id LIMIT 1`, workID).Scan(&successor, &relation, &successorKind, &successorDefinition); err == nil {
 		observation.State["successor"] = map[string]any{"work_id": successor, "relation": relation, "kind": successorKind, "definition_ref": successorDefinition, "family": successorKind}
 		observation.State["successor_authority_independent"] = true
 		observation.Effects["successor_authority_independent"] = true
 	}
-	rows, err := s.DB().QueryContext(ctx, `SELECT kind FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? ORDER BY seq`, SubjectWorkItem, workID, beforeSeq)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT kind FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? ORDER BY seq`, SubjectWorkItem, workID, beforeSeq)
 	if err != nil {
 		return observation, err
 	}
@@ -2028,7 +2028,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		observation.Authority["resolver"] = result
 	}
 	var verdictKind string
-	if err := s.DB().QueryRowContext(ctx, `SELECT json_extract(payload,'$.verdict_kind') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowVerdictRecorded).Scan(&verdictKind); err == nil && verdictKind != "" {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.verdict_kind') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowVerdictRecorded).Scan(&verdictKind); err == nil && verdictKind != "" {
 		observation.Communication["verdict"] = map[string]any{"kind": verdictKind}
 	}
 	if value, ok := observation.Effects["work.created"]; ok {
@@ -2036,9 +2036,9 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	}
 	observation.Effects["events"] = map[string]any{"order": eventOrder, "counts": eventCounts}
 	var operationCount int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE work_id=?`, workID).Scan(&operationCount); err == nil && operationCount > 0 {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE work_id=?`, workID).Scan(&operationCount); err == nil && operationCount > 0 {
 		observation.Authority["durable_operation"] = map[string]any{"count": operationCount}
-		operationRows, queryErr := s.DB().QueryContext(ctx, `SELECT op_id,attempt_epoch,COALESCE(result_kind,''),COALESCE(resume_cursor,'') FROM durable_operations WHERE work_id=? ORDER BY op_id,attempt_epoch`, workID)
+		operationRows, queryErr := s.DatabaseForTesting().QueryContext(ctx, `SELECT op_id,attempt_epoch,COALESCE(result_kind,''),COALESCE(resume_cursor,'') FROM durable_operations WHERE work_id=? ORDER BY op_id,attempt_epoch`, workID)
 		if queryErr == nil {
 			defer operationRows.Close()
 			epochs := map[string]any{}
@@ -2100,7 +2100,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if evidence, ok := observation.Result["replay_evidence"].(WorkflowReplayEvidence); ok {
 		observation.Authority["old_event"] = map[string]any{"upcasted": evidence.StoredPayloadVersion < evidence.ReplayPayloadVersion, "stored_version": evidence.StoredPayloadVersion, "replay_version": evidence.ReplayPayloadVersion, "projection_version": evidence.ProjectionVersion}
 	}
-	if warnings, warningErr := readWorkflowStalenessWarnings(ctx, s.DB(), workID); warningErr == nil && len(warnings) != 0 {
+	if warnings, warningErr := readWorkflowStalenessWarnings(ctx, s.DatabaseForTesting(), workID); warningErr == nil && len(warnings) != 0 {
 		if observation.Result == nil {
 			observation.Result = map[string]any{}
 		}
@@ -2124,7 +2124,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	}
 	if successorID, ok := observation.Result["related_work_id"].(string); ok && successorID != "" && successorID != workID {
 		var childState string
-		if err := s.DB().QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, successorID).Scan(&childState); err == nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, successorID).Scan(&childState); err == nil {
 			observation.State[successorID] = map[string]any{"authority": "independent", "state": childState}
 		}
 	}
@@ -2136,7 +2136,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 // identity, the declared routing resolution, and the readback executing model,
 // so a scenario can assert typed lane evidence rather than response wording.
 func observeWorkerAttempts(ctx context.Context, s *Store, workID string, observation *workflowObservation) error {
-	rows, err := s.DB().QueryContext(ctx, `SELECT attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at, attempt_id`, workID)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at, attempt_id`, workID)
 	if err != nil {
 		return nil
 	}

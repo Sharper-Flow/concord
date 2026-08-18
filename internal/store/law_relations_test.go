@@ -114,7 +114,7 @@ func TestRebuildKnowledgeIndexProjectsAndRollsBackLawRelations(t *testing.T) {
 		t.Fatal(err)
 	}
 	var source, target, scanned string
-	if err := s.DB().QueryRow(`SELECT source_law_id,target_law_id,scanned_commit_oid FROM law_relations`).Scan(&source, &target, &scanned); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT source_law_id,target_law_id,scanned_commit_oid FROM law_relations`).Scan(&source, &target, &scanned); err != nil {
 		t.Fatal(err)
 	}
 	if source != "law-a" || target != "law-b" || scanned != commit {
@@ -135,7 +135,7 @@ func TestRebuildKnowledgeIndexProjectsAndRollsBackLawRelations(t *testing.T) {
 
 func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T) {
 	s := openTemp(t)
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','conflicts_with','b','commit'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','conflicts_with','b','commit'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -159,26 +159,26 @@ func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T
 func TestLawConflictQueriesFailClosedOnOverflow(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	ids := make([]string, 32)
 	for i := range ids {
 		ids[i] = "law-" + string(rune('a'+i))
-		if _, err := s.DB().Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'decision','accepted',?,'law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`, ids[i], "docs/decisions/CD-0001-"+ids[i]+".md"); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'decision','accepted',?,'law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`, ids[i], "docs/decisions/CD-0001-"+ids[i]+".md"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	count := 0
 	for i := range ids {
 		for j := i + 1; j < len(ids) && count < 33; j++ {
-			if _, err := s.DB().Exec(`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l',?,'conflicts_with',?,'commit')`, ids[i], ids[j]); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l',?,'conflicts_with',?,'commit')`, ids[i], ids[j]); err != nil {
 				t.Fatal(err)
 			}
 			count++
 		}
 	}
-	if _, err := s.DB().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.QueryLawConflictsAtHome(ctx, "p", "l", ids); err == nil {
@@ -225,14 +225,14 @@ func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
 			t.Fatalf("legacy contract did not replay: %v", err)
 		}
 		var boundary int
-		if err := s.DB().QueryRow(`SELECT law_boundary_version FROM workflow_contracts WHERE work_id='law-boundary-legacy'`).Scan(&boundary); err != nil || boundary != 0 {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT law_boundary_version FROM workflow_contracts WHERE work_id='law-boundary-legacy'`).Scan(&boundary); err != nil || boundary != 0 {
 			t.Fatalf("legacy law boundary version=%d err=%v, want 0", boundary, err)
 		}
 	})
 	t.Run("2.2 contract fails unknown law before persistence", func(t *testing.T) {
 		s, actor := setup(t, "law-boundary-unknown")
 		seedWorkflowLaw(t, s)
-		if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_subjects; DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_subjects; DELETE FROM fold_guard`); err != nil {
 			t.Fatal(err)
 		}
 		err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract("law-boundary-unknown", actor, 1)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "law-boundary-unknown"): 4}})
@@ -246,7 +246,7 @@ func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
 			t.Fatal(err)
 		}
 		var boundary int
-		if err := s.DB().QueryRow(`SELECT law_boundary_version FROM workflow_contracts WHERE work_id='law-boundary-valid'`).Scan(&boundary); err != nil || boundary != 1 {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT law_boundary_version FROM workflow_contracts WHERE work_id='law-boundary-valid'`).Scan(&boundary); err != nil || boundary != 1 {
 			t.Fatalf("2.2 law boundary version=%d err=%v, want 1", boundary, err)
 		}
 	})
@@ -265,10 +265,10 @@ func writeLawManifest(t *testing.T, repo string, records []KnowledgeRecord) {
 func lawProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
 	var subject, relation string
-	if err := s.DB().QueryRow(`SELECT COALESCE(group_concat(law_id||'|'||status||'|'||content_hash,''),'') FROM law_subjects ORDER BY law_id`).Scan(&subject); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(group_concat(law_id||'|'||status||'|'||content_hash,''),'') FROM law_subjects ORDER BY law_id`).Scan(&subject); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT COALESCE(group_concat(source_law_id||'|'||kind||'|'||target_law_id||'|'||scanned_commit_oid,''),'') FROM law_relations ORDER BY source_law_id,target_law_id`).Scan(&relation); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(group_concat(source_law_id||'|'||kind||'|'||target_law_id||'|'||scanned_commit_oid,''),'') FROM law_relations ORDER BY source_law_id,target_law_id`).Scan(&relation); err != nil {
 		t.Fatal(err)
 	}
 	return subject + "\n" + relation

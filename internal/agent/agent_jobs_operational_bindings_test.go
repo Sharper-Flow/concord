@@ -42,7 +42,7 @@ func worktreeReclamationRepo(t *testing.T) (string, string) {
 func workItemVersion(t *testing.T, s *store.Store, workID string) int64 {
 	t.Helper()
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatalf("read version for %s: %v", workID, err)
 	}
 	return version
@@ -51,7 +51,7 @@ func workItemVersion(t *testing.T, s *store.Store, workID string) int64 {
 func workEventCount(t *testing.T, s *store.Store, workID string) int {
 	t.Helper()
 	count := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
 		t.Fatalf("count events for %s: %v", workID, err)
 	}
 	return count
@@ -80,7 +80,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 
 	repoRoot, baseSHA := worktreeReclamationRepo(t)
 	projectVersion := int64(0)
-	if err := s.DB().QueryRow(`SELECT version FROM projects WHERE id=?`, "proj-web").Scan(&projectVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id=?`, "proj-web").Scan(&projectVersion); err != nil {
 		t.Fatalf("read proj-web version: %v", err)
 	}
 	if err := s.AddProjectLocator(ctx, "proj-web", store.ProjectLocator{ID: "reclamation-path", Kind: store.LocatorCanonicalPath, Value: repoRoot}, projectVersion); err != nil {

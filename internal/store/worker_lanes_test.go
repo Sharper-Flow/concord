@@ -109,7 +109,7 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 		t.Fatal(err)
 	}
 	var state, failureKind, readback string
-	if err := s.DB().QueryRow(`SELECT lifecycle_state,failure_kind,readback_model FROM worker_attempts WHERE attempt_id=?`, "dispatch-mismatch").Scan(&state, &failureKind, &readback); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind,readback_model FROM worker_attempts WHERE attempt_id=?`, "dispatch-mismatch").Scan(&state, &failureKind, &readback); err != nil {
 		t.Fatal(err)
 	}
 	if state != "failed" || failureKind != string(KindModelIdentityMismatch) || readback != "openai/fallback-model" {
@@ -202,7 +202,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		beforeEvents := countRows(t, s, "domain_events")
 		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-model-mismatch", "terminal-model-recovery", attemptID, lane.PinnedModel), KindProjectionConflict, before, beforeEvents)
 		var state, failureKind string
-		if err := s.DB().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &failureKind); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &failureKind); err != nil {
 			t.Fatal(err)
 		}
 		if state != "failed" || failureKind != string(KindModelIdentityMismatch) {
@@ -247,7 +247,7 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_version=? AND lane_digest=? AND capability_class=? AND routing_policy_version=? AND resolved_model=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, "routing-v1", lane.PinnedModel, WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_version=? AND lane_digest=? AND capability_class=? AND routing_policy_version=? AND resolved_model=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, "routing-v1", lane.PinnedModel, WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {
@@ -274,7 +274,7 @@ func workerCompleteEvent(workID, eventID, attemptID, model string) Event {
 
 func workerProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
-	rows, err := s.DB().Query(`SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,resolved_model,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
+	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,resolved_model,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
 	if err != nil {
 		t.Fatal(err)
 	}

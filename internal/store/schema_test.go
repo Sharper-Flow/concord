@@ -15,14 +15,14 @@ func TestOpenAppliesSchemaManifest(t *testing.T) {
 	ctx := context.Background()
 
 	var applied int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
 	if applied != len(migrations) {
 		t.Fatalf("applied migrations = %d, want %d", applied, len(migrations))
 	}
 
-	got, err := SchemaVersion(ctx, s.DB())
+	got, err := SchemaVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
@@ -395,14 +395,14 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 
-	before, err := SchemaVersion(ctx, s.DB())
+	before, err := SchemaVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
-	if err := Migrate(ctx, s.DB()); err != nil {
+	if err := Migrate(ctx, s.DatabaseForTesting()); err != nil {
 		t.Fatalf("second Migrate() error = %v", err)
 	}
-	after, err := SchemaVersion(ctx, s.DB())
+	after, err := SchemaVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
@@ -411,7 +411,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 
 	var applied int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
 	if applied != len(migrations) {
@@ -450,7 +450,7 @@ func TestMigrateV7ToV8PreservesValidMultiParentRelations(t *testing.T) {
 	}
 	defer s.Close()
 	var count int
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='parent'`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='parent'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {
@@ -528,7 +528,7 @@ func TestMigrateEmptyVersion3DatabaseToVersion4(t *testing.T) {
 		t.Fatalf("Open() empty v3 database error = %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	got, err := SchemaVersion(ctx, s.DB())
+	got, err := SchemaVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
@@ -639,7 +639,7 @@ func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 		t.Fatal("all concurrent Open calls failed")
 	}
 
-	got, err := SchemaVersion(ctx, verifier.DB())
+	got, err := SchemaVersion(ctx, verifier.DatabaseForTesting())
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
@@ -648,7 +648,7 @@ func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 	}
 
 	var applied int
-	if err := verifier.DB().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
+	if err := verifier.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
 	if applied != len(migrations) {
@@ -658,7 +658,7 @@ func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 
 func TestSchemaCompatibilityRejectsCallerOlderThanDatabase(t *testing.T) {
 	s := openTemp(t)
-	_, err := CheckSchemaCompatibility(context.Background(), s.DB(), CurrentSchemaVersion()-1)
+	_, err := CheckSchemaCompatibility(context.Background(), s.DatabaseForTesting(), CurrentSchemaVersion()-1)
 	assertFailureKind(t, err, KindSchemaUnsupported)
 }
 
@@ -672,7 +672,7 @@ func TestMigrateDetectsEditedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	if _, err := s.DB().ExecContext(ctx,
+	if _, err := s.DatabaseForTesting().ExecContext(ctx,
 		`UPDATE schema_migrations SET checksum = 'tampered' WHERE version = ?`, migrations[0].Version); err != nil {
 		t.Fatalf("tamper checksum: %v", err)
 	}
@@ -701,7 +701,7 @@ func TestMigrateRejectsNewerSchema(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 	future := migrations[len(migrations)-1].Version + 1
-	if _, err := s.DB().ExecContext(ctx,
+	if _, err := s.DatabaseForTesting().ExecContext(ctx,
 		`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, 'from-the-future', 'x', '2026-01-01T00:00:00Z')`,
 		future); err != nil {
 		t.Fatalf("insert future migration: %v", err)

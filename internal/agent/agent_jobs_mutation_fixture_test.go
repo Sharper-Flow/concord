@@ -38,7 +38,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 		t.Fatalf("pm1fixture.Seed: %v", err)
 	}
 	ctx := context.Background()
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = fixedTime
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{
@@ -101,7 +101,7 @@ func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Grant, ambien
 // envelope is what callers turn into a jobObservation. The store is
 // passed so the runtime can hand it to ApplyOperationTx (and the
 // preflight reads); the underlying connection is the same one
-// service.DB() owns.
+// service.DatabaseForTesting() owns.
 func dispatchMutation(t *testing.T, s *store.Store, service *Service, req InvokeRequest, env CallEnvelope, input ...[]byte) Envelope {
 	t.Helper()
 	if len(input) > 0 {
@@ -120,7 +120,7 @@ func readWorkFromStore(t *testing.T, s *store.Store, id string) (string, int64) 
 	t.Helper()
 	var lifecycle string
 	var version int64
-	if err := s.DB().QueryRow(`SELECT lifecycle, version FROM work_items WHERE id=?`, id).Scan(&lifecycle, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle, version FROM work_items WHERE id=?`, id).Scan(&lifecycle, &version); err != nil {
 		t.Fatalf("read work_items[%s]: %v", id, err)
 	}
 	return lifecycle, version
@@ -133,7 +133,7 @@ func readWorkFromStore(t *testing.T, s *store.Store, id string) (string, int64) 
 // attached).
 func readTransitionEvents(t *testing.T, s *store.Store, workID string) (count int, latestEvidenceRefs []string) {
 	t.Helper()
-	rows, err := s.DB().Query(`SELECT payload FROM domain_events WHERE kind='work.transitioned' AND subject_id=? ORDER BY seq ASC`, workID)
+	rows, err := s.DatabaseForTesting().Query(`SELECT payload FROM domain_events WHERE kind='work.transitioned' AND subject_id=? ORDER BY seq ASC`, workID)
 	if err != nil {
 		t.Fatalf("read transition events for %s: %v", workID, err)
 	}
@@ -163,7 +163,7 @@ func readTransitionEvents(t *testing.T, s *store.Store, workID string) (count in
 func readRelationsFor(t *testing.T, s *store.Store, from, to, kind string) (count int) {
 	t.Helper()
 	var n int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind=?`, from, to, kind).Scan(&n); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind=?`, from, to, kind).Scan(&n); err != nil {
 		t.Fatalf("read relations for %s->%s:%s: %v", from, to, kind, err)
 	}
 	return n
@@ -177,7 +177,7 @@ func readRelationsFor(t *testing.T, s *store.Store, from, to, kind string) (coun
 func deriveWorkBlocked(t *testing.T, s *store.Store, workID string) bool {
 	t.Helper()
 	var blocked bool
-	if err := s.DB().QueryRow(`
+	if err := s.DatabaseForTesting().QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM relations r
 			JOIN work_items b ON b.id = r.work_id_from

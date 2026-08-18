@@ -107,7 +107,7 @@ func TestWorkflowActorRowsRejectMutationAndDifferentTuple(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "actor-work"): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`UPDATE workflow_actors SET client_ref='client/other' WHERE actor_ref=?`, actor); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_actors SET client_ref='client/other' WHERE actor_ref=?`, actor); err == nil {
 		t.Fatal("direct actor update succeeded")
 	}
 	conflict := workflowEvent("actor-again", WorkflowActorRecorded, "actor-work", map[string]any{
@@ -154,7 +154,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 		t.Fatal(err)
 	}
 	var eventsBefore int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	completion := workflowEvent("ordered-completion", WorkflowCompleted, "ordered-gate-work", map[string]any{
@@ -167,7 +167,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 	assertTableCount(t, s, "domain_events", eventsBefore)
 	assertTableCount(t, s, "workflow_impact_notices", 0)
 	var state string
-	if err := s.DB().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='ordered-gate-work'`).Scan(&state); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='ordered-gate-work'`).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state == "completed" {
@@ -212,7 +212,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 		t.Fatal(err)
 	}
 	var state string
-	if err := s.DB().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='complete-work'`).Scan(&state); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='complete-work'`).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state != "completed" {
@@ -240,10 +240,10 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 	t.Run("complete action rejects omitted verdict", func(t *testing.T) {
 		s, _ := seedCompletionGateCase(t, "completion-verdict-omitted", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
 		var version int64
-		if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='completion-verdict-omitted'`).Scan(&version); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='completion-verdict-omitted'`).Scan(&version); err != nil {
 			t.Fatal(err)
 		}
-		tx, err := s.DB().BeginTx(context.Background(), nil)
+		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -272,7 +272,7 @@ func TestWorkflowConditionResolutionMustUseStoredAuthority(t *testing.T) {
 		t.Fatal("condition resolved through an authority different from the stored resolver")
 	}
 	var state string
-	if err := s.DB().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='condition-work' AND condition_id='condition-1'`).Scan(&state); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='condition-work' AND condition_id='condition-1'`).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state != "open" {
@@ -307,7 +307,7 @@ func TestWorkflowConditionResolutionIsExplicitAndUsesAuthoritativeEvidence(t *te
 		t.Fatalf("resolver calls = %d, want one explicit resolution", resolver.calls)
 	}
 	var state string
-	if err := s.DB().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='explicit-condition-work' AND condition_id='condition:explicit'`).Scan(&state); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='explicit-condition-work' AND condition_id='condition:explicit'`).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state != "resolved" {
@@ -348,13 +348,13 @@ func TestWorkflowConsequentialBoundaryResolvesEligibleConditionsOnly(t *testing.
 		t.Fatalf("resolved=%d err=%v, want one eligible condition", resolved, err)
 	}
 	var one, two, version string
-	if err := s.DB().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='boundary-work' AND condition_id='condition:one'`).Scan(&one); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='boundary-work' AND condition_id='condition:one'`).Scan(&one); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='boundary-work' AND condition_id='condition:two'`).Scan(&two); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='boundary-work' AND condition_id='condition:two'`).Scan(&two); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='boundary-work'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='boundary-work'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if one != "resolved" || two != "open" || version != "5" {
@@ -382,10 +382,10 @@ func TestWorkflowConsequentialBoundaryRollsBackEarlierResolutionOnInvalidEvidenc
 		t.Fatal("invalid boundary evidence was accepted")
 	}
 	var states, version string
-	if err := s.DB().QueryRow(`SELECT group_concat(condition_state, ',') FROM workflow_external_conditions WHERE work_id='boundary-rollback-work' ORDER BY condition_id`).Scan(&states); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT group_concat(condition_state, ',') FROM workflow_external_conditions WHERE work_id='boundary-rollback-work' ORDER BY condition_id`).Scan(&states); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='boundary-rollback-work'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='boundary-rollback-work'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if states != "open,open" || version != "4" {
@@ -423,7 +423,7 @@ func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T)
 			workID := "gate-" + strings.ReplaceAll(testCase.name, "-", "_")
 			s, completion := seedCompletionGateCase(t, workID, testCase)
 			var eventsBefore int
-			if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
 				t.Fatal(err)
 			}
 			err := CompleteWorkflow(context.Background(), s, completion)
@@ -446,7 +446,7 @@ func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T)
 		assertConditionState(t, s, "action-boundary-success", "condition:gate", "resolved")
 		assertTableCount(t, s, "workflow_external_conditions", 1)
 		var completed int
-		if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='action-boundary-success' AND kind=?`, WorkflowActionCompleted).Scan(&completed); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='action-boundary-success' AND kind=?`, WorkflowActionCompleted).Scan(&completed); err != nil {
 			t.Fatal(err)
 		}
 		if completed != 1 {
@@ -455,14 +455,14 @@ func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T)
 	})
 	for _, testCase := range []struct {
 		name      string
-		authorize func(*sql.Tx) error
-		mutate    func(*sql.Tx) error
+		authorize func(*Transaction) error
+		mutate    func(*Transaction) error
 		addSecond bool
 		resolver  *boundaryConditionResolver
 	}{
 		{name: "later preflight failure", addSecond: true, resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-later-preflight", ActorRef: "principal/condition"}}, errors: map[string]error{"condition:later": errors.New("later condition is ineligible")}}},
-		{name: "authorization denial", resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-auth-denial", ActorRef: "principal/condition"}}}, authorize: func(*sql.Tx) error { return errors.New("authorization denied") }, mutate: func(*sql.Tx) error { return nil }},
-		{name: "mutation failure", resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-mutation-failure", ActorRef: "principal/condition"}}}, mutate: func(*sql.Tx) error { return errors.New("action mutation failed") }},
+		{name: "authorization denial", resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-auth-denial", ActorRef: "principal/condition"}}}, authorize: func(*Transaction) error { return errors.New("authorization denied") }, mutate: func(*Transaction) error { return nil }},
+		{name: "mutation failure", resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-mutation-failure", ActorRef: "principal/condition"}}}, mutate: func(*Transaction) error { return errors.New("action mutation failed") }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			workID := "action-boundary-" + strings.ReplaceAll(testCase.name, " ", "-")
@@ -480,10 +480,10 @@ func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T)
 			}
 			assertConditionState(t, s, workID, "condition:gate", "open")
 			var resolvedEvents, completedEvents int
-			if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowConditionResolved).Scan(&resolvedEvents); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowConditionResolved).Scan(&resolvedEvents); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedEvents); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedEvents); err != nil {
 				t.Fatal(err)
 			}
 			if resolvedEvents != 0 || completedEvents != 0 {
@@ -495,11 +495,11 @@ func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T)
 
 func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 	s, _ := seedCompletionGateCase(t, "ready-unreadable", completionGateCase{requiredEvidence: []string{"verification", "review"}, openCondition: true})
-	if _, err := s.DB().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "gate-condition-ready-unreadable"); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "gate-condition-ready-unreadable"); err != nil {
 		t.Fatal(err)
 	}
 	var before int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	result, err := DeriveWorkflowReady(context.Background(), s, "ready-unreadable")
@@ -507,7 +507,7 @@ func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 		t.Fatalf("ready result=%+v err=%v", result, err)
 	}
 	var after int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {
@@ -517,7 +517,7 @@ func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 
 func TestWorkflowBlockingStalenessRefusesCompletionSemantics(t *testing.T) {
 	s, _ := seedCompletionGateCase(t, "staleness-block", completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	tx, err := s.DB().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func TestWorkflowBlockingStalenessRefusesCompletionSemantics(t *testing.T) {
 
 func TestWorkflowWarningStalenessIsRecordedForNextRead(t *testing.T) {
 	s, _ := seedCompletionGateCase(t, "staleness-warning", completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	tx, err := s.DB().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +561,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 		t.Fatal(err)
 	}
 	var sourceVersion int64
-	if err := source.DB().QueryRow(`SELECT version FROM work_items WHERE id='revision-source'`).Scan(&sourceVersion); err != nil {
+	if err := source.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='revision-source'`).Scan(&sourceVersion); err != nil {
 		t.Fatal(err)
 	}
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/revision-source")
@@ -579,7 +579,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 		t.Fatal(err)
 	}
 	var severity, entityKind string
-	if err := source.DB().QueryRow(`SELECT severity,entity_kind FROM workflow_impact_notices WHERE source_work_id='revision-source' AND target_work_id='revision-dependent'`).Scan(&severity, &entityKind); err != nil {
+	if err := source.DatabaseForTesting().QueryRow(`SELECT severity,entity_kind FROM workflow_impact_notices WHERE source_work_id='revision-source' AND target_work_id='revision-dependent'`).Scan(&severity, &entityKind); err != nil {
 		t.Fatal(err)
 	}
 	if severity != "breaking" || entityKind != "workflow_contract" {
@@ -622,12 +622,12 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 				t.Fatal(err)
 			}
 			if testCase.terminal {
-				if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, dependentID); err != nil {
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, dependentID); err != nil {
 					t.Fatal(err)
 				}
 			}
 			var sourceVersion int64
-			if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, sourceID).Scan(&sourceVersion); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, sourceID).Scan(&sourceVersion); err != nil {
 				t.Fatal(err)
 			}
 			newContract := workflowEventWithActor("new-contract-"+sourceID, WorkflowContractApproved, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "contract_version": 2, "premise": "refresh", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + sourceID, "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"})
@@ -639,7 +639,7 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 				t.Fatal(err)
 			}
 			var severity string
-			if err := s.DB().QueryRow(`SELECT severity FROM workflow_impact_notices WHERE source_work_id=? AND target_work_id=?`, sourceID, dependentID).Scan(&severity); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT severity FROM workflow_impact_notices WHERE source_work_id=? AND target_work_id=?`, sourceID, dependentID).Scan(&severity); err != nil {
 				t.Fatal(err)
 			}
 			if severity != "non-breaking" {
@@ -654,7 +654,7 @@ func seedBoundaryActionRequest(t *testing.T, workID string, addSecond bool) (*St
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, openCondition: true})
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if addSecond {
@@ -669,7 +669,11 @@ func seedBoundaryActionRequest(t *testing.T, workID string, addSecond bool) (*St
 	return s, request, &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-default-resolution-" + workID, ActorRef: "principal/condition"}}}
 }
 
-func appendActionCompletion(tx *sql.Tx) error {
+func appendActionCompletion(transaction *Transaction) error {
+	tx, err := transactionSQL(transaction, "test_action_completion")
+	if err != nil {
+		return err
+	}
 	var workID string
 	var version int64
 	if err := tx.QueryRow(`SELECT work_id,version FROM workflow_instances JOIN work_items ON work_items.id=workflow_instances.work_id WHERE current_step='execution' ORDER BY work_id DESC LIMIT 1`).Scan(&workID, &version); err != nil {
@@ -691,7 +695,7 @@ func appendActionCompletion(tx *sql.Tx) error {
 func assertConditionState(t *testing.T, s *Store, workID, conditionID, want string) {
 	t.Helper()
 	var got string
-	if err := s.DB().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, conditionID).Scan(&got); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, conditionID).Scan(&got); err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
@@ -701,7 +705,7 @@ func assertConditionState(t *testing.T, s *Store, workID, conditionID, want stri
 
 func seedWorkflowLaw(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-law-locator','project','canonical_path','workflow-law-repo','workflow-law-repo','now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-law-locator','project','canonical_path','workflow-law-repo','workflow-law-repo','now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -757,7 +761,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		dependentID := workID + "-dependent"
 		seedImpactDependent(t, s, dependentID, workID, "hard")
 		noticeID := WorkflowNoticeID(workID, 1, "work_item", workID, dependentID, "non-breaking")
-		if _, err := s.DB().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "notice-event:"+noticeID, "work.intent_revised", string(SubjectWorkItem), workID, executor, "2026-08-09T00:00:00Z", 1, `{}`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "notice-event:"+noticeID, "work.intent_revised", string(SubjectWorkItem), workID, executor, "2026-08-09T00:00:00Z", 1, `{}`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -810,7 +814,7 @@ func TestWorkflowCancellationRejectsForgedEvidenceFromOperator(t *testing.T) {
 		t.Fatal("operator forged cancellation evidence was accepted")
 	}
 	var state string
-	if err := s.DB().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='cancel-evidence-work' AND condition_id='condition:cancel'`).Scan(&state); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='cancel-evidence-work' AND condition_id='condition:cancel'`).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state != "open" {
@@ -820,7 +824,7 @@ func TestWorkflowCancellationRejectsForgedEvidenceFromOperator(t *testing.T) {
 
 func seedWorkflowAuthority(t *testing.T, s *Store, opID, workID, principal, requestID string, evidence []string) {
 	t.Helper()
-	_, err := s.DB().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at) VALUES(?,1,?,'workflow.test',1,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,?)`, opID, workID, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z")
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at) VALUES(?,1,?,'workflow.test',1,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,?)`, opID, workID, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z")
 	if err != nil {
 		t.Fatalf("seed durable workflow authority: %v", err)
 	}
@@ -918,7 +922,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 				assertWorkflowUniqueKey(t, s, table, key)
 			}
 			var ddl string
-			if err := s.DB().QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&ddl); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&ddl); err != nil {
 				t.Fatal(err)
 			}
 			if !strings.Contains(ddl, "CHECK") && table != "workflow_actors" {
@@ -931,7 +935,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 			}
 			for _, action := range []string{"insert", "update", "delete"} {
 				var count int
-				if err := s.DB().QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?`, table+"_guard_"+action).Scan(&count); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?`, table+"_guard_"+action).Scan(&count); err != nil {
 					t.Fatal(err)
 				}
 				if count != 1 {
@@ -947,7 +951,7 @@ func TestWorkflowImpactTargetKindRejectsProductAndProject(t *testing.T) {
 	seedWork(t, s, "target-kind-work")
 	for _, targetKind := range []string{"product", "project"} {
 		t.Run(targetKind, func(t *testing.T) {
-			tx, err := s.DB().BeginTx(context.Background(), nil)
+			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -969,7 +973,7 @@ func TestWorkflowImpactTargetKindRejectsProductAndProject(t *testing.T) {
 
 func assertWorkflowUniqueKey(t *testing.T, s *Store, table string, want []string) {
 	t.Helper()
-	rows, err := s.DB().Query(`PRAGMA index_list(` + table + `)`)
+	rows, err := s.DatabaseForTesting().Query(`PRAGMA index_list(` + table + `)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -986,7 +990,7 @@ func assertWorkflowUniqueKey(t *testing.T, s *Store, table string, want []string
 	}
 	rows.Close()
 	for _, name := range indexes {
-		info, err := s.DB().Query(`PRAGMA index_info(` + name + `)`)
+		info, err := s.DatabaseForTesting().Query(`PRAGMA index_info(` + name + `)`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1010,7 +1014,7 @@ func assertWorkflowUniqueKey(t *testing.T, s *Store, table string, want []string
 
 func assertWorkflowColumns(t *testing.T, s *Store, table string, want []string) {
 	t.Helper()
-	rows, err := s.DB().Query(`PRAGMA table_info(` + table + `)`)
+	rows, err := s.DatabaseForTesting().Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1037,7 @@ func assertWorkflowColumns(t *testing.T, s *Store, table string, want []string) 
 
 func assertWorkflowForeignKeys(t *testing.T, s *Store, table string, want []string) {
 	t.Helper()
-	rows, err := s.DB().Query(`PRAGMA foreign_key_list(` + table + `)`)
+	rows, err := s.DatabaseForTesting().Query(`PRAGMA foreign_key_list(` + table + `)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1083,7 +1087,7 @@ func TestConcurrentWorkflowActorAppendsUseTheSingleWriter(t *testing.T) {
 		}
 	}
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 8 {
@@ -1126,7 +1130,7 @@ func TestWorkflowPoisonEventLeavesAllProjectionsAtomic(t *testing.T) {
 	before := fullWorkflowProjectionSnapshot(t, s)
 	poison := workflowEvent("poison-v2", WorkflowActorRecorded, "poison-work", map[string]any{"work_id": "poison-work", "expected_version": 3, "resulting_version": 4})
 	poison.PayloadVersion = 2
-	if _, err := s.DB().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, poison.EventID, poison.Kind, poison.SubjectType, poison.SubjectID, poison.Actor, poison.OccurredAt.UTC().Format(time.RFC3339Nano), poison.PayloadVersion, string(poison.Payload)); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, poison.EventID, poison.Kind, poison.SubjectType, poison.SubjectID, poison.Actor, poison.OccurredAt.UTC().Format(time.RFC3339Nano), poison.PayloadVersion, string(poison.Payload)); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err == nil {
@@ -1148,14 +1152,14 @@ func fullWorkflowProjectionSnapshot(t *testing.T, s *Store) string {
 	var snapshot strings.Builder
 	for _, table := range tables {
 		var columnCount int
-		if err := s.DB().QueryRow(`SELECT count(*) FROM pragma_table_info(?)`, table).Scan(&columnCount); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM pragma_table_info(?)`, table).Scan(&columnCount); err != nil {
 			t.Fatalf("columns for %s: %v", table, err)
 		}
 		order := make([]string, columnCount)
 		for i := range order {
 			order[i] = fmt.Sprintf("%d", i+1)
 		}
-		rows, err := s.DB().Query(`SELECT * FROM ` + table + ` ORDER BY ` + strings.Join(order, ","))
+		rows, err := s.DatabaseForTesting().Query(`SELECT * FROM ` + table + ` ORDER BY ` + strings.Join(order, ","))
 		if err != nil {
 			t.Fatalf("snapshot %s: %v", table, err)
 		}

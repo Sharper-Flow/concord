@@ -31,7 +31,7 @@ func TestEpicNarrativeRevisedFoldAndAudit(t *testing.T) {
 	seedEpicForNarrative(t, s)
 
 	var initial string
-	if err := s.DB().QueryRow(`SELECT narrative FROM work_items WHERE id='epic'`).Scan(&initial); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT narrative FROM work_items WHERE id='epic'`).Scan(&initial); err != nil {
 		t.Fatal(err)
 	}
 	if initial != "" {
@@ -47,14 +47,14 @@ func TestEpicNarrativeRevisedFoldAndAudit(t *testing.T) {
 	}
 	var narrative string
 	var version int64
-	if err := s.DB().QueryRow(`SELECT narrative, version FROM work_items WHERE id='epic'`).Scan(&narrative, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT narrative, version FROM work_items WHERE id='epic'`).Scan(&narrative, &version); err != nil {
 		t.Fatal(err)
 	}
 	if narrative != "Seven entries: capture model at position 3; friction telemetry direction cancelled." || version != 3 {
 		t.Fatalf("narrative=%q version=%d", narrative, version)
 	}
 	var actor, kind, payload string
-	if err := s.DB().QueryRow(`SELECT actor, kind, payload FROM domain_events WHERE event_id='narrative-1'`).Scan(&actor, &kind, &payload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT actor, kind, payload FROM domain_events WHERE event_id='narrative-1'`).Scan(&actor, &kind, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if actor != "operator" || kind != "epic.narrative_revised" {
@@ -74,7 +74,7 @@ func TestEpicNarrativeRevisedFoldAndAudit(t *testing.T) {
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT narrative, version FROM work_items WHERE id='epic'`).Scan(&narrative, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT narrative, version FROM work_items WHERE id='epic'`).Scan(&narrative, &version); err != nil {
 		t.Fatal(err)
 	}
 	if narrative != "Revised again after scope settled." || version != 4 {

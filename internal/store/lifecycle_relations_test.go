@@ -58,7 +58,7 @@ func applyWorkEvent(t *testing.T, s *Store, event Event, expected map[SubjectRef
 func seedWork(t *testing.T, s *Store, id string) {
 	t.Helper()
 	var projectCount int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM projects`).Scan(&projectCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM projects`).Scan(&projectCount); err != nil {
 		t.Fatal(err)
 	}
 	if projectCount == 0 {
@@ -163,7 +163,7 @@ func TestLifecycleTransitionsAreClosedAndTyped(t *testing.T) {
 				t.Fatalf("legal reopen failed: %v", err)
 			}
 			var lifecycle, terminalTime string
-			if err := s.DB().QueryRow(`SELECT lifecycle, coalesce(terminal_time, '') FROM work_items WHERE id = 'work'`).Scan(&lifecycle, &terminalTime); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle, coalesce(terminal_time, '') FROM work_items WHERE id = 'work'`).Scan(&lifecycle, &terminalTime); err != nil {
 				t.Fatal(err)
 			}
 			if lifecycle != "needed" || terminalTime != "" {
@@ -181,7 +181,7 @@ func TestWorkLifecycleRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 	assertTableCount(t, s, "domain_events", 5)
 	var lifecycle string
 	var version int64
-	if err := s.DB().QueryRow(`SELECT lifecycle, version FROM work_items WHERE id = 'work'`).Scan(&lifecycle, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle, version FROM work_items WHERE id = 'work'`).Scan(&lifecycle, &version); err != nil {
 		t.Fatal(err)
 	}
 	if lifecycle != "needed" || version != 2 {
@@ -258,7 +258,7 @@ func TestRelationAddedRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 	assertTableCount(t, s, "domain_events", 7)
 	assertTableCount(t, s, "relations", 0)
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id = 'a'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id = 'a'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 2 {
@@ -292,10 +292,10 @@ func TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors(t *testing.T) {
 	}
 	var lifecycle string
 	var relationCount int
-	if err := s.DB().QueryRow(`SELECT lifecycle FROM work_items WHERE id = 'b'`).Scan(&lifecycle); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id = 'b'`).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from = 'a' AND work_id_to = 'b' AND kind = 'supersedes'`).Scan(&relationCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from = 'a' AND work_id_to = 'b' AND kind = 'supersedes'`).Scan(&relationCount); err != nil {
 		t.Fatal(err)
 	}
 	if lifecycle != "superseded" || relationCount != 1 {
@@ -327,7 +327,7 @@ func TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent(t *
 		t.Fatalf("composite reopen: %v", err)
 	}
 	var lifecycle string
-	if err := s.DB().QueryRow(`SELECT lifecycle FROM work_items WHERE id = 'b'`).Scan(&lifecycle); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id = 'b'`).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
 	}
 	if lifecycle != "needed" {
@@ -449,7 +449,7 @@ func TestRelationRemovalAndFoldGuard(t *testing.T) {
 		{"relation delete", `DELETE FROM relations`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := s.DB().ExecContext(context.Background(), tc.stmt); err == nil {
+			if _, err := s.DatabaseForTesting().ExecContext(context.Background(), tc.stmt); err == nil {
 				t.Fatalf("direct write succeeded: %s", tc.name)
 			}
 		})
@@ -466,7 +466,7 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		{`SELECT id, kind, title, lifecycle, priority, version, created_at, updated_at, coalesce(terminal_time, '') FROM work_items ORDER BY id`, true},
 		{`SELECT id, work_id_from, work_id_to, kind, created_at FROM relations ORDER BY id`, false},
 	} {
-		rows, err := s.DB().Query(tc.query)
+		rows, err := s.DatabaseForTesting().Query(tc.query)
 		if err != nil {
 			t.Fatal(err)
 		}

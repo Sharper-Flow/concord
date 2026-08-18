@@ -169,14 +169,14 @@ func TestCompletionActorDistinctReadsExecutionModelFromTheInstance(t *testing.T)
 			}
 
 			var stored string
-			if err := s.DB().QueryRow(`SELECT execution_model FROM workflow_instances WHERE work_id='d6-work'`).Scan(&stored); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT execution_model FROM workflow_instances WHERE work_id='d6-work'`).Scan(&stored); err != nil {
 				t.Fatal(err)
 			}
 			if stored != testCase.executionModel {
 				t.Fatalf("projected execution_model = %q, want %q", stored, testCase.executionModel)
 			}
 
-			tx, err := s.DB().BeginTx(ctx, nil)
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

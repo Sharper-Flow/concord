@@ -465,14 +465,14 @@ func TestWorkflowDefinitionPinPreflightFailsClosedOnDrift(t *testing.T) {
 		t.Fatal("drifted definition selection was accepted")
 	}
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id='drift-work'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='drift-work'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 2 {
 		t.Fatalf("drifted selection changed work version to %d", version)
 	}
 	var instances int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id='drift-work'`).Scan(&instances); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id='drift-work'`).Scan(&instances); err != nil {
 		t.Fatal(err)
 	}
 	if instances != 0 {

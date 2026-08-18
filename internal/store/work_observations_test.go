@@ -29,7 +29,7 @@ func observationFixture(t *testing.T) *Store {
 func recordObservation(t *testing.T, s *Store, event Event) error {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := s.DB().BeginTx(ctx, nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

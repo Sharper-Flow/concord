@@ -355,19 +355,16 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 	return applyOperationWithResult(ctx, s, operation, nil)
 }
 
-// ApplyOperationTx applies one domain operation to a caller-owned transaction.
-// The caller is responsible for commit or rollback; this is the mutation seam
-// used when authorization, approval consumption, idempotency, and the domain
-// effect must share one transaction.
-func ApplyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (ApplyOperationResult, error) {
+// ApplyOperationTx applies one domain operation within the opaque store-owned
+// transaction supplied by Transact. It is the mutation seam used when
+// authorization, approval consumption, idempotency, and the domain effect must
+// share one transaction.
+func ApplyOperationTx(ctx context.Context, transaction *Transaction, operation Operation) (ApplyOperationResult, error) {
+	tx, err := transactionSQL(transaction, "apply_operation")
+	if err != nil {
+		return ApplyOperationResult{}, err
+	}
 	return applyOperationTx(ctx, tx, operation, true, false)
-}
-
-// ApplyOperationWithinFoldTx applies one generic operation while the caller
-// already owns the fold guard. Workflow advancement events are rejected here;
-// the dispatcher uses its private workflow append route instead.
-func ApplyOperationWithinFoldTx(ctx context.Context, tx *sql.Tx, operation Operation) (ApplyOperationResult, error) {
-	return applyOperationTx(ctx, tx, operation, false, false)
 }
 
 // applyWorkflowOperationTx is the private append route used by the workflow

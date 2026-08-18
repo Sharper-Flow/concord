@@ -969,7 +969,7 @@ func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, pm1fixtur
 	}
 
 	ctx := context.Background()
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = fixedTime
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{
@@ -1132,7 +1132,7 @@ func envelopeToObservation(resp Envelope) jobObservation {
 func probeNoStoredReadyFlag(t *testing.T, s *store.Store) bool {
 	t.Helper()
 	// 1. Schema check: verify no 'ready' column in work_items.
-	cols := tableColumns(t, s.DB(), "work_items")
+	cols := tableColumns(t, s.DatabaseForTesting(), "work_items")
 	for _, c := range cols {
 		if c == "ready" {
 			return true // a stored column was found
@@ -1141,7 +1141,7 @@ func probeNoStoredReadyFlag(t *testing.T, s *store.Store) bool {
 	// 2. Derive readiness for work-ready-high (needed, no blockers).
 	//    Confirm it is ready via the same derivation Q5 uses.
 	var hasBlocker bool
-	err := s.DB().QueryRow(`
+	err := s.DatabaseForTesting().QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM relations r
 			JOIN work_items b ON b.id = r.work_id_from
@@ -1155,7 +1155,7 @@ func probeNoStoredReadyFlag(t *testing.T, s *store.Store) bool {
 	// The derived Ready should be: lifecycle=='needed' && !hasBlocker.
 	// We verify by also checking lifecycle.
 	var lifecycle string
-	if err := s.DB().QueryRow(`SELECT lifecycle FROM work_items WHERE id='work-ready-high'`).Scan(&lifecycle); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id='work-ready-high'`).Scan(&lifecycle); err != nil {
 		t.Fatalf("probeNoStoredReadyFlag lifecycle check: %v", err)
 	}
 	derivedReady := lifecycle == "needed" && !hasBlocker
@@ -1173,7 +1173,7 @@ func probeNoStoredReadyFlag(t *testing.T, s *store.Store) bool {
 func probeNoStoredBlockedFlag(t *testing.T, s *store.Store) bool {
 	t.Helper()
 	// 1. Schema check.
-	cols := tableColumns(t, s.DB(), "work_items")
+	cols := tableColumns(t, s.DatabaseForTesting(), "work_items")
 	for _, c := range cols {
 		if c == "blocked" {
 			return true
@@ -1181,7 +1181,7 @@ func probeNoStoredBlockedFlag(t *testing.T, s *store.Store) bool {
 	}
 	// 2. Derive blocked status from relations for work-blocked.
 	var hasActiveBlocker bool
-	err := s.DB().QueryRow(`
+	err := s.DatabaseForTesting().QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM relations r
 			JOIN work_items b ON b.id = r.work_id_from

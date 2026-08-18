@@ -66,7 +66,8 @@ python3 scripts/check-json.py
 python3 scripts/check-predecessor-coverage.py
 python3 scripts/check-agent-contracts.py
 python3 scripts/check-tx-scope.py
-python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-tx-scope.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py
+python3 scripts/check-store-boundary.py
+python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-tx-scope.py && python3 scripts/test-store-boundary.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py
 test -z "$(gofmt -l .)"
 go mod tidy
 git diff --exit-code            # CI's clean checkout; locally scope to -- go.mod go.sum
@@ -133,7 +134,7 @@ rejection (local `python3` unittest; not part of CI).
 `docs/concord-knowledge-index.v1.json` is validated by
 `scripts/check-knowledge-index.py` and `docs/floor-readiness.v1.json` by
 `scripts/check-floor-readiness.py`. `scripts/check-json.py` (CI) nests those
-two plus `check-agent-contracts.py`, `check-tx-scope.py`, and
+two plus `check-agent-contracts.py`, `check-tx-scope.py`, `check-store-boundary.py`, and
 `check-lane-evals.py` (adapter lane evals).
 
 `docs/predecessor-operational-coverage.md` is validated by

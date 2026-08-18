@@ -60,7 +60,7 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, strin
 		t.Fatal(err)
 	}
 
-	service := NewService(s.DB())
+	service := NewService(s)
 	service.Now = fixedTime
 	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil

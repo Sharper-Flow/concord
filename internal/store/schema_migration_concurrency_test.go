@@ -154,12 +154,12 @@ func TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema(t *testing.T
 func TestMigrationManifestCurrentStillFailsClosedOnAnUnknownMigration(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,
 		9999, "unknown_future_step", "deadbeef", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 
-	current, err := migrationManifestCurrent(ctx, s.DB())
+	current, err := migrationManifestCurrent(ctx, s.DatabaseForTesting())
 	if err == nil {
 		t.Fatal("the fast path accepted a manifest this binary does not define")
 	}
@@ -169,5 +169,5 @@ func TestMigrationManifestCurrentStillFailsClosedOnAnUnknownMigration(t *testing
 	assertFailureKind(t, err, KindSchemaUnsupported)
 
 	// The same refusal must survive the full entry point.
-	assertFailureKind(t, Migrate(ctx, s.DB()), KindSchemaUnsupported)
+	assertFailureKind(t, Migrate(ctx, s.DatabaseForTesting()), KindSchemaUnsupported)
 }

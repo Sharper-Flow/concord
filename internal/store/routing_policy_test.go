@@ -57,7 +57,7 @@ func TestRecordedFallbackCompletesWhenReadbackMatchesDeclaredResolution(t *testi
 		t.Fatal(err)
 	}
 	var state, role, reason, resolved, readback, digest string
-	if err := s.DB().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model,routing_policy_digest FROM worker_attempts WHERE attempt_id=?`, "fallback-dispatch").Scan(&state, &role, &reason, &resolved, &readback, &digest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model,routing_policy_digest FROM worker_attempts WHERE attempt_id=?`, "fallback-dispatch").Scan(&state, &role, &reason, &resolved, &readback, &digest); err != nil {
 		t.Fatal(err)
 	}
 	if state != "completed" || role != WorkerResolutionFallback || reason != "provider_unavailable" || resolved != fallback || readback != fallback || digest != RoutingPolicyManifestDigest {
@@ -113,7 +113,7 @@ func workerDispatchV2Event(workID, eventID string, lane LaneDefinition, model, r
 func fallbackProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
 	var state, role, reason, resolved, readback, digest string
-	if err := s.DB().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model,routing_policy_digest FROM worker_attempts WHERE attempt_id=?`, "fallback-dispatch").Scan(&state, &role, &reason, &resolved, &readback, &digest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model,routing_policy_digest FROM worker_attempts WHERE attempt_id=?`, "fallback-dispatch").Scan(&state, &role, &reason, &resolved, &readback, &digest); err != nil {
 		var failure *Failure
 		if errors.As(err, &failure) {
 			t.Fatal(failure)

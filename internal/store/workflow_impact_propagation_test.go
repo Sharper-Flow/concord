@@ -73,7 +73,7 @@ func TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass(t
 			}
 
 			var source, target, edgeOwner, edgeID, entityKind, entityRef, severity string
-			if err := s.DB().QueryRow(`SELECT source_work_id,target_work_id,edge_owner_work_id,edge_id,entity_kind,entity_ref,severity FROM workflow_impact_notices`).Scan(&source, &target, &edgeOwner, &edgeID, &entityKind, &entityRef, &severity); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT source_work_id,target_work_id,edge_owner_work_id,edge_id,entity_kind,entity_ref,severity FROM workflow_impact_notices`).Scan(&source, &target, &edgeOwner, &edgeID, &entityKind, &entityRef, &severity); err != nil {
 				t.Fatal(err)
 			}
 			if source != sourceID || target != dependentID || edgeOwner != dependentID || edgeID != "edge:"+dependentID || entityKind != "work_item" || entityRef != sourceID || severity != testCase.impactVerdict {
@@ -81,7 +81,7 @@ func TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass(t
 			}
 
 			var version int64
-			if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
 				t.Fatal(err)
 			}
 			if err := WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "bind_evidence", Payload: json.RawMessage(`{}`), Actor: actor}); err != nil {
@@ -106,7 +106,7 @@ func TestWorkflowCompletionChoosesHardEdgeWhenDependentDeclaresMultipleEdges(t *
 	})
 	actor := seedImpactDependent(t, s, dependentID, sourceID, "soft")
 	var version int64
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	actorRef, _ := WorkflowActorRef(actor)
@@ -119,13 +119,13 @@ func TestWorkflowCompletionChoosesHardEdgeWhenDependentDeclaresMultipleEdges(t *
 		t.Fatal(err)
 	}
 	var edgeID string
-	if err := s.DB().QueryRow(`SELECT edge_id FROM workflow_impact_notices WHERE source_work_id=? AND target_work_id=?`, sourceID, dependentID).Scan(&edgeID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT edge_id FROM workflow_impact_notices WHERE source_work_id=? AND target_work_id=?`, sourceID, dependentID).Scan(&edgeID); err != nil {
 		t.Fatal(err)
 	}
 	if edgeID != "edge:zz-hard" {
 		t.Fatalf("selected edge = %q, want hard edge", edgeID)
 	}
-	if err := s.DB().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	assertFailureKind(t, WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor}), KindInvariantViolation)

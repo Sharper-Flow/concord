@@ -52,14 +52,14 @@ func seedQueryFixture(t *testing.T) *Store {
 
 func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
 	s := openTemp(t)
-	version, err := SchemaVersion(context.Background(), s.DB())
+	version, err := SchemaVersion(context.Background(), s.DatabaseForTesting())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if version != CurrentSchemaVersion() {
 		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion())
 	}
-	rows, err := s.DB().Query(`EXPLAIN QUERY PLAN SELECT work_id_from FROM relations WHERE work_id_to = ? AND kind = ?`, "blocked", "blocks")
+	rows, err := s.DatabaseForTesting().Query(`EXPLAIN QUERY PLAN SELECT work_id_from FROM relations WHERE work_id_to = ? AND kind = ?`, "blocked", "blocks")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestLauncherProductDepthThreeRepresentativeP99(t *testing.T) {
 		}
 	}
 	statements.WriteString("DELETE FROM fold_guard;")
-	if _, err := s.DB().Exec(statements.String()); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(statements.String()); err != nil {
 		t.Fatal(err)
 	}
 	const samples = 100
@@ -274,7 +274,7 @@ func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='tampered' WHERE id='knowledge-id'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='tampered' WHERE id='knowledge-id'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	_, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-id", Home: home})
@@ -284,15 +284,15 @@ func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
 func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocator, path, commit, hash string, products []string) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "lesson", id, "2026-08-07T00:00:00Z", "published", "[]", "completed", 1, "summary", homeProject, homeLocator, path, commit, hash); err != nil {
+	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "lesson", id, "2026-08-07T00:00:00Z", "published", "[]", "completed", 1, "summary", homeProject, homeLocator, path, commit, hash); err != nil {
 		t.Fatal(err)
 	}
 	for _, product := range products {
-		if _, err := s.DB().ExecContext(ctx, `INSERT INTO archived_work_products(work_id,product_id) VALUES (?,?)`, id, product); err != nil {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work_products(work_id,product_id) VALUES (?,?)`, id, product); err != nil {
 			t.Fatal(err)
 		}
 	}

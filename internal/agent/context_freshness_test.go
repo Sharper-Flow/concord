@@ -23,7 +23,7 @@ func staleScopeEnvelope(grant Grant) CallEnvelope {
 func domainEventCount(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_events`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -90,7 +90,7 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 			t.Fatalf("rejected mutation recorded %d domain events", after-before)
 		}
 		var captured int
-		if err := s.DB().QueryRow(`SELECT COUNT(*) FROM work_items WHERE title=?`, "Stale").Scan(&captured); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM work_items WHERE title=?`, "Stale").Scan(&captured); err != nil {
 			t.Fatal(err)
 		}
 		if captured != 0 {
@@ -111,7 +111,7 @@ func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
 
 	// The selected Product must be inside the grant so the context branch is the
 	// one under test: grant authorization runs first and would otherwise mask it.
-	if _, err := s.DB().Exec(`UPDATE agent_grants SET product_scope_json=?`, `["product-1","product-granted"]`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE agent_grants SET product_scope_json=?`, `["product-1","product-granted"]`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,7 +151,7 @@ func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
 		// product-1 is a genuine candidate but outside this grant's Product scope
 		// once the scope is narrowed, so authorization still owns this failure.
 		narrow, narrowService, narrowGrant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
-		if _, err := narrow.DB().Exec(`UPDATE agent_grants SET product_scope_json=?`, `["product-other"]`); err != nil {
+		if _, err := narrow.DatabaseForTesting().Exec(`UPDATE agent_grants SET product_scope_json=?`, `["product-other"]`); err != nil {
 			t.Fatal(err)
 		}
 		version, _, err := narrow.ScopeVersion(ctx, "project-1")
@@ -191,7 +191,7 @@ func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
 func TestInvalidSelectedProductUnderAmbiguousScopeResolvesByCandidate(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
-	if _, err := s.DB().Exec(`UPDATE agent_grants SET product_scope_json=?`, `["product-1","product-2","product-granted"]`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE agent_grants SET product_scope_json=?`, `["product-1","product-2","product-granted"]`); err != nil {
 		t.Fatal(err)
 	}
 	events := []store.Event{

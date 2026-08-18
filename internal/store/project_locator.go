@@ -89,12 +89,6 @@ func (s *Store) ScopeVersion(ctx context.Context, projectID string) (string, []s
 	return "sha256:" + hex.EncodeToString(digest[:]), orderedStrings(products), nil
 }
 
-// ScopeVersionForDB is used by the authority service, which owns a database
-// handle but intentionally does not own a second Store lifecycle.
-func ScopeVersionForDB(ctx context.Context, db *sql.DB, projectID string) (string, []string, error) {
-	return (&Store{db: db}).ScopeVersion(ctx, projectID)
-}
-
 func normalizePath(value string) (string, error) {
 	if value == "" || strings.ContainsRune(value, '\x00') {
 		return "", newFailure(KindInvalidFilter, "project_locator", "path is empty or contains NUL", false, "supply a valid repository path")

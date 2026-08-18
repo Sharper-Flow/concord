@@ -345,7 +345,7 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: rebuild knowledge index: %w", err)
 	}
 	var version int64
-	if err := s.DB().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id = 'work-done'`).Scan(&version); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id = 'work-done'`).Scan(&version); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: read work-done version: %w", err)
 	}
 	if err := store.PublishCompactionLink(ctx, s, store.CompactionLinkRequest{EventID: "corpus-compaction-work-done", WorkID: "work-done", ExpectedVersion: version, Actor: "operator", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: workPath, Reason: "accepted corpus fixture"}); err != nil {
@@ -423,7 +423,7 @@ func SeedLaggingKnowledge(home store.KnowledgeHome) (string, error) {
 // already tracks.
 func SeedGoverningRequirement(ctx context.Context, s *store.Store, projectID, requirementRef, reason string) error {
 	var current int64
-	if err := s.DB().QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, projectID).Scan(&current); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, projectID).Scan(&current); err != nil {
 		return fmt.Errorf("pm1fixture: read Project %s version: %w", projectID, err)
 	}
 	event := fixtureEvent(
@@ -621,14 +621,14 @@ func writeKnowledgeManifest(repo string, records []store.KnowledgeRecord) error 
 }
 
 func authorizeKnowledgeLocator(ctx context.Context, s *store.Store, home store.KnowledgeHome) error {
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		return err
 	}
-	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
-	if _, err := s.DB().ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
+	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
 		return err
 	}
-	if _, err := s.DB().ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?, ?, 'canonical_path', ?, ?, 'now', 'now')`, home.HomeLocatorID, home.HomeProjectID, home.RepoPath, home.RepoPath); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?, ?, 'canonical_path', ?, ?, 'now', 'now')`, home.HomeLocatorID, home.HomeProjectID, home.RepoPath, home.RepoPath); err != nil {
 		return err
 	}
 	return nil
@@ -638,17 +638,17 @@ func authorizeKnowledgeProductHome(ctx context.Context, s *store.Store, productI
 	if err := authorizeKnowledgeLocator(ctx, s, home); err != nil {
 		return err
 	}
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		return err
 	}
-	defer s.DB().ExecContext(ctx, `DELETE FROM fold_guard`)
-	if _, err := s.DB().ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
+	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
 		return err
 	}
-	if _, err := s.DB().ExecContext(ctx, `INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?, ?, ?)`, productID, home.HomeProjectID, home.HomeLocatorID); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?, ?, ?)`, productID, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		return err
 	}
-	if _, err := s.DB().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		return err
 	}
 	return nil

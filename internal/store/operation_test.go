@@ -44,7 +44,7 @@ func projectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
 	ctx := context.Background()
 	var snapshot string
-	rows, err := s.DB().QueryContext(ctx, `
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `
 		SELECT 'product', id, display_name, stage_maturity, stage_audience_commitment,
 		       version, created_at, updated_at
 		FROM products
@@ -68,7 +68,7 @@ func projectionSnapshot(t *testing.T, s *Store) string {
 		t.Fatalf("iterate projection snapshot: %v", err)
 	}
 	rows.Close()
-	rows, err = s.DB().QueryContext(ctx, `SELECT product_id, project_id, role FROM product_projects ORDER BY product_id, project_id`)
+	rows, err = s.DatabaseForTesting().QueryContext(ctx, `SELECT product_id, project_id, role FROM product_projects ORDER BY product_id, project_id`)
 	if err != nil {
 		t.Fatalf("snapshot Product memberships: %v", err)
 	}
@@ -83,7 +83,7 @@ func projectionSnapshot(t *testing.T, s *Store) string {
 		t.Fatalf("iterate Product membership snapshot: %v", err)
 	}
 	rows.Close()
-	rows, err = s.DB().QueryContext(ctx, `SELECT work_id, project_id, role FROM work_projects ORDER BY work_id, project_id`)
+	rows, err = s.DatabaseForTesting().QueryContext(ctx, `SELECT work_id, project_id, role FROM work_projects ORDER BY work_id, project_id`)
 	if err != nil {
 		t.Fatalf("snapshot work memberships: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
 		{"project delete", "projects", `DELETE FROM projects`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := s.DB().ExecContext(ctx, tc.stmt); err == nil {
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, tc.stmt); err == nil {
 				t.Fatalf("direct write to %s succeeded", tc.table)
 			}
 		})
@@ -204,7 +204,7 @@ func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 	assertTableCount(t, s, "domain_events", 3)
 	assertTableCount(t, s, "products", 1)
 	var name string
-	if err := s.DB().QueryRowContext(ctx, `SELECT display_name FROM products WHERE id = 'product-1'`).Scan(&name); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT display_name FROM products WHERE id = 'product-1'`).Scan(&name); err != nil {
 		t.Fatalf("read product: %v", err)
 	}
 	if name != "Concord" {
@@ -215,7 +215,7 @@ func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 func TestRebuildRejectsUnknownEventKind(t *testing.T) {
 	s := openTemp(t)
 	e := operationEvent("event-1", "future.created", SubjectProduct, "product-1", map[string]string{"display_name": "future"})
-	result, err := s.DB().ExecContext(context.Background(), `
+	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
 		INSERT INTO domain_events
 			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -239,7 +239,7 @@ func TestRebuildRejectsUnknownEventKind(t *testing.T) {
 func TestRebuildRejectsMalformedEventPayload(t *testing.T) {
 	s := openTemp(t)
 	e := operationEvent("event-1", "product.created", SubjectProduct, "product-1", map[string]int{"display_name": 7})
-	result, err := s.DB().ExecContext(context.Background(), `
+	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
 		INSERT INTO domain_events
 			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -296,7 +296,7 @@ func assertFoldGuardEmpty(t *testing.T, s *Store) {
 func assertTableCount(t *testing.T, s *Store, table string, want int) {
 	t.Helper()
 	var got int
-	if err := s.DB().QueryRowContext(context.Background(), "SELECT count(*) FROM "+table).Scan(&got); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), "SELECT count(*) FROM "+table).Scan(&got); err != nil {
 		t.Fatalf("count %s: %v", table, err)
 	}
 	if got != want {

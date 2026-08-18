@@ -68,7 +68,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 	// decodes to []interface{}{"proj-web"}). The runner's
 	// deepEqualTolerant uses reflect.DeepEqual which distinguishes
 	// []string from []interface{}.
-	rows, err := s.DB().Query(`SELECT project_id FROM work_projects WHERE work_id=?`, createdWorkID)
+	rows, err := s.DatabaseForTesting().Query(`SELECT project_id FROM work_projects WHERE work_id=?`, createdWorkID)
 	if err != nil {
 		t.Fatalf("read work_projects[%s]: %v", createdWorkID, err)
 	}
@@ -90,7 +90,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 	// durable proof is that no second work item was written, so count
 	// rows either side of the replay rather than trusting the flag.
 	preReplayWorkCount := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_items`).Scan(&preReplayWorkCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&preReplayWorkCount); err != nil {
 		t.Fatalf("pre-replay work_items count: %v", err)
 	}
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
@@ -101,7 +101,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("replay did not set Replayed=true")
 	}
 	postReplayWorkCount := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_items`).Scan(&postReplayWorkCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&postReplayWorkCount); err != nil {
 		t.Fatalf("post-replay work_items count: %v", err)
 	}
 	if postReplayWorkCount != preReplayWorkCount {
@@ -443,11 +443,11 @@ func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservati
 		t.Fatalf("terminal_transition probe: version=%d, want %d", version, preVersion)
 	}
 	var completedCount int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned' AND subject_id='work-cross' AND payload LIKE '%"to":"completed"%'`).Scan(&completedCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned' AND subject_id='work-cross' AND payload LIKE '%"to":"completed"%'`).Scan(&completedCount); err != nil {
 		t.Fatalf("terminal_transition probe: query completed events: %v", err)
 	}
 	var cancelledCount int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned' AND subject_id='work-cross' AND payload LIKE '%"to":"cancelled"%'`).Scan(&cancelledCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned' AND subject_id='work-cross' AND payload LIKE '%"to":"cancelled"%'`).Scan(&cancelledCount); err != nil {
 		t.Fatalf("terminal_transition probe: query cancelled events: %v", err)
 	}
 	if completedCount != 0 || cancelledCount != 0 {
@@ -556,7 +556,7 @@ func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
 	// blocked/ready column. The runner's absent assertion depends on
 	// this guarantee; without it the assertion could pass by
 	// coincidence rather than from derivation.
-	cols := tableColumns(t, s.DB(), "work_items")
+	cols := tableColumns(t, s.DatabaseForTesting(), "work_items")
 	for _, c := range cols {
 		if c == "blocked" || c == "ready" {
 			t.Fatalf("work_items has stored %q column; the derived_blocked assertion becomes a coincidence", c)
@@ -629,7 +629,7 @@ func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
 	// Blockedness must be derived at read time from relations; a
 	// stored column would let the absent assertion pass by coincidence
 	// rather than from genuine derivation.
-	postCols := tableColumns(t, s.DB(), "work_items")
+	postCols := tableColumns(t, s.DatabaseForTesting(), "work_items")
 	storedColumn := ""
 	for _, c := range postCols {
 		switch c {
@@ -662,7 +662,7 @@ func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
 
 	preCount := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations`).Scan(&preCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations`).Scan(&preCount); err != nil {
 		t.Fatalf("pre-count relations: %v", err)
 	}
 
@@ -692,7 +692,7 @@ func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	postCount := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations`).Scan(&postCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations`).Scan(&postCount); err != nil {
 		t.Fatalf("post-count relations: %v", err)
 	}
 	if postCount != preCount {
@@ -729,7 +729,7 @@ func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
 	// detection refused BEFORE any insert; without this probe the
 	// runner's absent assertion would pass vacuously.
 	postCount2 := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations`).Scan(&postCount2); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations`).Scan(&postCount2); err != nil {
 		t.Fatalf("cyclic_relation probe: post-count relations: %v", err)
 	}
 	if postCount2 != preCount {
@@ -867,7 +867,7 @@ func bindAJ5AtomicSupersession(t *testing.T, sc jobScenario) jobObservation {
 	successor := "work-new"
 	predecessor := "work-old"
 	var supersessionRows int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='supersedes'`, successor, predecessor).Scan(&supersessionRows); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='supersedes'`, successor, predecessor).Scan(&supersessionRows); err != nil {
 		t.Fatalf("atomicity probe: query supersession rows: %v", err)
 	}
 	supersessionPresentNow := supersessionRows > 0
@@ -953,7 +953,7 @@ func applyAtomicSupersessionFixtureOverride(t *testing.T, s *store.Store) error 
 func deriveSupersession(t *testing.T, s *store.Store, successor, predecessor string) bool {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='supersedes'`, successor, predecessor).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='supersedes'`, successor, predecessor).Scan(&count); err != nil {
 		t.Fatalf("derive supersession %s->%s: %v", successor, predecessor, err)
 	}
 	return count > 0
@@ -993,11 +993,11 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	preWork := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_items`).Scan(&preWork); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&preWork); err != nil {
 		t.Fatalf("pre-count work_items: %v", err)
 	}
 	preEvents := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&preEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&preEvents); err != nil {
 		t.Fatalf("pre-count domain_events: %v", err)
 	}
 
@@ -1030,11 +1030,11 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	// captured work item or any appended event. Both are checked against the
 	// pre-call counts so the absence is proven rather than assumed.
 	postWork := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_items`).Scan(&postWork); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&postWork); err != nil {
 		t.Fatalf("post-count work_items: %v", err)
 	}
 	postEvents := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&postEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&postEvents); err != nil {
 		t.Fatalf("post-count domain_events: %v", err)
 	}
 	if postWork != preWork {
@@ -1044,7 +1044,7 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("refused capture appended %d events (pre=%d, post=%d)", postEvents-preEvents, preEvents, postEvents)
 	}
 	titled := 0
-	if err := s.DB().QueryRow(`SELECT count(*) FROM work_items WHERE title=?`, "Add passkey login").Scan(&titled); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE title=?`, "Add passkey login").Scan(&titled); err != nil {
 		t.Fatalf("probe captured title: %v", err)
 	}
 	if titled != 0 {

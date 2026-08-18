@@ -4,6 +4,8 @@
 > locator, publish proof, and bounded lazy pruning are binding under accepted PM6/PM7.
 > **Depends on:** [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2c (three storage tiers) and §2d (structured-artifact policy).
 > **Companion to:** [`decisions/CD-0003-concord-storage-layer-shape.md`](./decisions/CD-0003-concord-storage-layer-shape.md).
+> **Amended by CD-0041:** new durable notes record `domain_ids`; legacy
+> `component_ids` upcast through PM6/PM7's bounded migration.
 
 ## Purpose
 
@@ -36,7 +38,7 @@ archived_work(id, type, title, completed_at, outcome_tag, lesson_tags,
   home_locator_id, note_path, commit_oid, content_hash)
 archived_work_products(work_id, product_id)
 archived_work_projects(work_id, project_id)
-archived_work_components(work_id, component_id)
+archived_work_domains(work_id, domain_id)
 archived_work_tags(work_id, tag_id)
 ```
 
@@ -142,7 +144,7 @@ priority: {priority}
 summary: {bounded value/outcome summary}
 product_ids: [product-...]
 project_ids: [project-...]
-component_ids: [component-...]
+domain_ids: [domain-...]
 tag_ids: [tag-...]
 successor_work_id: work-... # required only when superseded
 ---

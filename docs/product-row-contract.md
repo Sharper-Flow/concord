@@ -4,11 +4,13 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** C14; default terminal-launcher Product row and compatible optional
 > admin-panel projection.
-> **Binding inputs:** Product-first operating envelope, Product/component navigation,
+> **Amended by:** CD-0041 replaces component navigation with Product → Domain;
+> the five Product-row field groups remain unchanged.
+> **Binding inputs:** Product-first operating envelope, Product/Domain navigation,
 > active-work visibility, PM1 Q1/Q2/Q4/Q5, PM4/PM5 identity semantics, and accepted
 > TS7 authority/freshness envelope.
 > **Does not decide:** terminal interaction/keybindings/layout toolkit, Product detail
-> screen, component tree, C15 managed-resource model, optional live-signal display,
+> screen, Domain hierarchy/architecture graph, C15 managed-resource model, optional live-signal display,
 > workflow registration, or web/admin layout.
 
 ## 1. Decision
@@ -25,8 +27,8 @@ The default Product row contains exactly five field groups:
 
 The row is an orientation/selection projection, not a Product dashboard. The launcher
 supports narrow open/start/resume/launch routing only. Selecting a row opens the
-Product/workflow detail where approvals, conflicts, editing, history, knowledge,
-operations, and resources belong (CD-0006 D6).
+Product/Domain/workflow detail where architecture overlap, approvals, conflicts,
+editing, history, law, operations, and resources belong (CD-0006 D6; CD-0041).
 
 ## 2. Canonical row object
 
@@ -147,7 +149,7 @@ count, encourage activity-as-value inference, or exceed the Product row's glance
   multiple maturity/audience combinations.
 - **Reliance** tells the operator whether the row is safe to act on; stale/degraded
   data cannot look authoritative.
-- **Action counts** cover Priority 3/4's present coordination questions—what is
+- **Action counts** cover Priority 4/5's present coordination questions—what is
   active, blocked, ready, problematic, or waiting on the human—without backlog or
   historical clutter.
 - **Focus** answers the next glance-level question without turning every bucket into
@@ -199,8 +201,8 @@ focus priority; it does not authorize a dashboard dump.
 ## 10. Evidence basis
 
 - Primary operator surface is Product-first terminal; operator must see ready,
-  blocked, and next work (`priorities.md` §§Operating envelope, 3–4).
-- Default Product/component view shows active gates/problems first and keeps terminal
+  blocked, and next work (`priorities.md` §§Operating envelope, 4–5).
+- Default Product/Domain view shows active gates/problems first and keeps terminal
   history behind drill-down (`product-data-model.md` §§6–7).
 - PM1 Q2 provides unique lifecycle/derived counts and bounded previews; Q4/Q5 own
   blocker/ready semantics and deterministic priority (`product-memory-query-contract.md`).

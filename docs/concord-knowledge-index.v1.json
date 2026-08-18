@@ -96,7 +96,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:c0c011d59413221eb6dfddc105d6adbe8a9e8573bcfeeb327cd94c8ba7d5dcd2"
+      "sha256": "sha256:9a20d1950cd868849a04fdcff0a5c5e51bcd415e52622408f7282ce99d9ee6f8"
     },
     {
       "id": "CD-0007",
@@ -165,7 +165,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:fdd6527f17b4179283441f9d33ed2872603b3424e18f94d9b42140ec05e52802",
+      "sha256": "sha256:d88e809feb0046fa209a1115fa1b32fad0c21c11ea53d1cfbe9b56486ee9b72c",
       "evidence": [
         "internal/store/research_mutations.go",
         "internal/agent/research_surface_test.go"
@@ -302,7 +302,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:db1001a386a9ad27f5d4cc140a497d55149d5fa796cbb2997436ce0d76523b44"
+      "sha256": "sha256:bb3a0c59a801229176511cc1e7578441bce8b6581276bb5bc48eacd0ae9a3f64"
     },
     {
       "id": "CD-0016",
@@ -380,7 +380,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:3b85627f25651e47820823d3887bbf006561a9c44767d57b82762a8da0f0a217"
+      "sha256": "sha256:5e6dc6e4e80fdcbda85e8f12d19b63f3c710e4eed4903a7c06bba74f52c88aa2"
     },
     {
       "id": "CD-0019",
@@ -475,7 +475,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:c0fc3925debfaabc824a8f10249ac235f347751b0db0142f4ff52cf98fa83da5",
+      "sha256": "sha256:af133dda5aa2698f263f94ce9bbd91acf8305f49a3e697c02757b343d1eb5027",
       "evidence": [
         "internal/store/research_operations.go"
       ]
@@ -527,7 +527,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f75c9a4faac74e57f7654fd506594259442909bf1a787f3497119d0879226dc7",
+      "sha256": "sha256:4431affdf4ec77d7fd05dc06b24921ddff54f732b05673be56b01f80ea5a9c32",
       "evidence": [
         "internal/store/epic.go"
       ]
@@ -932,6 +932,30 @@
       ]
     },
     {
+      "id": "CD-0041",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0041-architecture-bound-product-law.md",
+      "status": "accepted",
+      "date": "2026-08-18T00:00:00Z",
+      "title": "Architecture-bound Product law is Concord's primary coordination model",
+      "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; concurrent Domain overlap requires version-pinned resolution; Initiative remains secondary context; SQLite remains sole local authority.",
+      "tags": [
+        "product-law",
+        "architecture",
+        "domains",
+        "concurrency",
+        "initiative"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "component_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:8ae5ca7f9b63355491b0af038f353f9b3f034e50ae78729571e1a21275a57c50"
+    },
+    {
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",
@@ -950,7 +974,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:7b47d6b439b734ca7becb486bbb1d39a3c0b3983b05366e757d687cc06847e77"
+      "sha256": "sha256:22df0495687ab129d0145c9385394cea3a1efa33376a5f82ab415ac3ff8d5f21"
     },
     {
       "id": "PM3",
@@ -971,7 +995,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:80ddff114b95f4767e8bd6a5b77831846d3ca84eceb8a00105fc59aecf0a096b"
+      "sha256": "sha256:f6eb8eded54d912215f1da77306c0e9828ebd4eb5a0802807ecbadd35ef41b51"
     },
     {
       "id": "PM6",
@@ -993,7 +1017,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:a9950e5fb9f2341fefe6e3b51c9c4ef31dc186a556f8cc0483f50368b9bb419c"
+      "sha256": "sha256:55e1755f5902a6b9776d61217b7581153d28cce4fba15b793d9628cab3966806"
     },
     {
       "id": "PM7",
@@ -1015,7 +1039,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:063007af2110827e6f3f1816fbd79e39b08f3f3d4d0f7dd5b73344593ac92a8a"
+      "sha256": "sha256:e0d67bcbb61afe1cb089d536a91069c04f904c41438f575e9976452cf601dba6"
     },
     {
       "id": "TS3",
@@ -1037,7 +1061,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:af239f34f749190ab0e542e723be9a34d41afedca1f221425014314032e5db8c"
+      "sha256": "sha256:a8e3cf19916f1ade2a5b4533c4c66caffa9d8d96ae61df221d02049aa0721f3e"
     },
     {
       "id": "TS7",
@@ -1146,7 +1170,7 @@
         "component_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:8cb5f7ef7b1b39004e51a129857fb483397df9fe7d2e4ef67be1d29c6bdcdd7d"
+      "sha256": "sha256:f0e362fb544ce51fb1506de540495c301a2b3c033c8042f85becf111f5e3d1f4"
     }
   ]
 }

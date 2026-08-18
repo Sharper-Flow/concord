@@ -6,6 +6,9 @@
 > **Scenario corpus:** [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json).
 > **Purpose:** Define the smallest storage- and tool-neutral read contract that
 > makes Concord useful as Product memory and that judges PM2/PM3 and TS1/TS3.
+> **Amended by CD-0041:** Domain replaces component as the canonical
+> architecture/filter identity. Legacy component inputs remain readable only
+> through the bounded major migration.
 
 ## 1. Decision boundary
 
@@ -170,7 +173,7 @@ The JSON corpus is executable through a candidate adapter implementing
 ### Q3. List Product work
 
 - **Intent:** inspect needed, in-progress, completed, cancelled, or superseded work.
-- **Input:** Product; lifecycle states; optional Project, work-kind, component,
+- **Input:** Product; lifecycle states; optional Project, work-kind, Domain,
   tag, priority, terminal-window, detail, cursor, limit.
 - **Output:** bounded work summaries with value statement, lifecycle, priority,
   Projects, blocker summary, stage, version, and durable-note reference when terminal.
@@ -255,15 +258,15 @@ The JSON corpus is executable through a candidate adapter implementing
 ### Q9. Search durable Product knowledge
 
 - **Intent:** "Have we solved this before; what decisions/specs/lessons govern it?"
-- **Input:** Product; optional Project/component; knowledge kinds (`work_note`,
+- **Input:** Product; optional Project/Domain; knowledge kinds (`work_note`,
   `lesson`, `decision`, `spec`); tags; bounded text; time window; cursor/limit.
-- **Output:** summaries with title, kind, date, tags, related work/component,
+- **Output:** summaries with title, kind, date, tags, related work/Domain,
   canonical note/decision/spec reference, commit/hash, and index watermark.
 - **Text admission and order:** when bounded `text` is present, admit records
-  whose stable ID, title, tag, or component equals `text`, or whose title/summary
+  whose stable ID, title, tag, or Domain equals `text`, or whose title/summary
   contains `text`. Case-insensitive exact structured matches rank before
   case-insensitive title/summary substring-only matches, then date descending
-  and stable ID. Product, Project, component, kind, tag, and time inputs remain
+  and stable ID. Product, Project, Domain, kind, tag, and time inputs remain
   conjunctive filters. Without `text`, order is date descending and stable ID.
 - **Oracle:** knowledge is found through one bounded domain query, not repeated
   list→show→search choreography; index lag is explicit.
@@ -327,7 +330,7 @@ PM1 is falsified or must be amended when:
 - degraded/empty/unreachable cannot be distinguished structurally.
 
 The pre-acceptance evidence gaps included authoritative mapping of real ADV histories
-into the lifecycle candidate, ready-work ranking semantics, component identity,
+into the lifecycle candidate, ready-work ranking semantics, Domain identity,
 cross-Project membership, and canonical note placement. PM2–PM5 and CD-0008 now supply
 the accepted storage, membership, evidence-binding, and unreadable-record semantics;
 these historical gaps do not invalidate the query jobs.

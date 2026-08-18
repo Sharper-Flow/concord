@@ -341,7 +341,7 @@ containing framed questions, options with source-backed evidence, decision,
 rationale, consequences, inputs, POC findings (or an explicit no-POC value),
 supersession position, reviewer actor, operator acceptance, and for
 `insufficient_evidence`, recorded unknowns plus what would be required to decide.
-An unaccepted record does not satisfy the predicate or unblock a dependent Epic.
+An unaccepted record does not satisfy the predicate or unblock a dependent Initiative.
 
 ## 7. Ordered completion gate
 

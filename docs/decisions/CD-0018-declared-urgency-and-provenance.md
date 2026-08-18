@@ -6,6 +6,9 @@
 **Type:** Architecture decision (spike outcome).
 **Spike:** [`../research/R7-expedited-parallel-work.md`](../research/R7-expedited-parallel-work.md).
 **Issue:** [#70](https://github.com/Sharper-Flow/concord/issues/70).
+**Amended by:** CD-0041 leaves assignment/lease exclusions intact but replaces
+D4's unstructured parallel-safety judgement with Domain-overlap detection and
+operator-approved, version-pinned resolution.
 **Amends:** CD-0005 (adds `urgency` to the capture/revise/read surface and one
 `relation_kind` member — both TS8 MAJOR); C14 §5 and C17 §5 (records an explicit,
 declared urgency, restated not to introduce owners or assignments).
@@ -108,6 +111,10 @@ column. Parallel-safety — whether two items touch the same subsystem — remai
 operator judgement. Recording urgency and provenance is neither an assignment nor a
 multi-human coordination surface; the operating envelope's "many concurrent
 OpenCode TUIs" clause is the side of that line this decision lives on.
+
+CD-0041 later makes that judgement structural without adding assignment or a
+lease: Product-changing contracts declare affected Domains, and overlapping work
+requires an operator-approved resolution pinned to both contract versions.
 
 ### D5. The launcher displays the band; it does not dispatch
 

@@ -4,14 +4,14 @@
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md),
 > [`feature-inventory.md`](./feature-inventory.md) §3.13.
-> **Purpose:** Define the Epic roadmap entry whose deliverable is a **binding
+> **Purpose:** Define the Initiative entry whose deliverable is a **binding
 > architectural decision** — researched, planned, optionally POC-proven —
 > producing no product code and hard-blocking the implementation entries after it.
 > **Origin:** User direction, 2026-08-02.
 
 ## TL;DR
 
-Some Epic entries exist to **decide**, not to ship. Concord registers
+Some Initiative entries exist to **decide**, not to ship. Concord registers
 **Architecture Spike** as a workflow type peer to the implementation change: it
 frames a question, researches it, optionally proves it with a throwaway POC, and
 produces a **decision record that binds downstream work until superseded**. It
@@ -26,7 +26,7 @@ research* and *evidence research* with a lightweight, gateless
 research/investigation type. That type is deliberately non-committal: research
 **may resolve to "no change."**
 
-That is exactly wrong for the case where an Epic cannot proceed until an
+That is exactly wrong for the case where an Initiative cannot proceed until an
 architectural question is answered. Such work today has two bad homes:
 
 | Bad home | Failure |
@@ -59,7 +59,7 @@ names as a defining aspect of a workflow type:
 |---|---|---|
 | Completion | Findings recorded; may resolve to "no change" | A decision is reached and accepted |
 | Output force | Advisory | Binding until superseded |
-| Downstream effect | None inherent | Hard-blocks dependent Epic entries |
+| Downstream effect | None inherent | Hard-blocks dependent Initiative entries |
 | Acceptance | Not required | Reviewer, then user acceptance |
 
 Different completion criteria and different output force mean a different
@@ -77,18 +77,18 @@ registered type. A spike is not a research workflow with a flag.
 | **Completion criteria** | Every framed question resolved, decision recorded, reviewer validated, user accepted |
 | **Value statement** | Answers *"what risk does this retire?"* — not *"what capability ships?"* |
 | **Staleness rule** | Decision inputs are tracked; drift requires re-verification before the decision authorizes downstream work |
-| **Active visibility** | An unaccepted spike blocking Epic entries is surfaced as an active blocker, not passive history |
+| **Active visibility** | An unaccepted spike blocking Initiative entries is surfaced as an active blocker, not passive history |
 | **Structure** | Spike → tasks. Flat. No sub-spikes. |
 | **Timebox** | None |
 
-### 2.1 Epic role
+### 2.1 Initiative role
 
-A spike is a **first-class Epic roadmap entry**, ordered like any other. Entries
+A spike is a **first-class Initiative entry**, ordered like any other. Entries
 that depend on its decision declare a **hard dependency**: they cannot enter
 execution until the spike's decision is accepted.
 
 This is the distinguishing structural claim of the type. A research workflow that
-happens to be linked to an Epic informs; a spike **gates**.
+happens to be linked to an Initiative informs; a spike **gates**.
 
 ### 2.2 Flat structure
 
@@ -202,7 +202,7 @@ review vigilance.
 
 Because POC code never enters a product repo, the lifecycle-stage evidence rules
 ([`product-data-model.md`](./product-data-model.md) §11.1,
-[`priorities.md`](./priorities.md) §2) **never have to reason about POC code at
+[`priorities.md`](./priorities.md) §3) **never have to reason about POC code at
 all**. There is no "it was only a POC" discount to defend against at acceptance,
 and no floor-raiser edge case where throwaway code touches a production-stage
 resource.
@@ -220,7 +220,7 @@ Two stages, matching a change's acceptance shape:
 2. **User acceptance** — the operator accepts the decision. Acceptance is what
    makes it **binding**.
 
-An unaccepted decision does not bind and does not unblock dependent Epic entries.
+An unaccepted decision does not bind and does not unblock dependent Initiative entries.
 Treating the spike as a peer of a change — reviewed and accepted, not merely
 filed — is what keeps it from decaying into an ignorable report.
 
@@ -274,4 +274,4 @@ changes from silently absorbing architectural decisions again.
 
 ---
 
-*Some Epic entries ship capability. Some retire risk. Both deserve a shape.*
+*Some Initiative entries ship capability. Some retire risk. Both deserve a shape.*

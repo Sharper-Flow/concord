@@ -6,6 +6,9 @@
 exception after the supported-model evidence gate was surfaced as unavailable.
 **Type:** CD-0009 reachability implementation and TS8/TS9 amendment.
 **Issue:** [#128](https://github.com/Sharper-Flow/concord/issues/128).
+**Amended by:** CD-0041 makes the 3.0.0 Epic surface legacy, requires the next
+normal major to expose Initiative, and forbids reuse of D3's one-time TS9
+exception.
 **Amends:** CD-0009 D1/D1a; TS8 and TS9.
 **Preserves:** CD-0005's generated canonical manifest, TS5 authority envelopes,
 CD-0010, and CD-0009's Epic constraints.

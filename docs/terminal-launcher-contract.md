@@ -1,10 +1,16 @@
 # Terminal launcher — accepted contract
 
-**Status:** Accepted under [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md), 2026-08-10.
+**Status:** Accepted under [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md),
+amended by CD-0041.
 **Implementation status:** S1 portfolio wiring shipped through issue #45 and PR #48.
 Issue #51 implements the S2 Product coordination view, S3 Work detail, scoped
 knowledge/search, explicit refresh, and identity-only OpenCode handoff. The
 replacement-ready floor remains unclaimed; this slice is not replacement-ready.
+
+**CD-0041 implementation gap:** issue #51's shipped S2/S3 views predate canonical
+Domains. The amended S2 contract below requires Product → Domain navigation,
+current Domain law, typed architecture relations, and unresolved overlap. That
+runtime work remains outstanding and no floor satisfaction is inferred here.
 
 This document is the accepted C18 launcher contract. CD-0014 records the rendering
 spike, exact dependency inventory, evidence gate, and Product-only query scope.
@@ -27,7 +33,7 @@ Two accepted contracts describe things the launcher renders:
 
 Before C18, neither described the launcher. C14 §Status is explicit that it "does not
 decide" terminal interaction, keybindings, layout toolkit, the Product detail screen,
-or the component tree. C17 §4 defers to the launcher as an already-accepted container.
+or the Domain hierarchy. C17 §4 defers to the launcher as an already-accepted container.
 No accepted document specified the container itself.
 
 The gap was that no accepted answer specified what screens exist, how the operator
@@ -76,30 +82,32 @@ prototype evidence, on the same rule C14 §11 applies to row fields.
 | # | Screen | Job | Body |
 |---|---|---|---|
 | S1 | Portfolio | Choose which Product becomes ambient context | C14 rows, paged |
-| S2 | Product | Coordinate within one Product — what is blocked, what blocks it, what is next | Accepted C17 modes plus the Product/Project knowledge section |
+| S2 | Product | Navigate Domains and coordinate within one Product — what law governs, what overlaps, what is blocked, and what is next | Domain hierarchy/relations, current-law and overlap sections, accepted C17 work modes, plus bounded Product/Domain/Project knowledge |
 | S3 | Work | Understand one work item and resume it in a session | Work detail, workflow position, evidence, plus the work-scoped knowledge section |
 
 ### Durable knowledge is a section, not a screen
 
-**Operator direction, 2026-08-09:** knowledge belongs to the thing that owns it —
-Product, Project, Epic, change — rather than to a global browse surface.
+**Operator direction, 2026-08-09, amended by CD-0041:** knowledge belongs to the
+thing that owns it — Product, Domain, Project, Initiative, or work item — rather
+than to a global browse surface.
 
 So there is no knowledge screen. Each screen renders the knowledge scoped to the
 entity it is already showing:
 
 | Screen | Knowledge shown | Owner |
 |---|---|---|
-| S2 | Specs, decisions, and notes owned by the Product and its Projects | Product / Project |
-| S3 | Specs, decisions, notes, and evidence attached to this work item | Work item, including Epic and change kinds |
+| S2 | Current law, decisions, notes, and architecture relations owned by the Product, selected Domain, and its Projects | Product / Domain / Project |
+| S3 | Law pins, decisions, notes, and evidence attached to this work item | Work item, including Initiative and Product-changing kinds |
 
-This is R4's Product → component navigation applied without a second path: knowledge
+This is R4's Product → Domain navigation applied without a second path: knowledge
 is reached by navigating to its owner, and workflows and changes appear as linked
 history from that owner rather than as a top-level browse. It also holds locality —
-a component's specs, changes, and runbooks stay near each other rather than being
+a Domain's current law, changes, evidence, decisions, and runbooks stay near each other rather than being
 re-aggregated into a global list that would need its own ordering rule.
 
-Epics need no special handling. CD-0009 keeps Epics an ordinary work-item kind, so an
-Epic renders on S3 and carries its knowledge section like any other work item.
+Initiatives need no special screen. CD-0041 keeps Initiative an ordinary work-item
+kind and secondary business/outcome context, so it renders on S3 like other work
+without becoming the Domain browse path.
 
 Knowledge search (Q9) and note resolution (Q10) belong in the launcher and are
 covered by §5's query mode. The durable knowledge resolver has shipped, so the
@@ -133,13 +141,14 @@ Three rules keep the section safe.
    read through the accepted TS3 surface; it does not introduce a launcher-side
    resolver or a second knowledge authority.
 
-The decision that knowledge belongs to its owning Product, Project, Epic, or change
+The decision that knowledge belongs to its owning Product, Domain, Project,
+Initiative, or work item
 remains binding; only coverage and typed degradation vary per read.
 
 ### Navigation graph
 
 ```text
-S1 Portfolio ──select──> S2 Product ──select──> S3 Work ──launch──> OpenCode session
+S1 Portfolio ──select──> S2 Product/Domain ──select work──> S3 Work ──launch──> OpenCode session
      ^                        │                    │
      └────────back────────────┘   └─────back───────┘
                                   │
@@ -513,8 +522,11 @@ A prototype would need to satisfy at minimum:
   offers a cross-entity knowledge browse.
 - The scoped knowledge section uses the shipped resolver, remains bounded, and
   distinguishes unavailable coverage from authoritative-empty knowledge.
-- An Epic work item renders on S3 with its knowledge section, with no Epic-specific
+- An Initiative work item renders on S3 with its knowledge section, with no Initiative-specific
   screen or code path.
+- S2 renders the Product's bounded Domain hierarchy, current-law coverage, typed
+  Domain relations, and unresolved architecture overlap before subordinate work
+  modes; unavailable coverage never appears empty.
 - The knowledge section is not read when the operator never focuses it.
 - Every action in §6 is reachable by keyboard alone, and the help overlay matches the
   active keymap exactly.
@@ -545,9 +557,10 @@ A prototype would need to satisfy at minimum:
   and assistive-technology validation is deferred to launcher implementation acceptance.
 - S1 at 100 Products and S2 at maximum relation depth stay within §9's latency bound.
 
-Operator test: from a cold start, identify the Product needing attention, enter it,
-name what is blocked and what blocks it, and resume the next work item in a session —
-without leaving the launcher and without restating any path. Failure reopens the
+Operator test: from a cold start, identify the Product needing attention, enter
+it, name the governing Domain and unresolved architecture overlap, name what is
+blocked and what blocks it, and resume the next work item in a session — without
+leaving the launcher and without restating any path. Failure reopens the
 screen set or the handoff rule; it does not authorize adding a dashboard or a
 mutation surface.
 
@@ -567,7 +580,7 @@ mutation surface.
 |---|---|---|
 | Are approvals answered in the launcher? | No. The launcher shows status and resumes work in the OpenCode TUI | §2, §6 — launcher is read-only; approvals are surfaced and answered in the session |
 | Is an explicit refresh required before consequential action? | Moot. A read-only launcher has no consequential boundary | §7 — staleness is displayed, never enforced by the launcher |
-| Does a knowledge screen belong? | Knowledge belongs to its owning Product, Project, Epic, or change | §3 — no knowledge screen; a scoped section on S2 and S3 |
+| Does a knowledge screen belong? | Knowledge belongs to its owning Product, Domain, Project, Initiative, or work item | §3 — no knowledge screen; a scoped section on S2 and S3 |
 | Who resolves what launch does? | Whichever is cleaner | §6 — the session, because launcher-side resolution would be a second derivation of workflow position |
 
 ## 15. Sequencing
@@ -623,11 +636,11 @@ This accepted contract should be reopened when:
 
 ## 18. Evidence basis
 
-- Product-first terminal launcher is the primary operator surface, and Priority 3
+- Product-first terminal launcher is the primary operator surface, and Priority 4
   requires bounded, fast, Product-scoped reads with reviewed staleness
-  ([`priorities.md`](./priorities.md) §§Operating envelope, 3–4).
+  ([`priorities.md`](./priorities.md) §§Operating envelope, 1, 4–5).
 - R1, R3, R4, R5, and R6 fix the launcher's role, factored lifecycle truth, the
-  Product → component navigation path, active-work-first defaults, and Go ownership
+  Product → Domain navigation path, active-work-first defaults, and Go ownership
   ([`clarifications.md`](./clarifications.md)).
 - C14 fixes the row and explicitly defers interaction, keybindings, layout toolkit,
   and the detail screen ([`product-row-contract.md`](./product-row-contract.md)).
@@ -638,8 +651,8 @@ This accepted contract should be reopened when:
 - Split state authority between an orchestrator and a projection is the recurring
   predecessor root cause, which is why §6 refuses to derive workflow position
   ([`advance-postmortem.md`](./advance-postmortem.md)).
-- Epics are an ordinary work-item kind rather than a distinct trackable
-  ([`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md)).
+- Initiative is an ordinary secondary work-item kind rather than an architecture
+  container ([`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md)).
 - The read surface the launcher dispatches into is accepted TS3 under CD-0005, and the
   mutation surface it deliberately does not touch is TS4
   ([`agent-read-tool-contract.md`](./agent-read-tool-contract.md),

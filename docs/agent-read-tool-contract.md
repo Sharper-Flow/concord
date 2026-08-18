@@ -9,6 +9,10 @@
 > envelope (TS5), transport (TS6), shared success/error envelope (TS7), schema
 > evolution (TS8), exact Product launcher fields (C14), or managed-resource shape
 > (C15).
+> **Amended direction:** CD-0041 retires component as an authority identity and
+> requires Domain filters/context in the next normal major. The 3.x
+> `component` inputs documented below remain legacy wire evidence until that
+> migration; new Domain writes are not authorized by this current surface.
 
 ## 1. Decision
 

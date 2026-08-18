@@ -9,6 +9,11 @@
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement gates (TS9), workflow-type registration/gate vocabulary, C14, or C15.
+> **Amended direction:** CD-0041 requires the next normal major to replace legacy
+> component input with a typed architecture binding for Product-changing work and
+> to replace the 3.0.0 Epic surface with Initiative. The current contract remains
+> wire evidence until those migrations; it does not authorize partial Domain or
+> Initiative writes.
 
 ## 1. Decision
 

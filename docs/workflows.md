@@ -1,6 +1,6 @@
 # Concord Workflows: A Plurality of Purpose-Built Types
 
-> **Status:** Aligned v4 with CD-0006/CD-0007. Companion to [`README.md`](./README.md),
+> **Status:** Aligned v5 with CD-0006/CD-0007/CD-0041. Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
@@ -79,8 +79,9 @@ A **workflow type** is a purpose-built definition:
 | **Artifacts** | What it produces (a spec delta? a report? a runbook record? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Work kind** | What shape of work it's for (implementation, operations, database, break-fix, configuration, infrastructure, options research, evidence research, RCA, static-analysis variants, …). |
-| **Value statement** | One sentence stating the Epic/change value: what it delivers and why it matters. |
+| **Value statement** | One sentence stating the Initiative/work value: what it delivers and why it matters. |
 | **Outcome contract** | The premise, required end-state, and candidate set the type requires at approval. See §2.1a. |
+| **Product-truth effect** | Closed `changes_product_truth` classification. `true` requires CD-0041's architecture binding; `false` cannot write Domain identity, Domain relations, Product law, or Product behavior. |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
@@ -90,14 +91,14 @@ operator named.
 
 ### 2.1 Value statement invariant
 
-Every Epic and every change must carry a **one-sentence value statement**,
+Every Initiative and every work item must carry a **one-sentence value statement**,
 recorded at creation and reviewed at each gate. It is not a marketing blurb; it
 answers:
 
 > *If this succeeds, what concrete product capability or risk is changed?*
 
 The value statement is part of the durable workflow record and is visible in the
-Product → component browse surface.
+Product → Domain browse surface.
 
 The value statement answers *why the work matters*. It does not answer *what must
 be true when the work is done*, and it is not falsified by a weaker delivery — a
@@ -135,6 +136,13 @@ See [`clarifications.md`](./clarifications.md) R3.
 
 See [`clarifications.md`](./clarifications.md) R2.
 
+CD-0041 adds one non-optional preflight for Product-changing workflow types. An
+approved contract carries one home Domain, all affected Domains, exact governing
+law revisions, authorized law/Domain/relation modifications, and law-linked
+verification obligations. Overlap with another nonterminal Product-changing
+contract requires a current, version-pinned resolution before both items hold
+execution authority. The same check reruns at every consequential mutation.
+
 ### 2.4 Minimal active-work visibility
 
 Default Concord views are intentionally minimal:
@@ -147,15 +155,18 @@ Default Concord views are intentionally minimal:
 This applies to the terminal launcher, any admin panel, and agent-tool read
 surfaces.
 
-### 2.5 Product → component navigation
+### 2.5 Product → Domain navigation
 
-Workflows are reached primarily by **Product → component**, not by a flat list of
-changes.
+Workflows are reached primarily by **Product → Domain**, not by a flat list of
+changes or Initiatives.
 
-- A Product owns components (repos, services, capabilities).
-- Each component lists its active workflows, specs, and recent changes.
-- A workflow or change is **linked history** from the component view, not the
+- A Product owns canonical Domains; Projects and resources attach without becoming
+  architecture identity.
+- Each Domain lists current law, typed dependencies, active workflows, evidence,
+  decisions, resources, and recent changes.
+- A workflow or change is **architecture-bound history** from the Domain view, not the
   top-level browse path.
+- Initiative is a secondary business/outcome overlay across Domain-bound work.
 
 ---
 
@@ -173,7 +184,7 @@ Concord covers the full spectrum of work a Product accumulates:
 | **Infrastructure** | Ops runbook | Azure jobs, crons, deployed services; signal-aware. |
 | **Options research** | Research / investigation | Compare alternatives; may resolve to "no change." |
 | **Evidence research** | Research / investigation | Gather source evidence for a decision. |
-| **Architectural decision / de-risking** | Architecture spike | Decides, rather than ships. Binding decision record; hard-blocks dependent Epic entries. See [`architecture-spike.md`](./architecture-spike.md). |
+| **Architectural decision / de-risking** | Architecture spike | Decides, rather than ships. Binding decision record; hard-blocks dependent Initiative entries. See [`architecture-spike.md`](./architecture-spike.md). |
 | **RCA (root-cause analysis)** | Investigation / static-analysis variant | Defect-driven; produces durable findings. |
 | **Static-analysis variants** | Purpose-built analysis workflows | Architecture-inconsistency, AI-slop, spec/impl drift, etc. |
 
@@ -188,7 +199,7 @@ implementation change.
 
 | Type | Work kind | Shape | Replaces / relates |
 |---|---|---|---|
-| **Epic / initiative** | Product-scoped finite initiative | Frame value/scope → order independent child work → maintain shared active context → close only when required children/conditions are terminal; no nested execution | CD-0009 resolves the former standalone Epic container into ordinary work identity. |
+| **Initiative** | Product-scoped finite business/outcome context | Frame value/scope → order independent Domain-bound work → maintain shared active context → close only when required entries/conditions are terminal; no nested execution or architecture authority | CD-0041 amends CD-0009: Initiative replaces Epic through a bounded major migration and remains an ordinary work identity. |
 | **Implementation change** | Spec-driven code work | 7 gates, spec deltas, contract | The existing ADV workflow — kept as the heaviest type. |
 | **Research / investigation** | Open-ended; may never become a change | Lightweight; gateless or few steps; ordinary `kind=research` work owning a CD-0009 active research pack; produces findings and may conclude `no change` | Today forced into premature changes or lost. |
 | **Architecture spike** | Architectural decision / de-risking | Frame → research → options → optional throwaway POC → decision record → reviewer → user acceptance; flat (has tasks, no sub-spikes); no timebox | Peer to the implementation change. Distinct from research: research *may* resolve to "no change"; a spike *must* resolve to a decision, and that decision **binds until superseded**. Full model: [`architecture-spike.md`](./architecture-spike.md). |
@@ -249,7 +260,7 @@ The skills may remain as the *methodology* the workflow type loads, but the
 |---|---|
 | `feature-inventory.md` §3.13 | The capability entry. |
 | [`architecture-spike.md`](./architecture-spike.md) | Full model for the architecture-spike type (§3 taxonomy, §4 example table). |
-| `product-data-model.md` §6 | Product → component navigation. |
+| `product-data-model.md` §6 | Product → Domain navigation. |
 | [`workflows.md`](./workflows.md) §1 | The 7-gate implementation change (Transfer) — one workflow type among many. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
 | `design-constraints.md` §3 | Workflow evolution without migration — now applies to a *plurality* of types. |

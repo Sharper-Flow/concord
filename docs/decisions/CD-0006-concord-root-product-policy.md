@@ -5,6 +5,8 @@
 **Decision owner:** Operator
 **Scope:** Concord purpose, workflow constitution, governance, operator boundary,
 knowledge authority, audience policy, release evidence, and Advance migration.
+**Amended by:** CD-0041 adds Domain-bound Product law, architecture-overlap
+resolution, and the revised priority order to D5/D10/R3.
 
 ## Context
 
@@ -68,7 +70,7 @@ visibility, or observed traffic. Concord never infers it.
 
 Maturity and audience commitment contribute independent evidence obligations; the
 combined work must satisfy both. Concord defines a global minimum policy.
-Product/component/resource policy may strengthen that floor but never weaken it.
+Product/Domain/resource policy may strengthen that floor but never weaken it.
 Concrete obligation bands are accepted in §Resolved research R2.
 
 ### D5. Specs are human-enacted laws

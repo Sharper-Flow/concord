@@ -1,13 +1,13 @@
 # Concord Self-Documentation
 
-> **Status:** Aligned v3 with CD-0006. Companion to [`README.md`](./README.md),
+> **Status:** Aligned v4 with CD-0006/CD-0041. Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`design-constraints.md`](./design-constraints.md),
 > [`product-data-model.md`](./product-data-model.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`workflows.md`](./workflows.md).
-> **Purpose:** Concord is self-documenting — users/agents can **browse the spec law
-> by Product and component** and **see into the durable documents** every
+> **Purpose:** Concord is self-documenting — users/agents can **browse current
+> Product law through its Domain architecture** and **see into the durable documents** every
 > workflow creates. This doc covers the self-documentation surfaces *and* the
 > optimal IO/storage/memory model for them.
 > **Primary surface:** Terminal-first tools; an optional admin panel is a
@@ -16,8 +16,8 @@
 
 ## TL;DR
 
-Concord is self-documenting. Open it and you can: (1) **browse the spec law
-organized by Product and component**; (2) **see into the durable documents** every
+Concord is self-documenting. Open it and you can: (1) **browse current Product
+law through Product → Domain**; (2) **see into the durable documents** every
 workflow type declares. These surfaces are **first-class read targets with
 optimal IO/storage/memory** — not opaque files on disk. The default view is
 minimal: active gates and problems first; history is one click down.
@@ -29,12 +29,14 @@ follows them without restating the ranked list.
 
 ## 1. The three self-documentation surfaces
 
-### 1.1 Spec law, browsable by Product and component
+### 1.1 Spec law, browsable by Product and Domain
 - The spec system (capabilities → requirements → scenarios) is **navigable by
-  Product → component**. Open Concord → see the Product → component tree → drill
-  into a component's capabilities, requirements, scenarios, and deltas.
-- ADV has `adv_spec` (list/show/search); Concord makes it a **browsable,
-  navigable surface** — via tools and, optionally, in a lightweight admin panel.
+  Product → Domain**. Open Concord → see the Product → Domain hierarchy and
+  typed architecture relations → drill into a Domain's current capabilities,
+  requirements, scenarios, decisions, and deltas.
+- Public predecessor evidence proved the value of bounded spec list/show/search;
+  Concord redesigns that outcome as a Domain-bound, browsable surface rather than
+  calling or mirroring predecessor runtime state.
 - The primary operator surface is the **Product-first terminal launcher**, not a
   web admin panel. Any grid/table view is an optional projection.
 - Connects to [`specs-as-laws.md`](./specs-as-laws.md): the laws are **visible**,
@@ -47,7 +49,8 @@ follows them without restating the ranked list.
 - These must be **visible** — a user can open Concord and trace any change's full
   document trail, end to end.
 - Not opaque files; **navigable, linked, queryable**.
-- They are reached from the **Product → component** view, not from a flat list.
+- They are reached from the **Product → Domain** view, not from a flat list or
+  Initiative hierarchy.
 
 ### 1.3 Lifecycle truth, factored
 - See [`clarifications.md`](./clarifications.md) R3.
@@ -77,13 +80,13 @@ browse constantly); if it's slow or memory-heavy, the whole platform feels heavy
   cheap to cache/proxy. (Couples to `design-constraints.md` §4.)
 - **Projection-derived reads** — browse views are projections over the doc store;
   reads don't re-parse raw files. Sub-100ms browsing.
-- **Memory-bounded** — browsing a large spec/component tree must **not** load
+- **Memory-bounded** — browsing a large Product/Domain law graph must **not** load
   everything; lazy / paginated / streaming reads. A Product with thousands of
   changes + specs browses as fast as a small one.
 - **Append-only history** — documents are versioned append-only (couples to
   no-history-repair, `design-constraints.md` §4). Browsing shows current state;
   history is queryable but never mutated.
-- **Locality** — a component's specs + its changes' documents are co-located and
+- **Locality** — a Domain's law + its changes' documents are co-located and
   navigable together (P04; see [`product-data-model.md`](./product-data-model.md)
   §3, §6).
 - **Factored lifecycle** — the orchestrator is the single source of lifecycle
@@ -102,7 +105,7 @@ Default self-documentation views are minimal by design:
 - Show **active gates** and **active problems** first.
 - Show **what blocks execution right now**.
 - Completed history, archived changes, and historical projections are available
-  through explicit drill-down, not cluttering the default Product/component view.
+  through explicit drill-down, not cluttering the default Product/Domain view.
 - This applies to the terminal launcher, the optional admin panel, and agent-tool
   read surfaces.
 
@@ -112,6 +115,11 @@ Self-documentation surfaces display authority/freshness indicators, not hidden
 guesses. CD-0006 R3's declared edges, completion notices, boundary verdicts, and
 version stamps are authoritative; browse views must not invent or silently clear
 impact state.
+
+CD-0041 adds the active architecture footprint: affected Domains, exact law pins,
+write overlaps, and the current version-pinned resolution. The default Domain
+view surfaces unresolved overlap as a blocking problem. Initiative membership is
+display context only and never clears that state.
 
 ---
 
@@ -134,7 +142,7 @@ impact state.
 |---|---|
 | `feature-inventory.md` §3.12 | The capability entry. |
 | `specs-as-laws.md` | The laws being browsed. |
-| `product-data-model.md` §6 | Specs/artifacts scoped to a Product/component (locality). |
+| `product-data-model.md` §6 | Law/artifacts scoped to a Product/Domain (locality). |
 | `workflows.md` §2.2–§2.5 | Factored lifecycle, minimal active-work visibility, staleness rules. |
 | `design-constraints.md` §4 + §9 | The storage model and self-documentation constraint for these surfaces. |
 

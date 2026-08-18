@@ -3,6 +3,8 @@
 **Status:** Accepted.
 **Approval date:** 2026-08-11.
 **Approval:** Operator approval for GitHub issue #44.
+**Amended by:** CD-0041 gives every law one Domain home and composes these
+relations with architecture-bound work contracts and overlap checks.
 
 ## Decision
 

@@ -1,19 +1,21 @@
 # Concord Specs-as-Laws: Conflict Surfacing & Evolution
 
-> **Status:** Draft v1. Companion to [`README.md`](./README.md),
-> [`feature-inventory.md`](./feature-inventory.md).
-> **Purpose:** How Concord evolves ADV's "specs as laws" model — preserving the
-> pushback strength while fixing the **silent-scope-cut** failure with proper
-> HITL conflict surfacing.
+> **Status:** Aligned v2 under CD-0006, CD-0015, CD-0035, CD-0036, and
+> CD-0041. Those accepted decisions are binding; this companion explains them.
+> **Purpose:** How Concord makes pruned, architecture-bound specifications its
+> primary Product deliverable while preserving human legislative authority and
+> preventing silent scope cuts or contradictory concurrent work.
 > **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
 
-Specs remain laws — agents still get pushed back when they'd violate one. But
-when a **user's request** challenges an existing spec law, Concord **surfaces the
-conflict via HITL** and lets the user choose: *clarify intent*, *evolve the spec*,
-or *consciously accept scope reduction*. Agents **never silently cut scope** to
-comply with a law — **the user is the legislator.**
+Specs are Product law, organized through one canonical Domain architecture. When
+a **user's request** challenges existing law, Concord surfaces the conflict and
+lets the user choose: *clarify intent*, *evolve the spec*, or *consciously accept
+scope reduction*. Agents never silently cut scope. Concurrent Product-changing
+work also declares its Domain footprint and exact law revisions, so two cleanly
+merging changes cannot silently enact contradictory Product truth. **The user is
+the legislator.**
 
 ---
 
@@ -117,6 +119,28 @@ CD-0036 separates compatible amendment from breaking replacement:
 This rule removes the overwrite-or-replace guess from workflow authority. The
 operator's Git delta declares the answer, and Concord enforces its consequence.
 
+CD-0041 makes Product law architecture-bound and primary:
+
+- every current specification and decision has exactly one home Domain;
+- every Product-changing work contract names one home Domain, all affected
+  Domains, exact governing law revisions, authorized additions/modifications,
+  and verification obligations;
+- overlapping affected Domains require an operator-approved, version-pinned
+  compatibility, sequencing, merger, supersession, or terminal resolution before
+  both items hold execution authority;
+- changing either work contract invalidates its prior overlap resolution; and
+- the checks rerun transactionally at every authoritative consequential action.
+
+Exact law-write overlap is not the only trigger. Independently introduced law can
+contradict inside one Domain without sharing an ID, so same-Domain overlap still
+requires an explicit decision. Semantic similarity may suggest that review; it
+cannot author the decision.
+
+The current-law view stays pruned structurally: one canonical Domain home per law,
+explicit supersession, no dangling relations, and superseded law outside the
+default browse path. Semantic deduplication remains human-owned because no
+heuristic can prove two obligations equivalent.
+
 ---
 
 ## 6. Auditability
@@ -127,23 +151,27 @@ shows the legislative moments explicitly.
 
 ---
 
-## 7. Relationship to ADV today
+## 7. Relationship to predecessor evidence
 
-| ADV today | Concord treatment |
+| Public predecessor behavior | Concord treatment |
 |---|---|
-| `adv_change_validate` (Transfer §1.3) | **Extended** — detection mechanism now surfaces conflicts HITL instead of only flagging. |
-| `adv_delta_modify` / `remove` / `rename` (Transfer §1.3) | **Reused** — the evolution mechanism; already exists. Option (b) uses them directly. |
-| Agreement / design gates (Transfer §1.1) | **Enhanced** — where conflicts surface; the choice (a/b/c) is recorded. |
-| Conflict-surfacing flow + structural enforcement + audit | **New** — layered on the transferred foundation. |
+| Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
+| Spec deltas modified or superseded accepted law | **Preserved as an outcome** through operator-approved Git law deltas and revision identity. |
+| Agreement/design checkpoints surfaced legislative choices | **Preserved as human authority** without requiring one universal workflow shape. |
+| Cross-change architecture overlap was not authoritative | **Added by CD-0041** through Domain-bound contracts and version-pinned resolutions. |
+
+Concord does not call, mirror, or dual-write predecessor runtime state. These rows
+record public lesson evidence only.
 
 ---
 
-## 8. Remaining implementation question
+## 8. Implementation state
 
-The root policy and CD-0036 cutover mechanism are accepted. Issue #170 owns the
-cutover implementation. Capture-time detection of a silently omitted governing
-requirement remains issue #167; instruction-only enforcement is still
-insufficient.
+CD-0035 capture-time governing-requirement enforcement and CD-0036 breaking-law
+cutovers are implemented. CD-0041 is accepted constitutional law, but its Domain
+identity, architecture-bound contract, overlap-resolution, Initiative migration,
+and read-surface mechanisms remain follow-up implementation work. Issue #192 does
+not claim those runtime outcomes are complete.
 
 ---
 
@@ -155,9 +183,9 @@ insufficient.
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws, the user is the legislator. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
 | [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and strict quiescence on law supersession. |
+| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | **Accepted CD-0041** — Domain-owned law, architecture-bound work contracts, concurrent-overlap resolution, Initiative's secondary role, and retained SQLite authority. |
 
 ---
 
-*The strength of specs-as-laws is preserved; the failure of silent compliance is
-removed. Laws still bind agents — but only the legislator can change them, and
-only the legislator can choose to cut scope to fit them.*
+*Specifications are Concord's Product deliverable. Laws bind agents through one
+Domain architecture; only the legislator can change them or accept a scope cut.*

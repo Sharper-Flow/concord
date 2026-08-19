@@ -744,3 +744,36 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 		}
 	}
 }
+
+func TestMigration38AddsDomainLawAndC15ProjectionTables(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	db := s.DatabaseForTesting()
+	for _, table := range []string{
+		"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes",
+		"law_domain_applicability", "archived_work_domains", "domain_project_attachment_sets",
+		"domain_project_attachment_edges", "domain_resource_attachment_sets",
+		"domain_resource_attachment_edges", "managed_resources", "resource_products",
+	} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("table %s count=%d err=%v", table, count, err)
+		}
+	}
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 38 {
+		t.Fatalf("schema version=%d err=%v, want 38", version, err)
+	}
+	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
+		var err error
+		if _, err = db.ExecContext(ctx, "INSERT INTO "+table+" DEFAULT VALUES"); err == nil {
+			t.Fatalf("direct write to %s bypassed fold guard", table)
+		}
+	}
+	for _, table := range []string{"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes", "law_domain_applicability", "domain_project_attachment_sets", "domain_resource_attachment_sets"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?`, table+"_guard_insert").Scan(&count); err != nil || count != 1 {
+			t.Fatalf("fold guard for %s count=%d err=%v", table, count, err)
+		}
+	}
+}

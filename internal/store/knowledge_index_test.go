@@ -1,13 +1,16 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +149,75 @@ func TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata(t *testi
 			_, err := parseKnowledgeNote([]byte(content))
 			assertFailureKind(t, err, KindInvalidNoteProof)
 		})
+	}
+}
+
+func TestKnowledgeNoteDomainScopeCompatibilityAndWriteBoundary(t *testing.T) {
+	legacy := strings.Replace(canonicalWorkNote("legacy-scope", "2026-08-07T00:00:00Z"), "domain_ids: [auth]", "component_ids: [auth]", 1)
+	note, err := parseKnowledgeNote([]byte(legacy))
+	if err != nil || !note.HasComponentIDs || note.HasDomainIDs || !reflect.DeepEqual(note.ComponentIDs, []string{"auth"}) {
+		t.Fatalf("legacy note = %#v, err %v", note, err)
+	}
+	empty := strings.Replace(canonicalWorkNote("empty-scope", "2026-08-07T00:00:00Z"), "domain_ids: [auth]", "domain_ids: []", 1)
+	note, err = parseKnowledgeNote([]byte(empty))
+	if err != nil || !note.HasDomainIDs || len(note.DomainIDs) != 0 {
+		t.Fatalf("empty Domain scope = %#v, err %v", note, err)
+	}
+	both := strings.Replace(legacy, "component_ids: [auth]", "component_ids: [auth]\ndomain_ids: [auth]", 1)
+	if _, err := parseKnowledgeNote([]byte(both)); err == nil {
+		t.Fatal("expected mixed component/domain front matter to be rejected")
+	}
+	repo := initKnowledgeRepo(t)
+	if _, err := PublishCanonicalNote(context.Background(), KnowledgeHome{RepoPath: repo}, "legacy-scope", legacy, ""); err == nil {
+		t.Fatal("expected new note publication to reject component_ids")
+	}
+	missing := strings.Replace(canonicalWorkNote("missing-domain-scope", "2026-08-07T00:00:00Z"), "domain_ids: [auth]\n", "", 1)
+	if _, err := PublishCanonicalNote(context.Background(), KnowledgeHome{RepoPath: repo}, "missing-domain-scope", missing, ""); err == nil {
+		t.Fatal("expected new note publication to require domain_ids")
+	}
+}
+
+func TestCompactionPayloadRequiresExplicitUniqueScopeArrays(t *testing.T) {
+	valid := compactionLinkPayload{LessonTags: []string{}, ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}
+	if err := validateCompactionScopeArrays(valid); err != nil {
+		t.Fatalf("valid empty scopes rejected: %v", err)
+	}
+	missing := valid
+	missing.DomainIDs = nil
+	if err := validateCompactionScopeArrays(missing); err == nil {
+		t.Fatal("missing domain_ids accepted")
+	}
+	duplicate := valid
+	duplicate.DomainIDs = []string{"auth", "auth"}
+	if err := validateCompactionScopeArrays(duplicate); err == nil {
+		t.Fatal("duplicate domain_ids accepted")
+	}
+}
+
+func TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder(t *testing.T) {
+	original, err := json.Marshal(compactionLinkPayloadV1{
+		ID: "work", Type: "work_note", Title: "Title", CompletedAt: "2026-08-07T00:00:00Z", OutcomeTag: "shipped",
+		LessonTags: []string{}, TerminalState: "completed", Summary: "Summary", ProductIDs: []string{}, ProjectIDs: []string{},
+		ComponentIDs: []string{"z-domain", "a-domain"}, TagIDs: []string{}, HomeProjectID: "project", HomeLocatorID: "locator",
+		NotePath: "docs/work/note.md", CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "test", ExpectedVersion: 1, ResultingVersion: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := Event{PayloadVersion: 1, Payload: original}
+	upcasted, err := upcastCompactionLinkPublishedV1(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(event.Payload, original) || upcasted.PayloadVersion != 2 {
+		t.Fatal("upcast mutated the source event or did not advance version")
+	}
+	var current compactionLinkPayload
+	if err := json.Unmarshal(upcasted.Payload, &current); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(current.DomainIDs, []string{"z-domain", "a-domain"}) || strings.Contains(string(upcasted.Payload), "component_ids") {
+		t.Fatalf("upcast payload = %s", upcasted.Payload)
 	}
 }
 
@@ -419,7 +491,7 @@ func canonicalWorkNote(id, completed string) string {
 		"summary: Bounded summary\n" +
 		"product_ids: [prod-alpha]\n" +
 		"project_ids: [proj-web]\n" +
-		"component_ids: [auth]\n" +
+		"domain_ids: [auth]\n" +
 		"tag_ids: [auth, release]\n" +
 		"---\n\nDurable note.\n"
 }

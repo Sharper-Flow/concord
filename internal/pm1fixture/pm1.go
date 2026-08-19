@@ -551,7 +551,7 @@ func CanonicalWorkNote(id, completed, terminalState, project string) string {
 		"summary: Bounded summary\n" +
 		"product_ids: [prod-alpha]\n" +
 		"project_ids: [" + project + "]\n" +
-		"component_ids: [auth]\n" +
+		"domain_ids: [auth]\n" +
 		"tag_ids: [auth, release]\n" +
 		"---\n\nDurable note.\n"
 }
@@ -570,7 +570,7 @@ func canonicalKnowledgeNote(id, kind, completed string, tags []string) string {
 		"summary: Durable summary\n" +
 		"product_ids: [prod-alpha]\n" +
 		"project_ids: []\n" +
-		"component_ids: [state]\n" +
+		"domain_ids: [state]\n" +
 		"tag_ids: [" + tagList + "]\n" +
 		"---\n\nDurable knowledge.\n"
 }

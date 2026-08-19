@@ -6,17 +6,68 @@
   "additionalProperties": false,
   "required": ["schema_version", "supported_kinds", "indexed_kinds", "records"],
   "properties": {
-    "schema_version": {"enum": ["1.0", "1.1"]},
+    "schema_version": {"enum": ["1.0", "1.1", "1.2"]},
     "supported_kinds": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec", "research"]}},
     "indexed_kinds": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec"]}},
+    "domain_registry": {"$ref": "#/$defs/domainRegistry"},
     "records": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/record"}}
   },
   "allOf": [
-    {"if": {"properties": {"schema_version": {"const": "1.0"}}, "required": ["schema_version"]}, "then": {"properties": {"records": {"items": {"not": {"required": ["law_relations"]}}}}}}
+    {
+      "if": {"properties": {"schema_version": {"const": "1.0"}}, "required": ["schema_version"]},
+      "then": {
+        "not": {"required": ["domain_registry"]},
+        "properties": {"records": {"items": {"allOf": [{"$ref": "#/$defs/recordV10"}, {"not": {"required": ["law_relations"]}}]}}}
+      }
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": "1.1"}}, "required": ["schema_version"]},
+      "then": {
+        "not": {"required": ["domain_registry"]},
+        "properties": {"records": {"items": {"$ref": "#/$defs/recordV10"}}}
+      }
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": "1.2"}}, "required": ["schema_version"]},
+      "then": {
+        "required": ["domain_registry"],
+        "properties": {"records": {"items": {"$ref": "#/$defs/recordV12"}}}
+      }
+    }
   ],
   "$defs": {
     "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S(?:.*\\S)?$"},
     "ids": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "scopeCommon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "product_ids", "project_ids", "tag_ids"],
+      "properties": {
+        "mode": {"enum": ["home", "explicit"]},
+        "product_ids": {"$ref": "#/$defs/ids"},
+        "project_ids": {"$ref": "#/$defs/ids"},
+        "component_ids": {"$ref": "#/$defs/ids"},
+        "domain_ids": {"$ref": "#/$defs/ids"},
+        "tag_ids": {"$ref": "#/$defs/ids"}
+      },
+      "allOf": [
+        {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"product_ids": {"maxItems": 0}, "project_ids": {"maxItems": 0}, "tag_ids": {"maxItems": 0}}}}
+      ]
+    },
+    "scopeV10": {
+      "allOf": [
+        {"$ref": "#/$defs/scopeCommon"},
+        {"type": "object", "required": ["component_ids"], "properties": {"component_ids": {"$ref": "#/$defs/ids"}, "domain_ids": false}},
+        {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"component_ids": {"maxItems": 0}}}}
+      ]
+    },
+    "scopeV12": {
+      "allOf": [
+        {"$ref": "#/$defs/scopeCommon"},
+        {"type": "object", "required": ["domain_ids"], "properties": {"domain_ids": {"$ref": "#/$defs/ids"}, "component_ids": false}},
+        {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"domain_ids": {"maxItems": 0}}}}
+      ]
+    },
     "record": {
       "type": "object",
       "additionalProperties": false,
@@ -30,24 +81,12 @@
         "title": {"type": "string", "minLength": 1, "maxLength": 256},
         "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
         "tags": {"$ref": "#/$defs/ids"},
-        "scopes": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["mode", "product_ids", "project_ids", "component_ids", "tag_ids"],
-          "properties": {
-            "mode": {"enum": ["home", "explicit"]},
-            "product_ids": {"$ref": "#/$defs/ids"},
-            "project_ids": {"$ref": "#/$defs/ids"},
-            "component_ids": {"$ref": "#/$defs/ids"},
-            "tag_ids": {"$ref": "#/$defs/ids"}
-          },
-          "allOf": [
-            {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"product_ids": {"maxItems": 0}, "project_ids": {"maxItems": 0}, "component_ids": {"maxItems": 0}, "tag_ids": {"maxItems": 0}}}}
-          ]
-        },
+        "scopes": {"oneOf": [{"$ref": "#/$defs/scopeV10"}, {"$ref": "#/$defs/scopeV12"}]},
         "successor": {"$ref": "#/$defs/id"},
         "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-        "law_relations": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/lawRelation"}}
+        "law_relations": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/lawRelation"}},
+        "home_domain_id": {"$ref": "#/$defs/id"},
+        "applies_to_domain_ids": {"$ref": "#/$defs/ids"}
       },
       "allOf": [
         {"if": {"properties": {"kind": {"const": "lesson"}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["published", "superseded"]}}}},
@@ -58,14 +97,66 @@
         {"if": {"properties": {"law_relations": {}}, "required": ["law_relations"]}, "then": {"properties": {"kind": {"enum": ["decision", "spec"]}}}}
       ]
     },
+    "recordV10": {
+      "allOf": [
+        {"$ref": "#/$defs/record"},
+        {"properties": {"scopes": {"$ref": "#/$defs/scopeV10"}}},
+        {"not": {"anyOf": [{"required": ["home_domain_id"]}, {"required": ["applies_to_domain_ids"]}]}}
+      ]
+    },
+    "recordV12": {
+      "allOf": [
+        {"$ref": "#/$defs/record"},
+        {"properties": {"scopes": {"$ref": "#/$defs/scopeV12"}}},
+        {"if": {"properties": {"kind": {"enum": ["decision", "spec"]}, "status": {"const": "accepted"}}, "required": ["kind", "status"]}, "then": {"required": ["home_domain_id"]}},
+        {"if": {"properties": {"kind": {"const": "lesson"}}, "required": ["kind"]}, "then": {"not": {"anyOf": [{"required": ["home_domain_id"]}, {"required": ["applies_to_domain_ids"]}]}}},
+        {"if": {"required": ["applies_to_domain_ids"]}, "then": {"required": ["home_domain_id"]}}
+      ]
+    },
+    "domainRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "product_key", "root_domain_id", "domains"],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "product_key": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+        "root_domain_id": {"type": "string", "pattern": "^product-root:[a-z][a-z0-9-]{1,63}$"},
+        "domains": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/domain"}}
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain_id", "name", "purpose", "status", "architecture_relations"],
+      "properties": {
+        "domain_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "purpose": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "parent_domain_id": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["current", "deprecated"]},
+        "architecture_relations": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/architectureRelation"}}
+      }
+    },
+    "architectureRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target_domain_id"],
+      "properties": {
+        "kind": {"enum": ["depends_on", "shares_contract_with", "replaces"]},
+        "target_domain_id": {"$ref": "#/$defs/id"},
+        "governing_law_ids": {"$ref": "#/$defs/ids"},
+        "state": {"enum": ["declared", "building", "coexisting", "cutover", "retired"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"enum": ["depends_on", "shares_contract_with"]}}, "required": ["kind"]}, "then": {"required": ["governing_law_ids"], "properties": {"governing_law_ids": {"minItems": 1}}, "not": {"required": ["state"]}}},
+        {"if": {"properties": {"kind": {"const": "replaces"}}, "required": ["kind"]}, "then": {"required": ["state"], "not": {"required": ["governing_law_ids"]}}}
+      ]
+    },
     "lawRelation": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "target_id"],
-      "properties": {
-        "kind": {"enum": ["supersedes", "refines", "subordinate_to", "conflicts_with"]},
-        "target_id": {"$ref": "#/$defs/id"}
-      }
+      "properties": {"kind": {"enum": ["supersedes", "refines", "subordinate_to", "conflicts_with"]}, "target_id": {"$ref": "#/$defs/id"}}
     }
   }
 }

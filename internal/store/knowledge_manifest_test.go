@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -47,6 +48,171 @@ func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.
 			}
 		})
 	}
+}
+
+func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
+	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
+	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
+		t.Fatalf("valid 1.2 manifest rejected: %v", err)
+	}
+	for name, raw := range map[string]string{
+		"missing domain registry": strings.Replace(valid, `,"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]}`, "", 1),
+		"missing domain scope":    strings.Replace(valid, `"domain_ids":[]`, `"component_ids":[]`, 1),
+		"missing law home":        strings.Replace(valid, `,"home_domain_id":"product-root:concord"`, "", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseKnowledgeManifest([]byte(raw)); err == nil {
+				t.Fatal("invalid 1.2 manifest accepted")
+			}
+		})
+	}
+}
+
+func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {
+	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"superseded","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"successor":"CD-0002","home_domain_id":"product-root:concord","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"},{"id":"CD-0002","kind":"decision","path":"docs/decisions/CD-0002.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Successor","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","law_relations":[{"kind":"supersedes","target_id":"CD-0001"}],"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
+	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
+		t.Fatalf("superseded law with home and empty applicability rejected: %v", err)
+	}
+	missingHome := strings.Replace(valid, `,"home_domain_id":"product-root:concord","applies_to_domain_ids":[]`, `,"applies_to_domain_ids":["product-root:concord"]`, 1)
+	if _, err := parseKnowledgeManifest([]byte(missingHome)); err == nil {
+		t.Fatal("superseded law applicability without a home was accepted")
+	}
+}
+
+func TestKnowledgeManifestV12RejectsInvalidDomainRelations(t *testing.T) {
+	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[{"kind":"depends_on","target_domain_id":"product-root:concord","governing_law_ids":["CD-0001"]}]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
+	if _, err := parseKnowledgeManifest([]byte(valid)); err == nil {
+		t.Fatal("self-referential domain dependency accepted")
+	}
+}
+
+func TestKnowledgeDomainRegistryHashIsDeterministicAndNonMutating(t *testing.T) {
+	first := KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+		Domains: []KnowledgeDomain{
+			{DomainID: "zeta", Name: "Zeta", Purpose: "Zeta domain", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "alpha", GoverningLawIDs: []string{"CD-0002", "CD-0001"}}}},
+			{DomainID: "alpha", Name: "Alpha", Purpose: "Alpha domain", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+		},
+	}
+	second := KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+		Domains: []KnowledgeDomain{
+			{DomainID: "alpha", Name: "Alpha", Purpose: "Alpha domain", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: "zeta", Name: "Zeta", Purpose: "Zeta domain", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "alpha", GoverningLawIDs: []string{"CD-0001", "CD-0002"}}}},
+		},
+	}
+	original := first.Domains[0].ArchitectureRelations[0].GoverningLawIDs
+	if got, want := domainRegistryContentHash(first), domainRegistryContentHash(second); got == "" || got != want {
+		t.Fatalf("registry hashes = %q and %q", got, want)
+	}
+	if !reflect.DeepEqual(first.Domains[0].ArchitectureRelations[0].GoverningLawIDs, original) {
+		t.Fatal("hash normalization mutated caller-owned governing law IDs")
+	}
+}
+
+func TestMigrateLegacyKnowledgeManifestMapsD9ScopesDeterministically(t *testing.T) {
+	legacy := legacyManifestForDomainMigration()
+	before := legacy
+	before.Records = append([]KnowledgeRecord{}, legacy.Records...)
+	for index := range before.Records {
+		before.Records[index].Scopes.ComponentIDs = append([]string{}, legacy.Records[index].Scopes.ComponentIDs...)
+	}
+	migrated, err := MigrateLegacyKnowledgeManifest(legacy, "concord", "note-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(legacy, before) {
+		t.Fatal("migration mutated its caller-owned manifest")
+	}
+	if err := validateKnowledgeManifest(migrated); err != nil {
+		t.Fatalf("migrated manifest is invalid: %v", err)
+	}
+	if got, want := migrated.DomainRegistry.RootDomainID, "product-root:concord"; got != want {
+		t.Fatalf("root domain = %q, want %q", got, want)
+	}
+	if got := migrated.DomainRegistry.Domains; len(got) != 4 || got[0].DomainID != "product-root:concord" || got[1].DomainID != "alpha" || got[2].DomainID != "note-only" || got[3].DomainID != "zeta" || got[1].ParentDomainID != "product-root:concord" || got[2].ParentDomainID != "product-root:concord" || got[3].ParentDomainID != "product-root:concord" {
+		t.Fatalf("domains = %#v", got)
+	}
+	byID := map[string]KnowledgeRecord{}
+	for _, record := range migrated.Records {
+		byID[record.ID] = record
+		if record.Scopes.ComponentIDs != nil || !record.Scopes.domainIDsPresent {
+			t.Fatalf("record %s retained component scope: %#v", record.ID, record.Scopes)
+		}
+	}
+	if got := byID["CD-0001-zero"]; got.HomeDomainID != "product-root:concord" || len(got.AppliesToDomainIDs) != 0 || len(got.Scopes.DomainIDs) != 0 {
+		t.Fatalf("zero-component law = %#v", got)
+	}
+	if got := byID["CD-0002-one"]; got.HomeDomainID != "zeta" || len(got.AppliesToDomainIDs) != 0 || !reflect.DeepEqual(got.Scopes.DomainIDs, []string{"zeta"}) || !reflect.DeepEqual(got.LawRelations, []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0003-many"}}) {
+		t.Fatalf("one-component law = %#v", got)
+	}
+	if got := byID["CD-0003-many"]; got.HomeDomainID != "product-root:concord" || !reflect.DeepEqual(got.AppliesToDomainIDs, []string{"alpha", "zeta"}) || !reflect.DeepEqual(got.Scopes.DomainIDs, []string{"alpha", "zeta"}) || got.Successor != "CD-0002-one" {
+		t.Fatalf("many-component historical law = %#v", got)
+	}
+	if got := byID["lesson-1"]; got.HomeDomainID != "" || got.AppliesToDomainIDs != nil || !reflect.DeepEqual(got.Scopes.DomainIDs, []string{"alpha"}) {
+		t.Fatalf("lesson migration = %#v", got)
+	}
+
+	reordered := legacyManifestForDomainMigration()
+	reordered.Records[2].Scopes.ComponentIDs = []string{"alpha", "zeta"}
+	again, err := MigrateLegacyKnowledgeManifest(reordered, "concord", "note-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(migrated, again) {
+		t.Fatalf("set-equivalent component order produced different migrations:\n%#v\n%#v", migrated, again)
+	}
+}
+
+func TestMigrateLegacyKnowledgeManifestAcceptsV10(t *testing.T) {
+	legacy := legacyManifestForDomainMigration()
+	legacy.SchemaVersion = "1.0"
+	legacy.Records = append([]KnowledgeRecord{}, legacy.Records[:2]...)
+	legacy.Records[1].LawRelations = nil
+	migrated, err := MigrateLegacyKnowledgeManifest(legacy, "concord")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.SchemaVersion != "1.2" || migrated.DomainRegistry.RootDomainID != "product-root:concord" {
+		t.Fatalf("v1.0 migration = %#v", migrated)
+	}
+}
+
+func TestMigrateLegacyKnowledgeManifestRejectsInvalidInputs(t *testing.T) {
+	legacy := legacyManifestForDomainMigration()
+	for name, test := range map[string]struct {
+		manifest   KnowledgeManifest
+		productKey string
+		want       FailureKind
+	}{
+		"invalid product key": {manifest: legacy, productKey: "Concord", want: KindInvalidNoteProof},
+		"non-legacy schema":   {manifest: func() KnowledgeManifest { candidate := legacy; candidate.SchemaVersion = "1.2"; return candidate }(), productKey: "concord", want: KindInvalidNoteProof},
+		"derived root collision": {manifest: func() KnowledgeManifest {
+			candidate := legacy
+			candidate.Records = append([]KnowledgeRecord{}, legacy.Records...)
+			candidate.Records[0].Scopes.ComponentIDs = []string{"product-root:concord"}
+			candidate.Records[0].Scopes.Mode = "explicit"
+			return candidate
+		}(), productKey: "concord", want: KindKnowledgeAmbiguous},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := MigrateLegacyKnowledgeManifest(test.manifest, test.productKey)
+			assertFailureKind(t, err, test.want)
+		})
+	}
+}
+
+func legacyManifestForDomainMigration() KnowledgeManifest {
+	base := func(id, kind, path, status string, scopes KnowledgeRecordScopes) KnowledgeRecord {
+		return KnowledgeRecord{ID: id, Kind: kind, Path: path, Status: status, Date: "2026-08-18T00:00:00Z", Title: id, Summary: "Legacy component-scoped law.", Tags: []string{"legacy"}, Scopes: scopes, SHA256: "sha256:" + strings.Repeat("a", 64)}
+	}
+	zero := base("CD-0001-zero", "decision", "docs/decisions/CD-0001-zero.md", "accepted", KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, ComponentIDs: []string{}, TagIDs: []string{}})
+	one := base("CD-0002-one", "decision", "docs/decisions/CD-0002-one.md", "accepted", KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product"}, ProjectIDs: []string{}, ComponentIDs: []string{"zeta"}, TagIDs: []string{}})
+	many := base("CD-0003-many", "decision", "docs/decisions/CD-0003-many.md", "superseded", KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{"project"}, ComponentIDs: []string{"zeta", "alpha"}, TagIDs: []string{}})
+	many.Successor = one.ID
+	one.LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: many.ID}}
+	lesson := base("lesson-1", "lesson", "docs/lessons/lesson.md", "published", KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, ComponentIDs: []string{"alpha"}, TagIDs: []string{"lesson"}})
+	return KnowledgeManifest{SchemaVersion: "1.1", SupportedKinds: []string{"decision", "lesson"}, IndexedKinds: []string{"decision", "lesson"}, Records: []KnowledgeRecord{zero, one, many, lesson}}
 }
 
 func TestManifestSuccessorsAreValidatedAfterTheFullRecordSet(t *testing.T) {

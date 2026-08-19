@@ -1770,7 +1770,226 @@ CREATE INDEX workflow_contract_law_revisions_reverse
 CREATE TRIGGER workflow_contract_law_revisions_guard_insert BEFORE INSERT ON workflow_contract_law_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_contract_law_revisions_guard_update BEFORE UPDATE ON workflow_contract_law_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_contract_law_revisions_guard_delete BEFORE DELETE ON workflow_contract_law_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-`,
+		`,
+	},
+	{
+		Version: 38,
+		Name:    "domain_law_homes_and_managed_resource_attachments",
+		SQL: `
+-- CD-0041: Git-authored Domain identity and law ownership projections. These
+-- tables survive event-log rebuilds and are refreshed only by the knowledge
+-- index projection.
+CREATE TABLE domain_registries (
+    product_id       TEXT NOT NULL PRIMARY KEY REFERENCES products(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    home_project_id  TEXT NOT NULL,
+    home_locator_id  TEXT NOT NULL,
+    product_key      TEXT NOT NULL UNIQUE CHECK(length(product_key) BETWEEN 1 AND 256),
+    root_domain_id   TEXT NOT NULL,
+    schema_version   TEXT NOT NULL CHECK(schema_version='1.0'),
+    content_hash     TEXT NOT NULL CHECK(length(content_hash)=71 AND substr(content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL,
+    UNIQUE(home_project_id, home_locator_id),
+    UNIQUE(product_id, content_hash),
+    FOREIGN KEY(product_id, root_domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE domains (
+    home_project_id       TEXT NOT NULL,
+    home_locator_id       TEXT NOT NULL,
+    product_id             TEXT NOT NULL REFERENCES products(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    domain_id              TEXT NOT NULL CHECK(length(domain_id) BETWEEN 1 AND 256),
+    name                   TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 256),
+    purpose                TEXT NOT NULL CHECK(length(purpose) BETWEEN 1 AND 4096),
+    parent_domain_id       TEXT,
+    status                 TEXT NOT NULL CHECK(status IN ('current','deprecated')),
+    registry_content_hash  TEXT NOT NULL CHECK(length(registry_content_hash)=71 AND substr(registry_content_hash,1,7)='sha256:'),
+    scanned_commit_oid     TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(product_id, domain_id),
+    CHECK(parent_domain_id IS NULL OR parent_domain_id <> domain_id),
+    FOREIGN KEY(product_id, registry_content_hash) REFERENCES domain_registries(product_id, content_hash) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(product_id, parent_domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+CREATE INDEX domains_product_status ON domains(product_id, status, name, domain_id);
+
+CREATE TABLE domain_architecture_relations (
+    home_project_id        TEXT NOT NULL,
+    home_locator_id        TEXT NOT NULL,
+    product_id            TEXT NOT NULL,
+    source_domain_id      TEXT NOT NULL,
+    kind                  TEXT NOT NULL CHECK(kind IN ('depends_on','shares_contract_with','replaces')),
+    target_domain_id      TEXT NOT NULL,
+    state                 TEXT NOT NULL DEFAULT 'active',
+    registry_content_hash TEXT NOT NULL CHECK(length(registry_content_hash)=71 AND substr(registry_content_hash,1,7)='sha256:'),
+    scanned_commit_oid   TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(home_project_id, home_locator_id, product_id, source_domain_id, kind, target_domain_id),
+    CHECK(source_domain_id <> target_domain_id),
+    CHECK(kind <> 'shares_contract_with' OR source_domain_id < target_domain_id),
+    CHECK((kind='replaces' AND state IN ('declared','building','coexisting','cutover','retired')) OR (kind <> 'replaces' AND state='active')),
+    FOREIGN KEY(product_id, registry_content_hash) REFERENCES domain_registries(product_id, content_hash) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(product_id, source_domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(product_id, target_domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+CREATE INDEX domain_architecture_relations_target ON domain_architecture_relations(product_id, target_domain_id, kind, source_domain_id);
+CREATE UNIQUE INDEX law_subjects_identity_hash ON law_subjects(home_project_id, home_locator_id, law_id, content_hash);
+
+CREATE TABLE domain_relation_governing_laws (
+    home_project_id  TEXT NOT NULL,
+    home_locator_id  TEXT NOT NULL,
+    product_id       TEXT NOT NULL,
+    source_domain_id TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    target_domain_id TEXT NOT NULL,
+    law_id           TEXT NOT NULL,
+    law_content_hash TEXT NOT NULL CHECK(length(law_content_hash)=71 AND substr(law_content_hash,1,7)='sha256:'),
+    PRIMARY KEY(home_project_id, home_locator_id, product_id, source_domain_id, kind, target_domain_id, law_id),
+    FOREIGN KEY(home_project_id, home_locator_id, product_id, source_domain_id, kind, target_domain_id) REFERENCES domain_architecture_relations(home_project_id, home_locator_id, product_id, source_domain_id, kind, target_domain_id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(home_project_id, home_locator_id, law_id, law_content_hash) REFERENCES law_subjects(home_project_id, home_locator_id, law_id, content_hash) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE law_domain_homes (
+    home_project_id  TEXT NOT NULL,
+    home_locator_id  TEXT NOT NULL,
+    law_id           TEXT NOT NULL,
+    product_id       TEXT NOT NULL,
+    domain_id        TEXT NOT NULL,
+    law_content_hash TEXT NOT NULL CHECK(length(law_content_hash)=71 AND substr(law_content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(home_project_id, home_locator_id, law_id),
+    FOREIGN KEY(home_project_id, home_locator_id, law_id, law_content_hash) REFERENCES law_subjects(home_project_id, home_locator_id, law_id, content_hash) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(product_id, domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+CREATE INDEX law_domain_homes_domain ON law_domain_homes(product_id, domain_id, law_id);
+
+CREATE TABLE law_domain_applicability (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    law_id          TEXT NOT NULL,
+    product_id      TEXT NOT NULL,
+    domain_id       TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(home_project_id, home_locator_id, law_id, product_id, domain_id),
+    FOREIGN KEY(home_project_id, home_locator_id, law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(home_project_id, home_locator_id, law_id) REFERENCES law_domain_homes(home_project_id, home_locator_id, law_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(product_id, domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE archived_work_domains (
+    work_id   TEXT NOT NULL REFERENCES archived_work(id) ON DELETE RESTRICT,
+    domain_id TEXT NOT NULL CHECK(length(domain_id) BETWEEN 1 AND 256),
+    PRIMARY KEY(work_id, domain_id)
+);
+CREATE INDEX archived_work_domains_lookup ON archived_work_domains(domain_id, work_id);
+ALTER TABLE archived_work ADD COLUMN manifest_schema_version TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE domain_project_attachment_sets (
+    product_id TEXT NOT NULL,
+    domain_id  TEXT NOT NULL,
+    version    INTEGER NOT NULL CHECK(version >= 0),
+    PRIMARY KEY(product_id, domain_id),
+    FOREIGN KEY(product_id, domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE domain_project_attachment_edges (
+    product_id TEXT NOT NULL,
+    domain_id  TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    role       TEXT NOT NULL CHECK(role IN ('primary','supporting')),
+    PRIMARY KEY(product_id, domain_id, project_id),
+    FOREIGN KEY(product_id, domain_id) REFERENCES domain_project_attachment_sets(product_id, domain_id) ON DELETE RESTRICT,
+    FOREIGN KEY(product_id, project_id) REFERENCES product_projects(product_id, project_id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED
+);
+CREATE UNIQUE INDEX domain_project_attachment_one_primary
+    ON domain_project_attachment_edges(product_id, domain_id) WHERE role='primary';
+
+CREATE TABLE domain_resource_attachment_sets (
+    product_id TEXT NOT NULL,
+    domain_id  TEXT NOT NULL,
+    version    INTEGER NOT NULL CHECK(version >= 0),
+    PRIMARY KEY(product_id, domain_id),
+    FOREIGN KEY(product_id, domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE domain_resource_attachment_edges (
+    product_id  TEXT NOT NULL,
+    domain_id   TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    purpose     TEXT NOT NULL CHECK(length(purpose) BETWEEN 1 AND 512),
+    environments TEXT NOT NULL CHECK(json_valid(environments) AND json_type(environments)='array' AND json_array_length(environments) BETWEEN 0 AND 16),
+    PRIMARY KEY(product_id, domain_id, resource_id),
+    FOREIGN KEY(product_id, domain_id) REFERENCES domain_resource_attachment_sets(product_id, domain_id) ON DELETE RESTRICT,
+    FOREIGN KEY(resource_id, product_id) REFERENCES resource_products(resource_id, product_id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE managed_resources (
+    resource_id              TEXT PRIMARY KEY CHECK(length(resource_id) BETWEEN 1 AND 256),
+    display_name             TEXT NOT NULL CHECK(length(display_name) BETWEEN 1 AND 256),
+    class                    TEXT NOT NULL CHECK(class IN ('infrastructure','saas')),
+    kind                     TEXT NOT NULL CHECK(kind IN ('service','database','queue','job','schedule','runner_pool','storage','observability','identity','saas_account','saas_project','other')),
+    purpose                  TEXT NOT NULL CHECK(length(purpose) BETWEEN 1 AND 4096),
+    stage_maturity           TEXT NOT NULL CHECK(stage_maturity IN ('prototype','alpha','beta','production','deprecated')),
+    stage_audience_commitment TEXT NOT NULL CHECK(stage_audience_commitment IN ('operator_only','limited','public')),
+    environments             TEXT NOT NULL CHECK(json_valid(environments) AND json_type(environments)='array' AND json_array_length(environments) BETWEEN 0 AND 16),
+    locator_absence_reason   TEXT CHECK(locator_absence_reason IS NULL OR locator_absence_reason IN ('planned','not_addressable')),
+    metadata_schema_version  TEXT NOT NULL CHECK(length(metadata_schema_version) BETWEEN 1 AND 64),
+    metadata                 TEXT NOT NULL CHECK(length(CAST(metadata AS BLOB)) BETWEEN 2 AND 16384 AND json_valid(metadata) AND json_type(metadata)='object'),
+    version                  INTEGER NOT NULL CHECK(version > 0),
+    created_at               TEXT NOT NULL,
+    updated_at               TEXT NOT NULL,
+    CHECK(kind <> 'other' OR (json_type(metadata, '$.kind_detail')='text' AND length(trim(json_extract(metadata, '$.kind_detail'))) BETWEEN 1 AND 256 AND json_extract(metadata, '$.kind_detail')=trim(json_extract(metadata, '$.kind_detail'))))
+);
+
+CREATE TABLE resource_products (
+    resource_id  TEXT NOT NULL REFERENCES managed_resources(resource_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    product_id   TEXT NOT NULL REFERENCES products(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    role         TEXT NOT NULL CHECK(role IN ('owner','consumer')),
+    purpose      TEXT NOT NULL CHECK(length(purpose) BETWEEN 1 AND 512),
+    environments TEXT NOT NULL CHECK(json_valid(environments) AND json_type(environments)='array' AND json_array_length(environments) BETWEEN 0 AND 16),
+    PRIMARY KEY(resource_id, product_id),
+    CHECK(role='owner' OR role='consumer')
+);
+CREATE UNIQUE INDEX resource_products_one_owner ON resource_products(resource_id) WHERE role='owner';
+CREATE INDEX resource_products_product ON resource_products(product_id, role, resource_id);
+
+CREATE TRIGGER domain_registries_guard_insert BEFORE INSERT ON domain_registries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_registries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_registries_guard_update BEFORE UPDATE ON domain_registries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_registries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_registries_guard_delete BEFORE DELETE ON domain_registries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_registries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domains_guard_insert BEFORE INSERT ON domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domains_guard_update BEFORE UPDATE ON domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domains_guard_delete BEFORE DELETE ON domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_architecture_relations_guard_insert BEFORE INSERT ON domain_architecture_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_architecture_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_architecture_relations_guard_update BEFORE UPDATE ON domain_architecture_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_architecture_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_architecture_relations_guard_delete BEFORE DELETE ON domain_architecture_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_architecture_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_relation_governing_laws_guard_insert BEFORE INSERT ON domain_relation_governing_laws FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_relation_governing_laws is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_relation_governing_laws_guard_update BEFORE UPDATE ON domain_relation_governing_laws FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_relation_governing_laws is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_relation_governing_laws_guard_delete BEFORE DELETE ON domain_relation_governing_laws FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_relation_governing_laws is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_domain_homes_guard_insert BEFORE INSERT ON law_domain_homes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_domain_homes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_domain_homes_guard_update BEFORE UPDATE ON law_domain_homes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_domain_homes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_domain_homes_guard_delete BEFORE DELETE ON law_domain_homes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_domain_homes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_domain_applicability_guard_insert BEFORE INSERT ON law_domain_applicability FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_domain_applicability is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_domain_applicability_guard_update BEFORE UPDATE ON law_domain_applicability FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_domain_applicability is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_domain_applicability_guard_delete BEFORE DELETE ON law_domain_applicability FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_domain_applicability is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER archived_work_domains_guard_insert BEFORE INSERT ON archived_work_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'archived_work_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER archived_work_domains_guard_update BEFORE UPDATE ON archived_work_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'archived_work_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER archived_work_domains_guard_delete BEFORE DELETE ON archived_work_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'archived_work_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_project_attachment_sets_guard_insert BEFORE INSERT ON domain_project_attachment_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_project_attachment_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_project_attachment_sets_guard_update BEFORE UPDATE ON domain_project_attachment_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_project_attachment_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_project_attachment_sets_guard_delete BEFORE DELETE ON domain_project_attachment_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_project_attachment_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_project_attachment_edges_guard_insert BEFORE INSERT ON domain_project_attachment_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_project_attachment_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_project_attachment_edges_guard_update BEFORE UPDATE ON domain_project_attachment_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_project_attachment_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_project_attachment_edges_guard_delete BEFORE DELETE ON domain_project_attachment_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_project_attachment_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_resource_attachment_sets_guard_insert BEFORE INSERT ON domain_resource_attachment_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_resource_attachment_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_resource_attachment_sets_guard_update BEFORE UPDATE ON domain_resource_attachment_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_resource_attachment_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_resource_attachment_sets_guard_delete BEFORE DELETE ON domain_resource_attachment_sets FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_resource_attachment_sets is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_resource_attachment_edges_guard_insert BEFORE INSERT ON domain_resource_attachment_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_resource_attachment_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_resource_attachment_edges_guard_update BEFORE UPDATE ON domain_resource_attachment_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_resource_attachment_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_resource_attachment_edges_guard_delete BEFORE DELETE ON domain_resource_attachment_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_resource_attachment_edges is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER managed_resources_guard_insert BEFORE INSERT ON managed_resources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'managed_resources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER managed_resources_guard_update BEFORE UPDATE ON managed_resources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'managed_resources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER managed_resources_guard_delete BEFORE DELETE ON managed_resources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'managed_resources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER resource_products_guard_insert BEFORE INSERT ON resource_products FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_products is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER resource_products_guard_update BEFORE UPDATE ON resource_products FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_products is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER resource_products_guard_delete BEFORE DELETE ON resource_products FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_products is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
 	},
 }
 

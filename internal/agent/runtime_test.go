@@ -501,7 +501,7 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 			"summary: Bounded summary\n" +
 			"product_ids: [product-a]\n" +
 			"project_ids: [stored-project]\n" +
-			"component_ids: [auth]\n" +
+			"domain_ids: [auth]\n" +
 			"tag_ids: [auth, release]\n" +
 			"---\n\nDurable note.\n"
 	}

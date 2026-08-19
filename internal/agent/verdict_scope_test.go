@@ -33,6 +33,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
+	seedCurrentWorkflowDomainFixture(t, s)
 
 	service := NewService(s)
 	service.Now = fixedTime
@@ -64,9 +65,8 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Drive the real engine to the external repair step: record, record,
-	// then start_repair, whose action_started fold records the executing
-	// actor on the instance. No operator approval gates this path.
+	// Drive the real engine through the Product-changing planning contract and
+	// into repair, whose action_started fold records the executing actor.
 	execRef := store.DeriveWorkflowActorRef("human-1", "client-session-exec-aaaa", "agent-exec", "session-exec-aaaa")
 	engineAction := func(version int64, actionID string, payload map[string]any) {
 		t.Helper()
@@ -75,7 +75,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 			WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw,
 			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("2", 64), IdempotencyIdentity: "verdict-seed-" + actionID,
 			OperationID: "verdict-seed-op-" + actionID, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "verdict-seed-key-" + actionID,
-			RequestID: "verdict-seed-request-" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractVersion: "2.4.0", Now: fixedTime(),
+			RequestID: "verdict-seed-request-" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractVersion: ManifestVersion, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: execActor}
 		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, fixedTime(), nil, func(tx *store.Transaction) error {
@@ -92,7 +92,13 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	}
 	record("record_reproduction")
 	record("record_root_cause")
-	engineAction(6, "start_repair", map[string]any{"payload": map[string]any{"work": "work-1", "outcome": nil}})
+	contractFields := workflowContractFieldsFixture()
+	contractFields["outcome_kind"] = "absent"
+	contractFields["outcome_payload"] = map[string]any{
+		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
+	}
+	engineAction(6, "approve_contract", contractFields)
+	engineAction(8, "start_repair", map[string]any{"payload": map[string]any{"work": "work-1", "outcome": nil}})
 	seedVerdictEvent(t, s.DatabaseForTesting(), execRef)
 	return s, service, keys[0], keys[1]
 }

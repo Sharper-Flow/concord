@@ -8,15 +8,15 @@ import (
 func TestLatestWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version != 3 {
-			t.Fatalf("latest %s version=%d, want 3", definition.Ref, definition.Version)
+		if definition.Version != 4 {
+			t.Fatalf("latest %s version=%d, want 4", definition.Ref, definition.Version)
 		}
 		for _, action := range definition.ActionDefinitions {
 			if !validActionExecutionMode(action.ExecutionMode) {
 				t.Fatalf("%s action %s has invalid execution mode %q", definition.Ref, action.ID, action.ExecutionMode)
 			}
 		}
-		for _, version := range []int64{1, 2, 3} {
+		for _, version := range []int64{1, 2, 3, 4} {
 			if _, ok := registry.Lookup(definition.Ref, version); !ok {
 				t.Fatalf("%s v%d is not registered", definition.Ref, version)
 			}
@@ -24,11 +24,16 @@ func TestLatestWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 	}
 }
 
-func TestWorkflowDefinitionEncodingAddsExecutionModeOnlyAtV3(t *testing.T) {
+func TestWorkflowDefinitionEncodingPreservesHistoryAndAddsProductTruthAtV4(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	v2, _ := registry.Lookup("workflow.implementation", 2)
 	v3, _ := registry.Lookup("workflow.implementation", 3)
+	v4, _ := registry.Lookup("workflow.implementation", 4)
 	v2Canonical, err := CanonicalWorkflowDefinition(v2.Definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v4Canonical, err := CanonicalWorkflowDefinition(v4.Definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +46,9 @@ func TestWorkflowDefinitionEncodingAddsExecutionModeOnlyAtV3(t *testing.T) {
 	}
 	if !bytes.Contains(v3Canonical, []byte(`"execution_mode"`)) {
 		t.Fatal("v3 canonical definition omitted typed execution modes")
+	}
+	if !bytes.Contains(v4Canonical, []byte(`"changes_product_truth"`)) {
+		t.Fatal("v4 canonical definition omitted product-truth classification")
 	}
 }
 
@@ -124,6 +132,7 @@ func TestHistoricalBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 	want := map[int64]string{
 		1: "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
 		2: "sha256:60c60cb444618dee745eb5572f74c9736bf0b4526950e2dd2c896574f36a77e1",
+		3: "sha256:2430a098db46f4baeb9a7b5bafe1575849a739dd9107369e5de535c2b6badc93",
 	}
 	for version, expected := range want {
 		definition, ok := registry.Lookup("workflow.implementation", version)

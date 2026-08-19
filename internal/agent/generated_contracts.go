@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-const ManifestVersion = "3.8.0"
-const ManifestDigest = "sha256:949bf84a2e220a7c32ee6bcece5431a880a1399dc29c6bb8793d9b63574c5c88"
+const ManifestVersion = "4.0.0"
+const ManifestDigest = "sha256:c088f1b9ae0d5a85ff8ae258b7dd1afedc6f23ca0ca50b3c0517461c51a85194"
 
 type OperationKind string
 
@@ -103,6 +103,7 @@ type GeneratedPayloadRule struct {
 
 var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"approval":                                   {Required: []string{"approval_ref"}, Properties: []string{"approval_ref"}},
+	"architecture_binding":                       {Required: []string{"domain_registry_content_hash", "home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}, Properties: []string{"domain_registry_content_hash", "home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}},
 	"blocked_sessions_page":                      {Required: []string{"sessions"}, Properties: []string{"sessions"}},
 	"blocked_work_page":                          {Required: []string{"items", "nodes", "edges"}, Properties: []string{"items", "nodes", "edges", "next_cursor"}},
 	"budget":                                     {Required: []string{"max_bytes", "max_items"}, Properties: []string{"max_bytes", "max_items", "max_millis"}},

@@ -9,8 +9,7 @@ import (
 	"strings"
 )
 
-// WorkflowProjectionHash returns a canonical digest of the workflow and
-// derived-law projection tables.
+// WorkflowProjectionHash returns a canonical digest of workflow and derived-law
 // projection tables. It reads rows from the authority rather than hashing a
 // caller-supplied projection or expected-value map, so rebuild checks compare
 // the complete persisted projection before and after replay.
@@ -19,7 +18,7 @@ func WorkflowProjectionHash(ctx context.Context, s *Store) (string, error) {
 		return "", newFailure(KindUnavailable, "workflow_projection_hash", "store is not open", false, "open the authority database")
 	}
 	tables := []string{
-		"workflow_actors", "workflow_checkpoints", "workflow_contracts", "workflow_contract_law_revisions", "workflow_decision_records",
+		"workflow_actors", "workflow_checkpoints", "workflow_contracts", "workflow_contract_law_revisions", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_decision_records",
 		"workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices", "workflow_context_checkpoints", "workflow_context_boundaries",
 		"workflow_instances", "workflow_premise_confirmations", "workflow_candidate_sets",
 		"law_subjects", "law_relations",

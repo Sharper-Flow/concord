@@ -745,7 +745,7 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 	}
 }
 
-func TestMigration38AddsDomainLawAndC15ProjectionTables(t *testing.T) {
+func TestMigration39AddsDomainLawAndArchitectureBindingProjectionTables(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	db := s.DatabaseForTesting()
@@ -754,6 +754,8 @@ func TestMigration38AddsDomainLawAndC15ProjectionTables(t *testing.T) {
 		"law_domain_applicability", "archived_work_domains", "domain_project_attachment_sets",
 		"domain_project_attachment_edges", "domain_resource_attachment_sets",
 		"domain_resource_attachment_edges", "managed_resources", "resource_products",
+		"workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications",
+		"workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations",
 	} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
@@ -761,8 +763,8 @@ func TestMigration38AddsDomainLawAndC15ProjectionTables(t *testing.T) {
 		}
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 38 {
-		t.Fatalf("schema version=%d err=%v, want 38", version, err)
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 39 {
+		t.Fatalf("schema version=%d err=%v, want 39", version, err)
 	}
 	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
 		var err error

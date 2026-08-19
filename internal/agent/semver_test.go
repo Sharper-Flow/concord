@@ -8,8 +8,13 @@ func TestSemVerNegotiationIsNumericAndServerOwned(t *testing.T) {
 			t.Fatalf("accepted invalid semver %q", value)
 		}
 	}
-	if got, err := NegotiateSurfaceVersion("3.0.0-9.0.0"); err != nil || got != ManifestVersion {
+	if got, err := NegotiateSurfaceVersion("4.0.0-9.0.0"); err != nil || got != ManifestVersion {
 		t.Fatalf("negotiated surface = %q, err=%v", got, err)
+	}
+	for _, legacyRange := range []string{"3.8.0-3.8.0", "3.9.0-3.9.0", "3.8.0-3.9.0"} {
+		if _, err := NegotiateSurfaceVersion(legacyRange); err == nil {
+			t.Fatalf("legacy surface range %s negotiated after 4.0 cutover", legacyRange)
+		}
 	}
 	if _, err := NegotiateSurfaceVersion("1.0.0-1.0.0"); err == nil {
 		t.Fatal("negotiated incompatible surface")

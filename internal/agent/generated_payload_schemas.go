@@ -15,6 +15,113 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "architecture_binding": {
+      "additionalProperties": false,
+      "properties": {
+        "affected_domain_ids": {
+          "items": {
+            "$ref": "#/$defs/domain_id"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "domain_modifies": {
+          "items": {
+            "$ref": "#/$defs/domain_id"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "domain_registry_content_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "domain_relation_modifies": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "depends_on",
+                  "shares_contract_with",
+                  "replaces"
+                ],
+                "type": "string"
+              },
+              "source_domain_id": {
+                "$ref": "#/$defs/domain_id"
+              },
+              "target_domain_id": {
+                "$ref": "#/$defs/domain_id"
+              }
+            },
+            "required": [
+              "source_domain_id",
+              "kind",
+              "target_domain_id"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "home_domain_id": {
+          "$ref": "#/$defs/domain_id"
+        },
+        "law_additions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "home_domain_id": {
+                "$ref": "#/$defs/domain_id"
+              },
+              "law_id": {
+                "$ref": "#/$defs/law_id"
+              }
+            },
+            "required": [
+              "law_id",
+              "home_domain_id"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "verification_obligations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "law_id": {
+                "$ref": "#/$defs/law_id"
+              },
+              "obligation_id": {
+                "$ref": "#/$defs/obligation_id"
+              }
+            },
+            "required": [
+              "law_id",
+              "obligation_id"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain_registry_content_hash",
+        "home_domain_id",
+        "affected_domain_ids",
+        "domain_modifies",
+        "domain_relation_modifies",
+        "law_additions",
+        "verification_obligations"
+      ],
+      "type": "object"
+    },
     "blocked_sessions_page": {
       "additionalProperties": false,
       "properties": {
@@ -655,6 +762,12 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "string"
     },
+    "domain_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
+    },
     "epic_add_entry_input": {
       "additionalProperties": false,
       "properties": {
@@ -1178,6 +1291,12 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "law_id": {
+      "maxLength": 256,
+      "minLength": 2,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
+    },
     "lifecycle": {
       "description": "Observed work lifecycle state. Every value the store can persist is permitted here so read paths and the work_browse_list_input filter can return/select any current state, including 'superseded'. Use this def for outputs and read-side filters; do NOT use it for transition targets, where supersession must remain atomic with its relation and only four agent-requestable values are permitted.",
       "enum": [
@@ -1265,6 +1384,12 @@ const GeneratedPayloadSchemaDocument = `{
         "next_valid_intents"
       ],
       "type": "object"
+    },
+    "obligation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
     },
     "operator_choice": {
       "additionalProperties": false,
@@ -2529,7 +2654,7 @@ const GeneratedPayloadSchemaDocument = `{
           "const": "operator"
         },
         "surface_version": {
-          "const": "3.8.0"
+          "const": "4.0.0"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -4212,6 +4337,9 @@ const GeneratedPayloadSchemaDocument = `{
               "properties": {
                 "active_unit": {},
                 "added": {},
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding"
+                },
                 "attempt_epoch": {
                   "maximum": 2147483647,
                   "minimum": 1,
@@ -4253,6 +4381,13 @@ const GeneratedPayloadSchemaDocument = `{
                   ],
                   "type": "string"
                 },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "type": "array"
+                },
                 "mode": {},
                 "new_contract_version": {},
                 "next_read_expectations": {},
@@ -4278,6 +4413,13 @@ const GeneratedPayloadSchemaDocument = `{
                 "severity": {},
                 "source_contract_version": {},
                 "source_work_id": {},
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "type": "array"
+                },
                 "staleness_rule_id": {},
                 "strategy": {},
                 "successor_work_id": {},

@@ -1991,6 +1991,113 @@ CREATE TRIGGER resource_products_guard_update BEFORE UPDATE ON resource_products
 CREATE TRIGGER resource_products_guard_delete BEFORE DELETE ON resource_products FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'resource_products is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+	{
+		Version: 39,
+		Name:    "workflow_architecture_bindings",
+		SQL: `
+-- CD-0041 D5: immutable contract bindings retain historical Domain and law
+-- identities without foreign keys to today's Git-derived architecture rows.
+CREATE TABLE workflow_architecture_bindings (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    domain_registry_content_hash TEXT NOT NULL CHECK(length(domain_registry_content_hash)=71 AND substr(domain_registry_content_hash,1,7)='sha256:'),
+    home_domain_id TEXT NOT NULL CHECK(length(home_domain_id) BETWEEN 1 AND 256),
+    projection_hash TEXT NOT NULL CHECK(length(projection_hash)=71 AND substr(projection_hash,1,7)='sha256:'),
+    PRIMARY KEY(work_id, contract_version),
+    UNIQUE(work_id, contract_version, product_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_contracts(work_id, contract_version) ON DELETE RESTRICT
+);
+
+CREATE TABLE workflow_contract_affected_domains (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    domain_id TEXT NOT NULL CHECK(length(domain_id) BETWEEN 1 AND 256),
+    PRIMARY KEY(work_id, contract_version, domain_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_architecture_bindings(work_id, contract_version) ON DELETE RESTRICT
+);
+CREATE INDEX workflow_contract_affected_domains_lookup ON workflow_contract_affected_domains(domain_id, work_id, contract_version);
+
+CREATE TABLE workflow_contract_domain_modifications (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    domain_id TEXT NOT NULL CHECK(length(domain_id) BETWEEN 1 AND 256),
+    PRIMARY KEY(work_id, contract_version, domain_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_architecture_bindings(work_id, contract_version) ON DELETE RESTRICT
+);
+
+CREATE TABLE workflow_contract_domain_relation_modifications (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    source_domain_id TEXT NOT NULL CHECK(length(source_domain_id) BETWEEN 1 AND 256),
+    kind TEXT NOT NULL CHECK(kind IN ('depends_on','shares_contract_with','replaces')),
+    target_domain_id TEXT NOT NULL CHECK(length(target_domain_id) BETWEEN 1 AND 256),
+    PRIMARY KEY(work_id, contract_version, source_domain_id, kind, target_domain_id),
+    CHECK(source_domain_id <> target_domain_id),
+    CHECK(kind <> 'shares_contract_with' OR source_domain_id < target_domain_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_architecture_bindings(work_id, contract_version) ON DELETE RESTRICT
+);
+
+CREATE TABLE workflow_law_addition_reservations (
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    law_id TEXT NOT NULL CHECK(length(law_id) BETWEEN 2 AND 256),
+    owner_work_id TEXT NOT NULL,
+    owner_contract_version INTEGER NOT NULL,
+    home_domain_id TEXT NOT NULL CHECK(length(home_domain_id) BETWEEN 1 AND 256),
+    FOREIGN KEY(owner_work_id, owner_contract_version) REFERENCES workflow_contracts(work_id, contract_version) ON DELETE RESTRICT,
+    FOREIGN KEY(owner_work_id, owner_contract_version, product_id) REFERENCES workflow_architecture_bindings(work_id, contract_version, product_id) ON DELETE RESTRICT,
+    PRIMARY KEY(product_id, law_id),
+    UNIQUE(product_id, law_id, owner_work_id, owner_contract_version, home_domain_id)
+);
+CREATE INDEX workflow_law_addition_reservations_owner ON workflow_law_addition_reservations(product_id, owner_work_id, owner_contract_version);
+
+CREATE TABLE workflow_contract_law_additions (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    product_id TEXT NOT NULL,
+    law_id TEXT NOT NULL CHECK(length(law_id) BETWEEN 2 AND 256),
+    home_domain_id TEXT NOT NULL CHECK(length(home_domain_id) BETWEEN 1 AND 256),
+    reservation_owner_work_id TEXT NOT NULL,
+    reservation_owner_contract_version INTEGER NOT NULL,
+    CHECK(reservation_owner_work_id = work_id),
+    PRIMARY KEY(work_id, contract_version, law_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_architecture_bindings(work_id, contract_version) ON DELETE RESTRICT,
+    FOREIGN KEY(work_id, contract_version, product_id) REFERENCES workflow_architecture_bindings(work_id, contract_version, product_id) ON DELETE RESTRICT,
+    FOREIGN KEY(product_id, law_id, reservation_owner_work_id, reservation_owner_contract_version, home_domain_id) REFERENCES workflow_law_addition_reservations(product_id, law_id, owner_work_id, owner_contract_version, home_domain_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE workflow_contract_verification_obligations (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    law_id TEXT NOT NULL CHECK(length(law_id) BETWEEN 2 AND 256),
+    obligation_id TEXT NOT NULL CHECK(length(obligation_id) BETWEEN 1 AND 256),
+    PRIMARY KEY(work_id, contract_version, law_id, obligation_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_architecture_bindings(work_id, contract_version) ON DELETE RESTRICT
+);
+
+CREATE TRIGGER workflow_architecture_bindings_guard_insert BEFORE INSERT ON workflow_architecture_bindings FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_architecture_bindings is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_architecture_bindings_guard_update BEFORE UPDATE ON workflow_architecture_bindings FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_architecture_bindings is immutable'); END;
+CREATE TRIGGER workflow_architecture_bindings_guard_delete BEFORE DELETE ON workflow_architecture_bindings FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_architecture_bindings is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_affected_domains_guard_insert BEFORE INSERT ON workflow_contract_affected_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_affected_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_affected_domains_guard_update BEFORE UPDATE ON workflow_contract_affected_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_affected_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_affected_domains_guard_delete BEFORE DELETE ON workflow_contract_affected_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_affected_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_modifications_guard_insert BEFORE INSERT ON workflow_contract_domain_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_modifications_guard_update BEFORE UPDATE ON workflow_contract_domain_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_modifications_guard_delete BEFORE DELETE ON workflow_contract_domain_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_relation_modifications_guard_insert BEFORE INSERT ON workflow_contract_domain_relation_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_relation_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_relation_modifications_guard_update BEFORE UPDATE ON workflow_contract_domain_relation_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_relation_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_relation_modifications_guard_delete BEFORE DELETE ON workflow_contract_domain_relation_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_relation_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_law_addition_reservations_guard_insert BEFORE INSERT ON workflow_law_addition_reservations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_law_addition_reservations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_law_addition_reservations_guard_update BEFORE UPDATE ON workflow_law_addition_reservations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_law_addition_reservations is immutable'); END;
+CREATE TRIGGER workflow_law_addition_reservations_guard_delete BEFORE DELETE ON workflow_law_addition_reservations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_law_addition_reservations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_law_additions_guard_insert BEFORE INSERT ON workflow_contract_law_additions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_additions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_law_additions_guard_update BEFORE UPDATE ON workflow_contract_law_additions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_additions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_law_additions_guard_delete BEFORE DELETE ON workflow_contract_law_additions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_additions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_verification_obligations_guard_insert BEFORE INSERT ON workflow_contract_verification_obligations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_verification_obligations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_verification_obligations_guard_update BEFORE UPDATE ON workflow_contract_verification_obligations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_verification_obligations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_verification_obligations_guard_delete BEFORE DELETE ON workflow_contract_verification_obligations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_verification_obligations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+        `,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

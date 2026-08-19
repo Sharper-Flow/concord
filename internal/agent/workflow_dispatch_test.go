@@ -8,12 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func seedAgentWorkflow(t *testing.T, s *store.Store, grant Grant) int64 {
 	t.Helper()
 	ctx := context.Background()
+	seedCurrentWorkflowDomainFixture(t, s)
 	definition := store.BuiltinWorkflowDefinitions()[0]
 	registered, err := store.BuiltinWorkflowRegistry().Register(definition)
 	if err != nil {
@@ -368,7 +370,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":7,"action_id":"approve_contract","idempotency_key":"wf-approve-contract"}`)
+	input := workflowContractActionInput(t, "work-1", 7, "wf-approve-contract", "")
 	challenge, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
@@ -385,7 +387,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if durableBefore != 3 {
 		t.Fatalf("approval challenge durable operation count=%d, want 3 prior actions", durableBefore)
 	}
-	approvedInput := json.RawMessage(`{"work_id":"work-1","expected_version":7,"action_id":"approve_contract","idempotency_key":"wf-approve-contract","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	approvedInput := workflowContractActionInput(t, "work-1", 7, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		if approved.Error != nil {
@@ -399,5 +401,12 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	}
 	if step != "execution" {
 		t.Fatalf("approved action current step=%s, want execution", step)
+	}
+	projection, err := store.ReadWorkflowProjection(context.Background(), s, store.WorkflowReadRequest{WorkID: "work-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.DomainRegistryContentHash != pm1fixture.FixtureDomainRegistryContentHash || projection.ArchitectureBinding.HomeDomainID != pm1fixture.FixtureRootDomainID {
+		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)
 	}
 }

@@ -554,7 +554,7 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 func withBreakFixV4ApprovalRoute(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	planning := step("planning", WorkflowStepHumanCheckpoint, "approve_contract", "checkpoint_context", "cross_context_boundary")
-	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)+1)
+	steps := []WorkflowStep{}
 	for _, existing := range definition.StepGraph.Steps {
 		steps = append(steps, existing)
 		if existing.ID == "diagnose" {
@@ -562,7 +562,7 @@ func withBreakFixV4ApprovalRoute(definition WorkflowDefinition) WorkflowDefiniti
 		}
 	}
 	definition.StepGraph.Steps = steps
-	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges)+1)
+	edges := []WorkflowEdge{}
 	for _, edge := range definition.StepGraph.Edges {
 		if edge.From == "diagnose" && edge.To == "repair" && edge.Kind == WorkflowEdgeForward {
 			edges = append(edges, WorkflowEdge{From: "diagnose", To: "planning", Kind: WorkflowEdgeForward}, WorkflowEdge{From: "planning", To: "repair", Kind: WorkflowEdgeForward})

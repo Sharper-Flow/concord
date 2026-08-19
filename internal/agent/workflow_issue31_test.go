@@ -149,7 +149,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	for _, actionID := range []string{"record_proposal", "record_discovery", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, workflowIssue31Version(t, s), "issue31-"+actionID)
 	}
-	approve := json.RawMessage(`{"work_id":"work-1","expected_version":7,"action_id":"approve_contract","idempotency_key":"issue31-approve"}`)
+	approve := workflowContractActionInput(t, "work-1", 7, "issue31-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approve)
 	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge=%+v", challenge)
@@ -159,7 +159,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 7}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "issue31-approve-nonce")
-	approved := json.RawMessage(`{"work_id":"work-1","expected_version":7,"action_id":"approve_contract","idempotency_key":"issue31-approve","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	approved := workflowContractActionInput(t, "work-1", 7, "issue31-approve", challengeRef)
 	response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved)
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("approved contract=%+v", response)
@@ -476,7 +476,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Grant, ed25519
 	for _, actionID := range []string{"record_proposal", "record_discovery", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, workflowIssue31Version(t, s), "prepare-"+actionID)
 	}
-	approve := json.RawMessage(`{"work_id":"work-1","expected_version":7,"action_id":"approve_contract","idempotency_key":"prepare-approve"}`)
+	approve := workflowContractActionInput(t, "work-1", 7, "prepare-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approve)
 	if challenge.Error == nil {
 		t.Fatalf("missing contract approval challenge: %+v", challenge)
@@ -485,7 +485,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Grant, ed25519
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	approveDigest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, approveDigest, scope, map[string]any{"work": 7}, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "prepare-approve-nonce")
-	approved := json.RawMessage(`{"work_id":"work-1","expected_version":7,"action_id":"approve_contract","idempotency_key":"prepare-approve","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	approved := workflowContractActionInput(t, "work-1", 7, "prepare-approve", challengeRef)
 	if response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved); response.Outcome != OutcomeOK {
 		t.Fatalf("contract approval response=%+v", response)
 	}

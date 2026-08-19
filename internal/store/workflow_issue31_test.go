@@ -26,7 +26,7 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:issue31", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
-		RequestID: "request:" + operationID, ContractVersion: "2.0.0", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
+		RequestID: "request:" + operationID, ContractVersion: "4.0.0", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
 	})
 	_ = leaveFold(context.Background(), tx)
 	if err != nil {
@@ -68,6 +68,8 @@ func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "workflow-issue31-actions")
+	seedWorkflowLaw(t, s)
+	seedIssue31DomainRegistry(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:issue31", SessionRef: "session:issue31", ActorClass: ActorAgent}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -88,7 +90,8 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	for _, action := range []string{"record_proposal", "record_discovery", "record_design"} {
 		version = issue31WorkflowAction(t, s, "workflow-issue31-actions", version, action, "issue31-"+action, actor)
 	}
-	version = issue31WorkflowAction(t, s, "workflow-issue31-actions", version, "approve_contract", "issue31-approve", actor)
+	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "approve_contract", "issue31-approve", actor, approval)
 	if version != 9 {
 		t.Fatalf("approve_contract resulting version=%d, want 9", version)
 	}
@@ -130,15 +133,44 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	}
 }
 
+func seedIssue31DomainRegistry(t *testing.T, s *Store) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	hash := "sha256:" + strings.Repeat("b", 64)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'test')`, hash); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, hash); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
 	s := openTemp(t)
 	workID := "workflow-law-pin-legacy-surface"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:law-pin", ClientRef: "client:law-pin", AgentRef: "agent:law-pin", SessionRef: "session:law-pin", ActorClass: ActorAgent}
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
+	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 3)
+	if !ok {
+		t.Fatal("historical v3 implementation definition is not registered")
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {

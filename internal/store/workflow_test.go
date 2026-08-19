@@ -705,7 +705,25 @@ func assertConditionState(t *testing.T, s *Store, workID, conditionID, want stri
 
 func seedWorkflowLaw(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-law-locator','project','canonical_path','workflow-law-repo','workflow-law-repo','now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`); err != nil {
+	var projectVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
+		t.Fatal(err)
+	}
+	locatorPath := t.TempDir()
+	normalized, err := NormalizeProjectLocator(LocatorCanonicalPath, locatorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{
+		Events: []Event{operationEvent("workflow-law-locator-added", "project.locator_added", SubjectProject, "project", map[string]any{
+			"project_id": "project", "locator_id": "workflow-law-locator", "kind": string(LocatorCanonicalPath), "value": locatorPath, "normalized_value": normalized,
+			"expected_version": projectVersion, "resulting_version": projectVersion + 1,
+		})},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project"): projectVersion},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

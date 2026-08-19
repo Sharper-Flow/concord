@@ -77,6 +77,7 @@ func TestValidateRejectsUnknownSessionIdentityAndContractDrift(t *testing.T) {
 		"session type":     func(v map[string]any) { v["session_type"] = "generic" },
 		"session contract": func(v map[string]any) { v["session_contract_version"] = "9.0" },
 		"surface":          func(v map[string]any) { v["surface_version"] = "9.0.0" },
+		"previous surface": func(v map[string]any) { v["surface_version"] = "3.9.0" },
 		"digest":           func(v map[string]any) { v["manifest_digest"] = "sha256:" + strings.Repeat("0", 64) },
 	} {
 		t.Run(name, func(t *testing.T) {

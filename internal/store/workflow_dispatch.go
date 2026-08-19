@@ -558,7 +558,35 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
 		contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": json.RawMessage(outcome), "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
-		revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, spec, lawModifies)
+		productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
+		bindingRaw, bindingPresent := fields["architecture_binding"]
+		binding, bindingErr := parseWorkflowArchitectureBinding(bindingRaw)
+		if bindingErr != nil {
+			return nil, bindingErr
+		}
+		if productChanging {
+			if !bindingPresent || binding == nil {
+				return nil, newFailure(KindInvalidPayload, "workflow_action", "Product-changing approval requires architecture_binding", false, "supply the complete architecture binding")
+			}
+			contract["architecture_binding"] = binding
+		} else if bindingPresent && string(bindingRaw) != "null" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing approval cannot carry architecture_binding", false, "select a registered Product-changing workflow")
+		}
+		if !productChanging && len(lawModifies) != 0 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing approval cannot modify Product law", false, "leave law_modifies empty")
+		}
+		if !productChanging && definition.Version >= 4 {
+			delete(contract, "law_modifies")
+		}
+		revisionMandate := spec
+		var revisionErr error
+		if productChanging {
+			revisionMandate, revisionErr = architectureBindingRevisionMandate(spec, binding.LawAdditions)
+		}
+		if revisionErr != nil {
+			return nil, revisionErr
+		}
+		revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
 		if revisionErr != nil {
 			return nil, revisionErr
 		}
@@ -599,7 +627,31 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		lawModifies := workflowFieldStrings(fields, "law_modifies")
 		specMandate := workflowFieldStrings(fields, "spec_mandate")
-		revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, specMandate, lawModifies)
+		productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
+		bindingRaw, bindingPresent := fields["architecture_binding"]
+		binding, bindingErr := parseWorkflowArchitectureBinding(bindingRaw)
+		if bindingErr != nil {
+			return nil, bindingErr
+		}
+		if productChanging {
+			if !bindingPresent || binding == nil {
+				return nil, newFailure(KindInvalidPayload, "workflow_action", "Product-changing successor requires architecture_binding", false, "supply the complete successor architecture binding")
+			}
+		} else if bindingPresent && string(bindingRaw) != "null" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing successor cannot carry architecture_binding", false, "select a registered Product-changing workflow")
+		}
+		if !productChanging && len(lawModifies) != 0 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing successor cannot modify Product law", false, "leave law_modifies empty")
+		}
+		revisionMandate := specMandate
+		var revisionErr error
+		if productChanging {
+			revisionMandate, revisionErr = architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
+			if revisionErr != nil {
+				return nil, revisionErr
+			}
+		}
+		revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
 		if revisionErr != nil {
 			return nil, revisionErr
 		}
@@ -608,6 +660,11 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
 			"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
 			"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
+		}
+		if productChanging {
+			successor["architecture_binding"] = binding
+		} else if definition.Version >= 4 {
+			delete(successor, "law_modifies")
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}, nil
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":

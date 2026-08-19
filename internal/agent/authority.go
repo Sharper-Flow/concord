@@ -260,12 +260,12 @@ func (s *Service) IssueGrant(ctx context.Context, req GrantRequest) (Grant, erro
 		return out, err
 	}
 	a := req.Assertion
-	if a.ClientRef == "" || a.SessionRef == "" || a.AgentRef == "" || a.Directory == "" || a.Worktree == "" || a.Nonce == "" || a.ManifestDigest != ManifestDigest || !validSignedRequests(a) {
+	if a.ClientRef == "" || a.SessionRef == "" || a.AgentRef == "" || a.Directory == "" || a.Worktree == "" || a.Nonce == "" || !validSignedRequests(a) {
 		return out, errors.New("invalid grant request")
 	}
 	selectedSurface, negotiationErr := NegotiateSurfaceVersion(a.SurfaceRange)
 	selectedEnvelope := "1.0"
-	if a.SurfaceRange == "" || a.EnvelopeVersions == "" || negotiationErr != nil || !containsVersion(a.EnvelopeVersions, selectedEnvelope) {
+	if a.SurfaceRange == "" || a.EnvelopeVersions == "" || negotiationErr != nil || a.ManifestDigest != ManifestDigest || !containsVersion(a.EnvelopeVersions, selectedEnvelope) {
 		return out, errors.New("unsupported contract version")
 	}
 	req.SurfaceVersion = selectedSurface

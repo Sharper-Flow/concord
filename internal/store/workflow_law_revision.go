@@ -145,6 +145,11 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
 		return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "rebuild projections from the event log")
 	}
+	var mandateErr error
+	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, tx, workID, previousContractVersion, mandated)
+	if mandateErr != nil {
+		return mandateErr
+	}
 	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -273,6 +278,11 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
 		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
 	}
+	var mandateErr error
+	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, tx, workID, contractVersion, mandated)
+	if mandateErr != nil {
+		return mandateErr
+	}
 	if len(mandated) == 0 {
 		return nil
 	}
@@ -303,6 +313,11 @@ func checkWorkflowLawRevisionStalenessDB(ctx context.Context, db *sql.DB, workID
 	var mandated []string
 	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
 		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+	}
+	var mandateErr error
+	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, db, workID, contractVersion, mandated)
+	if mandateErr != nil {
+		return mandateErr
 	}
 	if len(mandated) == 0 {
 		return nil

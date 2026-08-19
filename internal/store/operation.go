@@ -220,7 +220,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              registerEventKind[WorkerFailedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
 	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
-	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](2, map[int]Upcaster{1: upcastWorkflowContractApprovedV1}, foldWorkflowContractApproved),
+	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](3, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2}, foldWorkflowContractApproved),
 	WorkflowContractSuperseded:                workflowRegistration[workflowContractSupersededPayload](1, nil, foldWorkflowContractSuperseded),
 	WorkflowCandidateSetRevised:               workflowRegistration[workflowCandidateSetRevisedPayload](1, nil, foldWorkflowCandidateSetRevised),
 	WorkflowActorRecorded:                     workflowRegistration[workflowActorRecordedPayload](1, nil, foldWorkflowActorRecorded),
@@ -596,6 +596,30 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	if err != nil {
 		return rollback(err)
 	}
+	// Product knowledge homes are Git-derived authority and are not replayed
+	// from the domain event log. Snapshot them while their Project/locator FKs
+	// are rebuilt, then restore the exact rows after replay.
+	type knowledgeHomeSnapshot struct{ productID, projectID, locatorID string }
+	var knowledgeHomes []knowledgeHomeSnapshot
+	homeRows, err := tx.QueryContext(ctx, `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`)
+	if err != nil {
+		return rollback(wrapFailure(KindUnavailable, "rebuild_from_log", "cannot snapshot Product knowledge homes", true, "retry once the knowledge projection is readable", err))
+	}
+	for homeRows.Next() {
+		var home knowledgeHomeSnapshot
+		if err := homeRows.Scan(&home.productID, &home.projectID, &home.locatorID); err != nil {
+			homeRows.Close()
+			return rollback(err)
+		}
+		knowledgeHomes = append(knowledgeHomes, home)
+	}
+	if err := homeRows.Err(); err != nil {
+		homeRows.Close()
+		return rollback(err)
+	}
+	if err := homeRows.Close(); err != nil {
+		return rollback(err)
+	}
 	// Version-window and chain failures are rejected before the first
 	// projection DELETE. Fold/decode failures remain transactionally atomic, and
 	// are attributed by the shared fold path below.
@@ -619,11 +643,12 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		"work_observations", "work_messages", "resource_claims",
 		"worker_attempts",
 		"workflow_contract_law_revisions",
+		"workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings",
 		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",
 		"workflow_contracts", "workflow_decision_records", "workflow_instances", "workflow_actors",
 		"epic_entries", "relations", "work_projects", "work_items", "product_projects",
-		"project_governing_requirements", "project_locators", "products", "projects",
+		"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
 	} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
@@ -640,6 +665,11 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
 		return rollback(err)
+	}
+	for _, home := range knowledgeHomes {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, home.productID, home.projectID, home.locatorID); err != nil {
+			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log", "cannot restore Product knowledge home", true, "retry once the database is writable", err))
+		}
 	}
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return rollback(err)

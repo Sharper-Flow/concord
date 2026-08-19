@@ -103,6 +103,46 @@ type GitKnowledge struct {
 	HashAlias   map[string]string
 }
 
+const (
+	FixtureDomainRegistryContentHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	FixtureRootDomainID              = "root"
+)
+
+// SeedCurrentProductDomain adds the minimal current Domain projection needed
+// by Product-changing workflow fixtures. The projection is deliberately
+// reusable so agent fixtures exercise the same current registry lookup as the
+// authority without duplicating SQL in each test package.
+func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID string) error {
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("pm1fixture: begin Domain fixture transaction: %w", err)
+	}
+	defer tx.Rollback()
+	homeLocatorID := "domain-locator-" + productID
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		return fmt.Errorf("pm1fixture: enable Domain fixture fold guard: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,'fixture','fixture')`, homeLocatorID, homeProjectID, "canonical_path", "/fixture/"+productID, "/fixture/"+productID); err != nil {
+		return fmt.Errorf("pm1fixture: seed Product law locator: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, productID, homeProjectID, homeLocatorID); err != nil {
+		return fmt.Errorf("pm1fixture: seed Product law home: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'fixture')`, productID, homeProjectID, homeLocatorID, "fixture-"+productID, FixtureRootDomainID, FixtureDomainRegistryContentHash); err != nil {
+		return fmt.Errorf("pm1fixture: seed Domain registry: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, homeProjectID, homeLocatorID, productID, FixtureRootDomainID, "Fixture root", "Product law fixture", nil, "current", FixtureDomainRegistryContentHash, "fixture"); err != nil {
+		return fmt.Errorf("pm1fixture: seed root Domain: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		return fmt.Errorf("pm1fixture: disable Domain fixture fold guard: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("pm1fixture: commit Domain fixture: %w", err)
+	}
+	return nil
+}
+
 // Load reads scenarios/product-memory-query.v1.json from the repository root
 // and decodes it into a Corpus. The lookup is anchored to this file's source
 // location so the package can move without breaking the relative path.

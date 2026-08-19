@@ -166,7 +166,11 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// Completion never treats an amendment declaration as permission to leave a
 	// conflict unresolved. The Git-derived projection must actually be clear.
 	if contract.LawBoundaryVersion == 1 {
-		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, contract.SpecMandate, contract.LawModifies, false); err != nil {
+		mandated, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
+		if mandateErr != nil {
+			return workflowClauseError(mandateErr, 3)
+		}
+		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, mandated, contract.LawModifies, false); err != nil {
 			return workflowClauseError(err, 3)
 		}
 	}
@@ -259,13 +263,14 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 }
 
 type workflowCompletionContractData struct {
-	Version            int64
-	RequiredEvidence   []string
-	SpecMandate        []string
-	LawModifies        []string
-	LawBoundaryVersion int
-	OutcomeKind        string
-	OutcomePayload     string
+	Version             int64
+	RequiredEvidence    []string
+	SpecMandate         []string
+	LawModifies         []string
+	LawBoundaryVersion  int
+	OutcomeKind         string
+	OutcomePayload      string
+	ArchitectureBinding *WorkflowArchitectureBinding
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {
@@ -296,6 +301,11 @@ func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry Defini
 	}
 	if err := json.Unmarshal([]byte(mandates), &result.SpecMandate); err != nil || json.Unmarshal([]byte(modifies), &result.LawModifies) != nil {
 		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
+	}
+	var bindingErr error
+	result.ArchitectureBinding, bindingErr = readWorkflowArchitectureBinding(ctx, tx, workID, result.Version)
+	if bindingErr != nil {
+		return result, WorkflowDefinition{}, bindingErr
 	}
 	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
 	if err != nil {

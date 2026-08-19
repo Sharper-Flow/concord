@@ -67,20 +67,21 @@ type workflowDefinitionSelectedPayload struct {
 
 type workflowContractApprovedPayload struct {
 	WorkflowVersionFields
-	ContractVersion    int64                 `json:"contract_version"`
-	Premise            string                `json:"premise"`
-	OutcomeKind        string                `json:"outcome_kind"`
-	OutcomePayload     json.RawMessage       `json:"outcome_payload"`
-	RequiredEvidence   []string              `json:"required_evidence"`
-	RouteConventions   []string              `json:"route_conventions"`
-	SpecMandate        []string              `json:"spec_mandate"`
-	LawModifies        []string              `json:"law_modifies"`
-	LawRevisions       []WorkflowLawRevision `json:"law_revisions"`
-	LawBoundaryVersion int                   `json:"law_boundary_version,omitempty"`
-	RigorClass         string                `json:"rigor_class"`
-	ConsequenceClass   string                `json:"consequence_class,omitempty"`
-	PremiseHash        string                `json:"premise_hash,omitempty"`
-	OutcomeHash        string                `json:"outcome_hash,omitempty"`
+	ContractVersion     int64                        `json:"contract_version"`
+	Premise             string                       `json:"premise"`
+	OutcomeKind         string                       `json:"outcome_kind"`
+	OutcomePayload      json.RawMessage              `json:"outcome_payload"`
+	RequiredEvidence    []string                     `json:"required_evidence"`
+	RouteConventions    []string                     `json:"route_conventions"`
+	SpecMandate         []string                     `json:"spec_mandate"`
+	LawModifies         []string                     `json:"law_modifies"`
+	LawRevisions        []WorkflowLawRevision        `json:"law_revisions"`
+	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	LawBoundaryVersion  int                          `json:"law_boundary_version,omitempty"`
+	RigorClass          string                       `json:"rigor_class"`
+	ConsequenceClass    string                       `json:"consequence_class,omitempty"`
+	PremiseHash         string                       `json:"premise_hash,omitempty"`
+	OutcomeHash         string                       `json:"outcome_hash,omitempty"`
 }
 
 type workflowContractSupersededPayload struct {
@@ -537,16 +538,48 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 			return newFailure(KindInvalidPayload, "fold_event", "current law-aware contract approval is missing law revision pins", false, "capture one current Git law hash for every mandated law ID")
 		}
 	}
-	if p.LawRevisions != nil {
-		if err := validateWorkflowLawRevisions(p.SpecMandate, p.LawRevisions); err != nil {
+	registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if definitionErr != nil {
+		return definitionErr
+	}
+	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	if changesProductTruth {
+		if p.LawBoundaryVersion != 1 {
+			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract must carry the current law boundary", false, "supply law_boundary_version=1")
+		}
+		for _, field := range []string{"spec_mandate", "law_modifies", "law_revisions", "architecture_binding"} {
+			if _, present := contractFields[field]; !present {
+				return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract is missing composed field "+field, false, "supply every architecture-bound contract field")
+			}
+		}
+		if p.ArchitectureBinding == nil || p.LawRevisions == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract contains null architecture-bound fields", false, "supply the complete architecture binding and law pins")
+		}
+		if isWorkflowReplay(ctx) {
+			if err := validateArchitectureBindingReplayShape(registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
+				return err
+			}
+		} else if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
 			return err
+		}
+	} else {
+		if p.ArchitectureBinding != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
+		}
+		if len(p.LawModifies) != 0 {
+			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot modify Product law", false, "leave law_modifies empty or select a Product-changing workflow")
+		}
+		if p.LawRevisions != nil {
+			if err := validateWorkflowLawRevisions(p.SpecMandate, p.LawRevisions); err != nil {
+				return err
+			}
 		}
 	}
 	if p.LawBoundaryVersion == 1 {
 		if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
 			return err
 		}
-		if p.LawRevisions == nil && !isWorkflowReplay(ctx) {
+		if p.LawRevisions == nil && !isWorkflowReplay(ctx) && !changesProductTruth {
 			if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, p.SpecMandate, p.LawModifies, true); err != nil {
 				return err
 			}
@@ -589,6 +622,11 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 			}
 		}
 	}
+	if changesProductTruth {
+		if err := persistWorkflowArchitectureBindingTx(ctx, tx, event.SubjectID, p.ContractVersion, *p.ArchitectureBinding); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -614,9 +652,30 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if p.SuccessorContract.ContractVersion != p.NewContractVersion {
 			return newFailure(KindInvalidPayload, "fold_event", "successor contract version does not match contract supersession", false, "supply the consecutive successor contract version")
 		}
-		if !isWorkflowReplay(ctx) {
-			if err := validateCurrentWorkflowLawRevisionsTx(ctx, tx, event.SubjectID, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
+		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		if definitionErr != nil {
+			return definitionErr
+		}
+		productChanging := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+		if productChanging && p.SuccessorContract.ArchitectureBinding == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "true-definition supersession requires a fully supplied successor binding", false, "supply the complete successor architecture binding")
+		}
+		if productChanging {
+			if isWorkflowReplay(ctx) {
+				if err := validateArchitectureBindingReplayShape(registered.Definition, p.SuccessorContract.ArchitectureBinding, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
+					return err
+				}
+			} else if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.SuccessorContract.ArchitectureBinding, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
 				return err
+			}
+		} else if len(p.SuccessorContract.LawModifies) != 0 || p.SuccessorContract.ArchitectureBinding != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing successor carries Product authority", false, "leave Product-changing fields empty")
+		}
+		if !isWorkflowReplay(ctx) {
+			if !productChanging {
+				if err := validateCurrentWorkflowLawRevisionsTx(ctx, tx, event.SubjectID, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
+					return err
+				}
 			}
 			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, p.PreviousContractVersion, p.SuccessorContract.LawRevisions); err != nil {
 				return err
@@ -630,12 +689,19 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		successorEvent := event
 		successorEvent.EventID = event.EventID + ":successor"
 		successorEvent.Kind = WorkflowContractApproved
-		successorEvent.PayloadVersion = 2
+		successorEvent.PayloadVersion = 3
 		successorEvent.Payload = successorPayload
 		if err := foldWorkflowContractApproved(ctx, tx, successorEvent); err != nil {
 			return err
 		}
 	} else {
+		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		if definitionErr != nil {
+			return definitionErr
+		}
+		if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
+			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract supersession cannot use the legacy clone route", false, "supply a fully bound successor contract")
+		}
 		if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 			return err
 		}
@@ -1559,6 +1625,26 @@ func upcastWorkflowContractApprovedV1(event Event) (Event, error) {
 	}
 	event.Payload = payload
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+func upcastWorkflowContractApprovedV2(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v2 payload is not a JSON object", false, "repair the stored workflow contract")
+	}
+	if binding, present := fields["architecture_binding"]; present && string(binding) != "null" {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v2 cannot carry Product-changing authority", false, "keep historical v2 contracts explicitly non-Product-changing")
+	}
+	if _, present := fields["architecture_binding"]; !present {
+		fields["architecture_binding"] = json.RawMessage("null")
+	}
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_approved v2 payload", false, "repair the stored workflow contract", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 3
 	return event, nil
 }
 

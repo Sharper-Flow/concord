@@ -30,9 +30,9 @@ manifest. Every generated file embeds manifest version/digest. A hand-edited
 TypeScript/Go/docs copy is never another authority. CI validates the manifest against
 its IR schema and fails on missing coverage or generated/documentation drift.
 
-The manifest is an installer/build/test artifact—not an agent tool. Concord v2 kept
-TS2's static eight-tool surface; the operator-approved Epic amendment below moves
-the current static surface to nine tools. There is no `catalog`, `describe`, `invoke`,
+The manifest is an installer/build/test artifact—not an agent tool. Concord v2 and
+the Epic-era v3 surface remain historical evidence; the clean pre-launch current
+surface is 4.0.0 with nine static tools. There is no `catalog`, `describe`, `invoke`,
 tool-search, or progressive-discovery tool.
 
 ## 2. Contract identity and negotiation
@@ -166,6 +166,23 @@ only the model-visible invocation contract; it does not rewrite durable history.
 - Permanent aliases, silent redirects, and one name with version-dependent meaning
   are forbidden.
 
+### Workflow architecture-binding 4.0.0 MAJOR cutover
+
+**Operator approval:** 2026-08-19, [GitHub issue #194 comment](https://github.com/Sharper-Flow/concord/issues/194#issuecomment-5344595697).
+
+Surface `4.0.0` is the clean pre-launch MAJOR cutover. It adds the strict
+`architecture_binding`, `spec_mandate`, and `law_modifies` fields to the workflow-action
+payload so Product-changing workflow contracts can bind their current Domain registry,
+Domain footprint, and law boundary. Dedicated Domain, law, and obligation ID schemas
+preserve the authority boundary's 256-character limits and trimmed-value semantics.
+
+Only the current 4.0.0 manifest digest is grantable, negotiable, session-bootable, or
+invocable. V3 identities are not compatibility grants or fallback paths. Migration is
+explicit: restart the session, update the adapter, regenerate its manifest/digest, and
+request a new 4.0.0 grant. Concord provides no aliases, compatibility grant, or silent
+fallback. Immutable event/read upcasters and historical workflow definitions remain
+solely for deterministic history and rebuild; they are not agent-surface paths.
+
 An OpenCode session loaded before an adapter update may keep its old tool definitions
 only while its negotiated version remains supported. After removal, restart/update is
 required. Concord does not mutate a running session's tool list behind the model.
@@ -234,6 +251,8 @@ At minimum test:
 | `2.3.0` adapter | `3.0.0` core | Bootstrap fails before a domain call; adapter upgrades generated manifest/digest and requests a fresh `3.0.0` grant. |
 | `3.0.0` adapter | `3.0.0` core | Matching digest negotiates `3.0.0`; Epic operations are available only when `work_epic` is granted. |
 | `3.0.0` adapter, durable operation accepted under `2.x` | `3.0.0` core | Historic operation remains readable/recoverable with its original contract version; no event is rewritten. |
+| V3 adapter | `4.0.0` core | Bootstrap fails `incompatible_contract` before a domain call; no compatibility grant or alias is issued. |
+| `4.0.0` adapter | `4.0.0` core | Matching current digest negotiates `4.0.0`; workflow actions may use the strict architecture-binding fields. |
 
 Compatibility tests validate strict schema rejection of unknown fields/variants and
 ensure fail-closed responses never become `ok`.

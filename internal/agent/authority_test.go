@@ -210,6 +210,22 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 	}
 }
 
+func TestGrantBootstrapRejectsPreviousSurface(t *testing.T) {
+	db := openAgentDB(t)
+	service := NewService(db)
+	service.Now = func() time.Time { return fixedTime() }
+	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
+	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	request := grantRequest(privateKey, "nonce-previous-surface")
+	request.Assertion.SurfaceRange = "3.8.0-3.8.0"
+	request.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(request.Assertion))
+	if _, err := service.IssueGrant(context.Background(), request); err == nil {
+		t.Fatal("previous surface grant was accepted after the 4.0 cutover")
+	}
+}
+
 // The Epic tool is a model-visible major change. A v2 adapter cannot receive a
 // lossless static tool set, so bootstrap must fail before it can create a grant
 // or reach any domain operation.

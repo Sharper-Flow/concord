@@ -180,6 +180,7 @@ type WorkflowDefinition struct {
 	Ref                   string                        `json:"ref"`
 	Version               int64                         `json:"version"`
 	WorkKind              WorkKind                      `json:"work_kind"`
+	ChangesProductTruth   *bool                         `json:"changes_product_truth,omitempty"`
 	StepGraph             WorkflowStepGraph             `json:"step_graph"`
 	AvailableActions      []string                      `json:"available_actions"`
 	ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -304,6 +305,12 @@ func validWorkflowRef(value string) bool { return workflowRefPattern.MatchString
 func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 	if !validWorkflowRef(definition.Ref) || definition.Version < 1 || definition.Version > 2147483647 || !validWorkKind(definition.WorkKind) {
 		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
+	}
+	if definition.ChangesProductTruth == nil {
+		return definitionFailure(KindInvalidDefinition, "definition product-truth classification is required")
+	}
+	if *definition.ChangesProductTruth != expectedProductTruth(definition.Version, definition.WorkKind) {
+		return definitionFailure(KindInvalidDefinition, "definition product-truth classification does not match its versioned work-kind matrix")
 	}
 	graph := definition.StepGraph
 	if len(graph.Steps) < 2 || len(graph.Steps) > 32 || len(graph.Edges) < 1 || len(graph.Edges) > 64 || !validWorkflowID(graph.StartStep) || len(graph.TerminalSteps) < 1 || len(graph.TerminalSteps) > 16 {
@@ -433,18 +440,21 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	// json.Marshal follows the field order below. The digest is deliberately not
 	// part of this manifest, and nil arrays are normalized to schema arrays.
 	definition = normalizeWorkflowDefinition(definition)
-	schemaVersion := "1.2"
+	schemaVersion := "1.3"
 	if definition.Version < 3 {
 		schemaVersion = "1.1"
 		for i := range definition.ActionDefinitions {
 			definition.ActionDefinitions[i].ExecutionMode = ""
 		}
+	} else if definition.Version == 3 {
+		schemaVersion = "1.2"
 	}
 	manifest := struct {
 		SchemaVersion         string                        `json:"schema_version"`
 		Ref                   string                        `json:"ref"`
 		Version               int64                         `json:"version"`
 		WorkKind              WorkKind                      `json:"work_kind"`
+		ChangesProductTruth   *bool                         `json:"changes_product_truth,omitempty"`
 		StepGraph             WorkflowStepGraph             `json:"step_graph"`
 		AvailableActions      []string                      `json:"available_actions"`
 		ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -454,7 +464,15 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 		StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
 		CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
 		EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
-	}{schemaVersion, definition.Ref, definition.Version, definition.WorkKind, definition.StepGraph, definition.AvailableActions, definition.ActionDefinitions, definition.RequiredEvidenceKinds, definition.OutcomeSchema, definition.RigorRules, definition.StalenessRules, definition.CompositionRules, definition.EvaluatorIndependence}
+	}{
+		SchemaVersion: schemaVersion, Ref: definition.Ref, Version: definition.Version, WorkKind: definition.WorkKind,
+		StepGraph: definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
+		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
+		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,
+	}
+	if definition.Version >= 4 {
+		manifest.ChangesProductTruth = definition.ChangesProductTruth
+	}
 	return json.Marshal(manifest)
 }
 
@@ -519,11 +537,43 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 }
 
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	latest := builtinWorkflowV2Definitions()
+	latest := builtinWorkflowV3Definitions()
 	for i := range latest {
-		latest[i].Version = 3
+		latest[i].Version = 4
+		classification := workKindMayChangeProductTruth(latest[i].WorkKind)
+		latest[i].ChangesProductTruth = &classification
+		if latest[i].WorkKind == WorkKindBreakFix {
+			latest[i] = withBreakFixV4ApprovalRoute(latest[i])
+		}
 	}
 	return latest
+}
+
+// withBreakFixV4ApprovalRoute derives the Product-changing planning checkpoint
+// for v4; earlier definitions are built separately with their pinned graph.
+func withBreakFixV4ApprovalRoute(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	planning := step("planning", WorkflowStepHumanCheckpoint, "approve_contract", "checkpoint_context", "cross_context_boundary")
+	steps := []WorkflowStep{}
+	for _, existing := range definition.StepGraph.Steps {
+		steps = append(steps, existing)
+		if existing.ID == "diagnose" {
+			steps = append(steps, planning)
+		}
+	}
+	definition.StepGraph.Steps = steps
+	edges := []WorkflowEdge{}
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == "diagnose" && edge.To == "repair" && edge.Kind == WorkflowEdgeForward {
+			edges = append(edges, WorkflowEdge{From: "diagnose", To: "planning", Kind: WorkflowEdgeForward}, WorkflowEdge{From: "planning", To: "repair", Kind: WorkflowEdgeForward})
+			continue
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
+	definition.AvailableActions = append(definition.AvailableActions, "approve_contract")
+	definition.ActionDefinitions = append(definition.ActionDefinitions, actionDefinitions([]string{"approve_contract"})...)
+	return definition
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
@@ -534,6 +584,11 @@ func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 		}
 	}
 	for _, definition := range builtinWorkflowV2Definitions() {
+		if _, err := registry.Register(definition); err != nil {
+			panic(err)
+		}
+	}
+	for _, definition := range builtinWorkflowV3Definitions() {
 		if _, err := registry.Register(definition); err != nil {
 			panic(err)
 		}
@@ -581,6 +636,16 @@ func builtinWorkflowV2Definitions() []WorkflowDefinition {
 	}
 }
 
+func builtinWorkflowV3Definitions() []WorkflowDefinition {
+	definitions := builtinWorkflowV2Definitions()
+	for i := range definitions {
+		definitions[i].Version = 3
+		falseValue := false
+		definitions[i].ChangesProductTruth = &falseValue
+	}
+	return definitions
+}
+
 func builtinWorkflowV2(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	definition.Version = 2
@@ -610,6 +675,14 @@ func validWorkKind(kind WorkKind) bool {
 		return true
 	}
 	return false
+}
+
+func workKindMayChangeProductTruth(kind WorkKind) bool {
+	return kind == WorkKindImplementation || kind == WorkKindBreakFix || kind == WorkKindOpsRunbook
+}
+
+func expectedProductTruth(version int64, kind WorkKind) bool {
+	return version >= 4 && workKindMayChangeProductTruth(kind)
 }
 func validWorkflowStepKind(kind WorkflowStepKind) bool {
 	return kind == WorkflowStepInternalSQLite || kind == WorkflowStepCrossAuthority || kind == WorkflowStepExternalEffect || kind == WorkflowStepHumanCheckpoint
@@ -957,7 +1030,8 @@ func addEdge(edges []WorkflowEdge, from, to string, kind WorkflowEdgeKind) []Wor
 	return append(edges, WorkflowEdge{From: from, To: to, Kind: kind})
 }
 func baseDefinition(ref string, kind WorkKind, g WorkflowStepGraph, actions []string, evidence []EvidenceKind, outcome WorkflowOutcomeSchema, successors []WorkKind) WorkflowDefinition {
-	return WorkflowDefinition{Ref: ref, Version: 1, WorkKind: kind, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
+	falseValue := false
+	return WorkflowDefinition{Ref: ref, Version: 1, WorkKind: kind, ChangesProductTruth: &falseValue, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
 }
 
 func builtinImplementation() WorkflowDefinition {

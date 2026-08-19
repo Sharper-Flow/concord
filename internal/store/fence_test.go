@@ -60,6 +60,28 @@ func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
 	}
 }
 
+func TestFenceKeepsShippedSurfaceAndAcceptsCurrentMajor(t *testing.T) {
+	for _, version := range []string{"3.8.0", "4.0.0"} {
+		t.Run(version, func(t *testing.T) {
+			s := openTemp(t)
+			claim := testClaim("surface-"+version, "surface-"+version)
+			claim.ContractVersion = version
+			if _, err := ClaimStep(context.Background(), s, claim); err != nil {
+				t.Fatalf("ClaimStep(%s): %v", version, err)
+			}
+			got, err := Step(context.Background(), s, claim.OpID)
+			if err != nil || got.ContractVersion != version {
+				t.Fatalf("Step(%s) = %+v, %v", version, got, err)
+			}
+		})
+	}
+	claim := testClaim("surface-unshipped-3.9", "surface-unshipped-3.9")
+	claim.ContractVersion = "3.9.0"
+	if _, err := ClaimStep(context.Background(), openTemp(t), claim); err == nil {
+		t.Fatal("unshipped 3.9.0 durable contract was accepted")
+	}
+}
+
 func TestDurableOperationReplayVectorsMigrateLegacyResultsAndRejectFutureValues(t *testing.T) {
 	for _, vector := range []struct {
 		name string

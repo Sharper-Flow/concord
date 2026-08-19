@@ -26,16 +26,31 @@ type WorkflowReadDefinition struct {
 }
 
 type WorkflowReadContract struct {
-	Version          int64                 `json:"version"`
-	Premise          string                `json:"premise"`
-	OutcomeKind      string                `json:"outcome_kind"`
-	OutcomePayload   string                `json:"outcome_payload"`
-	RequiredEvidence []string              `json:"required_evidence"`
-	RouteConventions []string              `json:"route_conventions"`
-	SpecMandate      []string              `json:"spec_mandate"`
-	LawModifies      []string              `json:"law_modifies"`
-	LawRevisions     []WorkflowLawRevision `json:"law_revisions"`
-	RigorClass       string                `json:"rigor_class"`
+	Version                         int64                        `json:"version"`
+	Premise                         string                       `json:"premise"`
+	OutcomeKind                     string                       `json:"outcome_kind"`
+	OutcomePayload                  string                       `json:"outcome_payload"`
+	RequiredEvidence                []string                     `json:"required_evidence"`
+	RouteConventions                []string                     `json:"route_conventions"`
+	SpecMandate                     []string                     `json:"spec_mandate"`
+	LawModifies                     []string                     `json:"law_modifies"`
+	LawRevisions                    []WorkflowLawRevision        `json:"law_revisions"`
+	RigorClass                      string                       `json:"rigor_class"`
+	ChangesProductTruth             bool                         `json:"changes_product_truth"`
+	LegacyProductTruthCompatibility bool                         `json:"legacy_product_truth_compatibility"`
+	ArchitectureBinding             *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+}
+
+func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (RegisteredDefinition, error) {
+	registry := BuiltinWorkflowRegistry()
+	registered, ok := registry.Lookup(definition.Ref, definition.Version)
+	if !ok {
+		return RegisteredDefinition{}, newFailure(KindDefinitionDigestMismatch, "workflow_read", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
+	}
+	if err := registry.Verify(definition.Ref, definition.Version, definition.Digest); err != nil {
+		return RegisteredDefinition{}, err
+	}
+	return registered, nil
 }
 
 type WorkflowReadCondition struct {
@@ -82,14 +97,17 @@ type WorkflowReadProjection struct {
 	UnresolvedConditions []string                  `json:"unresolved_conditions"`
 	// OverdueAwaits lists condition ids whose wait exceeded the declared
 	// bound, derived at read time — the waiting/never-completable split.
-	OverdueAwaits        []string                `json:"overdue_awaits"`
-	AwaitHealth          []WorkflowReadCondition `json:"await_health"`
-	UnreadableConditions []string                `json:"unreadable_conditions"`
-	Ready                bool                    `json:"ready"`
-	BlockingConditions   []string                `json:"blocking_conditions"`
-	ImpactNotices        []WorkflowReadNotice    `json:"impact_notices"`
-	CompletionWarnings   []string                `json:"completion_warnings"`
-	StaleLawRevision     *StaleLawRevision       `json:"stale_law_revision,omitempty"`
+	OverdueAwaits                   []string                     `json:"overdue_awaits"`
+	AwaitHealth                     []WorkflowReadCondition      `json:"await_health"`
+	UnreadableConditions            []string                     `json:"unreadable_conditions"`
+	Ready                           bool                         `json:"ready"`
+	BlockingConditions              []string                     `json:"blocking_conditions"`
+	ImpactNotices                   []WorkflowReadNotice         `json:"impact_notices"`
+	CompletionWarnings              []string                     `json:"completion_warnings"`
+	StaleLawRevision                *StaleLawRevision            `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth             bool                         `json:"changes_product_truth"`
+	LegacyProductTruthCompatibility bool                         `json:"legacy_product_truth_compatibility"`
+	ArchitectureBinding             *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 }
 
 // ReadWorkflowProjection returns one bounded, point-in-time workflow
@@ -116,6 +134,12 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
 	out.WorkID = request.WorkID
+	registered, err := verifyReadWorkflowDefinition(out.Definition)
+	if err != nil {
+		return out, err
+	}
+	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	out.LegacyProductTruthCompatibility = out.Definition.Version >= 1 && out.Definition.Version <= 3
 	out.CandidateIDs = []string{}
 	out.Conditions = []WorkflowReadCondition{}
 	out.UnresolvedConditions = []string{}
@@ -128,11 +152,22 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies, &contract.RigorClass)
+	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies, &contract.RigorClass)
 	if err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
+		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
+		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
+		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
+		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		contract.ChangesProductTruth = out.ChangesProductTruth
+		contract.LegacyProductTruthCompatibility = out.LegacyProductTruthCompatibility
+		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, s.db, request.WorkID, contract.Version)
+		if err != nil {
+			return out, err
+		}
+		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, s.db, request.WorkID, contract.Version)
 		if err != nil {
@@ -143,7 +178,11 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 			if homeErr != nil {
 				return out, homeErr
 			}
-			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, s.db, homeProjectID, homeLocatorID, request.WorkID, contract.Version, contract.SpecMandate)
+			currentMandate, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
+			if mandateErr != nil {
+				return out, mandateErr
+			}
+			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, s.db, homeProjectID, homeLocatorID, request.WorkID, contract.Version, currentMandate)
 			if err != nil {
 				return out, err
 			}
@@ -367,6 +406,12 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history summary", true, "retry once the database is readable", err)
 	}
 	out.WorkID = workID
+	registered, err := verifyReadWorkflowDefinition(out.Definition)
+	if err != nil {
+		return nil, err
+	}
+	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	out.LegacyProductTruthCompatibility = out.Definition.Version >= 1 && out.Definition.Version <= 3
 	out.Ready = true
 	out.CandidateIDs = []string{}
 	out.Conditions = []WorkflowReadCondition{}
@@ -384,6 +429,17 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return nil, newFailure(KindInvariantViolation, "workflow_read", "workflow history contract arrays are malformed", false, "rebuild projections from the event log")
 		}
+		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
+		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
+		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
+		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		contract.ChangesProductTruth = out.ChangesProductTruth
+		contract.LegacyProductTruthCompatibility = out.LegacyProductTruthCompatibility
+		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, workID, contract.Version)
+		if err != nil {
+			return nil, err
+		}
+		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		var workVersion int64
 		if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&workVersion); err != nil {

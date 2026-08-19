@@ -272,7 +272,7 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	}
 	versions := map[string]any{"work": preVersion}
 	digest := mutationDigest("concord_work_transition", "lifecycle", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, env.ClientVersion, fixedTime(), nonceForChallenge(challengeRef))
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: withApproval}, env)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved dispatch failed outcome=%s err=%+v", approved.Outcome, approved.Error)
@@ -306,7 +306,7 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	replayInput := withApproval
 	replayChallengeRef := challengeRef
 	replayDigest := mutationDigest("concord_work_transition", "lifecycle", env, replayInput)
-	env.HostApproval = signedHostApproval(privateKey, replayChallengeRef, replayDigest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, env.ClientVersion, fixedTime(), nonceForChallenge(replayChallengeRef))
+	env.HostApproval = signedHostApproval(privateKey, replayChallengeRef, replayDigest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(replayChallengeRef))
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: replayInput}, env)
 	if !replay.Replayed {
 		t.Fatalf("replay did not set Replayed=true")
@@ -806,7 +806,7 @@ func bindAJ5AtomicSupersession(t *testing.T, sc jobScenario) jobObservation {
 	}
 	versions := map[string]any{"predecessor": preOldVersion, "successor": preNewVersion}
 	digest := mutationDigest("concord_work_relate", "supersede", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, env.ClientVersion, fixedTime(), nonceForChallenge(challengeRef))
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "supersede", Input: withApproval}, env)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved supersede failed outcome=%s err=%+v", approved.Outcome, approved.Error)
@@ -888,6 +888,85 @@ func bindAJ5AtomicSupersession(t *testing.T, sc jobScenario) jobObservation {
 		},
 	}
 	obs.Authority["supersession_relation_row_present"] = supersessionPresentNow
+	return obs
+}
+
+// AJ5-resolve-domain-overlap proves why the current overlap operation exists: an
+// ordinary relation cannot confer Product-concordance authority, while one
+// operator-approved call binds both endpoint and contract versions atomically.
+func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
+	t.Helper()
+	s, service, _, privateKey, env, input := seedAgentOverlapFixture(t)
+	seed, _ := sc.InitialState["idempotency_seed"].(string)
+	var request map[string]any
+	if err := json.Unmarshal(input, &request); err != nil {
+		t.Fatal(err)
+	}
+	request["idempotency_key"] = seed
+	input, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ordinary := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "link", Input: json.RawMessage(`{"from_work_id":"work-1","to_work_id":"work-2","from_expected_version":2,"to_expected_version":2,"kind":"compatible_with","reason":"ordinary links cannot decide compatibility","idempotency_key":"ordinary-compatible"}`)}, env)
+	if ordinary.Error == nil || ordinary.Error.Kind != "invalid_relation" {
+		t.Fatalf("ordinary compatible_with link was not rejected: %+v", ordinary.Error)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
+		t.Fatalf("ordinary relation wrote %d overlap resolutions", got)
+	}
+
+	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
+	if first.Error == nil || first.Error.Kind != "approval_required" {
+		t.Fatalf("overlap resolution did not request operator approval: %+v", first.Error)
+	}
+	challengeRef, ok := first.Error.Details["approval_ref"].(string)
+	if !ok || challengeRef == "" {
+		t.Fatalf("overlap resolution challenge missing: %+v", first.Error.Details)
+	}
+	withApproval, err := injectApproval(input, challengeRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := map[string]any{
+		"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"},
+		"work_ids": []string{"work-1", "work-2"}, "scope_version": env.ScopeVersion,
+	}
+	versions := map[string]any{"from": int64(2), "to": int64(2), "from_contract": int64(1), "to_contract": int64(1)}
+	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, withApproval)
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: withApproval}, env)
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("approved overlap resolution failed: %+v", approved.Error)
+	}
+
+	var kind, approvalRef string
+	var fromContract, toContract int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT resolution_kind,from_contract_version,to_contract_version,approval_ref FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&kind, &fromContract, &toContract, &approvalRef); err != nil {
+		t.Fatal(err)
+	}
+	var relationCount, usedCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='compatible_with' AND resolution_id IS NOT NULL`).Scan(&relationCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, approvalRef).Scan(&usedCount); err != nil {
+		t.Fatal(err)
+	}
+	if relationCount != 1 || usedCount != 1 {
+		t.Fatalf("resolution relation=%d approval uses=%d", relationCount, usedCount)
+	}
+
+	obs := envelopeToObservation(approved)
+	obs.State = map[string]any{
+		"overlap":   map[string]any{"current_resolution": map[string]any{"kind": kind, "from_contract_version": fromContract, "to_contract_version": toContract}},
+		"relations": map[string]any{"compatible_with": []any{map[string]any{"source": "work-1", "target": "work-2"}}},
+	}
+	obs.Authority = map[string]any{"operator_approval_consumed": usedCount == 1, "approval_ref": approvalRef}
+	obs.Effects = map[string]any{
+		"atomic_core_effect":          "complete",
+		"approval_authority_consumed": true,
+		"ordinary_relation_authority": probedAbsent{Evidence: "generic compatible_with link returned invalid_relation and wrote no resolution row"},
+	}
 	return obs
 }
 
@@ -1102,7 +1181,7 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 		"scope_version": env.ScopeVersion,
 	}
 	digest := mutationDigest("concord_work_define", "capture", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, env.ClientVersion, fixedTime(), nonceForChallenge(challengeRef))
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: withApproval}, env)
 	if approved.Outcome != OutcomeOK {

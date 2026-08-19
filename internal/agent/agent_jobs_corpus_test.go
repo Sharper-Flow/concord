@@ -276,14 +276,18 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	t.Helper()
 	supplied, suppliedOK := obs.Effects["evidence_authority_supplied"].(bool)
 	required, requiredOK := obs.Effects["missing_evidence_refused"].(bool)
+	consumed, consumedOK := obs.Effects["approval_authority_consumed"].(bool)
 	// A third shape: the consequence needed operator authority that was withheld,
 	// so it was refused before any effect. That is neither evidence supplied nor
 	// a missing-evidence refusal, and CD-0035's governing-law conflict is the
 	// first scenario to exercise it.
 	withheld, withheldOK := obs.Effects["approval_authority_withheld"].(bool)
-	if !suppliedOK && !requiredOK && !withheldOK {
-		t.Error("evidence_authority: binding did not record evidence_authority_supplied, missing_evidence_refused, or approval_authority_withheld")
+	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK {
+		t.Error("evidence_authority: binding did not record supplied, refused, withheld, or consumed authority evidence")
 		return
+	}
+	if consumedOK && !consumed {
+		t.Error("evidence_authority: approval_authority_consumed is false")
 	}
 	if withheld {
 		// Cross-check the wire: withholding authority must return the choice to
@@ -899,9 +903,10 @@ func (d scenarioDriver) approvalWithheld() bool {
 func TestAgentJobsCorpus(t *testing.T) {
 	corpus := loadAgentJobsCorpus(t)
 
-	// The corpus must declare exactly 21 scenarios.
-	if len(corpus.Scenarios) != 21 {
-		t.Fatalf("corpus declares %d scenarios, want 21", len(corpus.Scenarios))
+	// The corpus count is pinned so scenario removal cannot masquerade as a
+	// complete binding run.
+	if len(corpus.Scenarios) != 22 {
+		t.Fatalf("corpus declares %d scenarios, want 22", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -987,7 +992,6 @@ func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, pm1fixtur
 	}
 	assertion := SignedAssertion{
 		ClientRef:             "client-1",
-		ClientVersion:         ManifestVersion,
 		SessionRef:            "session-agent-jobs",
 		AgentRef:              "agent-engineer",
 		Directory:             "/repo",
@@ -997,16 +1001,12 @@ func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, pm1fixtur
 		RequestedCapabilities: []Capability{"product_read"},
 		IssuedAt:              fixedTime(),
 		Nonce:                 "agent-jobs-nonce-16c",
-		SurfaceRange:          ManifestVersion + "-" + ManifestVersion,
-		EnvelopeVersions:      "1.0",
 		ManifestDigest:        ManifestDigest,
 	}
 	assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(assertion))
 	grantReq := GrantRequest{
-		Assertion:       assertion,
-		SurfaceVersion:  ManifestVersion,
-		EnvelopeVersion: "1.0",
-		ExpiresAt:       fixedTime().Add(time.Hour),
+		Assertion: assertion,
+		ExpiresAt: fixedTime().Add(time.Hour),
 	}
 	grant, err := service.IssueGrant(ctx, grantReq)
 	if err != nil {
@@ -1021,7 +1021,6 @@ func agentJobsEnvelope(grant Grant, ambientProject, selectedProduct string) Call
 		RequestID:         "agent-jobs-request",
 		GrantRef:          grant.Token,
 		ClientRef:         grant.ClientRef,
-		ClientVersion:     grant.ClientVersion,
 		PrincipalRef:      grant.PrincipalRef,
 		SessionRef:        grant.SessionRef,
 		AgentRef:          grant.AgentRef,
@@ -1029,8 +1028,6 @@ func agentJobsEnvelope(grant Grant, ambientProject, selectedProduct string) Call
 		Worktree:          grant.Worktree,
 		AmbientProjectID:  ambientProject,
 		SelectedProductID: selectedProduct,
-		SurfaceVersion:    grant.SurfaceVersion,
-		EnvelopeVersion:   grant.EnvelopeVersion,
 		ManifestDigest:    grant.ManifestDigest,
 	}
 }
@@ -1255,6 +1252,7 @@ func init() {
 	jobBindings["AJ5-add-dependency"] = bindAJ5AddDependency
 	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
+	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
 
 	// Deferred scenarios with precise reasons.
 	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"

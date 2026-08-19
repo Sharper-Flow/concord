@@ -34,7 +34,7 @@ type WorkflowActionExecutionRequest struct {
 	RequestID            string
 	AcceptedScope        string
 	LawModifies          []string
-	ContractVersion      string
+	ContractDigest       string
 	Now                  time.Time
 	// ResearchBindings declares the pack revisions this action's work item
 	// starts relying on (CD-0025). The engine binds each consumer and proves
@@ -138,7 +138,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if request.ActionID == "supersede_contract" {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			var failure *Failure
-			if !failureAs(err, &failure) || failure.Kind != KindStaleLawRevision {
+			if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
 				return result, err
 			}
 			staleRecovery = true
@@ -251,11 +251,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if request.Now.IsZero() {
 		request.Now = time.Now().UTC()
 	}
-	if request.ContractVersion == "" {
-		request.ContractVersion = "2.0.0"
-	}
-	if !supportedAgentContractVersion(request.ContractVersion) {
-		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_version is not supported", false, "upgrade Concord before replaying this operation")
+	if !validDigest(request.ContractDigest) {
+		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_digest is not a SHA-256 digest", false, "supply the current manifest digest")
 	}
 	if request.AcceptedInputsDigest == "" {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "accepted input digest is required", false, "retry with the canonical request digest")
@@ -277,7 +274,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		// the durable claim uses its owning SQLite transaction as authority.
 		durableStepKind = string(WorkflowStepInternalSQLite)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Definition.Version, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractVersion); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Definition.Version, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractDigest); err != nil {
 		return result, wrapFailure(KindIdempotencyConflict, "workflow_action", "durable workflow operation identity is already claimed: "+err.Error(), false, "retry the same request or reconcile the operation", err)
 	}
 	evidenceRefs := append([]string(nil), request.EvidenceRefs...)

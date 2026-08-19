@@ -8,7 +8,8 @@
 > **Binding inputs:** PM1 universal query envelope/corpus and accepted TS1–TS6
 > job/tool/context/transport contracts.
 > **Does not decide:** operation-specific payload fields already owned by TS3/TS4,
-> compatibility/deprecation (TS8), measurement gates (TS9), UI rendering, C14, or C15.
+> surface identity/change evidence (TS8), measurement evidence (TS9), UI rendering,
+> C14, or C15.
 
 ## 1. Decision
 
@@ -32,8 +33,8 @@ Every outcome carries:
 | Field | Contract |
 |---|---|
 | `schema_version` | Envelope schema version. |
-| `contract_version` | Required only for `origin=core`: negotiated canonical tool/domain version. |
-| `adapter_contract_version` | Required only for `origin=adapter`: adapter envelope contract used to encode a pre-core transport/bootstrap failure; it never claims core compatibility. |
+| `manifest_digest` | Exact generated current-manifest digest bound to this grant, session, invocation, and result. |
+| `adapter_contract_version` | Required only for `origin=adapter`: adapter envelope schema used to encode a pre-core transport/bootstrap failure; it never claims a core surface identity. |
 | `request_id` | This transport attempt; audit only, never idempotency. |
 | `origin` | `core` for a schema-valid core response; `adapter` only for fail-closed transport errors when no core envelope exists. |
 | `tool`, `operation` | One accepted TS3/TS4 pair. |
@@ -255,16 +256,16 @@ TS7 `error` envelope with `origin=adapter`, `authority=unreachable`, and one of:
 - `cancelled` — cancellation completed before any authoritative effect.
 
 Adapter errors also carry closed `adapter_reason`:
-`missing_binary|spawn_failure|io_failure|malformed_core_response|timeout_no_effect|cancelled_no_effect|incompatible_contract|manifest_mismatch|grant_bootstrap_failed|unknown_effect`.
+`missing_binary|spawn_failure|io_failure|malformed_core_response|timeout_no_effect|cancelled_no_effect|manifest_mismatch|grant_bootstrap_failed|unknown_effect`.
 The adapter's own `adapter_contract_version` makes this envelope schema-valid before core
-negotiation; `incompatible_contract` and `manifest_mismatch` recover by upgrading or
-repairing installation, never by parsing arbitrary details.
+invocation; `manifest_mismatch` fails closed and recovers by regenerating the current
+manifest and restarting the session, never by parsing arbitrary details.
 
 If an effect may have occurred, adapter returns `operation_conflict`/recovery to
 re-read or reconcile; it never guesses no effect. Raw stderr is bounded diagnostic
 evidence, not parsed domain state.
 
-## 10. Scenario and compatibility requirements
+## 10. Scenario and current-surface requirements
 
 TS7 must pass:
 
@@ -278,9 +279,9 @@ TS7 must pass:
 - maximum-byte/page/graph/warning/evidence bounds; and
 - malformed stdout, timeout, cancellation, and unknown error-kind rejection.
 
-Unknown outcome/error/recovery discriminants fail schema validation. TS8 owns safe
-additive evolution and version negotiation; adapters do not accept unknown variants
-as generic prose.
+Unknown outcome/error/recovery discriminants fail schema validation. TS8 owns exact
+manifest-digest identity and change evidence; adapters do not accept unknown
+variants as generic prose.
 
 ## 11. Rejected alternatives
 

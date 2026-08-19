@@ -56,7 +56,6 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 	}
 	assertion := SignedAssertion{
 		ClientRef:             "client-mutation",
-		ClientVersion:         ManifestVersion,
 		SessionRef:            "session-mutation",
 		AgentRef:              "agent-engineer",
 		Directory:             "/repo",
@@ -66,16 +65,12 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 		RequestedCapabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"},
 		IssuedAt:              fixedTime(),
 		Nonce:                 "agent-jobs-mutation-nonce",
-		SurfaceRange:          ManifestVersion + "-" + ManifestVersion,
-		EnvelopeVersions:      "1.0",
 		ManifestDigest:        ManifestDigest,
 	}
 	assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(assertion))
 	grantReq := GrantRequest{
-		Assertion:       assertion,
-		SurfaceVersion:  ManifestVersion,
-		EnvelopeVersion: "1.0",
-		ExpiresAt:       fixedTime().Add(time.Hour),
+		Assertion: assertion,
+		ExpiresAt: fixedTime().Add(time.Hour),
 	}
 	grant, err := service.IssueGrant(ctx, grantReq)
 	if err != nil {

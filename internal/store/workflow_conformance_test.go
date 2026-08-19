@@ -314,7 +314,7 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 	}
 	payload["successor"] = successor
 	fields["successor_work_id"] = successor
-	link := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: "link_successor", Payload: json.RawMessage(mustJSON(fields)), Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID + ":link", PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: request.Idempotency.Key + ":link", RequestID: request.Idempotency.RequestID + ":link", AcceptedScope: `{}`, ContractVersion: "2.0.0", Now: corpusNow}
+	link := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: "link_successor", Payload: json.RawMessage(mustJSON(fields)), Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID + ":link", PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: request.Idempotency.Key + ":link", RequestID: request.Idempotency.RequestID + ":link", AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow}
 	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), link)
 	if err != nil {
 		_ = leaveFold(ctx, tx)
@@ -544,7 +544,7 @@ func TestWorkflowObservationArchitectureRejectsKnownConstantInjectionShapes(t *t
 			t.Fatalf("observation harness contains forbidden constant injection shape %q", pattern)
 		}
 	}
-	for _, required := range []string{"ResumeWorkflow", "ReadWorkflowReplayEvidence", "workflowObservationAssertionError"} {
+	for _, required := range []string{"ResumeWorkflow", "readWorkflowReplayEvidence", "workflowObservationAssertionError"} {
 		if !strings.Contains(fullSource, required) {
 			t.Fatalf("observation harness lost authoritative constructor %s", required)
 		}
@@ -675,7 +675,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(scenario.Request.Fields)
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: scenario.Setup.FixtureRefs.WorkItem, ExpectedVersion: scenario.Request.ExpectedVersion, ActionID: scenario.Request.ActionID, Payload: payload, Actor: actor, AcceptedInputsDigest: scenario.Request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: scenario.Request.Idempotency.Key, OperationID: scenario.Request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: scenario.Request.Idempotency.Key, RequestID: scenario.Request.Idempotency.RequestID, AcceptedScope: `{}`, ContractVersion: "2.0.0", Now: corpusNow})
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: scenario.Setup.FixtureRefs.WorkItem, ExpectedVersion: scenario.Request.ExpectedVersion, ActionID: scenario.Request.ActionID, Payload: payload, Actor: actor, AcceptedInputsDigest: scenario.Request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: scenario.Request.Idempotency.Key, OperationID: scenario.Request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: scenario.Request.Idempotency.Key, RequestID: scenario.Request.Idempotency.RequestID, AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
 	_ = leaveFold(ctx, tx)
 	if actionErr != nil {
 		tx.Rollback()
@@ -1114,7 +1114,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		}
 		result := map[string]any{"rebuilt_projection_hash": afterHash, "before_projection_hash": beforeHash, "projection_hash_equal": beforeHash == afterHash}
 		if action == "replay" {
-			evidence, evidenceErr := ReadWorkflowReplayEvidence(ctx, s, workID, "work.created")
+			evidence, evidenceErr := readWorkflowReplayEvidence(ctx, s, workID, "work.created")
 			if evidenceErr != nil {
 				return observeWorkflowStore(ctx, s, workID, beforeSeq, evidenceErr, result)
 			}
@@ -1181,7 +1181,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 				approval, _ = value.(string)
 			}
 		}
-		_, takeErr := OperatorTakeover(ctx, s, ClaimRequest{OpID: request.Operation.OpID, WorkID: workID, WorkflowTypeRef: definition.Ref, WorkflowTypeVersion: int(definition.Version), StepID: request.Operation.StepID, StepKind: StepKindInternalSQLite, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, AcceptedScopeSnapshot: `{"project":"project-1"}`, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, ObservedAt: corpusNow, ContractVersion: "2.0.0"}, approval)
+		_, takeErr := OperatorTakeover(ctx, s, ClaimRequest{OpID: request.Operation.OpID, WorkID: workID, WorkflowTypeRef: definition.Ref, WorkflowTypeVersion: int(definition.Version), StepID: request.Operation.StepID, StepKind: StepKindInternalSQLite, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, AcceptedScopeSnapshot: `{"project":"project-1"}`, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, ObservedAt: corpusNow, ContractDigest: testManifestDigest}, approval)
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, takeErr, map[string]any{"attempt": map[string]any{"owner_changed": takeErr == nil}})
 	}
 	if action == string(corpusActionStartDownstream) {
@@ -1244,7 +1244,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
-	workflowRequest := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project-1"}`, ContractVersion: "2.0.0", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}
+	workflowRequest := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}
 	var result WorkflowActionExecutionResult
 	var actionErr error
 	if action == string(corpusActionReplaceCheck) {
@@ -1317,7 +1317,7 @@ func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any,
 	for epoch := int64(1); epoch <= maxEpoch; epoch++ {
 		if _, err := ClaimStep(ctx, s, ClaimRequest{
 			OpID: request.Operation.OpID, WorkID: request.Fields["payload"].(map[string]any)["work"].(string), WorkflowTypeRef: definition.Ref, WorkflowTypeVersion: int(definition.Version), StepID: request.Operation.StepID, StepKind: StepKindExternalEffect,
-			AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, AcceptedScopeSnapshot: `{"project":"project-1"}`, PrincipalRef: request.Grant.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: logicalKey + ":claim:" + strconv.FormatInt(epoch, 10), RequestID: request.Idempotency.RequestID + ":claim:" + strconv.FormatInt(epoch, 10), ObservedAt: corpusNow, ContractVersion: "2.0.0",
+			AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, AcceptedScopeSnapshot: `{"project":"project-1"}`, PrincipalRef: request.Grant.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: logicalKey + ":claim:" + strconv.FormatInt(epoch, 10), RequestID: request.Idempotency.RequestID + ":claim:" + strconv.FormatInt(epoch, 10), ObservedAt: corpusNow, ContractDigest: testManifestDigest,
 		}); err != nil {
 			return err
 		}
@@ -1329,6 +1329,40 @@ func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64
 	var version int64
 	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version)
 	return version, err
+}
+
+type workflowReplayEvidence struct {
+	EventID              string `json:"event_id"`
+	Kind                 string `json:"kind"`
+	StoredPayloadVersion int    `json:"stored_payload_version"`
+	ReplayPayloadVersion int    `json:"replay_payload_version"`
+	ProjectionVersion    int64  `json:"projection_version"`
+}
+
+func readWorkflowReplayEvidence(ctx context.Context, s *Store, workID, kind string) (workflowReplayEvidence, error) {
+	var evidence workflowReplayEvidence
+	var event Event
+	var occurredAt string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq LIMIT 1`, SubjectWorkItem, workID, kind).Scan(&event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload); err != nil {
+		return evidence, err
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, occurredAt)
+	if err != nil {
+		return evidence, err
+	}
+	event.OccurredAt = parsed
+	replayed, err := upcastEvent(event)
+	if err != nil {
+		return evidence, err
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&evidence.ProjectionVersion); err != nil {
+		return evidence, err
+	}
+	evidence.EventID = event.EventID
+	evidence.Kind = event.Kind
+	evidence.StoredPayloadVersion = event.PayloadVersion
+	evidence.ReplayPayloadVersion = replayed.PayloadVersion
+	return evidence, nil
 }
 
 func replayCorpusEventStream(ctx context.Context, s *Store, fields map[string]any) error {
@@ -1551,7 +1585,7 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 			_ = tx.Rollback()
 			return err
 		}
-		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(`{}`), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractVersion: "2.0.0", Now: corpusNow})
+		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(`{}`), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
 		_ = leaveFold(ctx, tx)
 		if err != nil {
 			_ = tx.Rollback()
@@ -2097,7 +2131,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if value, ok := observation.Result["new_event_refused"]; ok {
 		observation.Communication["new_event"] = map[string]any{"error": map[string]any{"kind": "invariant_violation", "refused": value}}
 	}
-	if evidence, ok := observation.Result["replay_evidence"].(WorkflowReplayEvidence); ok {
+	if evidence, ok := observation.Result["replay_evidence"].(workflowReplayEvidence); ok {
 		observation.Authority["old_event"] = map[string]any{"upcasted": evidence.StoredPayloadVersion < evidence.ReplayPayloadVersion, "stored_version": evidence.StoredPayloadVersion, "replay_version": evidence.ReplayPayloadVersion, "projection_version": evidence.ProjectionVersion}
 	}
 	if warnings, warningErr := readWorkflowStalenessWarnings(ctx, s.DatabaseForTesting(), workID); warningErr == nil && len(warnings) != 0 {

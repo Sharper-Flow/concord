@@ -66,8 +66,8 @@ enumeration.
   session, including review and verification lanes, reads the full verdict.
 - The operator's launcher reads the store directly and is unaffected.
 - `work_scope` in `contracts/agent-tool-surface-payloads.schema.json` gains the
-  optional `verdict` object; the surface version does not change, since result
-  schemas are additive and the operation set is untouched.
+  optional `verdict` object; the generated manifest digest remains the only
+  pre-go-live agent-surface identity.
 
 ## Verification
 

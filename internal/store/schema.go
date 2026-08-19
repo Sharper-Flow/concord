@@ -479,6 +479,7 @@ CREATE TABLE durable_operations (
     request_id TEXT NOT NULL,
     observed_at TEXT NOT NULL,
     completed_at TEXT,
+    contract_digest TEXT NOT NULL,
     PRIMARY KEY(op_id, attempt_epoch)
 );
 CREATE INDEX durable_operations_pending ON durable_operations(work_id,result_kind)
@@ -656,10 +657,7 @@ CREATE TABLE agent_grants (
     agent_ref TEXT NOT NULL,
     directory TEXT NOT NULL,
     worktree TEXT NOT NULL,
-    client_version TEXT NOT NULL,
     client_key_id TEXT NOT NULL,
-    surface_version TEXT NOT NULL,
-    envelope_version TEXT NOT NULL,
     manifest_digest TEXT NOT NULL,
     capabilities_json TEXT NOT NULL CHECK(json_valid(capabilities_json) AND json_type(capabilities_json)='array'),
     product_scope_json TEXT NOT NULL CHECK(json_valid(product_scope_json) AND json_type(product_scope_json)='array'),
@@ -675,10 +673,7 @@ CREATE TABLE agent_grants (
     CHECK(length(agent_ref) > 0 AND length(agent_ref) <= 128),
     CHECK(length(directory) > 0 AND length(directory) <= 4096),
     CHECK(length(worktree) > 0 AND length(worktree) <= 4096),
-    CHECK(length(client_version) > 0 AND length(client_version) <= 64),
     CHECK(length(client_key_id) > 0 AND length(client_key_id) <= 128),
-    CHECK(length(surface_version) > 0 AND length(surface_version) <= 64),
-    CHECK(length(envelope_version) > 0 AND length(envelope_version) <= 64),
     CHECK(length(manifest_digest) = 71),
     CHECK(expires_at > issued_at)
 );
@@ -1115,9 +1110,9 @@ CREATE TRIGGER workflow_premise_confirmations_guard_delete BEFORE DELETE ON work
 	},
 	{
 		Version: 16,
-		Name:    "durable_operation_contract_versions",
+		Name:    "durable_operation_contract_digest",
 		SQL: `
-ALTER TABLE durable_operations ADD COLUMN contract_version TEXT NOT NULL DEFAULT '1.0.0';
+SELECT 1;
 `,
 	},
 	{
@@ -2096,6 +2091,88 @@ CREATE TRIGGER workflow_contract_law_additions_guard_delete BEFORE DELETE ON wor
 CREATE TRIGGER workflow_contract_verification_obligations_guard_insert BEFORE INSERT ON workflow_contract_verification_obligations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_verification_obligations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_contract_verification_obligations_guard_update BEFORE UPDATE ON workflow_contract_verification_obligations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_verification_obligations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_contract_verification_obligations_guard_delete BEFORE DELETE ON workflow_contract_verification_obligations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_verification_obligations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
+	},
+	{
+		Version: 40,
+		Name:    "workflow_domain_overlap_resolutions",
+		SQL: `
+-- CD-0041 D6-D7: normalized law writes and version-pinned overlap
+-- resolutions. Detected overlap remains derived; this table stores only an
+-- operator-approved resolution event projection.
+CREATE TABLE workflow_contract_law_modifications (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    law_id TEXT NOT NULL CHECK(length(law_id) BETWEEN 2 AND 256),
+    PRIMARY KEY(work_id, contract_version, law_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_architecture_bindings(work_id, contract_version) ON DELETE RESTRICT
+);
+CREATE INDEX workflow_contract_law_modifications_lookup
+    ON workflow_contract_law_modifications(law_id, work_id, contract_version);
+CREATE TRIGGER workflow_contract_law_modifications_guard_insert BEFORE INSERT ON workflow_contract_law_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_law_modifications_guard_update BEFORE UPDATE ON workflow_contract_law_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_law_modifications_guard_delete BEFORE DELETE ON workflow_contract_law_modifications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_law_modifications is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+INSERT INTO fold_guard(active) VALUES (1);
+INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id)
+SELECT c.work_id,c.contract_version,j.value
+FROM workflow_contracts c, json_each(c.law_modifies) j
+WHERE json_valid(c.law_modifies) AND json_type(c.law_modifies)='array';
+DELETE FROM fold_guard WHERE active = 1;
+
+CREATE TABLE workflow_overlap_resolutions (
+    resolution_id TEXT PRIMARY KEY,
+    event_seq INTEGER NOT NULL UNIQUE REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    from_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    to_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    from_contract_version INTEGER NOT NULL,
+    to_contract_version INTEGER NOT NULL,
+    resolution_kind TEXT NOT NULL CHECK(resolution_kind IN ('compatible_with','depends_on','blocks','merged_into','supersedes')),
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    approval_ref TEXT NOT NULL CHECK(length(approval_ref) > 0),
+    created_at TEXT NOT NULL,
+    invalidated_seq INTEGER REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    CHECK(from_work_id <> to_work_id),
+    CHECK(from_contract_version > 0 AND to_contract_version > 0),
+    FOREIGN KEY(from_work_id,from_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT,
+    FOREIGN KEY(to_work_id,to_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT
+);
+CREATE INDEX workflow_overlap_resolutions_pair ON workflow_overlap_resolutions(product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,event_seq);
+CREATE INDEX workflow_overlap_resolutions_reverse_pair ON workflow_overlap_resolutions(product_id,to_work_id,from_work_id,to_contract_version,from_contract_version,event_seq);
+CREATE TRIGGER workflow_overlap_resolutions_guard_insert BEFORE INSERT ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_update BEFORE UPDATE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_delete BEFORE DELETE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+-- The public relation vocabulary includes resolution companions. These rows
+-- are read-side context only; overlap authority remains the projection above.
+DROP TRIGGER relations_guard_insert;
+DROP TRIGGER relations_guard_update;
+DROP TRIGGER relations_guard_delete;
+DROP INDEX idx_relations_from_kind;
+DROP INDEX idx_relations_to_kind;
+DROP INDEX relations_supersedes_target;
+ALTER TABLE relations RENAME TO relations_v40;
+CREATE TABLE relations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id_from TEXT NOT NULL REFERENCES work_items(id),
+    work_id_to   TEXT NOT NULL REFERENCES work_items(id),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent','blocks','implements','supersedes','forward_link','raised_from','depends_on','compatible_with','merged_into')),
+    created_at   TEXT NOT NULL,
+    resolution_id TEXT,
+    CHECK(work_id_from <> work_id_to),
+    UNIQUE(work_id_from, work_id_to, kind)
+);
+INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,resolution_id)
+    SELECT id,work_id_from,work_id_to,kind,created_at,NULL FROM relations_v40;
+DROP TABLE relations_v40;
+CREATE INDEX idx_relations_from_kind ON relations(work_id_from, kind, work_id_to);
+CREATE INDEX idx_relations_to_kind ON relations(work_id_to, kind, work_id_from);
+CREATE UNIQUE INDEX relations_supersedes_target ON relations(work_id_to) WHERE kind = 'supersedes';
+CREATE UNIQUE INDEX relations_merged_into_source ON relations(work_id_from) WHERE kind = 'merged_into';
+CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
         `,
 	},
 }

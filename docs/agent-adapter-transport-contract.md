@@ -6,8 +6,9 @@
 > **Binding inputs:** CD-0003 short-lived Go CLI/no daemon; accepted TS1–TS5
 > contracts; capability-placement native-authority rule; current official OpenCode
 > custom-tool, plugin, permission, and MCP documentation reviewed 2026-08-06.
-> **Does not decide:** TS7 result/error field layout, TS8 compatibility/versioning,
-> TS9 release measurements, adapter package/repository name, UI styling, C14, or C15.
+> **Does not decide:** TS7 result/error field layout, TS8 digest identity/change
+> evidence, TS9 pre-go-live measurements, adapter package/repository name, UI styling,
+> C14, or C15.
 
 ## 1. Decision
 
@@ -67,7 +68,7 @@ and unused nonce before issuing a grant. Session/path fields without that signat
 have no authority.
 
 The module shares one in-memory grant cache across its exports, keyed by OpenCode
-session, agent, worktree, and adapter version. On first call, session/agent change,
+session, agent, worktree, and generated manifest digest. On first call, session/agent change,
 expiry, revocation, or adapter reload:
 
 1. retrieve the registered private key from OS credential storage and sign one fresh
@@ -155,14 +156,14 @@ fails consequential mutations closed—never approval prose or `approved: true`.
 
 ### Allowed
 
-- register the generated static tool set and strict schemas (nine tools at surface 3.0.0);
+- register the generated current static tool set and strict schemas;
 - capture documented OpenCode execution context;
 - hold an ephemeral core grant in memory;
 - serialize one canonical request and parse one canonical response;
 - call `ask` for one exact core challenge;
 - propagate cancellation and caller budget;
 - classify malformed/non-JSON CLI output as transport failure; and
-- attach adapter/client version for audit and compatibility.
+- attach adapter/client identity for audit only.
 
 ### Forbidden
 

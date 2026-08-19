@@ -100,8 +100,8 @@ func formatRequiredFields(fields []commandField) string {
 // bootstrap test. Agent grant/invoke fields remain owned by their generated
 // transport contracts.
 var commandSpecs = []commandSpec{
-	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_epic | cross_scope | research; envelope_versions: 1.0; surface_range: 2.1.0-3.7.0"},
-	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "client_version", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "surface_version", "envelope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
+	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_epic | cross_scope | research"},
+	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("routing_policy_version"), field("routing_policy_digest"), field("resolved_model"), field("resolution_role"), field("fallback_reason"), field("packet_schema_version"), field("report_schema_version")), Optional: "host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "resolution_role: preferred | fallback | undeclared; fallback_reason: rate_limit | provider_unavailable | budget_exhausted | other | empty for preferred; resolved_model must be in the declared routing-policy resolution set"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version")), Optional: "none", Enums: "readback_model must equal the dispatch resolved_model"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | model_identity_mismatch"},
@@ -497,20 +497,17 @@ func runGrant(raw []byte, service *agent.Service, out, errOut io.Writer) int {
 		return 1
 	}
 	response := struct {
-		GrantRef        string   `json:"grant_ref"`
-		GrantToken      string   `json:"grant_token"`
-		PrincipalRef    string   `json:"principal_ref"`
-		ClientRef       string   `json:"client_ref"`
-		ClientVersion   string   `json:"client_version"`
-		SessionRef      string   `json:"session_ref"`
-		AgentRef        string   `json:"agent_ref"`
-		SurfaceVersion  string   `json:"surface_version"`
-		EnvelopeVersion string   `json:"envelope_version"`
-		ManifestDigest  string   `json:"manifest_digest"`
-		ProductIDs      []string `json:"product_ids"`
-		ProjectIDs      []string `json:"project_ids"`
-		ScopeVersion    string   `json:"scope_version"`
-	}{grant.RecordID, grant.Token, grant.PrincipalRef, grant.ClientRef, grant.ClientVersion, grant.SessionRef, grant.AgentRef, grant.SurfaceVersion, grant.EnvelopeVersion, grant.ManifestDigest, grant.ProductScope, grant.ProjectScope, grant.ScopeVersion}
+		GrantRef       string   `json:"grant_ref"`
+		GrantToken     string   `json:"grant_token"`
+		PrincipalRef   string   `json:"principal_ref"`
+		ClientRef      string   `json:"client_ref"`
+		SessionRef     string   `json:"session_ref"`
+		AgentRef       string   `json:"agent_ref"`
+		ManifestDigest string   `json:"manifest_digest"`
+		ProductIDs     []string `json:"product_ids"`
+		ProjectIDs     []string `json:"project_ids"`
+		ScopeVersion   string   `json:"scope_version"`
+	}{grant.RecordID, grant.Token, grant.PrincipalRef, grant.ClientRef, grant.SessionRef, grant.AgentRef, grant.ManifestDigest, grant.ProductScope, grant.ProjectScope, grant.ScopeVersion}
 	return writeJSON(out, response, errOut)
 }
 
@@ -522,7 +519,7 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	}
 	response, dispatchErr := agent.Dispatch(context.Background(), s, service, request, env)
 	if dispatchErr != nil {
-		base := agent.NewBase(env.RequestID, request.Tool, request.Operation, agent.ManifestVersion)
+		base := agent.NewBase(env.RequestID, request.Tool, request.Operation)
 		response = agent.NewCoreError(base, agent.TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: agent.RecoveryAction{Kind: "restart_query"}, EffectState: agent.EffectNone, Message: dispatchErr.Error()})
 	}
 	return writeJSON(out, response, errOut)

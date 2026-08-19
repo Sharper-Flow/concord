@@ -3,8 +3,12 @@
 **Status:** Accepted
 **Date:** 2026-08-06
 **Decision owners:** Operator + agent
-**Scope:** Canonical agent jobs, eight-tool OpenCode surface, context/authorization,
-transport, results, evolution, and measured stewardship.
+**Scope:** Canonical agent jobs, current generated OpenCode surface,
+context/authorization, transport, results, digest-bound evolution, and deterministic
+pre-go-live evidence.
+**Amended by:** CD-0042 removes pre-go-live surface-version, negotiation,
+deprecation, and supported-model release policy; the current path is identified by
+the generated manifest digest.
 
 ## Context
 
@@ -23,8 +27,10 @@ accepted architecture index and invariants.
 
 Concord supports eight end-to-end jobs: orient/choose work, explain blockage,
 capture need, transition with evidence, relate/scope, compact/reconcile, retrieve
-durable knowledge, and coordinate native operational work. Twenty-one tool-neutral
-scenarios judge resulting state, communication, prohibited effects, and invariants.
+durable knowledge, and coordinate native operational work. Twenty-two tool-neutral
+scenarios judge resulting state, communication, prohibited effects, and invariants;
+the operator-approved CD-0041/#195 amendment adds version-pinned Domain-overlap
+resolution within AJ5.
 
 Binding: [`../agent-tool-surface-jobs.md`](../agent-tool-surface-jobs.md) and
 [`../../scenarios/agent-jobs.v1.json`](../../scenarios/agent-jobs.v1.json).
@@ -82,9 +88,10 @@ short-lived Go CLI over argv + JSON stdin/stdout. No plugin hooks, MCP daemon, F
 TypeScript domain logic, or provider proxy. Signed client bootstrap protects grant
 issuance. Current OpenCode `ToolContext.ask` is pinned, tested, and fail-closed.
 
-CD-0024 amends the current static surface to nine tools at 3.0.0 by adding the
-accepted Epic route. The original v2 eight-tool selection remains historical evidence;
-the major-version boundary and narrow TS9 exception are owned by CD-0024.
+CD-0024's Epic route and its versioned bootstrap are historical decision evidence.
+The current adapter exposes the generated current tool set, including the accepted
+`concord_work_relate.resolve_overlap` operation, and binds the exact manifest digest.
+Pre-go-live clients do not negotiate a surface version or range.
 
 Binding: [`../agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md).
 
@@ -98,28 +105,32 @@ process exhaust. Serialized output caps at 65,536 bytes.
 Binding: [`../agent-result-envelope.md`](../agent-result-envelope.md) and
 [`../../contracts/agent-tool-envelope.schema.json`](../../contracts/agent-tool-envelope.schema.json).
 
-### D8. Evolution and deprecation
+### D8. Evolution and digest identity
 
 One schema-validated language-neutral manifest generates/verifies Go, TypeScript,
-schemas, tests, and docs. Signed version/digest negotiation fails closed. No permanent
-or simultaneous aliases. Compatibility lasts 30–90 days; durable history remains
-interpretable after external surface removal.
+schemas, tests, and docs. Grants, sessions, invocations, and envelopes bind its
+exact digest and fail closed on mismatch. There is no pre-go-live surface version,
+range negotiation, alias, deprecation window, migration path, or old-client runtime
+branch. Durable Product/event history remains interpretable when current readers
+require it.
 
 Binding: [`../agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md).
 
-### D9. Measurement and change gate
+### D9. Deterministic pre-go-live evidence gate
 
-Deterministic PM1/TS1 oracles gate correctness; supported-model trials gate selection.
-Production telemetry owns call facts only—not heuristic job success. Expansion,
-removal, split, merge, description, and discovery changes require matched scenario
-evidence, explicit populations, practical thresholds, TS8 migration, and operator
-approval. Low usage/tool count alone never decides.
+Deterministic PM1/TS1 oracles, strict schemas, authority and transaction proofs,
+negative probes, generated drift checks, and conformance gate the current path.
+Supported-model trials and production telemetry may inform research but do not gate a
+pre-go-live release. Surface changes require named deterministic evidence and
+operator acceptance when authority or consequence changes. The first-go-live
+decision must define supported populations and re-accept any future measurement
+gate.
 
 Binding: [`../agent-tool-surface-measurement.md`](../agent-tool-surface-measurement.md).
 
 ## Invariants
 
-1. Exactly eight always-visible v1 tools; nine remains the hard cap.
+1. The generated current manifest defines one static tool surface; nine remains the hard cap.
 2. Agent surface derives from accepted jobs, never storage/CLI inventory.
 3. Go core owns all domain semantics and authorization.
 4. Adapter owns only host context, transport, schema registration, and permission
@@ -129,7 +140,8 @@ Binding: [`../agent-tool-surface-measurement.md`](../agent-tool-surface-measurem
 7. Human approval is bound to exact operation/scope/version/consequence.
 8. No false cross-authority atomicity or false top-level success.
 9. Reads/output remain bounded and authority/freshness explicit.
-10. Surface changes are generated, negotiated, measured, versioned, and reversible.
+10. Surface changes are generated, digest-bound, deterministically evidenced, and
+operator-accepted when authority or consequence changes.
 
 ## Consequences
 
@@ -139,14 +151,15 @@ Binding: [`../agent-tool-surface-measurement.md`](../agent-tool-surface-measurem
 - Structural scope/auth/retry safety without model-visible plumbing.
 - One Go domain authority and one thin OpenCode adapter.
 - Honest recovery from partial git/transport outcomes.
-- Compatibility and expansion pressure are governed before implementation drift.
+- Surface identity and change pressure are governed before implementation drift.
 
 ### Cost
 
-- Canonical manifest/code generation and compatibility matrix are mandatory.
+- Canonical manifest/code generation and deterministic conformance evidence are mandatory.
 - OpenCode adapter depends on a pinned, currently source-only `ToolContext.ask` API.
-- Model/corpus baseline is substantial before release.
-- New Product domains do not gain tools automatically; they must pass TS9.
+- PM1/TS1 deterministic evidence is substantial before release.
+- New Product domains do not gain tools automatically; they must pass the current
+  TS9 evidence contract.
 
 ## Rejected alternatives
 
@@ -161,9 +174,9 @@ Binding: [`../agent-tool-surface-measurement.md`](../agent-tool-surface-measurem
 ## Implementation acceptance
 
 Implementation must satisfy each linked contract, PM1/TS1 deterministic scenarios,
-TS6 transport/grant/approval failure tests, TS7 schema/negative probes, TS8 version
-matrix, and TS9 deterministic/supported-model baseline as narrowed by CD-0006. A passing schema without
-state/authority/selection evidence is insufficient.
+TS6 transport/grant/approval failure tests, TS7 schema/negative probes, TS8 exact
+manifest-digest binding, and TS9 deterministic authority/transaction/conformance
+evidence. A passing schema without state/authority evidence is insufficient.
 
 ## Supersession
 

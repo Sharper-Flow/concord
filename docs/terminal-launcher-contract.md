@@ -512,7 +512,7 @@ A prototype would need to satisfy at minimum:
 - Launching from S3 hands the work item's stable ID and nothing about workflow
   position; the core session bootstrap supplies a generated, digest-bound continuity
   packet before OpenCode starts, and the session resumes at the durable current step.
-- An unknown session type, session contract version, surface version, or manifest digest
+- An unknown session type, session contract version, or manifest digest mismatch
   fails before OpenCode starts.
 - Launching from a deliberately stale S3 snapshot resumes at the *current* step, not
   the displayed one.

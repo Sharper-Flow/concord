@@ -527,13 +527,12 @@ dispatcher performs this order:
 Registry-specific availability/drift names and action-payload-specific names are
 not envelope kinds and must never escape the core.
 CD-0013 D10 adds exactly one new closed kind, `outcome_mismatch`, with recovery
-action `contact_operator`. The TS8 MAJOR amendment ships this engine as surface
-`2.0.0`, with the
-manifest, envelope schema, compatibility matrix, migration guidance, and operator
-acceptance required by CD-0005 D11. No other error kind is added or renamed here.
+action `contact_operator`. The current generated manifest and envelope schema carry
+that classification; no agent-surface version, compatibility matrix, migration
+guidance, or old-client path is part of this pre-go-live corpus. No other error kind
+is added or renamed here.
 
-The corpus records the shipped boundary as `surface_version=2.0.0` and
-`engine_status=engine_shipped`. The checker compares every scenario's expected
+The corpus records `engine_status=engine_shipped`. The checker compares every scenario's expected
 error kind with the current closed envelope enum; unknown classifications fail
 validation rather than being downgraded to prose or generic success.
 

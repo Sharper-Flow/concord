@@ -89,7 +89,7 @@
     {"id": "scenario-actor-ref-invalid", "mutation": "actor_ref", "expected_error": "pattern"},
     {"id": "scenario-initial-state-float-invalid", "mutation": "invalid_float", "expected_error": "oneOf mismatch"},
     {"id": "scenario-unknown-error-kind", "mutation": "unknown_error_kind", "expected_error": "undeclared scenario error kind"},
-    {"id": "scenario-shipped-pending-amendment", "mutation": "engine_shipped_pending", "expected_error": "pending amendments remain"},
+    {"id": "scenario-rejection-removed-surface-version", "mutation": "removed_surface_version_rejection", "expected_error": "unknown properties"},
     {"id": "scenario-notice-id-invalid", "mutation": "wrong_notice_id", "expected_error": "notice-ID derivation mismatch"},
     {"id": "scenario-literal-backslash-zero-actor", "mutation": "literal_backslash_zero_actor", "expected_error": "actor-ID derivation mismatch"}
   ],

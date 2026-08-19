@@ -39,7 +39,7 @@ func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 	if len(result.Rows) != 3 || result.NextCursor == nil {
 		t.Fatalf("seeded page=%#v", result)
 	}
-	response, err := (runtime{}).productRows(NewBase("parity", "concord_product_view", "portfolio", ManifestVersion), result)
+	response, err := (runtime{}).productRows(NewBase("parity", "concord_product_view", "portfolio"), result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := (runtime{}).productRows(NewBase("parity-"+authority, "concord_product_view", "portfolio", ManifestVersion), degraded)
+		response, err := (runtime{}).productRows(NewBase("parity-"+authority, "concord_product_view", "portfolio"), degraded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +143,7 @@ func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 
 func assertProductPortfolioEnvelopeMeta(t *testing.T, response Envelope, result store.ProductRowResult) {
 	t.Helper()
-	if response.QueryID != result.QueryID || response.ContractVersion != ManifestVersion || response.Authority != Authority(result.Authority) || response.Outcome != OutcomeOK {
+	if response.QueryID != result.QueryID || response.ManifestDigest != ManifestDigest || response.Authority != Authority(result.Authority) || response.Outcome != OutcomeOK {
 		t.Fatalf("envelope identity/meta drifted: response=%#v result=%#v", response, result)
 	}
 	expectedFreshness := &Freshness{ObservedAt: parseTime(result.Freshness.ObservedAt), Age: result.Freshness.Age, Stale: result.Freshness.Stale}
@@ -230,7 +230,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_product_view", Operation: "resolve", Input: json.RawMessage(`{"project_id":"project-1"}`)}
-	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "request-1", GrantRef: grant.Token, ClientRef: grant.ClientRef, ClientVersion: grant.ClientVersion, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", ScopeVersion: scopeVersion, SurfaceVersion: grant.SurfaceVersion, EnvelopeVersion: grant.EnvelopeVersion, ManifestDigest: grant.ManifestDigest}
+	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "request-1", GrantRef: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Need","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)}
-	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", GrantRef: grant.Token, ClientRef: grant.ClientRef, ClientVersion: grant.ClientVersion, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, SurfaceVersion: grant.SurfaceVersion, EnvelopeVersion: grant.EnvelopeVersion, ManifestDigest: grant.ManifestDigest}
+	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", GrantRef: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)
@@ -355,7 +355,7 @@ func TestMutationDigestBindsIntentNotApprovalTransportReference(t *testing.T) {
 func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 	rawCursor := "store-offset-cursor"
 	r := runtime{}
-	response, err := r.q3(NewBase("request", "concord_work_browse", "list", ManifestVersion), store.Q3Result{
+	response, err := r.q3(NewBase("request", "concord_work_browse", "list"), store.Q3Result{
 		ResultMeta: store.ResultMeta{QueryID: "PM1.Q3", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, NextCursor: &rawCursor},
 	})
 	if err != nil {
@@ -374,7 +374,7 @@ func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 }
 
 func TestBudgetFieldsRefuseOrBoundResultsStructurally(t *testing.T) {
-	base := NewBase("request", "concord_work_browse", "list", ManifestVersion)
+	base := NewBase("request", "concord_work_browse", "list")
 	meta := store.ResultMeta{QueryID: "PM1.Q3", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	items := []store.WorkItem{{ID: "one", Kind: "task", Title: "one", Lifecycle: "needed"}, {ID: "two", Kind: "task", Title: "two", Lifecycle: "needed"}}
 	response, err := (runtime{Budget: budgetInput{MaxItems: 1}}).q3(base, store.Q3Result{ResultMeta: meta, Items: items})
@@ -459,7 +459,7 @@ func TestKnowledgeResolveNoteRejectsUnrelatedSelectedProduct(t *testing.T) {
 func runtimeResolveNote(t *testing.T, s *store.Store, product string, input json.RawMessage) Envelope {
 	t.Helper()
 	r := runtime{Store: s, Tool: "concord_knowledge", Operation: "resolve_note", Envelope: CallEnvelope{SelectedProductID: product}}
-	response, err := r.read(context.Background(), NewBase("runtime-q10", r.Tool, r.Operation, ManifestVersion), input, "PM1.Q10")
+	response, err := r.read(context.Background(), NewBase("runtime-q10", r.Tool, r.Operation), input, "PM1.Q10")
 	if err != nil {
 		t.Fatal(err)
 	}

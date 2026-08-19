@@ -27,8 +27,7 @@ type TrustedClientKeyRecord struct {
 // kept as their stored representations so the domain layer owns interpretation.
 type GrantRecord struct {
 	RecordID, PrincipalRef, ClientRef, SessionRef, AgentRef string
-	Directory, Worktree, ClientVersion, ClientKeyID         string
-	SurfaceVersion, EnvelopeVersion, ManifestDigest         string
+	Directory, Worktree, ClientKeyID, ManifestDigest        string
 	CapabilitiesJSON, ProductScopeJSON, ProjectScopeJSON    string
 	IssuedAt, ExpiresAt                                     string
 	RevokedAt                                               string
@@ -41,8 +40,7 @@ type GrantInsert struct {
 	RecordID                                                 string
 	TokenHash                                                []byte
 	PrincipalRef, ClientRef, SessionRef, AgentRef            string
-	Directory, Worktree, ClientVersion, ClientKeyID          string
-	SurfaceVersion, EnvelopeVersion, ManifestDigest          string
+	Directory, Worktree, ClientKeyID, ManifestDigest         string
 	CapabilitiesJSON, ProductScopeJSON, ProjectScopeJSON     string
 	IssuedAt, ExpiresAt                                      string
 	MaxUses                                                  int
@@ -230,7 +228,7 @@ func persistNonceAndGrant(ctx context.Context, tx *sql.Tx, input GrantInsert) er
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_nonce_replay(client_ref,nonce,observed_at,expires_at) VALUES(?,?,?,?)`, input.ClientRef, input.Nonce, input.NonceObservedAt, input.NonceExpiresAt); err != nil {
 		return newFailure(KindProjectionConflict, "agent_nonce", "assertion nonce replayed", false, "issue a new assertion nonce")
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO agent_grants(grant_ref,grant_hash,principal_ref,client_ref,session_ref,agent_ref,directory,worktree,client_version,client_key_id,surface_version,envelope_version,manifest_digest,capabilities_json,product_scope_json,project_scope_json,issued_at,expires_at,max_uses,scope_version,scope_snapshot_json,candidate_products_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, input.RecordID, input.TokenHash, input.PrincipalRef, input.ClientRef, input.SessionRef, input.AgentRef, input.Directory, input.Worktree, input.ClientVersion, input.ClientKeyID, input.SurfaceVersion, input.EnvelopeVersion, input.ManifestDigest, input.CapabilitiesJSON, input.ProductScopeJSON, input.ProjectScopeJSON, input.IssuedAt, input.ExpiresAt, input.MaxUses, input.ScopeVersion, input.ScopeSnapshotJSON, input.CandidateProductsJSON)
+	_, err := tx.ExecContext(ctx, `INSERT INTO agent_grants(grant_ref,grant_hash,principal_ref,client_ref,session_ref,agent_ref,directory,worktree,client_key_id,manifest_digest,capabilities_json,product_scope_json,project_scope_json,issued_at,expires_at,max_uses,scope_version,scope_snapshot_json,candidate_products_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, input.RecordID, input.TokenHash, input.PrincipalRef, input.ClientRef, input.SessionRef, input.AgentRef, input.Directory, input.Worktree, input.ClientKeyID, input.ManifestDigest, input.CapabilitiesJSON, input.ProductScopeJSON, input.ProjectScopeJSON, input.IssuedAt, input.ExpiresAt, input.MaxUses, input.ScopeVersion, input.ScopeSnapshotJSON, input.CandidateProductsJSON)
 	if err != nil {
 		return wrapFailure(KindProjectionConflict, "agent_issue_grant", "cannot persist grant", false, "retry with a fresh grant identity", err)
 	}
@@ -255,7 +253,7 @@ func grant(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, tokenHash []byte) (GrantRecord, error) {
 	var g GrantRecord
-	if err := q.QueryRowContext(ctx, `SELECT g.grant_ref,g.principal_ref,g.client_ref,g.session_ref,g.agent_ref,g.directory,g.worktree,g.client_version,g.client_key_id,g.surface_version,g.envelope_version,g.manifest_digest,g.capabilities_json,g.product_scope_json,g.project_scope_json,g.issued_at,g.expires_at,COALESCE(g.revoked_at,''),g.max_uses,g.used_count,g.scope_version,g.scope_snapshot_json,g.candidate_products_json,c.status,k.key_id FROM agent_grants g JOIN agent_clients c ON c.client_ref=g.client_ref JOIN agent_client_keys k ON k.client_ref=g.client_ref AND k.status='active' WHERE g.grant_hash=?`, tokenHash).Scan(&g.RecordID, &g.PrincipalRef, &g.ClientRef, &g.SessionRef, &g.AgentRef, &g.Directory, &g.Worktree, &g.ClientVersion, &g.ClientKeyID, &g.SurfaceVersion, &g.EnvelopeVersion, &g.ManifestDigest, &g.CapabilitiesJSON, &g.ProductScopeJSON, &g.ProjectScopeJSON, &g.IssuedAt, &g.ExpiresAt, &g.RevokedAt, &g.MaxUses, &g.UsedCount, &g.ScopeVersion, &g.ScopeSnapshotJSON, &g.CandidateProductsJSON, &g.ClientStatus, &g.ActiveKeyID); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT g.grant_ref,g.principal_ref,g.client_ref,g.session_ref,g.agent_ref,g.directory,g.worktree,g.client_key_id,g.manifest_digest,g.capabilities_json,g.product_scope_json,g.project_scope_json,g.issued_at,g.expires_at,COALESCE(g.revoked_at,''),g.max_uses,g.used_count,g.scope_version,g.scope_snapshot_json,g.candidate_products_json,c.status,k.key_id FROM agent_grants g JOIN agent_clients c ON c.client_ref=g.client_ref JOIN agent_client_keys k ON k.client_ref=g.client_ref AND k.status='active' WHERE g.grant_hash=?`, tokenHash).Scan(&g.RecordID, &g.PrincipalRef, &g.ClientRef, &g.SessionRef, &g.AgentRef, &g.Directory, &g.Worktree, &g.ClientKeyID, &g.ManifestDigest, &g.CapabilitiesJSON, &g.ProductScopeJSON, &g.ProjectScopeJSON, &g.IssuedAt, &g.ExpiresAt, &g.RevokedAt, &g.MaxUses, &g.UsedCount, &g.ScopeVersion, &g.ScopeSnapshotJSON, &g.CandidateProductsJSON, &g.ClientStatus, &g.ActiveKeyID); err != nil {
 		return g, wrapFailure(KindProjectionNotFound, "agent_grant_read", "unknown grant", false, "issue a valid grant", err)
 	}
 	return g, nil

@@ -29,7 +29,7 @@
          { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_epic" }, "operation": { "enum": ["create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative"] } } },
          { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_epic" }, "operation": { "const": "entries" }, "query_id": { "const": "C21.EpicEntries" } } },
         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_transition" }, "operation": { "enum": ["lifecycle", "workflow_action"] } } },
-        { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_relate" }, "operation": { "enum": ["set_memberships", "link", "unlink", "supersede", "restore_superseded"] } } },
+         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_relate" }, "operation": { "enum": ["set_memberships", "link", "unlink", "supersede", "restore_superseded", "resolve_overlap"] } } },
         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_compact" }, "operation": { "enum": ["publish", "reconcile"] } } }
       ]
     },
@@ -37,14 +37,13 @@
       "type": "object",
       "required": [
         "schema_version", "request_id", "origin", "tool", "operation",
-        "outcome", "resolved_scope", "authority", "freshness",
+        "outcome", "resolved_scope", "authority", "freshness", "manifest_digest",
         "source_version_watermark", "ordering_keys", "next_cursor", "omissions",
         "warnings", "evidence_refs", "replayed"
       ],
       "properties": {
         "schema_version": { "const": "1.0" },
-        "contract_version": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "adapter_contract_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "manifest_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
         "origin": { "enum": ["core", "adapter"] },
         "tool": {
@@ -59,7 +58,7 @@
             "resolve", "snapshot", "list", "ready", "blocked", "scope",
             "history", "relations", "search", "resolve_note", "capture",
             "revise_intent", "lifecycle", "workflow_action", "set_memberships",
-            "link", "unlink", "supersede", "restore_superseded", "publish",
+            "link", "unlink", "supersede", "restore_superseded", "resolve_overlap", "publish",
              "reconcile", "create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative", "entries"
           ]
         },
@@ -119,14 +118,6 @@
       },
       "allOf": [
         { "$ref": "#/$defs/toolOperation" },
-        {
-          "if": { "properties": { "origin": { "const": "core" } }, "required": ["origin"] },
-          "then": { "required": ["contract_version"], "not": { "required": ["adapter_contract_version"] } }
-        },
-        {
-          "if": { "properties": { "origin": { "const": "adapter" } }, "required": ["origin"] },
-          "then": { "required": ["adapter_contract_version"], "not": { "required": ["contract_version"] } }
-        },
         {
           "if": { "properties": { "authority": { "const": "degraded" } }, "required": ["authority"] },
           "then": { "properties": { "omissions": { "minItems": 1 } } }
@@ -192,7 +183,7 @@
             "resolve", "snapshot", "list", "ready", "blocked", "scope",
             "history", "relations", "search", "resolve_note", "capture",
             "revise_intent", "lifecycle", "workflow_action", "set_memberships",
-            "link", "unlink", "supersede", "restore_superseded", "publish",
+            "link", "unlink", "supersede", "restore_superseded", "resolve_overlap", "publish",
              "reconcile", "create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative", "entries"
           ]
         },
@@ -242,7 +233,7 @@
             "approval_required", "approval_invalid", "version_conflict",
             "idempotency_conflict", "operation_conflict", "invalid_transition",
             "invalid_relation", "invariant_violation", "missing_evidence",
-             "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "degraded_not_allowed",
+             "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed",
             "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused",
             "invalid_input", "cancelled", "timeout", "transport_failure",
             "malformed_response", "internal_error"
@@ -255,7 +246,7 @@
           "enum": [
             "missing_binary", "spawn_failure", "io_failure",
             "malformed_core_response", "timeout_no_effect", "cancelled_no_effect",
-            "incompatible_contract", "manifest_mismatch", "grant_bootstrap_failed",
+            "manifest_mismatch", "grant_bootstrap_failed",
             "unknown_effect"
           ]
         },
@@ -274,6 +265,46 @@
             "accepted_successor_law_id": {"type": "string", "minLength": 2, "maxLength": 256},
             "accepted_successor_content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
             "recovery_actions": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "string", "minLength": 1, "maxLength": 128}}
+          }
+        },
+        "domain_overlap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["overlaps", "total_overlaps", "returned_overlaps", "truncated"],
+          "properties": {
+            "overlaps": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"],
+                "properties": {
+                  "product_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                  "from_work_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                  "to_work_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                  "from_contract_version": {"type": "integer", "minimum": 1},
+                  "to_contract_version": {"type": "integer", "minimum": 1},
+                  "shared_affected_domain_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+                  "shared_law_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 256}},
+                  "shared_domain_modifications": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+                  "shared_relation_tuples": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": false, "required": ["source_domain_id", "kind", "target_domain_id"], "properties": {"source_domain_id": {"type": "string", "minLength": 1, "maxLength": 256}, "kind": {"type": "string", "enum": ["depends_on", "shares_contract_with", "replaces"]}, "target_domain_id": {"type": "string", "minLength": 1, "maxLength": 256}}}},
+                  "overlap_classes": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "enum": ["architecture", "law_write", "domain_write", "domain_relation_write"]}},
+                  "resolution_state": {"type": "string", "enum": ["unresolved", "stale", "sequenced"]},
+                  "resolution_kind": {"type": "string", "enum": ["compatible_with", "depends_on", "blocks", "merged_into", "supersedes"]},
+                  "recovery_actions": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "enum": ["wait", "resolve_overlap", "terminal_work", "supersede_contract"]}},
+                  "shared_affected_domain_count": {"type": "integer", "minimum": 0},
+                  "shared_law_count": {"type": "integer", "minimum": 0},
+                  "shared_domain_modification_count": {"type": "integer", "minimum": 0},
+                  "shared_relation_tuple_count": {"type": "integer", "minimum": 0},
+                  "detail_truncated": {"type": "boolean"}
+                }
+              }
+            },
+            "total_overlaps": {"type": "integer", "minimum": 1},
+            "returned_overlaps": {"type": "integer", "minimum": 1},
+            "truncated": {"type": "boolean"}
           }
         },
         "details": {
@@ -337,6 +368,10 @@
         {
           "if": { "properties": { "kind": { "const": "stale_law_revision" } }, "required": ["kind"] },
           "then": { "required": ["stale_law_revision"], "properties": { "recovery_action": { "properties": { "kind": { "const": "request_approval" } } } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "domain_overlap" } }, "required": ["kind"] },
+          "then": { "required": ["domain_overlap"], "properties": { "recovery_action": { "properties": { "kind": { "const": "request_approval" } } } } }
         },
         {
           "if": { "properties": { "kind": { "const": "missing_evidence" } }, "required": ["kind"] },
@@ -490,7 +525,7 @@
           "if": {
             "properties": {
               "error": {
-                "properties": { "adapter_reason": { "enum": ["incompatible_contract", "manifest_mismatch", "grant_bootstrap_failed"] } },
+                "properties": { "adapter_reason": { "enum": ["manifest_mismatch", "grant_bootstrap_failed"] } },
                 "required": ["adapter_reason"]
               }
             },

@@ -2047,7 +2047,10 @@ const GeneratedPayloadSchemaDocument = `{
         "implements",
         "supersedes",
         "superseded_by",
-        "raised_from"
+        "raised_from",
+        "depends_on",
+        "compatible_with",
+        "merged_into"
       ],
       "type": "string"
     },
@@ -2653,9 +2656,6 @@ const GeneratedPayloadSchemaDocument = `{
         "session_type": {
           "const": "operator"
         },
-        "surface_version": {
-          "const": "4.0.0"
-        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -2664,7 +2664,6 @@ const GeneratedPayloadSchemaDocument = `{
         "schema_version",
         "session_type",
         "session_contract_version",
-        "surface_version",
         "manifest_digest",
         "product_id",
         "work_id",
@@ -3711,6 +3710,60 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_relate_resolve_overlap_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "from_contract_version": {
+          "$ref": "#/$defs/version"
+        },
+        "from_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "from_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "resolution_kind": {
+          "enum": [
+            "compatible_with",
+            "depends_on",
+            "blocks",
+            "merged_into",
+            "supersedes"
+          ],
+          "type": "string"
+        },
+        "to_contract_version": {
+          "$ref": "#/$defs/version"
+        },
+        "to_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "to_work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "from_work_id",
+        "to_work_id",
+        "from_expected_version",
+        "to_expected_version",
+        "from_contract_version",
+        "to_contract_version",
+        "resolution_kind",
+        "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_relate_resource_claim_input": {
       "additionalProperties": false,
       "properties": {
@@ -4366,7 +4419,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "edge_kind": {},
                 "entity_kind": {},
                 "entity_ref": {},
-                "event_stream": {},
                 "evidence_refs": {},
                 "expected_within_seconds": {
                   "maximum": 31536000,

@@ -390,7 +390,9 @@ func TestRelationsRejectSelfDuplicateAndSupersedesContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFailureKind(t, applyWorkEvent(t, s, relationAddedEvent("ab-again", "parent", "a", "b", 3, 4), nil), KindRelationConflict)
-	assertFailureKind(t, applyWorkEvent(t, s, relationAddedEvent("bad-supersedes", "supersedes", "a", "b", 3, 4), nil), KindRelationContractViolation)
+	for _, kind := range []string{"supersedes", "compatible_with", "merged_into"} {
+		assertFailureKind(t, applyWorkEvent(t, s, relationAddedEvent("bad-"+kind, kind, "a", "b", 3, 4), nil), KindRelationContractViolation)
+	}
 }
 
 func TestRebuildRestoresWorkAndRelationProjectionsByteForByte(t *testing.T) {

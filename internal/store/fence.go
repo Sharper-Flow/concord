@@ -57,7 +57,7 @@ type ClaimRequest struct {
 	RequestID             string    `json:"request_id"`
 	ObservedAt            time.Time `json:"observed_at"`
 	ApprovalRef           string    `json:"approval_ref,omitempty"`
-	ContractVersion       string    `json:"contract_version"`
+	ContractDigest        string    `json:"contract_digest"`
 }
 
 // CompleteRequest records the result of one attempt. ResultEventIDs are
@@ -81,16 +81,6 @@ type CompleteRequest struct {
 }
 
 // FenceResult is the stable result of a claim, completion, or takeover.
-var supportedAgentContractVersions = map[string]struct{}{
-	"1.0.0": {}, "2.0.0": {}, "2.1.0": {}, "2.2.0": {}, "2.3.0": {}, "2.4.0": {},
-	"3.0.0": {}, "3.1.0": {}, "3.2.0": {}, "3.3.0": {}, "3.4.0": {}, "3.5.0": {}, "3.6.0": {}, "3.7.0": {}, "3.8.0": {}, "4.0.0": {},
-}
-
-func supportedAgentContractVersion(version string) bool {
-	_, ok := supportedAgentContractVersions[version]
-	return ok
-}
-
 type FenceResult struct {
 	OpID                  string     `json:"op_id"`
 	WorkID                string     `json:"work_id,omitempty"`
@@ -105,7 +95,7 @@ type FenceResult struct {
 	ResultEventIDs        []string   `json:"result_event_ids,omitempty"`
 	Replayed              bool       `json:"replayed"`
 	ApprovalRef           string     `json:"approval_ref,omitempty"`
-	ContractVersion       string     `json:"contract_version,omitempty"`
+	ContractDigest        string     `json:"contract_digest,omitempty"`
 }
 
 // Step returns the newest durable attempt without changing its epoch. Reads
@@ -146,9 +136,6 @@ func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer
 }
 
 func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
-	if req.ContractVersion == "" {
-		req.ContractVersion = "1.0.0"
-	}
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
 	}
@@ -194,11 +181,11 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 	}
 	observed := req.ObservedAt.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
-		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
-		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_version)
+		 (op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.OpID, epoch, req.WorkID, req.WorkflowTypeRef,
 		req.WorkflowTypeVersion, req.StepID, req.StepKind, req.AcceptedInputsDigest,
-		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed, req.ContractVersion); err != nil {
+		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed, req.ContractDigest); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err))
 	}
 	if err := insertIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey, digest, req.OpID, nil, req.ObservedAt); err != nil {
@@ -331,8 +318,8 @@ type idempotencyRow struct {
 const staleMarker = "__stale_attempt__"
 
 func validateClaim(req ClaimRequest) error {
-	if !supportedAgentContractVersion(req.ContractVersion) {
-		return newFailure(KindSchemaUnsupported, "claim_step", "contract_version is not supported", false, "upgrade Concord before claiming this operation")
+	if !validDigest(req.ContractDigest) {
+		return newFailure(KindSchemaUnsupported, "claim_step", "contract_digest is not a SHA-256 digest", false, "supply the current manifest digest")
 	}
 	for name, value := range map[string]string{"op_id": req.OpID, "work_id": req.WorkID, "workflow_type_ref": req.WorkflowTypeRef, "step_id": req.StepID, "principal_ref": req.PrincipalRef, "tool": req.Tool, "idempotency_key": req.IdempotencyKey, "request_id": req.RequestID} {
 		if strings.TrimSpace(value) == "" {
@@ -478,21 +465,15 @@ func readStep(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, opID string, txRead bool) (FenceResult, error) {
 	var result FenceResult
-	var kind, payload, evidence, changed, cursor, scope, contractVersion sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT op_id,work_id,attempt_epoch,step_id,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot,contract_version FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.WorkID, &result.AttemptEpoch, &result.StepID, &kind, &payload, &evidence, &changed, &cursor, &scope, &contractVersion)
+	var kind, payload, evidence, changed, cursor, scope, contractDigest sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT op_id,work_id,attempt_epoch,step_id,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot,contract_digest FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.WorkID, &result.AttemptEpoch, &result.StepID, &kind, &payload, &evidence, &changed, &cursor, &scope, &contractDigest)
 	if err == sql.ErrNoRows {
 		return result, newFailure(KindProjectionNotFound, "step", "operation does not exist", false, "claim the operation before reading it")
 	}
 	if err != nil {
 		return result, wrapFailure(KindUnavailable, "step", "cannot read durable operation", true, "retry once the database is readable", err)
 	}
-	result.ContractVersion = contractVersion.String
-	if result.ContractVersion == "" {
-		result.ContractVersion = "1.0.0"
-	}
-	if !supportedAgentContractVersion(result.ContractVersion) {
-		return result, newFailure(KindSchemaUnsupported, "step", "durable operation uses an unsupported contract version", false, "upgrade Concord before replaying this operation")
-	}
+	result.ContractDigest = contractDigest.String
 	result.ResultKind, result.ResultPayload, result.ResumeCursor = ResultKind(kind.String), payload.String, cursor.String
 	if result.ResultKind != "" && !validResultKind(result.ResultKind) {
 		return result, newFailure(KindSchemaUnsupported, "step", "durable operation uses an unsupported result classification", false, "upgrade Concord before replaying this operation")

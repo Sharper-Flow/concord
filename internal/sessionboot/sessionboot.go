@@ -21,7 +21,6 @@ type Packet struct {
 	SchemaVersion          string         `json:"schema_version"`
 	SessionType            string         `json:"session_type"`
 	SessionContractVersion string         `json:"session_contract_version"`
-	SurfaceVersion         string         `json:"surface_version"`
 	ManifestDigest         string         `json:"manifest_digest"`
 	ProductID              string         `json:"product_id"`
 	WorkID                 string         `json:"work_id"`
@@ -35,8 +34,8 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 	packet := Packet{
 		SchemaVersion: SchemaVersion, SessionType: SessionType,
 		SessionContractVersion: SessionContractVersion,
-		SurfaceVersion:         agent.ManifestVersion, ManifestDigest: agent.ManifestDigest,
-		ProductID: productID, WorkID: snapshot.WorkID,
+		ManifestDigest:         agent.ManifestDigest,
+		ProductID:              productID, WorkID: snapshot.WorkID,
 		Continuity: agent.ContinuityPayload(snapshot),
 	}
 	raw, err := json.Marshal(packet)
@@ -62,9 +61,6 @@ func Validate(raw []byte) error {
 	}
 	if packet.SchemaVersion != SchemaVersion || packet.SessionType != SessionType || packet.SessionContractVersion != SessionContractVersion {
 		return fmt.Errorf("session boot packet identity is not supported")
-	}
-	if packet.SurfaceVersion != agent.ManifestVersion {
-		return fmt.Errorf("session boot surface version mismatch")
 	}
 	if packet.ManifestDigest != agent.ManifestDigest {
 		return fmt.Errorf("session boot manifest digest mismatch")

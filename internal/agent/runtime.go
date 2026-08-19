@@ -24,7 +24,6 @@ type CallEnvelope struct {
 	RequestID           string                 `json:"request_id"`
 	GrantRef            string                 `json:"grant_ref"`
 	ClientRef           string                 `json:"client_ref"`
-	ClientVersion       string                 `json:"client_version"`
 	PrincipalRef        string                 `json:"principal_ref"`
 	SessionRef          string                 `json:"session_ref"`
 	AgentRef            string                 `json:"agent_ref"`
@@ -33,8 +32,6 @@ type CallEnvelope struct {
 	AmbientProjectID    string                 `json:"ambient_project_id"`
 	SelectedProductID   string                 `json:"selected_product_id,omitempty"`
 	ScopeVersion        string                 `json:"scope_version"`
-	SurfaceVersion      string                 `json:"surface_version"`
-	EnvelopeVersion     string                 `json:"envelope_version"`
 	ManifestDigest      string                 `json:"manifest_digest"`
 	HostAssertionDigest string                 `json:"host_assertion_digest,omitempty"`
 	HostApproval        *HostApprovalAssertion `json:"host_approval_assertion,omitempty"`
@@ -76,8 +73,8 @@ func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
 	if err := dec.Decode(&trailing); err != io.EOF {
 		return request, CallEnvelope{}, errors.New("call envelope contains trailing JSON")
 	}
-	if env.SchemaVersion == "" || env.RequestID == "" || env.GrantRef == "" {
-		return request, CallEnvelope{}, errors.New("call envelope is missing schema_version, request_id, or grant_ref")
+	if env.SchemaVersion == "" || env.RequestID == "" || env.GrantRef == "" || env.ManifestDigest == "" {
+		return request, CallEnvelope{}, errors.New("call envelope is missing schema_version, request_id, grant_ref, or manifest_digest")
 	}
 	return request, env, nil
 }
@@ -229,11 +226,6 @@ type runtime struct {
 	Reader          Grant
 }
 
-// WorkflowContractVersion remains the durable workflow payload contract. The
-// TS8 surface version may advance through a compatible minor without changing
-// the workflow engine's persisted contract identity.
-const WorkflowContractVersion = "2.0.0"
-
 // Dispatch validates the generated input schema, revalidates TS5 authority,
 // and routes both read and transaction-bound mutation operations through the
 // generated contract surface.
@@ -249,7 +241,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if registry == nil {
 		registry = store.BuiltinWorkflowRegistry()
 	}
-	base := NewBase(env.RequestID, request.Tool, request.Operation, ManifestVersion)
+	base := NewBase(env.RequestID, request.Tool, request.Operation)
 	op, ok := ValidateContractOperation(request.Tool, request.Operation)
 	if !ok {
 		return base, errors.New("unsupported tool operation")
@@ -281,10 +273,8 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if !available {
 			return coreError(base, "invalid_transition", "workflow action registry is unavailable", "reread_entities", false), nil
 		}
-		if strictAction.ActionID != "replay" {
-			if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, registry); err != nil {
-				return failureEnvelope(base, err), nil
-			}
+		if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, registry); err != nil {
+			return failureEnvelope(base, err), nil
 		}
 	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return base, err
@@ -297,7 +287,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
-	inv := Invocation{GrantToken: env.GrantRef, ClientRef: env.ClientRef, ClientVersion: env.ClientVersion, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, SurfaceVersion: env.SurfaceVersion, EnvelopeVersion: env.EnvelopeVersion, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
+	inv := Invocation{GrantToken: env.GrantRef, ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
 	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		identity, identityExtractErr := extractMutationWorkIdentity(request.Input)
 		if identityExtractErr != nil {
@@ -627,6 +617,16 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		if sf.StaleLawRevision != nil {
 			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, AcceptedSuccessorLawID: sf.StaleLawRevision.AcceptedSuccessorLawID, AcceptedSuccessorContentHash: sf.StaleLawRevision.AcceptedSuccessorContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
 		}
+		if sf.DomainOverlap != nil {
+			out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
+			for _, overlap := range sf.DomainOverlap.Overlaps {
+				converted := DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: append([]string(nil), overlap.SharedAffectedDomainIDs...), SharedLawIDs: append([]string(nil), overlap.SharedLawIDs...), SharedDomainModifications: append([]string(nil), overlap.SharedDomainModifications...), OverlapClasses: append([]string(nil), overlap.OverlapClasses...), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: append([]string(nil), overlap.RecoveryActions...), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
+				for _, tuple := range overlap.SharedRelationTuples {
+					converted.SharedRelationTuples = append(converted.SharedRelationTuples, DomainOverlapRelationTuple{SourceDomainID: tuple.SourceDomainID, Kind: tuple.Kind, TargetDomainID: tuple.TargetDomainID})
+				}
+				out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
+			}
+		}
 		return out
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
@@ -642,7 +642,7 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 	// optional fields large enough to exceed the envelope cap. Rebuild the base
 	// from its bounded identity only when preserving metadata is undeliverable.
 	// The typed error is the only authoritative response to a rejected result.
-	errorBase := NewBase(base.RequestID, base.Tool, base.Operation, base.ContractVersion)
+	errorBase := NewBase(base.RequestID, base.Tool, base.Operation)
 	errorBase.ResolvedScope = base.ResolvedScope
 	errorBase.Authority = AuthorityAuthoritative
 	errorBase.Outcome = OutcomeError
@@ -674,7 +674,7 @@ func governingConflictEnvelope(base Envelope, missing []string) Envelope {
 	if _, err := base.Encode(); err == nil {
 		return base
 	}
-	errorBase := NewBase(base.RequestID, base.Tool, base.Operation, base.ContractVersion)
+	errorBase := NewBase(base.RequestID, base.Tool, base.Operation)
 	errorBase.Authority = AuthorityAuthoritative
 	errorBase.Outcome = OutcomeError
 	errorBase.Error = base.Error
@@ -735,6 +735,8 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_requires_review"
 	case store.KindStaleLawRevision:
 		return "stale_law_revision"
+	case store.KindDomainOverlap:
+		return "domain_overlap"
 	default:
 		return "internal_error"
 	}
@@ -751,6 +753,8 @@ func publicRecovery(kind, proposed string) string {
 	case "approval_required", "approval_invalid":
 		return "request_approval"
 	case "stale_law_revision":
+		return "request_approval"
+	case "domain_overlap":
 		return "request_approval"
 	case "version_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"

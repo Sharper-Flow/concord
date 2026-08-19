@@ -1,17 +1,16 @@
 {
   "client_ref": "client-1",
-  "client_version": "2.0.0",
   "session_ref": "session-1",
   "agent_ref": "agent-1",
   "directory": "workspace/concord-adapter",
   "worktree": "workspace/concord-adapter-wt",
   "requested_product_id": "",
   "requested_project_ids": [],
-  "requested_capabilities": ["product_read"],
+  "requested_capabilities": [
+    "product_read"
+  ],
   "issued_at": "2026-08-08T12:00:00.123Z",
   "nonce": "nonce-adapter-vector-0001",
-  "surface_range": "2.0.0-2.0.0",
-  "envelope_versions": "1.0",
-  "manifest_digest": "sha256:c3423f27cb21db95fbd4467d7058ea3385fbcba7e8d89062a4dff9ee48ea7d46",
-  "canonical_base64": "djEAY2xpZW50X3JlZj04OmNsaWVudC0xfGNsaWVudF92ZXJzaW9uPTU6Mi4wLjB8c2Vzc2lvbl9yZWY9OTpzZXNzaW9uLTF8YWdlbnRfcmVmPTc6YWdlbnQtMXxkaXJlY3Rvcnk9MjU6d29ya3NwYWNlL2NvbmNvcmQtYWRhcHRlcnx3b3JrdHJlZT0yODp3b3Jrc3BhY2UvY29uY29yZC1hZGFwdGVyLXd0fHJlcXVlc3RlZF9wcm9kdWN0X2lkPTA6fHJlcXVlc3RlZF9wcm9qZWN0X2lkcz0wOnxyZXF1ZXN0ZWRfY2FwYWJpbGl0aWVzPTEyOnByb2R1Y3RfcmVhZHxpc3N1ZWRfYXQ9MjQ6MjAyNi0wOC0wOFQxMjowMDowMC4xMjNafG5vbmNlPTI1Om5vbmNlLWFkYXB0ZXItdmVjdG9yLTAwMDF8c3VyZmFjZV9yYW5nZT0xMToyLjAuMC0yLjAuMHxlbnZlbG9wZV92ZXJzaW9ucz0zOjEuMHxtYW5pZmVzdF9kaWdlc3Q9NzE6c2hhMjU2OmMzNDIzZjI3Y2IyMWRiOTVmYmQ0NDY3ZDcwNThlYTMzODVmYmNiYTdlOGQ4OTA2MmE0ZGZmOWVlNDhlYTdkNDZ8"
+  "manifest_digest": "sha256:612ce94d0e3a17cab40fba5d018e9c35b05ee96de4a2296a5b7ccc48384a3a78",
+  "canonical_base64": "djEAY2xpZW50X3JlZj04OmNsaWVudC0xfHNlc3Npb25fcmVmPTk6c2Vzc2lvbi0xfGFnZW50X3JlZj03OmFnZW50LTF8ZGlyZWN0b3J5PTI1OndvcmtzcGFjZS9jb25jb3JkLWFkYXB0ZXJ8d29ya3RyZWU9Mjg6d29ya3NwYWNlL2NvbmNvcmQtYWRhcHRlci13dHxyZXF1ZXN0ZWRfcHJvZHVjdF9pZD0wOnxyZXF1ZXN0ZWRfcHJvamVjdF9pZHM9MDp8cmVxdWVzdGVkX2NhcGFiaWxpdGllcz0xMjpwcm9kdWN0X3JlYWR8aXNzdWVkX2F0PTI0OjIwMjYtMDgtMDhUMTI6MDA6MDAuMTIzWnxub25jZT0yNTpub25jZS1hZGFwdGVyLXZlY3Rvci0wMDAxfG1hbmlmZXN0X2RpZ2VzdD03MTpzaGEyNTY6NjEyY2U5NGQwZTNhMTdjYWI0MGZiYTVkMDE4ZTljMzViMDVlZTk2ZGU0YTIyOTZhNWI3Y2NjNDgzODRhM2E3OHw="
 }

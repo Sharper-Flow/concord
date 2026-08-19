@@ -103,7 +103,7 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-lesson"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "lesson-approval-0001")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0001")
 
 	approvedInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-lesson", "lesson_id": "lesson-dispatch-probe",
@@ -117,7 +117,7 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	request.Input = approvedInput
 	digest2 := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	versions2 := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "lesson-approval-0002")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0002")
 
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
@@ -159,12 +159,12 @@ func TestDispatchLessonPublishReflectionTagRidesTheSamePath(t *testing.T) {
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-lesson"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "lesson-approval-0003")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0003")
 	approved := `{"work_id":"work-lesson","lesson_id":"lesson-reflection-probe","title":"How the work went","summary":"A reflection on execution friction, durable by riding the lesson path.","content":"# How the work went\n\nBoundary handoffs cost the most.\n","tags":["reflection"],"idempotency_key":"lesson-key-2","approval":{"approval_ref":"` + challengeRef + `"}}`
 	request.Input = json.RawMessage(approved)
 	digest2 := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	versions2 := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "lesson-approval-0004")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0004")
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("reflection response kind=%s msg=%s err=%v", response.Error.Kind, response.Error.Message, err)

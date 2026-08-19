@@ -33,8 +33,8 @@ func TestBuildMatchesCanonicalContinuityPayload(t *testing.T) {
 	if packet.SchemaVersion != "1.0" || packet.SessionType != "operator" || packet.SessionContractVersion != "1.0" {
 		t.Fatalf("packet identity = %#v", packet)
 	}
-	if packet.SurfaceVersion != agent.ManifestVersion || packet.ManifestDigest != agent.ManifestDigest {
-		t.Fatalf("packet contract identity = %s %s", packet.SurfaceVersion, packet.ManifestDigest)
+	if packet.ManifestDigest != agent.ManifestDigest {
+		t.Fatalf("packet manifest digest = %s", packet.ManifestDigest)
 	}
 	want, _ := json.Marshal(agent.ContinuityPayload(testSnapshot()))
 	got, _ := json.Marshal(packet.Continuity)
@@ -68,17 +68,16 @@ func TestValidateRejectsOversizePacket(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsUnknownSessionIdentityAndContractDrift(t *testing.T) {
+func TestValidateRejectsUnknownSessionIdentityRemovedSurfaceMetadataAndContractDrift(t *testing.T) {
 	raw, err := Build("product-1", testSnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(map[string]any){
-		"session type":     func(v map[string]any) { v["session_type"] = "generic" },
-		"session contract": func(v map[string]any) { v["session_contract_version"] = "9.0" },
-		"surface":          func(v map[string]any) { v["surface_version"] = "9.0.0" },
-		"previous surface": func(v map[string]any) { v["surface_version"] = "3.9.0" },
-		"digest":           func(v map[string]any) { v["manifest_digest"] = "sha256:" + strings.Repeat("0", 64) },
+		"session type":                       func(v map[string]any) { v["session_type"] = "generic" },
+		"session contract":                   func(v map[string]any) { v["session_contract_version"] = "9.0" },
+		"removed surface metadata rejection": func(v map[string]any) { v["surface_version"] = "9.0.0" },
+		"digest":                             func(v map[string]any) { v["manifest_digest"] = "sha256:" + strings.Repeat("0", 64) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			var value map[string]any

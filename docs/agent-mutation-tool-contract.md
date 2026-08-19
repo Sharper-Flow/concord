@@ -8,12 +8,11 @@
 > rule, and the Advance postmortem.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
-> measurement gates (TS9), workflow-type registration/gate vocabulary, C14, or C15.
-> **Amended direction:** CD-0041 requires the next normal major to replace legacy
-> component input with a typed architecture binding for Product-changing work and
-> to replace the 3.0.0 Epic surface with Initiative. The current contract remains
-> wire evidence until those migrations; it does not authorize partial Domain or
-> Initiative writes.
+> measurement evidence (TS9), workflow-type registration/gate vocabulary, C14, or C15.
+> **Amended direction:** CD-0041 requires typed architecture binding for
+> Product-changing work and replaces the historical Epic route with Initiative.
+> CD-0042 makes the generated current manifest the only pre-go-live surface
+> identity; this contract does not authorize partial Domain or Initiative writes.
 
 ## 1. Decision
 
@@ -98,6 +97,7 @@ remove, supersede, or restore a typed work relation.
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
 | `link` | source/target work IDs and expected versions; kind `parent|blocks|implements` | Validate endpoints, duplicates, self-edge, and applicable cycle rules; create one canonical directed edge and event. |
 | `unlink` | canonical relation ID or source/target/kind plus expected versions; reason | Remove one accepted edge and append one event; inverse read names never create mirrored mutations. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, closed resolution kind, reason, and operator approval | Resolve one concurrent Domain overlap and create its typed relation atomically. |
 | `supersede` | successor/predecessor IDs, both expected versions, reason/evidence | Create one canonical supersession edge and transition predecessor to `superseded` in one transaction. |
 | `restore_superseded` | predecessor ID/version, active supersession relation, current successor ID/version, optional replacement successor ID/version, replacement/removal instruction, reason/evidence | Validate every affected endpoint version, remove or replace the active edge, and transition predecessor to `needed` in one transaction. |
 
@@ -177,7 +177,7 @@ durable results include current step and a safe next action—never a bare "star
 |---|---|
 | `concord_work_define` | AJ3 capture and spec conflict |
 | `concord_work_transition` | AJ4 start, complete, missing evidence, stale version; AJ8 approval/evidence recording around native execution |
-| `concord_work_relate` | AJ5 dependency, cycle rejection, atomic supersession |
+| `concord_work_relate` | AJ5 dependency, cycle rejection, atomic supersession, operator-approved Domain-overlap resolution |
 | `concord_work_compact` | AJ6 publication and partial reconciliation |
 
 AJ8 native execution/rollback/reclamation is deliberately not claimed as a Concord
@@ -197,7 +197,7 @@ the accepted native authority performs and proves the real operation.
 - Pretending git+SQLite or Concord+provider effects share one transaction.
 - Returning a bare asynchronous ID with no typed authority, step, or recovery path.
 - Agent-exposed pruning, rebuild, destructive repair, or backfill without an
-  accepted scenario and TS8/TS9 promotion evidence.
+  accepted deterministic scenario and TS8/TS9 evidence.
 
 ## 7. Falsifiers and amendment rule
 

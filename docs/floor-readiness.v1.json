@@ -174,8 +174,8 @@
     {
       "id": "fc2-ts1-corpus-complete",
       "condition": "fc2",
-      "title": "All 21 TS1 scenarios are bound and passing",
-      "requirement": "All 21 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today eighteen of twenty-one are bound: the four AJ1/AJ2 read scenarios, the nine AJ3/AJ4/AJ5 mutation scenarios, the two AJ6 compaction scenarios, the two AJ7 knowledge scenarios, and AJ8-ground-truth-reclamation. The remaining three are deferred and must be bound for this item to be satisfied: AJ8-approval-required (#172), AJ8-budget-refused (#173), and AJ8-health-failure-rollback (#174).",
+      "title": "All 22 TS1 scenarios are bound and passing",
+      "requirement": "All 22 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today nineteen of twenty-two are bound: the four AJ1/AJ2 read scenarios, the ten AJ3/AJ4/AJ5 mutation scenarios, the two AJ6 compaction scenarios, the two AJ7 knowledge scenarios, and AJ8-ground-truth-reclamation. The remaining three are deferred and must be bound for this item to be satisfied: AJ8-approval-required (#172), AJ8-budget-refused (#173), and AJ8-health-failure-rollback (#174).",
       "state": "outstanding",
       "issue": 165
     },
@@ -350,8 +350,14 @@
       "condition": "fc4",
       "title": "Concurrent Domain overlap blocks until explicitly resolved",
       "requirement": "Two nonterminal Product-changing contracts with intersecting affected Domains cannot both hold execution authority without a current operator-approved resolution pinned to both contract versions, and every consequential mutation revalidates it transactionally.",
-      "state": "outstanding",
-      "issue": 195
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/workflow_domain_overlap.go",
+        "internal/store/workflow_domain_overlap_test.go",
+        "internal/store/workflow_preflight.go",
+        "internal/store/workflow_completion.go",
+        "internal/agent/mutations.go"
+      ]
     },
     {
       "id": "fc5-append-only-authority",

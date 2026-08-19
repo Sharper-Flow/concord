@@ -112,7 +112,10 @@
         "implements",
         "supersedes",
         "superseded_by",
-        "raised_from"
+        "raised_from",
+        "depends_on",
+        "compatible_with",
+        "merged_into"
       ]
     },
     "urgency": {
@@ -2636,7 +2639,6 @@
                 "edge_kind": {},
                 "entity_kind": {},
                 "entity_ref": {},
-                "event_stream": {},
                 "evidence_refs": {},
                 "hypothesis": {},
                 "impact_verdict": {
@@ -2937,6 +2939,36 @@
         "approval": {
           "$ref": "#/$defs/approval"
         }
+      }
+    },
+    "work_relate_resolve_overlap_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_work_id",
+        "to_work_id",
+        "from_expected_version",
+        "to_expected_version",
+        "from_contract_version",
+        "to_contract_version",
+        "resolution_kind",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "from_work_id": { "$ref": "#/$defs/id" },
+        "to_work_id": { "$ref": "#/$defs/id" },
+        "from_expected_version": { "$ref": "#/$defs/version" },
+        "to_expected_version": { "$ref": "#/$defs/version" },
+        "from_contract_version": { "$ref": "#/$defs/version" },
+        "to_contract_version": { "$ref": "#/$defs/version" },
+        "resolution_kind": {
+          "type": "string",
+          "enum": ["compatible_with", "depends_on", "blocks", "merged_into", "supersedes"]
+        },
+        "reason": { "$ref": "#/$defs/short" },
+        "idempotency_key": { "$ref": "#/$defs/id" },
+        "approval": { "$ref": "#/$defs/approval" }
       }
     },
     "work_relate_unlink_input": {
@@ -4865,7 +4897,6 @@
         "schema_version",
         "session_type",
         "session_contract_version",
-        "surface_version",
         "manifest_digest",
         "product_id",
         "work_id",
@@ -4880,9 +4911,6 @@
         },
         "session_contract_version": {
           "const": "1.0"
-        },
-        "surface_version": {
-          "const": "4.0.0"
         },
         "manifest_digest": {
           "$ref": "#/$defs/digest"

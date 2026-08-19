@@ -232,6 +232,18 @@ type linkMutationInput struct {
 	IdempotencyKey      string         `json:"idempotency_key"`
 	Approval            *approvalInput `json:"approval"`
 }
+type resolveOverlapMutationInput struct {
+	FromWorkID          string         `json:"from_work_id"`
+	ToWorkID            string         `json:"to_work_id"`
+	FromExpectedVersion int64          `json:"from_expected_version"`
+	ToExpectedVersion   int64          `json:"to_expected_version"`
+	FromContractVersion int64          `json:"from_contract_version"`
+	ToContractVersion   int64          `json:"to_contract_version"`
+	ResolutionKind      string         `json:"resolution_kind"`
+	Reason              string         `json:"reason"`
+	IdempotencyKey      string         `json:"idempotency_key"`
+	Approval            *approvalInput `json:"approval"`
+}
 type unlinkVersion struct {
 	WorkID  string `json:"work_id"`
 	Version int64  `json:"version"`
@@ -332,7 +344,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		}
 		base.Replayed = true
 		base.ResolvedScope = scopeFromMap(authorizedScope)
-		replay, replayErr := r.replayWorkflowAction(base, step, changed)
+		replay, replayErr := r.replayWorkflowAction(base, step)
 		if replayErr != nil {
 			return Envelope{}, false, replayErr
 		}
@@ -380,7 +392,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), true, nil
 }
 
-func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult, legacyChanged string) (Envelope, error) {
+func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult) (Envelope, error) {
 	state := OperationState(step.ResultKind)
 	if step.ResultKind == store.ResultFailedStale {
 		// failed_stale is a durable store classification, not a TS7 state.
@@ -390,18 +402,11 @@ func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult, leg
 	switch step.ResultKind {
 	case store.ResultCompleted:
 		payload := json.RawMessage(step.ResultPayload)
-		if step.ContractVersion != ManifestVersion && step.ContractVersion != "1.0.0" {
-			return coreError(base, "malformed_response", "durable workflow result uses an unsupported contract version", "contact_operator", false), nil
+		if step.ContractDigest != ManifestDigest {
+			return coreError(base, "manifest_mismatch", "durable workflow result manifest digest does not match the current contract", "contact_operator", false), nil
 		}
 		if err := ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
-			if step.ContractVersion != "1.0.0" {
-				return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false), nil
-			}
-			migrated, migrateErr := migrateLegacyWorkflowResult(payload, legacyChanged)
-			if migrateErr != nil {
-				return coreError(base, "malformed_response", migrateErr.Error(), "contact_operator", false), nil
-			}
-			payload = migrated
+			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false), nil
 		}
 		return r.mutationResult(base, payload, decodeWorkflowChangedRefs(step.ChangedRefs), nil), nil
 	case store.ResultPending:
@@ -413,40 +418,6 @@ func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult, leg
 	default:
 		return coreError(base, "malformed_response", "durable workflow result classification is unsupported", "contact_operator", false), nil
 	}
-}
-
-func migrateLegacyWorkflowResult(payload json.RawMessage, changed string) (json.RawMessage, error) {
-	var legacy struct {
-		ChangedRefs      []string     `json:"changed_refs"`
-		NextValidIntents []NextIntent `json:"next_valid_intents"`
-		OperationID      string       `json:"operation_id,omitempty"`
-	}
-	if err := json.Unmarshal(payload, &legacy); err != nil || len(legacy.ChangedRefs) == 0 {
-		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result cannot be migrated", "reread_entities", false)
-	}
-	var refs []ChangedRef
-	if err := json.Unmarshal([]byte(changed), &refs); err != nil {
-		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result is missing typed changed references", "reread_entities", false)
-	}
-	if len(refs) != len(legacy.ChangedRefs) {
-		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result is missing typed changed references", "reread_entities", false)
-	}
-	currentRefs := make([]map[string]any, 0, len(refs))
-	for _, ref := range refs {
-		version, err := strconv.ParseInt(ref.Version, 10, 64)
-		if err != nil || version < 1 {
-			return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result has an invalid changed-reference version", "reread_entities", false)
-		}
-		currentRefs = append(currentRefs, map[string]any{"entity_kind": ref.EntityKind, "id": ref.ID, "version": version})
-	}
-	migrated, err := json.Marshal(map[string]any{"changed_refs": currentRefs, "next_valid_intents": mutationResultIntents(legacy.NextValidIntents), "operation_id": legacy.OperationID})
-	if err != nil {
-		return nil, newRuntimeFailure("invariant_violation", "legacy durable workflow result cannot be migrated", "reread_entities", false)
-	}
-	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", migrated, true); err != nil {
-		return nil, newRuntimeFailure("invariant_violation", fmt.Sprintf("migrated durable workflow result is invalid: %v", err), "reread_entities", false)
-	}
-	return migrated, nil
 }
 
 func decodeWorkflowChangedRefs(values []string) []ChangedRef {
@@ -656,9 +627,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 	}
-	if in.ActionID == "replay" {
-		return r.mutateWorkflowReplay(ctx, base, in, payload)
-	}
 	registry := r.Registry
 	if registry == nil {
 		registry = store.BuiltinWorkflowRegistry()
@@ -707,7 +675,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return failureEnvelope(base, err), nil
 	}
 
-	inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: Capability("work_transition"), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+	inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: Capability("work_transition"), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
@@ -743,13 +711,13 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var result Envelope
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractVersion: grant.SurfaceVersion, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
 	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor}, nil, time.Time{}, func(tx *store.Transaction) error {
 		if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 			return err
 		}
 		if requiresApproval {
-			verifiedOperator, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise"})
+			verifiedOperator, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise"})
 			if err != nil {
 				return err
 			}
@@ -786,69 +754,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return failureEnvelope(base, err), nil
 	}
 	return result, nil
-}
-
-func (r runtime) mutateWorkflowReplay(ctx context.Context, base Envelope, in actionMutationInput, payload []byte) (Envelope, error) {
-	events, err := decodeWorkflowReplayEvents(payload, in.WorkID)
-	if err != nil {
-		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
-	}
-	base.Authority = AuthorityAuthoritative
-	result := r.mutationResult(base, mutationPayload(nil, nil), nil, nil)
-	if result.Outcome == OutcomeError {
-		return result, nil
-	}
-	if _, err := store.ImportWorkflowEventStream(ctx, r.Store, events); err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	if _, err := store.ReadWorkflowReplayEvidence(ctx, r.Store, in.WorkID, "work.created"); err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	return result, nil
-}
-
-type workflowReplayEventInput struct {
-	EventID        string          `json:"event_id"`
-	Kind           string          `json:"kind"`
-	WorkID         string          `json:"work_id"`
-	ActorRef       string          `json:"actor_ref"`
-	OccurredAt     string          `json:"occurred_at"`
-	PayloadVersion int             `json:"payload_version"`
-	Payload        json.RawMessage `json:"payload"`
-}
-
-func decodeWorkflowReplayEvents(raw []byte, workID string) ([]store.Event, error) {
-	var fields map[string]json.RawMessage
-	if err := decodeStrict(raw, &fields); err != nil {
-		return nil, fmt.Errorf("workflow replay fields must be a strict object: %w", err)
-	}
-	stream, ok := fields["event_stream"]
-	if !ok {
-		return nil, errors.New("workflow replay requires the structured event_stream")
-	}
-	var entries []workflowReplayEventInput
-	if err := decodeStrict(stream, &entries); err != nil {
-		return nil, fmt.Errorf("workflow replay event_stream is invalid: %w", err)
-	}
-	if len(entries) == 0 {
-		return nil, errors.New("workflow replay event_stream is empty")
-	}
-	events := make([]store.Event, 0, len(entries))
-	for _, entry := range entries {
-		if entry.WorkID != workID || entry.EventID == "" || entry.Kind == "" || entry.ActorRef == "" || entry.PayloadVersion < 1 || len(entry.Payload) == 0 {
-			return nil, errors.New("workflow replay event_stream entry has incomplete typed identity")
-		}
-		occurredAt, err := time.Parse(time.RFC3339Nano, entry.OccurredAt)
-		if err != nil {
-			return nil, errors.New("workflow replay event_stream entry has an invalid occurred_at timestamp")
-		}
-		var payloadObject map[string]any
-		if err := json.Unmarshal(entry.Payload, &payloadObject); err != nil || payloadObject == nil {
-			return nil, errors.New("workflow replay event_stream payload must be an object")
-		}
-		events = append(events, store.Event{EventID: entry.EventID, Kind: entry.Kind, SubjectType: store.SubjectWorkItem, SubjectID: entry.WorkID, Actor: entry.ActorRef, OccurredAt: occurredAt.UTC(), PayloadVersion: entry.PayloadVersion, Payload: append(json.RawMessage(nil), entry.Payload...)})
-	}
-	return events, nil
 }
 
 func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
@@ -1474,13 +1379,41 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
+	case "concord_work_relate.resolve_overlap":
+		var in resolveOverlapMutationInput
+		if err := decodeStrict(raw, &in); err != nil {
+			return base, err
+		}
+		if in.Approval != nil {
+			approval = in.Approval.ApprovalRef
+		}
+		requiresApproval = true
+		versions["from"] = in.FromExpectedVersion
+		versions["to"] = in.ToExpectedVersion
+		versions["from_contract"] = in.FromContractVersion
+		versions["to_contract"] = in.ToContractVersion
+		scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
+		scope["resolution_kind"] = in.ResolutionKind
+		scope["from_work_id"] = in.FromWorkID
+		scope["to_work_id"] = in.ToWorkID
+		scope["product_id"] = r.Envelope.SelectedProductID
+		intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_id"}}}
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			consumedApprovalRef, _ := scope["approval_ref"].(string)
+			result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, ApprovalRef: consumedApprovalRef, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()})
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.FromWorkID, Version: strconv.FormatInt(in.FromExpectedVersion+1, 10)}, {EntityKind: "work_item", ID: in.ToWorkID, Version: strconv.FormatInt(in.ToExpectedVersion+1, 10)}}
+			return mutationPayload(changed, intents), result.EventIDs, changed, nil
+		}
 	case "concord_work_relate.link":
 		var in linkMutationInput
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		if in.Kind == "supersedes" {
-			return coreError(base, "invalid_relation", "supersession requires relate.supersede", "use_supersede", false), nil
+		if in.Kind == "supersedes" || in.Kind == "compatible_with" || in.Kind == "merged_into" {
+			return coreError(base, "invalid_relation", "operator-only overlap relations require relate.resolve_overlap", "reread_entities", false), nil
 		}
 		if in.Approval != nil {
 			approval = in.Approval.ApprovalRef
@@ -1714,7 +1647,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		claimScope["head_ref"] = resolvedHome.HeadRef
 	}
 	acceptedScope, _ := json.Marshal(claimScope)
-	grant, err := r.Authority.ValidateInvocation(ctx, Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID})
+	grant, err := r.Authority.ValidateInvocation(ctx, Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID})
 	if err != nil {
 		return coreError(base, "unauthorized", err.Error(), "contact_operator", false), nil
 	}
@@ -1726,13 +1659,13 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if result.Outcome == OutcomeError {
 			return result, nil
 		}
-		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractVersion: ManifestVersion}
-		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
+		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 			if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 				return err
 			}
-			_, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+			_, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
 			return err
 		})
 		if claimErr != nil {
@@ -2059,7 +1992,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	var response Envelope
 	var resultRejected bool
 	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
-		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, ClientVersion: r.Envelope.ClientVersion, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, SurfaceVersion: r.Envelope.SurfaceVersion, EnvelopeVersion: r.Envelope.EnvelopeVersion, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: capabilityForMutation(r.Tool), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: capabilityForMutation(r.Tool), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
@@ -2110,6 +2043,13 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			}
 			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
+		if !mutationIsOverlapRecovery(r.Tool, r.Operation, raw) {
+			for _, workID := range mutationScopeWorkIDs(scope) {
+				if err := store.CheckWorkflowDomainOverlapTransactionTx(ctx, tx, workID); err != nil {
+					return err
+				}
+			}
+		}
 		if requiresApproval && approval == "" {
 			challengeScope := boundedApprovalScope(scope)
 			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
@@ -2123,6 +2063,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			} else {
 				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
 			}
+			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id"} {
+				if value, ok := scope[key]; ok {
+					details[key] = value
+				}
+			}
 			response.Error.Details = details
 			return nil
 		}
@@ -2131,10 +2076,12 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		if requiresApproval {
 			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
-			if _, err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
+			if _, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
 				response = coreError(base, "approval_invalid", err.Error(), "request_approval", false)
 				resultRejected = true
 				return errors.New("approval invalid")
+			} else {
+				scope["approval_ref"] = consumedApprovalRef
 			}
 		}
 		payload, eventIDs, changed, err := effect(ctx, tx, grant)
@@ -2163,38 +2110,73 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	return response, nil
 }
 
-func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Grant, check ApprovalCheck) (store.WorkflowActor, error) {
+func mutationScopeWorkIDs(scope map[string]any) []string {
+	values, _ := scope["work_ids"].([]string)
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
+	if tool == "concord_work_relate" && (operation == "resolve_overlap" || operation == "supersede" || operation == "restore_superseded") {
+		return true
+	}
+	if tool == "concord_work_transition" && operation == "lifecycle" {
+		var input struct {
+			Target string `json:"target"`
+		}
+		if json.Unmarshal(raw, &input) == nil {
+			return input.Target == "completed" || input.Target == "cancelled"
+		}
+	}
+	return false
+}
+
+func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Grant, check ApprovalCheck) (store.WorkflowActor, string, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
-		return operator, fmt.Errorf("signed host approval assertion is required")
+		return operator, "", fmt.Errorf("signed host approval assertion is required")
 	}
 	var err error
 	challenge, err := r.Authority.ValidateHostApprovalAssertionTx(ctx, tx, inv, *r.Envelope.HostApproval, check)
 	if err != nil {
-		return operator, err
+		return operator, "", err
 	}
 	approvalRef := check.ApprovalRef
 	if challenge {
 		approvalRef, err = r.Authority.CreateApprovalFromChallengeTx(ctx, tx, inv, check.ApprovalRef)
 		if err != nil {
-			return operator, err
+			return operator, "", err
 		}
 	}
 	if err := r.Authority.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check); err != nil {
-		return operator, err
+		return operator, "", err
 	}
 	if check.RequireOperatorIdentity {
 		operator, err = r.Authority.ApprovalAuthorityActorTx(ctx, tx, inv, approvalRef)
 		if err != nil {
-			return store.WorkflowActor{}, err
+			return store.WorkflowActor{}, "", err
 		}
 	}
-	return operator, nil
+	return operator, approvalRef, nil
 }
 
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
+		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "scope_version" {
+			continue
+		}
 		switch typed := value.(type) {
 		case string:
 			if typed != "" {

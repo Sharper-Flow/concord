@@ -118,10 +118,10 @@ boards, identity, permissions, or team-server operation by default.
 
 ### D9. Initial release evidence is synthetic/scenario-based
 
-PM1/TS1 deterministic conformance and supported-model scenario evaluation remain
-release gates. A 500-call production baseline is **not** required before initial
-release/cutover. Post-cutover aggregate telemetry may guide later TS9 stewardship but
-cannot retroactively define initial usability.
+PM1/TS1 deterministic conformance remains the pre-go-live release evidence gate.
+Supported-model evaluation and production telemetry may inform research but do not
+block a pre-go-live release. The first-go-live decision must define supported
+populations and re-accept any future measurement gate.
 
 ### D10. Approved spec mandate prevents self-blocking execution
 

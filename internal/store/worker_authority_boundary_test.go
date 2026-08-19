@@ -581,7 +581,7 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 		WorkID: "authority-accept", ExpectedVersion: 10, ActionID: "accept_worker_result",
 		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-authority", OperationID: "accept-authority",
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-authority", RequestID: "request:accept-authority", ContractVersion: "2.0.0", Now: time.Unix(3, 0).UTC(),
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-authority", RequestID: "request:accept-authority", ContractDigest: testManifestDigest, Now: time.Unix(3, 0).UTC(),
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -633,7 +633,7 @@ func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
 		WorkID: "authority-worker-accept", ExpectedVersion: 10, ActionID: "accept_worker_result",
 		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: workflowActorForRef(t, s, worker),
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "worker-accept-authority", OperationID: "worker-accept-authority",
-		PrincipalRef: "principal/operator", Tool: "concord_work_transition", IdempotencyKey: "worker-accept-authority", RequestID: "request:worker-accept-authority", ContractVersion: "2.0.0", Now: time.Unix(3, 0).UTC(),
+		PrincipalRef: "principal/operator", Tool: "concord_work_transition", IdempotencyKey: "worker-accept-authority", RequestID: "request:worker-accept-authority", ContractDigest: testManifestDigest, Now: time.Unix(3, 0).UTC(),
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -751,7 +751,7 @@ func assertRejectedWorkerAcceptance(t *testing.T, s *Store, workID string, owner
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(payload), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "reject:" + workID, OperationID: "reject:" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject:" + workID, RequestID: "request:reject:" + workID, ContractVersion: "2.0.0", Now: time.Unix(4, 0).UTC(),
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject:" + workID, RequestID: "request:reject:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
 	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()

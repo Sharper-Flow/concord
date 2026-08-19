@@ -9,7 +9,6 @@
     "schema_version",
     "contract",
     "contract_status",
-    "surface_version",
     "engine_status",
     "pending_amendments",
     "fixtures",
@@ -32,12 +31,6 @@
     "contract_status": {
       "const": "accepted"
     },
-    "surface_version": {
-      "type": "string",
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-      "minLength": 5,
-      "maxLength": 16
-    },
     "engine_status": {
       "enum": [
         "specification_only",
@@ -54,19 +47,12 @@
         "additionalProperties": false,
         "required": [
           "error_kind",
-          "surface_version",
           "ships_with",
           "status"
         ],
         "properties": {
           "error_kind": {
             "$ref": "#/$defs/id"
-          },
-          "surface_version": {
-            "type": "string",
-            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-            "minLength": 5,
-            "maxLength": 16
           },
           "ships_with": {
             "enum": [

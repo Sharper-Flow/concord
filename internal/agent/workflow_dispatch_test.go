@@ -98,11 +98,11 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		t.Fatalf("workflow durable state operations=%d idempotency=%d", operations, records)
 	}
 	var contractVersion string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&contractVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_digest FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&contractVersion); err != nil {
 		t.Fatal(err)
 	}
-	if contractVersion != ManifestVersion {
-		t.Fatalf("workflow durable contract version=%s, want %s", contractVersion, ManifestVersion)
+	if contractVersion != ManifestDigest {
+		t.Fatalf("workflow durable contract digest=%s, want %s", contractVersion, ManifestDigest)
 	}
 
 	replay, err := Dispatch(context.Background(), s, service, request, env)
@@ -155,10 +155,10 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 		operationState OperationState
 		retrySafe      bool
 	}{
-		{name: "legacy success", resultKind: "completed", want: OutcomeOK},
-		{name: "legacy pending", resultKind: "pending", want: OutcomePending, operationState: OperationPending},
+		{name: "current success", resultKind: "completed", want: OutcomeOK},
+		{name: "current pending", resultKind: "pending", want: OutcomePending, operationState: OperationPending},
 		{name: "partial", resultKind: "partial", want: OutcomePartial, operationState: OperationPartial, retrySafe: true},
-		{name: "legacy failure", resultKind: "failed", want: OutcomePartial, operationState: OperationFailed},
+		{name: "current failure", resultKind: "failed", want: OutcomePartial, operationState: OperationFailed},
 		{name: "failed stale", resultKind: "failed_stale", want: OutcomePartial, operationState: OperationFailed},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
@@ -172,7 +172,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			}
 			env := mutationEnvelope(grant, scopeVersion)
 			input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"legacy-replay-` + strings.ReplaceAll(vector.name, " ", "-") + `"}`)
-			opID := seedLegacyWorkflowActionReplay(t, s, env, input, vector.resultKind, "1.0.0")
+			opID := seedCurrentWorkflowActionReplay(t, s, env, input, vector.resultKind)
 			beforeEvents := countWorkflowEvents(t, s)
 			beforeVersion := workflowReplayWorkVersion(t, s)
 			beforeGrantUses := workflowReplayGrantUses(t, s, grant)
@@ -231,68 +231,73 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 		})
 	}
 
-	for _, vector := range []struct {
-		name            string
-		contractVersion string
-		resultKind      string
-	}{
-		{name: "future contract version", contractVersion: "9.0.0", resultKind: "completed"},
-		{name: "unknown result classification", contractVersion: "1.0.0", resultKind: "future_result"},
-	} {
-		t.Run(vector.name, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
-			seedAgentWorkflow(t, s, grant)
-			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-			if err != nil {
-				t.Fatal(err)
-			}
-			env := mutationEnvelope(grant, scopeVersion)
-			input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"legacy-replay-` + strings.ReplaceAll(vector.name, " ", "-") + `"}`)
-			seedLegacyWorkflowActionReplay(t, s, env, input, vector.resultKind, vector.contractVersion)
-			beforeEvents := countWorkflowEvents(t, s)
-			beforeVersion := workflowReplayWorkVersion(t, s)
-			beforeGrantUses := workflowReplayGrantUses(t, s, grant)
-			data, marshalErr := json.Marshal(struct {
-				CallEnvelope CallEnvelope    `json:"call_envelope"`
-				Tool         string          `json:"tool"`
-				Operation    string          `json:"operation"`
-				Input        json.RawMessage `json:"input"`
-			}{CallEnvelope: env, Tool: "concord_work_transition", Operation: "workflow_action", Input: input})
-			if marshalErr != nil {
-				t.Fatal(marshalErr)
-			}
-			response, invokeErr := Invoke(context.Background(), s, service, data)
-			if invokeErr != nil {
-				t.Fatal(invokeErr)
-			}
-			if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invariant_violation" || response.Error.RecoveryAction.Kind != "reread_entities" {
-				t.Fatalf("%s response=%+v", vector.name, response)
-			}
-			if err := response.Validate(); err != nil {
-				t.Fatalf("fail-closed replay envelope validation: %v", err)
-			}
-			if got := countWorkflowEvents(t, s); got != beforeEvents || workflowReplayWorkVersion(t, s) != beforeVersion || workflowReplayGrantUses(t, s, grant) != beforeGrantUses {
-				t.Fatalf("fail-closed replay changed authoritative state: events %d->%d version %d->%d grant %d->%d", beforeEvents, got, beforeVersion, workflowReplayWorkVersion(t, s), beforeGrantUses, workflowReplayGrantUses(t, s, grant))
-			}
-		})
+}
+
+func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	if got := seedAgentWorkflow(t, s, grant); got != 4 {
+		t.Fatalf("workflow seed version=%d, want 4", got)
+	}
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := Dispatch(context.Background(), s, service, InvokeRequest{
+		Tool: "concord_work_transition", Operation: "workflow_action",
+		Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"replay","fields":[],"idempotency_key":"legacy-event-replay"}`),
+	}, mutationEnvelope(grant, scopeVersion))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
+		t.Fatalf("legacy event replay response=%+v", response)
 	}
 }
 
-func seedLegacyWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvelope, input json.RawMessage, resultKind, contractVersion string) string {
+func TestWorkflowActionReplayRejectsOldSurfaceResultShapeAndDigest(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	if got := seedAgentWorkflow(t, s, grant); got != 4 {
+		t.Fatalf("workflow seed version=%d, want 4", got)
+	}
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"current-replay-shape"}`)
+	opID := seedCurrentWorkflowActionReplay(t, s, env, input, "completed")
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET result_payload=? WHERE op_id=?`, `{"changed_refs":["work-1"],"next_valid_intents":[],"operation_id":"`+opID+`"}`, opID); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(struct {
+		CallEnvelope CallEnvelope    `json:"call_envelope"`
+		Tool         string          `json:"tool"`
+		Operation    string          `json:"operation"`
+		Input        json.RawMessage `json:"input"`
+	}{CallEnvelope: env, Tool: "concord_work_transition", Operation: "workflow_action", Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := Invoke(context.Background(), s, service, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
+		t.Fatalf("old result shape replay response=%+v", response)
+	}
+}
+
+func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvelope, input json.RawMessage, resultKind string) string {
 	t.Helper()
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	opID := "workflow-" + digest[7:31]
 	resultPayload := `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":5}],"next_valid_intents":[],"operation_id":"` + opID + `"}`
 	idempotencyChanged := "[]"
-	if contractVersion == "1.0.0" {
-		resultPayload = `{"changed_refs":["work-1"],"next_valid_intents":[],"operation_id":"` + opID + `"}`
-		idempotencyChanged = `[{"entity_kind":"work_item","id":"work-1","version":"5"}]`
-	}
 	changedRef := `{"entity_kind":"work_item","id":"work-1","version":5}`
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
 	definition := store.BuiltinWorkflowDefinitions()[0]
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Ref, definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), contractVersion)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Ref, definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), ManifestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +384,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 7}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "workflow-approval-0001")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-approval-0001")
 	var durableBefore int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
 		t.Fatal(err)

@@ -10,6 +10,9 @@
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md)), TS8
   ([`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md))
 - **Supersedes:** the undifferentiated `budget.max_millis` operation-time input
+- **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
+  compatibility and negotiation treatment described in D6/D7; those passages are
+  historical evidence, not current compatibility policy.
 
 ## Context
 

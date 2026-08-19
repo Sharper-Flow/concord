@@ -1,11 +1,8 @@
 import { createPrivateKey, sign as signBytes } from "node:crypto"
 import { tool, type ToolContext } from "@opencode-ai/plugin"
-import { contractOperations, canonicalAssertion, manifestDigest, manifestVersion, payloadSchemas } from "./generated-contracts"
+import { contractOperations, canonicalAssertion, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 
-const ADAPTER_VERSION = manifestVersion
-const SURFACE_RANGE = `${manifestVersion}-${manifestVersion}`
-const ENVELOPE_VERSIONS = "1.0"
 const MAX_STDERR = 8192
 const GRANT_TTL_MS = 50 * 60 * 1000
 
@@ -39,7 +36,7 @@ const defaultRunner: ChildRunner = {
 
 let credentials: CredentialStore = new SecretToolCredentialStore()
 let runner: ChildRunner = defaultRunner
-const grants = new Map<string, { token: string; ref: string; clientRef: string; principalRef: string; sessionRef: string; agentRef: string; clientVersion: string; surfaceVersion: string; envelopeVersion: string; manifestDigest: string; productIDs: string[]; projectIDs: string[]; scopeVersion: string; expiresAt: number }>()
+const grants = new Map<string, { token: string; ref: string; clientRef: string; principalRef: string; sessionRef: string; agentRef: string; manifestDigest: string; productIDs: string[]; projectIDs: string[]; scopeVersion: string; expiresAt: number }>()
 
 export function configureConcordAdapter(overrides: { credentials?: CredentialStore; runner?: ChildRunner } = {}) {
   if (overrides.credentials) credentials = overrides.credentials
@@ -96,7 +93,7 @@ function argsSchema(toolName: string): any {
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {
   const queryID = (contractOperations.find((candidate: any) => candidate.tool === toolName && candidate.id.endsWith(`.${operation}`)) as any)?.query_id
-  return { schema_version: "1.0", adapter_contract_version: ADAPTER_VERSION, request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
+  return { schema_version: "1.0", manifest_digest: manifestDigest, request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
 }
 
 function adapterError(toolName: string, operation: string, requestID: string, kind: string, reason: string, message: string, effect: "none" | "possible" | "partial" = "none", recovery = effect === "none" ? "retry_same_request" : "reconcile_operation") {
@@ -129,10 +126,10 @@ function singleJSON(text: string): any {
   return parsed
 }
 
-const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
+const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
 
 function validateCoreResponse(response: any, toolName: string, operation: string): boolean {
-  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome) || !validateGeneratedEnvelope(response)) return false
+  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== manifestDigest || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome) || !validateGeneratedEnvelope(response)) return false
   if (response.outcome === "error") return !!response.error && coreErrorKinds.has(response.error.kind)
   if (response.result !== undefined) {
     const meta: any = contractOperations.find((item: any) => item.tool === toolName && item.id.endsWith(`.${operation}`))
@@ -150,12 +147,12 @@ function privateKeyObject(raw: Uint8Array) {
 
 function b64(value: Uint8Array) { return Buffer.from(value).toString("base64") }
 export function canonicalHostApproval(assertion: Record<string, any>) {
-  const names = ["challenge_ref", "request_digest", "scope", "versions", "session_ref", "agent_ref", "worktree", "client_version", "issued_at", "nonce"]
+  const names = ["challenge_ref", "request_digest", "scope", "versions", "session_ref", "agent_ref", "worktree", "issued_at", "nonce"]
   const body = names.map((key) => { const value = assertion[key]; const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value); const bytes = new TextEncoder().encode(text); return `${key}=${bytes.length}:${text}|` }).join("")
   return new TextEncoder().encode(`host-approval-v1\0${body}`)
 }
 function randomNonce() { return crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "") }
-function cacheKey(context: ToolContext, capability: string) { return `${context.sessionID}|${context.agent}|${context.worktree}|${ADAPTER_VERSION}|${selectedProductID()}|${capability}` }
+function cacheKey(context: ToolContext, capability: string) { return `${context.sessionID}|${context.agent}|${context.worktree}|${manifestDigest}|${selectedProductID()}|${capability}` }
 function clientRef() { return process.env.CONCORD_CLIENT_REF ?? "opencode" }
 function selectedProductID() {
   const value = process.env.CONCORD_SELECTED_PRODUCT_ID ?? ""
@@ -169,7 +166,7 @@ async function grantFor(context: ToolContext, capability: string): Promise<any> 
   let privateKey
   try { privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef())) } catch (error) { throw new AdapterFailure("transport_failure", "grant_bootstrap_failed", String(error)) }
   const issuedAt = new Date().toISOString()
-  const assertionFields = { client_ref: clientRef(), client_version: ADAPTER_VERSION, session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, requested_product_id: selectedProductID(), requested_project_ids: [] as string[], requested_capabilities: [capability], issued_at: issuedAt, nonce: randomNonce(), surface_range: SURFACE_RANGE, envelope_versions: ENVELOPE_VERSIONS, manifest_digest: manifestDigest }
+  const assertionFields = { client_ref: clientRef(), session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, requested_product_id: selectedProductID(), requested_project_ids: [] as string[], requested_capabilities: [capability], issued_at: issuedAt, nonce: randomNonce(), manifest_digest: manifestDigest }
   const assertion = { ...assertionFields, signature: b64(signBytes(null, Buffer.from(canonicalAssertion(assertionFields)), privateKey)) }
   let result
   try { result = await runner.run([process.env.CONCORD_BIN ?? "concord", "grant"], JSON.stringify({ assertion, expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), max_uses: 0 }), context.abort) } catch (error) { throw runnerFailure(error, context.abort.aborted) }
@@ -177,8 +174,7 @@ async function grantFor(context: ToolContext, capability: string): Promise<any> 
   let response
   try { response = singleJSON(result.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_core_response", String(error)) }
   if (response.manifest_digest !== manifestDigest) throw new AdapterFailure("transport_failure", "manifest_mismatch", "core manifest digest does not match adapter")
-  if (response.surface_version !== manifestVersion) throw new AdapterFailure("transport_failure", "incompatible_contract", "core surface version is incompatible with adapter")
-  const value = { token: response.grant_token, ref: response.grant_ref, clientRef: response.client_ref, principalRef: response.principal_ref, sessionRef: response.session_ref, agentRef: response.agent_ref, clientVersion: ADAPTER_VERSION, surfaceVersion: response.surface_version, envelopeVersion: response.envelope_version, manifestDigest: response.manifest_digest, productIDs: response.product_ids ?? [], projectIDs: response.project_ids ?? [], scopeVersion: response.scope_version, expiresAt: Date.now() + GRANT_TTL_MS }
+  const value = { token: response.grant_token, ref: response.grant_ref, clientRef: response.client_ref, principalRef: response.principal_ref, sessionRef: response.session_ref, agentRef: response.agent_ref, manifestDigest: response.manifest_digest, productIDs: response.product_ids ?? [], projectIDs: response.project_ids ?? [], scopeVersion: response.scope_version, expiresAt: Date.now() + GRANT_TTL_MS }
   grants.set(key, value)
   return value as any
 }
@@ -193,7 +189,7 @@ async function invoke(toolName: string, args: any, context: ToolContext): Promis
   }
   let grant: any
   try { grant = await grantFor(context, (contractOperations.find((op: any) => op.tool === toolName && op.id.endsWith(`.${operation}`)) as any)?.capability ?? "product_read") } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "grant_bootstrap_failed") }
-  const envelope: any = { schema_version: "1.0", request_id: requestID, grant_ref: grant.token, client_ref: grant.clientRef, client_version: grant.clientVersion, principal_ref: grant.principalRef, session_ref: grant.sessionRef, agent_ref: grant.agentRef, directory: context.directory, worktree: context.worktree, ambient_project_id: grant.projectIDs.length === 1 ? grant.projectIDs[0] : "", selected_product_id: grant.productIDs.length === 1 ? grant.productIDs[0] : "", scope_version: grant.scopeVersion, surface_version: grant.surfaceVersion, envelope_version: grant.envelopeVersion, manifest_digest: grant.manifestDigest }
+  const envelope: any = { schema_version: "1.0", request_id: requestID, grant_ref: grant.token, client_ref: grant.clientRef, principal_ref: grant.principalRef, session_ref: grant.sessionRef, agent_ref: grant.agentRef, directory: context.directory, worktree: context.worktree, ambient_project_id: grant.projectIDs.length === 1 ? grant.projectIDs[0] : "", selected_product_id: grant.productIDs.length === 1 ? grant.productIDs[0] : "", scope_version: grant.scopeVersion, manifest_digest: grant.manifestDigest }
   const run = async (input: any) => runner.run([process.env.CONCORD_BIN ?? "concord", "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   let result: any
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
@@ -208,18 +204,30 @@ async function invoke(toolName: string, args: any, context: ToolContext): Promis
       requiredChallengeFields.push("work_id", "action_id", "contract_version", "selected_choice", "premise_summary")
       if (args.input?.action_id === "confirm_premise") requiredChallengeFields.push("decision_context_digest")
     }
+    if (toolName === "concord_work_relate" && operation === "resolve_overlap") {
+      requiredChallengeFields.push("summary", "resolution_kind", "from_work_id", "to_work_id")
+    }
     if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
     if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
     if (!Array.isArray(details.scope) || !Array.isArray(details.versions) || (toolName === "concord_work_transition" && operation === "workflow_action" && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge did not bind the exact workflow selection")
     const askMetadata = toolName === "concord_work_transition" && operation === "workflow_action"
       ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary }
-      : { approval_ref: details.approval_ref, operation_digest: details.operation_digest }
+      : {
+          approval_ref: details.approval_ref,
+          operation_digest: details.operation_digest,
+          ...(typeof details.summary === "string" ? { summary: details.summary } : {}),
+          ...(Array.isArray(details.scope) ? { scope: details.scope } : {}),
+          ...(Array.isArray(details.versions) ? { versions: details.versions } : {}),
+          ...(typeof details.resolution_kind === "string" ? { resolution_kind: details.resolution_kind } : {}),
+          ...(typeof details.from_work_id === "string" ? { from_work_id: details.from_work_id } : {}),
+          ...(typeof details.to_work_id === "string" ? { to_work_id: details.to_work_id } : {}),
+        }
     // Built-in question supplies semantic choice; ToolContext.ask authorizes
     // only this exact core-issued challenge.
     try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [], always: [], metadata: askMetadata }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
     let privateKey
     try { privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef())) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "grant_bootstrap_failed") }
-    const assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: grant.sessionRef, agent_ref: grant.agentRef, worktree: context.worktree, client_version: grant.clientVersion, issued_at: new Date().toISOString(), nonce: randomNonce() }
+    const assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: grant.sessionRef, agent_ref: grant.agentRef, worktree: context.worktree, issued_at: new Date().toISOString(), nonce: randomNonce() }
     const signed = { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalHostApproval(assertion)), privateKey)) }
     envelope.host_approval_assertion = signed
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null

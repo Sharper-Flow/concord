@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const testManifestDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
 func legacyImplementationDigest(t *testing.T) string {
 	t.Helper()
 	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
@@ -55,7 +57,7 @@ func replayWorkflowAuthority(ctx context.Context, s *Store, opID, workID, princi
 		OpID: opID, WorkID: workID, WorkflowTypeRef: workflowTypeRef, WorkflowTypeVersion: workflowTypeVersion,
 		StepID: stepID, StepKind: StepInternalSQLite, AcceptedInputsDigest: digest,
 		AcceptedScopeSnapshot: `{}`, PrincipalRef: principal, Tool: "workflow-corpus", IdempotencyKey: opID,
-		RequestID: requestID, ObservedAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ContractVersion: "2.0.0",
+		RequestID: requestID, ObservedAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ContractDigest: testManifestDigest,
 	})
 	if err != nil {
 		return err

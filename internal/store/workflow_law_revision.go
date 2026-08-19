@@ -284,7 +284,7 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 		return mandateErr
 	}
 	if len(mandated) == 0 {
-		return nil
+		return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
 	}
 	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
 	if err != nil {
@@ -295,7 +295,7 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 		return err
 	}
 	if stale == nil {
-		return nil
+		return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
 	}
 	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract consumes a superseded law revision", false, "request_approval")
 	failure.StaleLawRevision = stale

@@ -253,6 +253,23 @@
       }
     },
     {
+      "id": "AJ5-resolve-domain-overlap",
+      "job_id": "AJ5",
+      "instruction": "Authorize work-1 and work-2 to proceed concurrently after confirming their current Domain overlap is compatible.",
+      "initial_state": { "fixture": "domain-overlap", "idempotency_seed": "compatible-work-1-work-2" },
+      "expected": {
+        "assertions": [
+          { "target": "state", "path": "overlap.current_resolution.kind", "op": "eq", "value": "compatible_with" },
+          { "target": "state", "path": "overlap.current_resolution.from_contract_version", "op": "eq", "value": 1 },
+          { "target": "state", "path": "overlap.current_resolution.to_contract_version", "op": "eq", "value": 1 },
+          { "target": "state", "path": "relations.compatible_with", "op": "contains", "value": { "source": "work-1", "target": "work-2" } },
+          { "target": "authority", "path": "operator_approval_consumed", "op": "eq", "value": true },
+          { "target": "effects", "path": "ordinary_relation_authority", "op": "absent" }
+        ],
+        "invariants": ["atomic_core_effect", "evidence_authority", "canonical_authority"]
+      }
+    },
+    {
       "id": "AJ6-compact-terminal-work",
       "job_id": "AJ6",
       "instruction": "Publish the durable note for terminal work-cancelled and reconcile its canonical locator.",

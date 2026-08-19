@@ -842,7 +842,7 @@ func TestWorkflowCancellationRejectsForgedEvidenceFromOperator(t *testing.T) {
 
 func seedWorkflowAuthority(t *testing.T, s *Store, opID, workID, principal, requestID string, evidence []string) {
 	t.Helper()
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at) VALUES(?,1,?,'workflow.test',1,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,?)`, opID, workID, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z")
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'workflow.test',1,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,? ,?)`, opID, workID, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z", testManifestDigest)
 	if err != nil {
 		t.Fatalf("seed durable workflow authority: %v", err)
 	}

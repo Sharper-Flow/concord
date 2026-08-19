@@ -158,7 +158,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 7}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "issue31-approve-nonce")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "issue31-approve-nonce")
 	approved := workflowContractActionInput(t, "work-1", 7, "issue31-approve", challengeRef)
 	response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved)
 	if response.Outcome != OutcomeOK {
@@ -183,7 +183,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	challengeRef, _ = challenge.Error.Details["approval_ref"].(string)
 	digest = mutationDigest("concord_work_transition", "workflow_action", env, confirm)
 	versions = map[string]any{"work": workflowIssue31Version(t, s), "contract": 1}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "issue31-confirm-nonce")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "issue31-confirm-nonce")
 	approved = json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(workflowIssue31Version(t, s), 10) + `,"action_id":"confirm_premise","selected_choice":"confirm","decision_context_digest":"` + extractDecisionDigest(t, confirm) + `","idempotency_key":"issue31-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	beforeEvents := countWorkflowEvents(t, s)
 	response = invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved)
@@ -305,7 +305,7 @@ func TestConfirmPremiseInvokeRejectsMissingWrongAndPayloadActorsWithoutState(t *
 				env.HostApproval = nil
 			} else {
 				versions["work"] = beforeVersion + 1
-				env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "issue31-wrong-version")
+				env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "issue31-wrong-version")
 			}
 			approved := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(beforeVersion, 10) + `,"action_id":"confirm_premise","idempotency_key":"issue31-rejected-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
 			response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved)
@@ -484,7 +484,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Grant, ed25519
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	approveDigest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, approveDigest, scope, map[string]any{"work": 7}, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "prepare-approve-nonce")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, approveDigest, scope, map[string]any{"work": 7}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "prepare-approve-nonce")
 	approved := workflowContractActionInput(t, "work-1", 7, "prepare-approve", challengeRef)
 	if response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved); response.Outcome != OutcomeOK {
 		t.Fatalf("contract approval response=%+v", response)

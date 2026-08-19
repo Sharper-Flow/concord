@@ -105,7 +105,7 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 	if err != nil {
 		t.Fatalf("inject approval: %v", err)
 	}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutDigest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, env.ClientVersion, fixedTime(), nonceForChallenge(challengeRef))
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutDigest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: withApproval}, env)
 }
 
@@ -115,7 +115,7 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 func mintPublicationChallenge(t *testing.T, s *store.Store, service *Service, grant Grant, env CallEnvelope, digest string, scope, versions map[string]any) string {
 	t.Helper()
 	ctx := context.Background()
-	inv := Invocation{GrantToken: grant.Token, ClientRef: grant.ClientRef, ClientVersion: grant.ClientVersion, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, SurfaceVersion: env.SurfaceVersion, EnvelopeVersion: env.EnvelopeVersion, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
+	inv := Invocation{GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
 	var ref string
 	err := s.Transact(ctx, func(tx *store.Transaction) error {
 		var err error

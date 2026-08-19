@@ -12,6 +12,10 @@ workflow engine must add to the existing storage spine.
 CD-0008 D2 (evidence), D4 (checkpoints), D5 (external conditions), D6 (schema evolution);
 CD-0009 D1/D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
+**Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
+version, negotiation, migration, and deprecation requirements described in D11.
+Those passages remain historical evidence for the workflow-engine amendment, not
+current compatibility policy.
 
 ## Context
 

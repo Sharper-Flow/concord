@@ -365,7 +365,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if request.ActionID == "supersede_contract" {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			var failure *Failure
-			if !failureAs(err, &failure) || failure.Kind != KindStaleLawRevision {
+			if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
 				return RegisteredDefinition{}, err
 			}
 			staleRecovery = true
@@ -562,7 +562,11 @@ func verifyWorkflowDefinitionPinTx(ctx context.Context, tx *sql.Tx, registry Def
 }
 
 func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest) error {
-	if !strings.HasPrefix(req.WorkflowTypeRef, "workflow.") {
+	var workflowExists int
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=?)`, req.WorkID).Scan(&workflowExists); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_preflight", "cannot inspect workflow claim identity", true, "retry once the workflow projection is readable", err)
+	}
+	if workflowExists == 0 {
 		return nil
 	}
 	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, BuiltinWorkflowRegistry(), req.WorkID)

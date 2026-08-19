@@ -24,7 +24,7 @@ stops before OpenCode starts.
 `session_boot_packet` is a closed generated payload schema. Every packet binds:
 
 - `session_type=operator` and `session_contract_version=1.0`;
-- the current agent-tool surface version and manifest digest;
+- the current generated agent-tool manifest digest;
 - the selected Product and work IDs;
 - the canonical continuity payload, including workflow step, approved contract,
   complete `spec_mandate`, pending operator decision, latest checkpoint,

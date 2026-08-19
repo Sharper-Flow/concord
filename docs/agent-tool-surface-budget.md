@@ -3,10 +3,10 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS2; binding input to CD-0005 §2 and TS3–TS9.
-> **Binding input:** accepted TS1 canonical jobs and 21-scenario corpus.
+> **Binding input:** accepted TS1 canonical jobs and 22-scenario corpus.
 > **Does not decide:** exact tool names/count within the budget, read operations
 > (TS3), mutation operations (TS4), call context (TS5), transport (TS6), result
-> envelopes (TS7), long-term evolution (TS8), or measurement gates (TS9).
+> envelopes (TS7), current manifest identity/change evidence (TS8), or measurement evidence (TS9).
 
 ## 1. Decision
 
@@ -17,11 +17,10 @@ The cap is a Concord governance constraint derived from TS1's eight evidenced jo
 families and the explicit need to avoid both CRUD explosion and mega-dispatch. It
 is not asserted as a universal model limit across models, schemas, or tasks.
 
-The v1 surface is **static and deterministic**. No catalog, tool-search, or
-dynamic-discovery meta-tool is added while the accepted surface fits within the
-single-digit cap. TS8 may define a generated discovery projection; TS9 evidence
-must show that exposing it improves scenario outcomes enough to justify its own
-selection, context, latency, and compatibility cost.
+The current surface is **static and deterministic**. No catalog, tool-search, or
+dynamic-discovery meta-tool is added. A future discovery proposal would require a
+named deterministic failure and TS8/TS9 evidence for its own selection, context,
+latency, and schema cost.
 
 ## 2. Granularity rule
 
@@ -88,7 +87,7 @@ recovery boundaries into one tool to save prompt tokens is a failure.
 | **Two mega-tools** | One generic query dispatcher and one generic mutation dispatcher. | Minimizes count but combines unrelated intents, approvals, authorities, recovery, and result shapes; conditional schemas become prose. | **Rejected.** |
 | **One tool per TS1 job** | Eight tools mirroring AJ1–AJ8 exactly. | Useful comparison baseline, but assumes an end-to-end evaluation job always equals one callable boundary. AJ1 combines several read intents; AJ8 spans native operations and durable status. | **Not binding.** Evaluate, but do not force 1:1 mapping. |
 | **Domain-intent surface** | A single-digit set of cohesive read, mutation, knowledge, and operation families; closed typed variants where the granularity rule permits. | Preserves TS1 outcomes while allowing TS3/TS4 to merge always-chained reads and split distinct consequence boundaries. | **Selected rule.** Exact map remains TS3/TS4. |
-| **Progressive discovery first** | Small meta-surface searches or loads additional domain tools. | Solves a scale problem Concord does not yet have; adds a meta-selection step and compatibility surface before evidence. | **Rejected for v1.** Reconsider only through TS8/TS9. |
+| **Progressive discovery first** | Small meta-surface searches or loads additional domain tools. | Solves a scale problem Concord does not yet have; adds a meta-selection step before evidence. | **Rejected for the current path.** Reconsider only through TS8/TS9. |
 
 ## 5. Candidate evaluation
 

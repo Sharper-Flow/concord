@@ -1,8 +1,8 @@
 # Generated Concord agent tool surface
 
-Source manifest: `4.0.0` / `sha256:c088f1b9ae0d5a85ff8ae258b7dd1afedc6f23ca0ca50b3c0517461c51a85194`
-Payload schema digest: `sha256:72e0754702f8a29f4f250bdc3834bf0d2d6275010a94c8515d80a7e672a22064`
-Supported surface versions: `4.0.0`; envelope schema: `1.0`
+Manifest digest: `sha256:c6be78fb39cba9d44cd7fb40f0ba265d4d8b5f6f0865589cf66c72fa4027e6b9`
+Payload schema digest: `sha256:ede9774838ea2ef83427fb1c95712a99a996dce2577838344ef10d120b730c26`
+Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
 |---|---|---|---|---|---|
@@ -46,6 +46,7 @@ Supported surface versions: `4.0.0`; envelope schema: `1.0`
 | `concord_work_relate.unlink` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_relate.supersede` | `mutation` | `—` | `work_relate` | `supersession` | `always` |
 | `concord_work_relate.restore_superseded` | `mutation` | `—` | `work_relate` | `supersession` | `always` |
+| `concord_work_relate.resolve_overlap` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_relate.resource_claim` | `mutation` | `—` | `work_relate` | `claim` | `always` |
 | `concord_work_relate.resource_release` | `mutation` | `—` | `work_relate` | `claim` | `always` |
 | `concord_work_relate.message_send` | `mutation` | `—` | `work_relate` | `relation` | `always` |

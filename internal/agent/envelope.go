@@ -111,6 +111,40 @@ type StaleLawRevision struct {
 	RecoveryActions              []string `json:"recovery_actions"`
 }
 
+type DomainOverlapRelationTuple struct {
+	SourceDomainID string `json:"source_domain_id"`
+	Kind           string `json:"kind"`
+	TargetDomainID string `json:"target_domain_id"`
+}
+
+type DomainOverlapDetail struct {
+	ProductID                     string                       `json:"product_id"`
+	FromWorkID                    string                       `json:"from_work_id"`
+	ToWorkID                      string                       `json:"to_work_id"`
+	FromContractVersion           int64                        `json:"from_contract_version"`
+	ToContractVersion             int64                        `json:"to_contract_version"`
+	SharedAffectedDomainIDs       []string                     `json:"shared_affected_domain_ids"`
+	SharedLawIDs                  []string                     `json:"shared_law_ids"`
+	SharedDomainModifications     []string                     `json:"shared_domain_modifications"`
+	SharedRelationTuples          []DomainOverlapRelationTuple `json:"shared_relation_tuples"`
+	OverlapClasses                []string                     `json:"overlap_classes"`
+	ResolutionState               string                       `json:"resolution_state"`
+	ResolutionKind                string                       `json:"resolution_kind,omitempty"`
+	RecoveryActions               []string                     `json:"recovery_actions"`
+	SharedAffectedDomainCount     int                          `json:"shared_affected_domain_count"`
+	SharedLawCount                int                          `json:"shared_law_count"`
+	SharedDomainModificationCount int                          `json:"shared_domain_modification_count"`
+	SharedRelationTupleCount      int                          `json:"shared_relation_tuple_count"`
+	DetailTruncated               bool                         `json:"detail_truncated"`
+}
+
+type DomainOverlap struct {
+	Overlaps         []DomainOverlapDetail `json:"overlaps"`
+	TotalOverlaps    int                   `json:"total_overlaps"`
+	ReturnedOverlaps int                   `json:"returned_overlaps"`
+	Truncated        bool                  `json:"truncated"`
+}
+
 // MaxNotices bounds each notice collection on an envelope. Producers that merge
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
@@ -127,6 +161,7 @@ type TypedError struct {
 	Violations       []string          `json:"violations,omitempty"`
 	Options          []string          `json:"options,omitempty"`
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
+	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
 	Details          map[string]any    `json:"details,omitempty"`
 }
 
@@ -170,8 +205,7 @@ type OperationRef struct {
 // validated here and by the canonical JSON schema.
 type Envelope struct {
 	SchemaVersion          string            `json:"schema_version"`
-	ContractVersion        string            `json:"contract_version,omitempty"`
-	AdapterContractVersion string            `json:"adapter_contract_version,omitempty"`
+	ManifestDigest         string            `json:"manifest_digest"`
 	RequestID              string            `json:"request_id"`
 	Origin                 Origin            `json:"origin"`
 	Tool                   string            `json:"tool"`
@@ -199,8 +233,8 @@ type Envelope struct {
 	Error                  *TypedError       `json:"error,omitempty"`
 }
 
-func NewBase(requestID, tool, operation, contractVersion string) Envelope {
-	e := Envelope{SchemaVersion: "1.0", ContractVersion: contractVersion, RequestID: requestID, Origin: OriginCore, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityAuthoritative, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Replayed: false}
+func NewBase(requestID, tool, operation string) Envelope {
+	e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: requestID, Origin: OriginCore, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityAuthoritative, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Replayed: false}
 	for _, op := range ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
 			e.QueryID = op.QueryID
@@ -253,8 +287,8 @@ func NewCoreError(base Envelope, err TypedError) Envelope {
 	base.Error = &err
 	return base
 }
-func NewAdapterError(requestID, tool, operation, adapterVersion string, reason string, kind string) Envelope {
-	e := Envelope{SchemaVersion: "1.0", AdapterContractVersion: adapterVersion, RequestID: requestID, Origin: OriginAdapter, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityUnreachable, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Outcome: OutcomeError}
+func NewAdapterError(requestID, tool, operation, reason string, kind string) Envelope {
+	e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: requestID, Origin: OriginAdapter, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityUnreachable, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Outcome: OutcomeError}
 	for _, op := range ContractOperations {
 		if op.Tool == tool && op.Operation == operation {
 			e.QueryID = op.QueryID
@@ -304,17 +338,11 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 }
 
 func (e Envelope) Validate() error {
-	if e.SchemaVersion != "1.0" || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" || (e.ContractVersion != "" && len(e.ContractVersion) > 64) || (e.AdapterContractVersion != "" && len(e.AdapterContractVersion) > 64) {
+	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" {
 		return errors.New("invalid envelope identity")
 	}
 	if e.Origin != OriginCore && e.Origin != OriginAdapter {
 		return errors.New("unknown envelope origin")
-	}
-	if e.Origin == OriginCore && (e.ContractVersion == "" || e.AdapterContractVersion != "") {
-		return errors.New("core origin contract coupling violated")
-	}
-	if e.Origin == OriginAdapter && (e.AdapterContractVersion == "" || e.ContractVersion != "") {
-		return errors.New("adapter origin contract coupling violated")
 	}
 	if e.Outcome != OutcomeOK && e.Outcome != OutcomePending && e.Outcome != OutcomePartial && e.Outcome != OutcomeError {
 		return errors.New("unknown envelope outcome")
@@ -434,7 +462,7 @@ func (e Envelope) validateError() error {
 		if !allowedKinds[e.Error.Kind] {
 			return errors.New("adapter error kind is not transport-safe")
 		}
-		if e.Error.AdapterReason == "incompatible_contract" || e.Error.AdapterReason == "manifest_mismatch" || e.Error.AdapterReason == "grant_bootstrap_failed" {
+		if e.Error.AdapterReason == "manifest_mismatch" || e.Error.AdapterReason == "grant_bootstrap_failed" {
 			if e.Error.Kind != "transport_failure" {
 				return errors.New("adapter bootstrap failure must be transport_failure")
 			}
@@ -590,7 +618,7 @@ func validateRecoveryAction(action RecoveryAction) error {
 	return nil
 }
 func validateError(err TypedError) error {
-	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "outcome_mismatch": true, "stale_requires_review": true, "stale_law_revision": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
+	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "outcome_mismatch": true, "stale_requires_review": true, "stale_law_revision": true, "domain_overlap": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
 	if !allowed[err.Kind] {
 		return fmt.Errorf("unknown error kind %q", err.Kind)
 	}
@@ -612,7 +640,7 @@ func validateError(err TypedError) error {
 		}
 	}
 	if err.AdapterReason != "" {
-		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "incompatible_contract": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true}
+		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true}
 		if !adapterReasons[err.AdapterReason] {
 			return fmt.Errorf("unknown adapter reason %q", err.AdapterReason)
 		}
@@ -623,6 +651,25 @@ func validateError(err TypedError) error {
 	if err.Kind == "stale_law_revision" {
 		if err.RecoveryAction.Kind != "request_approval" || err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
 			return errors.New("stale law revision coupling violated")
+		}
+	}
+	if err.Kind == "domain_overlap" {
+		if err.RecoveryAction.Kind != "request_approval" || err.DomainOverlap == nil || len(err.DomainOverlap.Overlaps) == 0 || len(err.DomainOverlap.Overlaps) > 20 || err.DomainOverlap.TotalOverlaps < len(err.DomainOverlap.Overlaps) || err.DomainOverlap.ReturnedOverlaps != len(err.DomainOverlap.Overlaps) || err.DomainOverlap.TotalOverlaps < 1 || (!err.DomainOverlap.Truncated && err.DomainOverlap.TotalOverlaps != err.DomainOverlap.ReturnedOverlaps) {
+			return errors.New("domain overlap coupling violated")
+		}
+		for _, overlap := range err.DomainOverlap.Overlaps {
+			if !bounded(overlap.ProductID, 1, 128) || !bounded(overlap.FromWorkID, 1, 128) || !bounded(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || len(overlap.SharedAffectedDomainIDs) == 0 || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
+				return errors.New("domain overlap detail bounds violated")
+			}
+			if overlap.ResolutionState == "sequenced" && overlap.ResolutionKind != "depends_on" && overlap.ResolutionKind != "blocks" {
+				return errors.New("sequenced overlap must preserve its directed resolution kind")
+			}
+			allowedRecovery := map[string]bool{"wait": true, "resolve_overlap": true, "terminal_work": true, "supersede_contract": true}
+			for _, action := range overlap.RecoveryActions {
+				if !allowedRecovery[action] {
+					return errors.New("unknown domain overlap recovery action")
+				}
+			}
 		}
 	}
 	if err.Kind == "ambiguous_scope" && (len(err.Candidates) == 0 || err.RecoveryAction.Kind != "resolve_ambiguity") {

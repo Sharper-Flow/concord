@@ -103,7 +103,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	}
 	result, err := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(map[string]any{"contract_version": 2, "premise": "continue under successor law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype/internal", "supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}}), Actor: actor,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
 	})
 	_ = leaveFold(context.Background(), tx)
 	if err != nil {
@@ -142,7 +142,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	startResult, err := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+	startResult, err := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 	_ = leaveFold(context.Background(), tx)
 	if err != nil {
 		tx.Rollback()
@@ -199,7 +199,7 @@ func TestWorkflowLawRevisionRecoveryRequiresAcceptedSuccessorPin(t *testing.T) {
 	}
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "supersede_contract", Payload: mustJSONValue(map[string]any{"contract_version": 2, "premise": "incorrectly omit the accepted successor", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype/internal", "supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}}), Actor: actor,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-missing-successor", OperationID: "recontract-missing-successor", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-missing-successor", RequestID: "request:recontract-missing-successor", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-missing-successor", OperationID: "recontract-missing-successor", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-missing-successor", RequestID: "request:recontract-missing-successor", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
 	})
 	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
@@ -295,7 +295,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 			acceptanceDone <- foldErr
 			return
 		}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		_ = leaveFold(context.Background(), tx)
 		if actionErr == nil {
 			tx.Rollback()
@@ -444,7 +444,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross-process", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross-process", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		_ = leaveFold(context.Background(), tx)
 		tx.Rollback()
 		var failure *Failure
@@ -528,7 +528,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		OpID: "law-stale-in-flight-op", WorkID: workID, WorkflowTypeRef: "workflow.implementation", WorkflowTypeVersion: 1,
 		StepID: "execution", StepKind: StepInternalSQLite, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{}`, PrincipalRef: "principal/in-flight", Tool: "workflow-test", IdempotencyKey: "law-stale-in-flight-claim",
-		RequestID: "request:law-stale-in-flight", ContractVersion: "3.7.0", ObservedAt: time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC),
+		RequestID: "request:law-stale-in-flight", ContractDigest: testManifestDigest, ObservedAt: time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("claim before cutover: %v", err)
@@ -560,7 +560,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	}
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:stale", "attempt_epoch": 1}), Actor: owner,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-stale", OperationID: "accept-stale", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-stale", RequestID: "request:accept-stale", ContractVersion: "2.0.0", Now: time.Date(2026, 8, 17, 0, 0, 2, 0, time.UTC),
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-stale", OperationID: "accept-stale", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-stale", RequestID: "request:accept-stale", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 2, 0, time.UTC),
 	})
 	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()

@@ -134,7 +134,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 2}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "approval-nonce-0001")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0001")
 	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-1","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
@@ -154,7 +154,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	second.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-2","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	secondEnv := env
 	secondEnv.RequestID = "approval-second"
-	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "approval-nonce-0002")
+	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0002")
 	reused, err := Dispatch(ctx, s, service, second, secondEnv)
 	if err != nil || reused.Outcome != OutcomeError || reused.Error == nil || reused.Error.Kind != "approval_invalid" {
 		t.Fatalf("reused challenge response=%+v err=%v", reused, err)
@@ -185,13 +185,13 @@ func TestDispatchRejectsInvalidSignedHostApprovalAssertions(t *testing.T) {
 		name      string
 		assertion *HostApprovalAssertion
 	}{
-		{"unsigned", &HostApprovalAssertion{ChallengeRef: challengeRef, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: "session-1", AgentRef: "agent-1", Worktree: "/repo-wt", ClientVersion: "1.0.0", IssuedAt: fixedTime().Format(time.RFC3339Nano), Nonce: "invalid-unsigned-0001"}},
-		{"wrong-key", signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "invalid-wrong-key-1")},
-		{"stale", signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime().Add(-service.MaxClockSkew-time.Second), "invalid-stale-0001")},
-		{"future", signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime().Add(service.MaxClockSkew+time.Second), "invalid-future-0001")},
-		{"digest", signedHostApproval(privateKey, challengeRef, "sha256:"+strings.Repeat("f", 64), scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "invalid-digest-0001")},
-		{"version", signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"work": 3}, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "invalid-version-0001")},
-		{"scope", signedHostApproval(privateKey, challengeRef, digest, map[string]any{"product_id": "product-2", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "invalid-scope-0001")},
+		{"unsigned", &HostApprovalAssertion{ChallengeRef: challengeRef, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: "session-1", AgentRef: "agent-1", Worktree: "/repo-wt", IssuedAt: fixedTime().Format(time.RFC3339Nano), Nonce: "invalid-unsigned-0001"}},
+		{"wrong-key", signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-wrong-key-1")},
+		{"stale", signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime().Add(-service.MaxClockSkew-time.Second), "invalid-stale-0001")},
+		{"future", signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime().Add(service.MaxClockSkew+time.Second), "invalid-future-0001")},
+		{"digest", signedHostApproval(privateKey, challengeRef, "sha256:"+strings.Repeat("f", 64), scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-digest-0001")},
+		{"version", signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"work": 3}, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-version-0001")},
+		{"scope", signedHostApproval(privateKey, challengeRef, digest, map[string]any{"product_id": "product-2", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-scope-0001")},
 	}
 	for _, variant := range variants {
 		t.Run(variant.name, func(t *testing.T) {
@@ -213,7 +213,7 @@ func TestDispatchRejectsInvalidSignedHostApprovalAssertions(t *testing.T) {
 	expired.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-expired","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	expiredEnv := env
 	expiredEnv.RequestID = "invalid-expired"
-	expiredEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "invalid-expired-0001")
+	expiredEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-expired-0001")
 	expiredResponse, err := Dispatch(ctx, s, service, expired, expiredEnv)
 	if err != nil || expiredResponse.Error == nil || expiredResponse.Error.Kind != "approval_invalid" {
 		t.Fatalf("expired challenge response=%+v err=%v", expiredResponse, err)
@@ -231,7 +231,7 @@ func TestDispatchRejectsInvalidSignedHostApprovalAssertions(t *testing.T) {
 	revoked.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-revoked","approval":{"approval_ref":"` + newChallenge + `"}}`)
 	revokedEnv := env
 	revokedEnv.RequestID = "invalid-revoked"
-	revokedEnv.HostApproval = signedHostApproval(privateKey, newChallenge, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "invalid-revoked-0001")
+	revokedEnv.HostApproval = signedHostApproval(privateKey, newChallenge, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-revoked-0001")
 	revokedResponse, err := Dispatch(ctx, s, service, revoked, revokedEnv)
 	if err != nil || revokedResponse.Error == nil || revokedResponse.Error.Kind != "approval_invalid" {
 		t.Fatalf("revoked challenge response=%+v err=%v", revokedResponse, err)
@@ -267,7 +267,7 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	}
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"work": 2}, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "rollback-approval-0001")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"work": 2}, "session-1", "agent-1", "/repo-wt", fixedTime(), "rollback-approval-0001")
 	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"rollback-approval","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	failed, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "version_conflict" {
@@ -347,7 +347,7 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimScope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-orphan"],"scope_version":"","work_version":3,"content_digest":"` + proofDigest + `","home_project_id":"project-1","home_locator_id":"locator-1","head_ref":"HEAD"}`
-	claim, err := store.ClaimStep(ctx, s, store.ClaimRequest{OpID: "orphan-operation", WorkID: "work-orphan", WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("0", 64), AcceptedScopeSnapshot: claimScope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "publish-key", RequestID: "publish-request", ObservedAt: fixedTime()})
+	claim, err := store.ClaimStep(ctx, s, store.ClaimRequest{OpID: "orphan-operation", WorkID: "work-orphan", WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("0", 64), AcceptedScopeSnapshot: claimScope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "publish-key", RequestID: "publish-request", ObservedAt: fixedTime(), ContractDigest: ManifestDigest})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
 	challengeRef := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_ids": []string{"project-1"}, "scope_version": scopeVersion}
-	assertion := signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "cross-approval-0001")
+	assertion := signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, "session-1", "agent-1", "/repo-wt", fixedTime(), "cross-approval-0001")
 	request.Input = json.RawMessage(`{"title":"Cross","value_statement":"Cross value","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-approved","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	env.HostApproval = assertion
 	approved, err := Dispatch(ctx, s, service, request, env)
@@ -524,7 +524,7 @@ func TestDispatchCrossProductLinkRequiresCapabilityAndApproval(t *testing.T) {
 	digest := mutationDigest(link.Tool, link.Operation, env, link.Input)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1", "work-2"}, "scope_version": scopeVersion}
 	versions := map[string]any{"from": 2, "to": 2}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "cross-link-approval-1")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "cross-link-approval-1")
 	link.Input = json.RawMessage(`{"from_work_id":"work-1","to_work_id":"work-2","from_expected_version":2,"to_expected_version":2,"kind":"blocks","reason":"cross relation","idempotency_key":"cross-link-denied","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	approved, err := Dispatch(ctx, s, service, link, env)
 	if err != nil || approved.Outcome != OutcomeOK {
@@ -565,7 +565,7 @@ func TestDispatchDisjointWorkCrossScopeLinkAndRelationUnlink(t *testing.T) {
 	digest := mutationDigest(link.Tool, link.Operation, env, link.Input)
 	scope := map[string]any{"product_id": "product-a", "product_ids": []string{"product-a", "product-b"}, "project_ids": []string{"ambient"}, "work_ids": []string{"work-a", "work-b"}, "scope_version": scopeVersion}
 	versions := map[string]any{"from": 2, "to": 2}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "disjoint-link-approval")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "disjoint-link-approval")
 	link.Input = json.RawMessage(`{"from_work_id":"work-a","to_work_id":"work-b","from_expected_version":2,"to_expected_version":2,"kind":"blocks","reason":"disjoint","idempotency_key":"disjoint-link-denied","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	approved, err := Dispatch(ctx, s, service, link, env)
 	if err != nil || approved.Outcome != OutcomeOK {
@@ -591,7 +591,7 @@ func TestDispatchDisjointWorkCrossScopeLinkAndRelationUnlink(t *testing.T) {
 	unlinkRef := challengeUnlink.Error.Details["approval_ref"].(string)
 	unlinkDigest := mutationDigest(unlink.Tool, unlink.Operation, env, unlink.Input)
 	unlinkScope := map[string]any{"product_id": "product-a", "product_ids": []string{"product-a", "product-b"}, "project_ids": []string{"ambient"}, "work_ids": []string{"work-a", "work-b"}, "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(privateKey, unlinkRef, unlinkDigest, unlinkScope, map[string]any{"from": 3, "to": 3}, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "disjoint-unlink-approval")
+	env.HostApproval = signedHostApproval(privateKey, unlinkRef, unlinkDigest, unlinkScope, map[string]any{"from": 3, "to": 3}, "session-1", "agent-1", "/repo-wt", fixedTime(), "disjoint-unlink-approval")
 	unlink.Input = json.RawMessage(`{"relation_id":"` + strconv.FormatInt(relationID, 10) + `","expected_versions":[{"work_id":"work-a","version":3},{"work_id":"work-b","version":3}],"reason":"disjoint unlink","idempotency_key":"disjoint-unlink","approval":{"approval_ref":"` + unlinkRef + `"}}`)
 	removed, err := Dispatch(ctx, s, service, unlink, env)
 	if err != nil || removed.Outcome != OutcomeOK {
@@ -644,7 +644,7 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	digest := mutationDigest(request.Tool, request.Operation, env, input)
 	scope := map[string]any{"product_id": "product-a", "product_ids": []string{"product-a", "product-b"}, "project_ids": []string{"ambient"}, "work_ids": []string{"work-a", "work-b"}, "scope_version": scopeVersion}
 	versions := map[string]any{"predecessor": 2, "successor": 2}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", "1.0.0", fixedTime(), "disjoint-supersede-approval")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "disjoint-supersede-approval")
 	request.Input = json.RawMessage(`{"predecessor_id":"work-a","successor_id":"work-b","predecessor_expected_version":2,"successor_expected_version":2,"reason":"replace disjoint work","idempotency_key":"disjoint-supersede","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	beforeEvents = countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
 	approved, err := Dispatch(ctx, s, service, request, env)
@@ -824,14 +824,11 @@ func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.St
 }
 
 func mutationEnvelope(grant Grant, scopeVersion string) CallEnvelope {
-	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", GrantRef: grant.Token, ClientRef: grant.ClientRef, ClientVersion: grant.ClientVersion, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, SurfaceVersion: grant.SurfaceVersion, EnvelopeVersion: grant.EnvelopeVersion, ManifestDigest: grant.ManifestDigest}
+	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", GrantRef: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 }
 
-func signedHostApproval(privateKey ed25519.PrivateKey, challenge, digest string, scope, versions map[string]any, session, agent, worktree, clientVersion string, issued time.Time, nonce string) *HostApprovalAssertion {
-	if clientVersion == "1.0.0" {
-		clientVersion = ManifestVersion
-	}
-	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, ClientVersion: clientVersion, IssuedAt: issued.Format(time.RFC3339Nano), Nonce: nonce, OperatorPrincipalRef: "human-1", OperatorAgentRef: "operator:" + agent, OperatorSessionRef: "operator:" + session}
+func signedHostApproval(privateKey ed25519.PrivateKey, challenge, digest string, scope, versions map[string]any, session, agent, worktree string, issued time.Time, nonce string) *HostApprovalAssertion {
+	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, IssuedAt: issued.Format(time.RFC3339Nano), Nonce: nonce, OperatorPrincipalRef: "human-1", OperatorAgentRef: "operator:" + agent, OperatorSessionRef: "operator:" + session}
 	assertion.Signature = ed25519.Sign(privateKey, CanonicalHostApprovalAssertion(*assertion))
 	return assertion
 }

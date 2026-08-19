@@ -48,8 +48,8 @@ func addAwaitCondition(t *testing.T, s *Store, conditionID string, boundSeconds 
 	authorityOp := "op-await-" + conditionID
 	evidenceRef := "evidence:merged-late:" + conditionID
 	evidenceJSON, _ := json.Marshal([]string{evidenceRef})
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at) VALUES(?,1,'work-await','workflow.ops_runbook',1,'execute','external_effect',?,?,'completed','{}',?, 'principal/op','req-await',?,?)`,
-		authorityOp, "sha256:await", "{}", string(evidenceJSON), recordedAt.Format(time.RFC3339Nano), recordedAt.Format(time.RFC3339Nano)); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,'work-await','workflow.ops_runbook',1,'execute','external_effect',?,?,'completed','{}',?, 'principal/op','req-await',?,?,?)`,
+		authorityOp, "sha256:await", "{}", string(evidenceJSON), recordedAt.Format(time.RFC3339Nano), recordedAt.Format(time.RFC3339Nano), testManifestDigest); err != nil {
 		t.Fatal(err)
 	}
 	payload["resolution_authority"] = "durable_operation:" + authorityOp

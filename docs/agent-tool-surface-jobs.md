@@ -8,7 +8,8 @@
 > **Scenario corpus:** [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json).
 > **Does not decide:** tool count or names (TS2), read or mutation schemas
 > (TS3/TS4), context and authorization (TS5), transport (TS6), result envelopes
-> (TS7), discovery/versioning (TS8), or change gates for the surface (TS9).
+> (TS7), current manifest identity/change evidence (TS8), or change evidence for the
+> surface (TS9).
 
 ## 1. Decision boundary
 
@@ -30,7 +31,7 @@ by Concord. No Q-number implies a separate tool.
 | **AJ2** | **Explain why work is blocked.** Trace canonical blockers and state what must change. | Blockage is derived from relations and blocker terminality, never a competing stored state; resolved blockers disappear; graph depth and output stay bounded. |
 | **AJ3** | **Capture needed work without silently cutting scope.** Record a bounded idea, defect, investigation, implementation, or operational need with value, kind, and Project membership. | One canonical work item is created in the resolved scope. Ambiguity or conflict with governing law is surfaced for human direction rather than guessed or omitted. |
 | **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence, approval, and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
-| **AJ5** | **Relate and scope work.** Add or remove Project membership and create parent, blocking, supersession, or implementation relations. | Graph and membership invariants hold; cycles and duplicate authority are rejected; supersession is one atomic relation-plus-terminal transition. |
+| **AJ5** | **Relate and scope work.** Add or remove Project membership; create typed relations; and resolve concurrent Product-changing Domain overlap. | Graph and membership invariants hold; cycles and duplicate authority are rejected; supersession is atomic; overlap authority is operator-approved and pinned to both current contract versions. |
 | **AJ6** | **Compact and reconcile terminal work.** Publish the one canonical durable note required for terminal work and reconcile its Product-memory locator. | Git publication is proven before the SQLite locator is recorded; an interruption leaves an explicit, recoverable partial outcome; retries do not create duplicate notes or competing authority. |
 | **AJ7** | **Retrieve durable Product knowledge.** Find prior work, decisions, lessons, specs, and canonical completed-work notes. | One bounded query returns canonical locators and index watermark; missing, ambiguous, degraded, and unreachable are distinct; no repeated list→show→search choreography is required. |
 | **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, required approval, execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, approval, status, and evidence. Missing approval blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
@@ -68,8 +69,8 @@ later choose their concrete request/result schemas.
 10. **Ordered cross-authority proof:** git and external native operations are not
     falsely presented as one transaction with SQLite. Steps are ordered, attributed,
     retry-safe, and expose partial outcomes with an idempotent reconciliation path.
-11. **Stable evolution:** in-flight work remains interpretable under its recorded
-    contract version; surface evolution does not rewrite history.
+11. **Stable authority:** in-flight work remains interpretable under its recorded
+    workflow/event formats; surface changes do not rewrite history.
 
 ## 4. Evaluation corpus contract
 
@@ -256,3 +257,24 @@ number. That assertion is computed from the observed pre- and post-mutation vers
 so it fails if a regression shifted every version uniformly — which a literal integer
 alone would also catch, but which relative-version resolution would not. No job
 definition, instruction, or invariant changed.
+
+**2026-08-19, issue #195 — `AJ5-resolve-domain-overlap` adds the TS8 major-change scenario.**
+
+CD-0041 makes unresolved concurrent Domain overlap a blocking Product-law fact.
+Before the current manifest added the overlap operation, AJ5's ordinary relation could record a graph edge but
+could not bind operator approval to both work versions, both active contract versions,
+and one closed compatibility, sequence, merger, or supersession decision. Treating the
+ordinary edge as authority would violate AJ5's duplicate-authority oracle and CD-0041.
+
+The named failing scenario is therefore: authorize two overlapping Product-changing
+items to proceed concurrently using only the pre-5.0 AJ5 surface. No legitimate call
+can produce the required version-pinned resolution. The passing scenario
+`AJ5-resolve-domain-overlap` drives the real `concord_work_relate.resolve_overlap`
+dispatch path, observes the approval challenge, consumes the bound operator approval,
+and asserts the current `compatible_with` resolution plus its relation companion. It
+also actively proves that an ordinary `compatible_with` link writes no overlap
+authority. `TestAgentJobsCorpus/AJ5-resolve-domain-overlap` is the executable binding.
+
+This amendment adds one scenario, bringing the corpus to 22. It does not add a ninth
+job or a tenth tool. Operator approval for the current manifest change is recorded in
+[issue #195](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5346330133).

@@ -31,6 +31,70 @@ func TestOpenAppliesSchemaManifest(t *testing.T) {
 	}
 }
 
+func TestMigrateV39ToV40BackfillsLawModificationsAndGuardsOverlapAuthority(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v39.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:39] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-19T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	hash := "sha256:" + strings.Repeat("a", 64)
+	actorRef := DeriveWorkflowActorRef("principal:v39", "client:v39", "agent:v39", "session:v39")
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-v39','Product','prototype','operator_only',1,'now','now')`, nil},
+		{`INSERT INTO work_items(id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at,intent_json) VALUES('work-v39','task','Work','needed',0,'standard',1,'now','now','{}')`, nil},
+		{`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal:v39','client:v39','agent:v39','session:v39','operator','now')`, []any{actorRef}},
+		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-v39',1,'migration','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'["law:a","law:b"]','["law:a","law:b"]',1,'prototype_internal')`, []any{actorRef}},
+		{`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('work-v39',1,'product-v39',?,'root',?)`, []any{hash, hash}},
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatalf("seed v39: %v", err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var laws string
+	if err := db.QueryRowContext(ctx, `SELECT group_concat(law_id,',') FROM (SELECT law_id FROM workflow_contract_law_modifications WHERE work_id='work-v39' ORDER BY law_id)`).Scan(&laws); err != nil {
+		t.Fatal(err)
+	}
+	if laws != "law:a,law:b" {
+		t.Fatalf("v40 law-modification backfill=%q", laws)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES('work-v39',1,'law:c')`); err == nil || !strings.Contains(err.Error(), "fold-only") {
+		t.Fatalf("law-modification projection bypassed fold guard: %v", err)
+	}
+	for _, index := range []string{"workflow_overlap_resolutions_pair", "workflow_overlap_resolutions_reverse_pair", "relations_merged_into_source"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?`, index).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("v40 index %s count=%d err=%v", index, count, err)
+		}
+	}
+}
+
 func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concord-v18.db")
 	ctx := context.Background()
@@ -745,7 +809,7 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 	}
 }
 
-func TestMigration39AddsDomainLawAndArchitectureBindingProjectionTables(t *testing.T) {
+func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	db := s.DatabaseForTesting()
@@ -756,6 +820,7 @@ func TestMigration39AddsDomainLawAndArchitectureBindingProjectionTables(t *testi
 		"domain_resource_attachment_edges", "managed_resources", "resource_products",
 		"workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications",
 		"workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations",
+		"workflow_contract_law_modifications", "workflow_overlap_resolutions",
 	} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
@@ -763,8 +828,8 @@ func TestMigration39AddsDomainLawAndArchitectureBindingProjectionTables(t *testi
 		}
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 39 {
-		t.Fatalf("schema version=%d err=%v, want 39", version, err)
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 40 {
+		t.Fatalf("schema version=%d err=%v, want 40", version, err)
 	}
 	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
 		var err error

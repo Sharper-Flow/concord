@@ -16,6 +16,7 @@ import (
 const (
 	WorkflowDefinitionSelected     = "workflow.definition_selected"
 	WorkflowContractApproved       = "workflow.contract_approved"
+	WorkflowOverlapResolved        = "workflow.overlap_resolved"
 	WorkflowContractSuperseded     = "workflow.contract_superseded"
 	WorkflowCandidateSetRevised    = "workflow.candidate_set_revised"
 	WorkflowActorRecorded          = "workflow.actor_recorded"
@@ -82,6 +83,22 @@ type workflowContractApprovedPayload struct {
 	ConsequenceClass    string                       `json:"consequence_class,omitempty"`
 	PremiseHash         string                       `json:"premise_hash,omitempty"`
 	OutcomeHash         string                       `json:"outcome_hash,omitempty"`
+}
+
+type workflowOverlapResolvedPayload struct {
+	WorkflowVersionFields
+	ToWorkID            string `json:"to_work_id"`
+	ToExpectedVersion   int64  `json:"to_expected_version"`
+	ToResultingVersion  int64  `json:"to_resulting_version"`
+	FromContractVersion int64  `json:"from_contract_version"`
+	ToContractVersion   int64  `json:"to_contract_version"`
+	ResolutionKind      string `json:"resolution_kind"`
+	Reason              string `json:"reason"`
+	ApprovalRef         string `json:"approval_ref"`
+}
+
+func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {
+	return p.WorkflowVersionFields
 }
 
 type workflowContractSupersededPayload struct {
@@ -626,6 +643,11 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 		if err := persistWorkflowArchitectureBindingTx(ctx, tx, event.SubjectID, p.ContractVersion, *p.ArchitectureBinding); err != nil {
 			return err
 		}
+		for _, lawID := range p.LawModifies {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,?,?)`, event.SubjectID, p.ContractVersion, lawID); err != nil {
+				return workflowProjectionError(err, "cannot record workflow law modification")
+			}
+		}
 	}
 	return nil
 }
@@ -717,6 +739,9 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	}
 	if n, _ := result.RowsAffected(); n != 1 {
 		return newFailure(KindProjectionNotFound, "fold_event", "previous workflow contract does not exist or is already superseded", false, "reload the current contract")
+	}
+	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
+		return err
 	}
 	if p.SuccessorContract == nil {
 		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='planned',current_step='planning' WHERE work_id=?`, event.SubjectID); err != nil {

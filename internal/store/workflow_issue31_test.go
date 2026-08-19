@@ -26,7 +26,7 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:issue31", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
-		RequestID: "request:" + operationID, ContractVersion: "4.0.0", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
+		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
 	})
 	_ = leaveFold(context.Background(), tx)
 	if err != nil {

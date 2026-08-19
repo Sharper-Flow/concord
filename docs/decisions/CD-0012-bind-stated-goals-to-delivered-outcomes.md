@@ -109,13 +109,12 @@ completion tool is a shape already rejected by
 [`agent-mutation-tool-contract.md`](../agent-mutation-tool-contract.md) §6, and the TS2
 nine-tool ceiling is unaffected.
 
-That is a statement about tool *identity* only, and it does not establish surface
-compatibility. TS8 classifies changed required fields, changed meaning, changed authority
-or consequence class, and changed outcome, error, or recovery discriminants as MAJOR. This
-decision changes the meaning of the completion transition and requires a typed
-outcome-mismatch discriminant, so a MAJOR classification is the likely outcome. The actual
-classification, the manifest and scenario changes, the negotiated compatibility path, and
-the resulting surface version are implementation-design work governed by
+That is a statement about tool *identity* only, and it does not establish a go-live
+compatibility promise. TS8 requires a named deterministic scenario, strict generated
+artifacts, and authority/consequence review for changed required fields, meaning,
+authority, consequence, outcome, error, or recovery discriminants. This decision
+changes the meaning of the completion transition and requires a typed outcome-mismatch
+discriminant. The manifest and scenario changes are implementation-design work governed by
 [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) and must carry the
 evidence that document prescribes. This decision does not pre-empt that classification and
 must not be cited as having waived it.
@@ -317,9 +316,9 @@ about recorded findings, not about a change being made.
   single-operator system, D7's evaluator distinctness means either the operator or a
   non-executing agent must be available whenever work completes. If neither is, work
   queues. This is the direct price of R5 §1.5 and is accepted deliberately.
-- A MAJOR agent-surface version bump is the likely consequence of D2, carrying the
-  migration, negotiation, and scenario cost that
-  [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) attaches to it.
+ - A change to the agent-visible outcome contract carries generated-manifest,
+   digest, strict-schema, deterministic-scenario, and authority-evidence cost that
+   [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) attaches to it.
 - Postconditions can be written badly. A vacuous or over-narrow assertion is now a
   first-class way to make a bad delivery look rigorous. D4 refuses the obviously vacuous
   cases and D9 refuses predicate-only acceptance, but neither eliminates the risk, and R5

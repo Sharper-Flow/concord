@@ -41,7 +41,8 @@ Runtime implementation proceeds only when all of these are true:
    active interim authority model.
 3. CD-0002 fixes SQLite as the sole durable authority; PM2/PM3 fix global scope and
    typed projections.
-4. CD-0005 fixes the bounded agent surface and TS1–TS9 evaluation contracts.
+4. CD-0005, as amended by CD-0042, fixes the bounded generated agent surface and
+   deterministic TS1–TS9 evidence contracts before go-live.
 5. CD-0006 fixes root Product policy, workflow composition, rigor bands, and
    cross-workflow impact propagation.
 6. CD-0008 fixes mechanism hardening: immutable evidence subjects, typed degradation,

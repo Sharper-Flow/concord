@@ -51,12 +51,8 @@ def _load_json(path: Path) -> object:
 def _scenario_error_check(corpus: dict) -> list[str]:
     envelope = _load_json(ROOT / "contracts/agent-tool-envelope.schema.json")
     current = set(envelope["$defs"]["typedError"]["properties"]["kind"]["enum"])
-    manifest = _load_json(ROOT / "contracts/agent-tool-surface.v1.json")
-    current_surface = manifest["surface"]["version"]
     pending = {item["error_kind"] for item in corpus["pending_amendments"]}
     findings: list[str] = []
-    if corpus["surface_version"] != current_surface:
-        findings.append(f"corpus surface version {corpus['surface_version']} does not match current manifest {current_surface}")
     if corpus["engine_status"] == "engine_shipped" and pending:
         findings.append("pending amendments remain after engine shipped")
     if current & pending:
@@ -299,7 +295,7 @@ def check_workflow_contracts() -> list[str]:
     outcome = ROOT / "contracts/workflow-outcome.schema.json"
     findings += _check_closed_schema(outcome, set())
     scenario_schema = ROOT / "contracts/workflow-engine-scenarios.schema.json"
-    findings += _check_closed_schema(scenario_schema, {"$schema", "schema_version", "contract", "contract_status", "surface_version", "engine_status", "pending_amendments", "fixtures", "assertion_contract", "runner_requirements", "scenarios"})
+    findings += _check_closed_schema(scenario_schema, {"$schema", "schema_version", "contract", "contract_status", "engine_status", "pending_amendments", "fixtures", "assertion_contract", "runner_requirements", "scenarios"})
     fixture_path = ROOT / "contracts/workflow-engine.fixtures.json"
     try:
         corpus = _load_json(ROOT / "scenarios/workflow-engine.v1.json")
@@ -366,9 +362,9 @@ def check_workflow_contracts() -> list[str]:
                 mutated["scenarios"][0]["initial_state"]["invalid_float"] = 1.5
             elif case["mutation"] == "unknown_error_kind":
                 mutated["scenarios"][1]["expected"]["assertions"][1]["value"] = "not_a_real_error_kind"
-            elif case["mutation"] == "engine_shipped_pending":
-                mutated["engine_status"] = "engine_shipped"
-                mutated["pending_amendments"] = [{"error_kind": "outcome_mismatch", "surface_version": "2.0.0", "ships_with": "workflow_engine", "status": "pending"}]
+            elif case["mutation"] == "removed_surface_version_rejection":
+                # Rejection test: removed agent-surface metadata must remain unknown.
+                mutated["surface_version"] = "5.0.0"
             elif case["mutation"] == "wrong_notice_id":
                 for assertion in mutated["scenarios"][28]["expected"]["assertions"]:
                     if assertion.get("path") == "impact_notices.0.notice_id":
@@ -378,7 +374,7 @@ def check_workflow_contracts() -> list[str]:
                 fields = [(key, actor[key]) for key in ("principal_ref", "client_ref", "agent_ref", "session_ref")]
                 actor["actor_ref"] = _derive_actor_ref(fields, separator="\\0")
             scenario_error = _validate_instance(scenario_schema, mutated)
-            if case["mutation"] in {"actor_ref", "invalid_float"}:
+            if case["mutation"] in {"actor_ref", "invalid_float", "removed_surface_version_rejection"}:
                 if scenario_error is None or case["expected_error"] not in scenario_error:
                     findings.append(f"{case['id']}: wrong schema validation reason: {scenario_error}")
             elif scenario_error is not None:

@@ -132,6 +132,7 @@ type relationPayload struct {
 
 var relationKinds = map[string]bool{
 	"parent": true, "blocks": true, "supersedes": true, "implements": true, "raised_from": true,
+	"depends_on": true, "compatible_with": true, "merged_into": true,
 }
 
 var lifecycleStates = map[string]bool{
@@ -308,6 +309,11 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 			}
 		}
 	}
+	if payload.To == "in_progress" {
+		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
+			return err
+		}
+	}
 	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
@@ -344,6 +350,9 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 		return illegalTransition(current.lifecycle, "needed")
 	}
 	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+		return err
+	}
+	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
 		return err
 	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
@@ -447,8 +456,12 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
-	var successor string
-	err = tx.QueryRowContext(ctx, `SELECT work_id_from FROM relations WHERE work_id_to = ? AND kind = 'supersedes'`, event.SubjectID).Scan(&successor)
+	var successor, successorKind string
+	err = tx.QueryRowContext(ctx, `SELECT successor,kind FROM (
+		SELECT work_id_from AS successor,kind,0 AS precedence FROM relations WHERE work_id_to=? AND kind='supersedes'
+		UNION ALL
+		SELECT work_id_to AS successor,kind,1 AS precedence FROM relations WHERE work_id_from=? AND kind='merged_into'
+	) ORDER BY precedence LIMIT 1`, event.SubjectID, event.SubjectID).Scan(&successor, &successorKind)
 	if err == sql.ErrNoRows {
 		return newFailure(KindRelationNotFound, "fold_event", "superseded work has no active supersession edge", false,
 			"repair the projection from its event log before reopening")
@@ -466,7 +479,11 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from = ? AND work_id_to = ? AND kind = 'supersedes'`, successor, event.SubjectID); err != nil {
+	fromID, toID := successor, event.SubjectID
+	if successorKind == "merged_into" {
+		fromID, toID = event.SubjectID, successor
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from = ? AND work_id_to = ? AND kind = ?`, fromID, toID, successorKind); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the active supersession edge", true,
 			"retry once the database is writable", err)
 	}
@@ -508,6 +525,9 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			return err
 		}
 	}
+	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID, successor, payload.Replacement); err != nil {
+		return err
+	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 }
 
@@ -527,7 +547,7 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "relation.added payload has invalid fields", false,
 			"supply two work IDs, one accepted relation kind, and a non-empty reason")
 	}
-	if payload.Kind == "supersedes" {
+	if payload.Kind == "supersedes" || payload.Kind == "compatible_with" || payload.Kind == "merged_into" {
 		return relationContractViolation()
 	}
 	if payload.Kind == "parent" {
@@ -599,7 +619,7 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "relation.removed payload has invalid fields", false,
 			"supply the exact stored relation identity and a non-empty reason")
 	}
-	if payload.Kind == "supersedes" {
+	if payload.Kind == "supersedes" || payload.Kind == "compatible_with" || payload.Kind == "merged_into" {
 		return relationContractViolation()
 	}
 	if payload.Kind == "parent" {
@@ -761,8 +781,8 @@ func illegalTransition(from, to string) *Failure {
 
 func relationContractViolation() *Failure {
 	return newFailure(KindRelationContractViolation, "fold_event",
-		"supersedes relations must be created by work.superseded", false,
-		"append a work.superseded event so the edge and lifecycle change remain atomic")
+		"overlap-resolution relations must be created by resolve_overlap", false,
+		"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")
 }
 
 func relationWouldCycle(ctx context.Context, tx *sql.Tx, from, to, kind string) (bool, error) {
@@ -799,13 +819,17 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err := tx.QueryRowContext(ctx, `
 		SELECT count(*) FROM domain_events
 		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		  AND kind IN ('relation.added', 'work.superseded', 'work.reopened_from_superseded', 'epic_entry.added')`, event.EventID).Scan(&relationID); err != nil {
+		AND kind IN ('relation.added', 'workflow.overlap_resolved', 'work.superseded', 'work.reopened_from_superseded', 'epic_entry.added')`, event.EventID).Scan(&relationID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
 			"retry once the event log is readable", err)
 	}
+	resolutionID := any(nil)
+	if event.Kind == WorkflowOverlapResolved {
+		resolutionID = event.EventID
+	}
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO relations (id, work_id_from, work_id_to, kind, created_at)
-		VALUES (?, ?, ?, ?, ?)`, relationID, payload.From, payload.To, payload.Kind, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+		INSERT INTO relations (id, work_id_from, work_id_to, kind, created_at, resolution_id)
+		VALUES (?, ?, ?, ?, ?, ?)`, relationID, payload.From, payload.To, payload.Kind, event.OccurredAt.UTC().Format(time.RFC3339Nano), resolutionID)
 	if err == nil {
 		return nil
 	}

@@ -79,7 +79,7 @@
       "status": "accepted",
       "date": "2026-07-31T00:00:00Z",
       "title": "Concord agent tool surface",
-      "summary": "Consolidates the accepted agent-facing tool surface decisions.",
+      "summary": "Consolidates the generated current agent surface, exact manifest-digest identity, core authority boundary, and deterministic pre-go-live evidence as amended by CD-0042.",
       "tags": [
         "agents",
         "tools"
@@ -91,7 +91,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4a6c94584a38a757165af18bc72041b7684a1bd0780b698743edda97e7f38d98",
+      "sha256": "sha256:5ba4aa39e02c1d3a57bfb5afa67937c71607bbe1756f7e57a24ad4fc36c9971a",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -113,7 +113,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:9a20d1950cd868849a04fdcff0a5c5e51bcd415e52622408f7282ce99d9ee6f8",
+      "sha256": "sha256:545b60a12d8b24588bd01a730ec2fb1f59eb9002bae0fed4d28ebbe9d5535b47",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -255,7 +255,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:76a77efc281e49ba0afc8d57a0d1e2bf3321c772d249f46275ff15ddd0a2fbe5",
+      "sha256": "sha256:2e5a40ba3a6f71b5fa8f48ffcca4e42e07e7b5ee0e2616efdb78a736ca320bba",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -277,7 +277,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5a941685adaa38f552a84804e91b238efe78fedbdd29e7af50b4478f5233d559",
+      "sha256": "sha256:4de4819c5202a0367182fcec9f4e1f987f0a886e2e481178be9415718bd7844d",
       "evidence": [
         "scenarios/workflow-engine.v1.json",
         "internal/store/workflow_conformance_test.go"
@@ -409,7 +409,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5e6dc6e4e80fdcbda85e8f12d19b63f3c710e4eed4903a7c06bba74f52c88aa2",
+      "sha256": "sha256:c9fba6faf223ff74cc0af490cd2c948ed6217c826093704d6922bd89a9d55ea6",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -534,7 +534,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:90f0743875136bd79b47e2cd1db241a8ef9020c6a1d9027bcf733408feb5a57f",
+      "sha256": "sha256:cb938dc6217e9d2990ac703d4939f67012aafc626fd2f1767aac8089717438e1",
       "evidence": [
         "internal/agent/verdict_scope_test.go",
         "internal/store/workflow_verdict.go"
@@ -548,7 +548,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Epic agent surface and narrow TS9 exception",
-      "summary": "Makes the accepted Epic model reachable through a fail-closed 3.0.0 agent-surface major, using one explicit deterministic-evidence exception to TS9 while preserving future model-trial requirements.",
+      "summary": "Historical record of the Epic reachability change and one-time TS9 exception; CD-0042 closes its pre-go-live version and model-trial policy without creating a current compatibility path.",
       "tags": [
         "epic",
         "agent-surface",
@@ -562,7 +562,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4431affdf4ec77d7fd05dc06b24921ddff54f732b05673be56b01f80ea5a9c32",
+      "sha256": "sha256:be2ff3010ee2a0a52bfbc851cd49717b326d32b150c1294e50e3478a928c30bc",
       "evidence": [
         "internal/store/epic.go"
       ],
@@ -753,7 +753,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:2a7934347c6eae0d2bb4f3d3ef7f4399a35d7dd2e50935ecf315c4d47726f0bb",
+      "sha256": "sha256:be076d19e2951ed4de4e77f0be6dfa426c54867eaf7474fba52b3e9ff0826008",
       "evidence": [
         "internal/sessionboot/sessionboot.go",
         "cmd/concord/session_test.go",
@@ -918,7 +918,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f4dbff5656cd932ac1ec30e00398e16d743317d220b3c77a102bab3069700673",
+      "sha256": "sha256:c6b81f6e26f28635fc0ada6d19715f5672b6bd5fa493def79e21bf7d26498caa",
       "evidence": [
         "internal/agent/runtime.go",
         "contracts/agent-tool-surface.v1.json",
@@ -989,7 +989,7 @@
       "status": "accepted",
       "date": "2026-08-18T00:00:00Z",
       "title": "Architecture-bound Product law is Concord's primary coordination model",
-      "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; concurrent Domain overlap requires version-pinned resolution; Initiative remains secondary context; SQLite remains sole local authority.",
+      "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; concurrent Domain overlap requires version-pinned resolution; Initiative remains secondary context; SQLite remains sole local authority. CD-0042 amends only the pre-go-live agent-surface sequencing.",
       "tags": [
         "product-law",
         "architecture",
@@ -1004,7 +1004,38 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:8ae5ca7f9b63355491b0af038f353f9b3f034e50ae78729571e1a21275a57c50",
+      "sha256": "sha256:593ecb8147434f3cb36691626633296d2cfd39edf4dcf3aa7b7b8e8be82248d2",
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0042",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0042-pre-go-live-single-path.md",
+      "status": "accepted",
+      "date": "2026-08-19T00:00:00Z",
+      "title": "Pre-go-live development keeps one agent-surface path",
+      "summary": "Binds the current generated agent surface to one manifest digest, requires deterministic authority evidence, and removes unreleased compatibility, deprecation, model-trial gate, and replay machinery before go-live.",
+      "tags": [
+        "agents",
+        "compatibility",
+        "pre-go-live"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:0be5d65da9fb6907239f3c0e1674547d6c57ebc7e5711010109278634cd2f0c6",
+      "evidence": [
+        "docs/agent-tool-surface-evolution.md",
+        "docs/agent-tool-surface-measurement.md",
+        "scenarios/launcher-portfolio.v1.json",
+        "scenarios/workflow-engine.v1.json",
+        "contracts/workflow-engine-scenarios.schema.json",
+        "scripts/check-agent-contracts.py"
+      ],
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1140,7 +1171,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:68261681e4f1aac22787132be3e81cf1c0443e49791259914d65edd7fb1c69c8",
+      "sha256": "sha256:1b6546008b06db57a181a3abd511cfb190ab0b2396174647246e47e1b6998ddc",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1230,7 +1261,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f0e362fb544ce51fb1506de540495c301a2b3c033c8042f85becf111f5e3d1f4",
+      "sha256": "sha256:fd761c185f157c531c661cd2ef6b60da027bc9d23bbe0b14856f01a88d90b929",
       "home_domain_id": "product-root:concord"
     }
   ]

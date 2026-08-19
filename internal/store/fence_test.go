@@ -17,7 +17,7 @@ func testDigest(value string) string {
 }
 
 func testClaim(opID, key string) ClaimRequest {
-	return ClaimRequest{OpID: opID, WorkID: "work-1", WorkflowTypeRef: "implementation", WorkflowTypeVersion: 1, StepID: "step-1", StepKind: StepExternalEffect, AcceptedInputsDigest: testDigest("inputs"), AcceptedScopeSnapshot: `{"work_id":"work-1"}`, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: key, RequestID: "request-" + key, ObservedAt: time.Unix(1, 0).UTC()}
+	return ClaimRequest{OpID: opID, WorkID: "work-1", WorkflowTypeRef: "implementation", WorkflowTypeVersion: 1, StepID: "step-1", StepKind: StepExternalEffect, AcceptedInputsDigest: testDigest("inputs"), AcceptedScopeSnapshot: `{"work_id":"work-1"}`, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: key, RequestID: "request-" + key, ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest}
 }
 
 func countRows(t *testing.T, s *Store, table string) int {
@@ -60,92 +60,22 @@ func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
 	}
 }
 
-func TestFenceKeepsShippedSurfaceAndAcceptsCurrentMajor(t *testing.T) {
-	for _, version := range []string{"3.8.0", "4.0.0"} {
-		t.Run(version, func(t *testing.T) {
-			s := openTemp(t)
-			claim := testClaim("surface-"+version, "surface-"+version)
-			claim.ContractVersion = version
-			if _, err := ClaimStep(context.Background(), s, claim); err != nil {
-				t.Fatalf("ClaimStep(%s): %v", version, err)
-			}
-			got, err := Step(context.Background(), s, claim.OpID)
-			if err != nil || got.ContractVersion != version {
-				t.Fatalf("Step(%s) = %+v, %v", version, got, err)
-			}
-		})
+func TestFenceRequiresManifestDigest(t *testing.T) {
+	claim := testClaim("digest-current", "digest-current")
+	got, err := ClaimStep(context.Background(), openTemp(t), claim)
+	if err != nil || got.OpID != claim.OpID {
+		t.Fatalf("current manifest digest claim = %+v, %v", got, err)
 	}
-	claim := testClaim("surface-unshipped-3.9", "surface-unshipped-3.9")
-	claim.ContractVersion = "3.9.0"
-	if _, err := ClaimStep(context.Background(), openTemp(t), claim); err == nil {
-		t.Fatal("unshipped 3.9.0 durable contract was accepted")
+	missing := testClaim("digest-missing", "digest-missing")
+	missing.ContractDigest = ""
+	if _, err := ClaimStep(context.Background(), openTemp(t), missing); err == nil {
+		t.Fatal("claim without manifest digest unexpectedly succeeded")
 	}
-}
-
-func TestDurableOperationReplayVectorsMigrateLegacyResultsAndRejectFutureValues(t *testing.T) {
-	for _, vector := range []struct {
-		name string
-		kind ResultKind
-	}{
-		{name: "legacy success", kind: ResultCompleted},
-		{name: "legacy pending", kind: ResultPending},
-		{name: "legacy non-success", kind: ResultFailed},
-	} {
-		t.Run(vector.name, func(t *testing.T) {
-			s := openTemp(t)
-			claim := testClaim("replay-"+vector.name, "replay-"+vector.name)
-			claim.ContractVersion = "1.0.0"
-			if _, err := ClaimStep(context.Background(), s, claim); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := CompleteStep(context.Background(), s, CompleteRequest{
-				OpID: claim.OpID, AttemptEpoch: 1, ResultKind: vector.kind, ResultPayload: `{"legacy":true},`,
-				PrincipalRef: claim.PrincipalRef, Tool: claim.Tool, IdempotencyKey: "complete-" + vector.name,
-				RequestID: "complete-" + vector.name, ObservedAt: time.Unix(2, 0).UTC(),
-			}); err == nil {
-				t.Fatal("malformed legacy result payload unexpectedly completed")
-			}
-			// The durable result is written through the production completion path;
-			// retry with a valid object to exercise the actual replay projection.
-			if _, err := CompleteStep(context.Background(), s, CompleteRequest{
-				OpID: claim.OpID, AttemptEpoch: 1, ResultKind: vector.kind, ResultPayload: `{"legacy":true}`,
-				PrincipalRef: claim.PrincipalRef, Tool: claim.Tool, IdempotencyKey: "complete-valid-" + vector.name,
-				RequestID: "complete-valid-" + vector.name, ObservedAt: time.Unix(3, 0).UTC(),
-			}); err != nil {
-				t.Fatal(err)
-			}
-			got, err := Step(context.Background(), s, claim.OpID)
-			if err != nil || got.ContractVersion != "1.0.0" || got.ResultKind != vector.kind || got.ResultPayload != `{"legacy":true}` {
-				t.Fatalf("legacy replay = %+v, %v", got, err)
-			}
-		})
+	wrong := testClaim("digest-wrong", "digest-wrong")
+	wrong.ContractDigest = "not-a-manifest-digest"
+	if _, err := ClaimStep(context.Background(), openTemp(t), wrong); err == nil {
+		t.Fatal("claim with wrong manifest digest unexpectedly succeeded")
 	}
-
-	t.Run("future contract version", func(t *testing.T) {
-		s := openTemp(t)
-		claim := testClaim("future-contract", "future-contract")
-		if _, err := ClaimStep(context.Background(), s, claim); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET contract_version='9.0.0' WHERE op_id=?`, claim.OpID); err != nil {
-			t.Fatal(err)
-		}
-		_, err := Step(context.Background(), s, claim.OpID)
-		assertFailureKind(t, err, KindSchemaUnsupported)
-	})
-
-	t.Run("future result classification", func(t *testing.T) {
-		s := openTemp(t)
-		claim := testClaim("future-result", "future-result")
-		if _, err := ClaimStep(context.Background(), s, claim); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.DatabaseForTesting().Exec(`PRAGMA ignore_check_constraints=ON; UPDATE durable_operations SET result_kind='succeeded_with_unknown_semantics' WHERE op_id=?`, claim.OpID); err != nil {
-			t.Fatal(err)
-		}
-		_, err := Step(context.Background(), s, claim.OpID)
-		assertFailureKind(t, err, KindSchemaUnsupported)
-	})
 }
 
 func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {

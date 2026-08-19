@@ -1,5 +1,5 @@
 import { test, expect, mock } from "bun:test"
-import { canonicalAssertion, contractOperations, manifestDigest, manifestVersion } from "./generated-contracts"
+import { canonicalAssertion, contractOperations, manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope } from "./generated-contract-tests"
 import approvalVector from "./approval-vector.json"
 import grantAssertionVector from "./grant-assertion-vector.json"
@@ -102,7 +102,7 @@ test("single core response rejects invalid trailing content", async () => {
   }
 })
 
-const grantResponse = () => ({ manifest_digest: manifestDigest, surface_version: manifestVersion, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", envelope_version: "1.0", scope_version: "1" })
+const grantResponse = () => ({ manifest_digest: manifestDigest, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", scope_version: "1" })
 const contextFor = (ask: () => Promise<void> = async () => {}, controller = new AbortController()): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: controller.signal, ask })
 const assertAdapterEnvelope = (value: any) => {
   expect(validateGeneratedEnvelope(value), JSON.stringify(value)).toBe(true)
@@ -134,7 +134,7 @@ test("all grant and transport failures produce valid adapter envelopes", async (
     expect(result.error.effect_state).toBe("none")
     expect(result.error.recovery_action.kind).toBe("contact_operator")
   }
-  for (const [reason, response] of [["manifest_mismatch", { ...grantResponse(), manifest_digest: "sha256:wrong" }], ["incompatible_contract", { ...grantResponse(), surface_version: "9.0.0" }]] as const) {
+  for (const [reason, response] of [["manifest_mismatch", { ...grantResponse(), manifest_digest: "sha256:wrong" }]] as const) {
     const result: any = await runProduct({ async run() { return { exitCode: 0, stdout: JSON.stringify(response), stderr: "" } } })
     assertAdapterEnvelope(result)
     expect(result.error.kind).toBe("transport_failure")
@@ -171,11 +171,11 @@ test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", a
 })
 
 const approvalChallenge = () => ({
-  schema_version: "1.0", contract_version: "2.0.0", request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+  schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
   error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: { approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"] } },
 })
 const approvalSuccess = () => ({
-  schema_version: "1.0", contract_version: "2.0.0", request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+  schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
   result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
 })
 const runTransition = (runner: any, ask?: () => Promise<void>) => {
@@ -184,7 +184,102 @@ const runTransition = (runner: any, ask?: () => Promise<void>) => {
 }
 
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
-  schema_version: "1.0", contract_version: "2.0.0", request_id: "session-1-message-1", origin: "core", tool, operation, ...(tool === "concord_product_view" ? { query_id: "PM1.Q1" } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
+  schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...(tool === "concord_product_view" ? { query_id: "PM1.Q1" } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
+})
+
+test("overlap operation and refusal pass the generated adapter boundary", async () => {
+  const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [],
+    next_valid_intents: [],
+  })
+  expect(validateGeneratedEnvelope(success)).toBe(true)
+  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner: runnerWithGrant(success) })
+  const resolved: any = await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
+    from_work_id: "work-1", to_work_id: "work-2",
+    from_expected_version: 2, to_expected_version: 2,
+    from_contract_version: 1, to_contract_version: 1,
+    resolution_kind: "compatible_with", reason: "The approved contracts can proceed together.",
+    idempotency_key: "resolve-overlap-1",
+  } }, contextFor())
+  expect(resolved.outcome).toBe("ok")
+
+  const refusal = coreEnvelope("concord_work_transition", "lifecycle", "error", {
+    error: {
+      kind: "domain_overlap", retry_safe: false,
+      recovery_action: { kind: "request_approval" }, effect_state: "none",
+      domain_overlap: {
+        overlaps: [{
+          product_id: "product-1", from_work_id: "work-1", to_work_id: "work-2",
+          from_contract_version: 1, to_contract_version: 1,
+          shared_affected_domain_ids: ["domain-1"], shared_law_ids: [],
+          shared_domain_modifications: [], shared_relation_tuples: [],
+          overlap_classes: ["architecture"], resolution_state: "unresolved",
+          recovery_actions: ["resolve_overlap"], shared_affected_domain_count: 1,
+          shared_law_count: 0, shared_domain_modification_count: 0,
+          shared_relation_tuple_count: 0, detail_truncated: false,
+        }],
+        total_overlaps: 1, returned_overlaps: 1, truncated: false,
+      },
+    },
+  })
+  expect(validateGeneratedEnvelope(refusal)).toBe(true)
+  const blocked: any = await runTransition(runnerWithGrant(refusal))
+  expect(blocked.error.kind).toBe("domain_overlap")
+
+  const staleLaw = coreEnvelope("concord_work_transition", "lifecycle", "error", {
+    error: {
+      kind: "stale_law_revision", retry_safe: false,
+      recovery_action: { kind: "request_approval" }, effect_state: "none",
+      stale_law_revision: {
+        old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
+        accepted_successor_law_id: "law-current", accepted_successor_content_hash: `sha256:${"b".repeat(64)}`,
+        recovery_actions: ["revise_contract"],
+      },
+    },
+  })
+  expect(validateGeneratedEnvelope(staleLaw)).toBe(true)
+  const stale: any = await runTransition(runnerWithGrant(staleLaw))
+  expect(stale.error.kind).toBe("stale_law_revision")
+})
+
+test("overlap approval asks with exact direction and resolution consequence", async () => {
+  const digest = `sha256:${"c".repeat(64)}`
+  const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+      approval_ref: "overlap-challenge-1", operation_digest: digest,
+      summary: "Approve the exact requested mutation, scope, and expected versions.",
+      scope: ["product:product-1", "work:work-1", "work:work-2"],
+      versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
+      resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
+    } },
+  })
+  const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
+  })
+  let calls = 0
+  const runner = { async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
+  } }
+  let askMetadata: any
+  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+  const result: any = await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
+    from_work_id: "work-1", to_work_id: "work-2",
+    from_expected_version: 2, to_expected_version: 3,
+    from_contract_version: 1, to_contract_version: 1,
+    resolution_kind: "depends_on", reason: "Work 2 must establish the shared law first.",
+    idempotency_key: "resolve-overlap-approval-1",
+  } }, contextFor(async (request: any) => { askMetadata = request.metadata }))
+  expect(result.outcome).toBe("ok")
+  expect(askMetadata).toEqual({
+    approval_ref: "overlap-challenge-1", operation_digest: digest,
+    summary: "Approve the exact requested mutation, scope, and expected versions.",
+    scope: ["product:product-1", "work:work-1", "work:work-2"],
+    versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
+    resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
+  })
 })
 
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
@@ -273,7 +368,7 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
 
 test("fake seams exercise grant bootstrap and malformed-response handling", async () => {
   const calls: string[][] = []
-  const grant = { manifest_digest: manifestDigest, surface_version: manifestVersion, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", envelope_version: "1.0", scope_version: "1" }
+  const grant = grantResponse()
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32) } },
     runner: { async run(argv: string[], _input: string, _signal: AbortSignal) { calls.push(argv); return calls.length === 1 ? { exitCode: 0, stdout: JSON.stringify(grant), stderr: "" } : { exitCode: 0, stdout: "not-json", stderr: "diagnostic" } } },
@@ -314,7 +409,7 @@ test("canonical host approval vector matches core encoding", () => {
   expect(Buffer.from(adapter.canonicalHostApproval(assertion)).toString("base64")).toBe(expected)
 })
 
-test("grant bootstrap advertises the generated surface identity", async () => {
+test("grant bootstrap advertises the generated manifest identity", async () => {
   let assertion: any
   let calls = 0
   const runner = { async run(_argv: string[], input: string) {
@@ -326,7 +421,5 @@ test("grant bootstrap advertises the generated surface identity", async () => {
     return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", stage: "prototype", projects: [], candidates: [] } })), stderr: "" }
   } }
   await runProduct(runner)
-  expect(assertion.client_version).toBe(manifestVersion)
-  expect(assertion.surface_range).toBe(`${manifestVersion}-${manifestVersion}`)
   expect(assertion.manifest_digest).toBe(manifestDigest)
 })

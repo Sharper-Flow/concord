@@ -167,7 +167,6 @@ func (s *Service) RevokeClient(ctx context.Context, clientRef string) error {
 // by the caller and use comma-separated sorted members.
 type SignedAssertion struct {
 	ClientRef             string       `json:"client_ref"`
-	ClientVersion         string       `json:"client_version"`
 	SessionRef            string       `json:"session_ref"`
 	AgentRef              string       `json:"agent_ref"`
 	Directory             string       `json:"directory"`
@@ -177,15 +176,13 @@ type SignedAssertion struct {
 	RequestedCapabilities []Capability `json:"requested_capabilities"`
 	IssuedAt              time.Time    `json:"issued_at"`
 	Nonce                 string       `json:"nonce"`
-	SurfaceRange          string       `json:"surface_range"`
-	EnvelopeVersions      string       `json:"envelope_versions"`
 	ManifestDigest        string       `json:"manifest_digest"`
 	Signature             []byte       `json:"signature"`
 }
 
 func CanonicalAssertion(a SignedAssertion) []byte {
-	values := []string{a.ClientRef, a.ClientVersion, a.SessionRef, a.AgentRef, a.Directory, a.Worktree, a.RequestedProductID, strings.Join(normalizeStrings(a.RequestedProjectIDs), ","), strings.Join(normalizeStrings(capabilityStrings(a.RequestedCapabilities)), ","), a.IssuedAt.UTC().Format(time.RFC3339Nano), a.Nonce, a.SurfaceRange, a.EnvelopeVersions, a.ManifestDigest}
-	names := []string{"client_ref", "client_version", "session_ref", "agent_ref", "directory", "worktree", "requested_product_id", "requested_project_ids", "requested_capabilities", "issued_at", "nonce", "surface_range", "envelope_versions", "manifest_digest"}
+	values := []string{a.ClientRef, a.SessionRef, a.AgentRef, a.Directory, a.Worktree, a.RequestedProductID, strings.Join(normalizeStrings(a.RequestedProjectIDs), ","), strings.Join(normalizeStrings(capabilityStrings(a.RequestedCapabilities)), ","), a.IssuedAt.UTC().Format(time.RFC3339Nano), a.Nonce, a.ManifestDigest}
+	names := []string{"client_ref", "session_ref", "agent_ref", "directory", "worktree", "requested_product_id", "requested_project_ids", "requested_capabilities", "issued_at", "nonce", "manifest_digest"}
 	var b strings.Builder
 	b.WriteString("v1\x00")
 	for i, name := range names {
@@ -220,11 +217,9 @@ func validSignedRequests(a SignedAssertion) bool {
 }
 
 type GrantRequest struct {
-	Assertion       SignedAssertion
-	SurfaceVersion  string
-	EnvelopeVersion string
-	ExpiresAt       time.Time
-	MaxUses         int
+	Assertion SignedAssertion
+	ExpiresAt time.Time
+	MaxUses   int
 }
 type Grant struct {
 	RecordID          string `json:"grant_ref"`
@@ -233,12 +228,9 @@ type Grant struct {
 	ClientRef         string
 	SessionRef        string
 	AgentRef          string
-	ClientVersion     string
 	ClientKeyID       string
 	Directory         string
 	Worktree          string
-	SurfaceVersion    string
-	EnvelopeVersion   string
 	ManifestDigest    string
 	Capabilities      []Capability
 	ProductScope      []string
@@ -263,13 +255,9 @@ func (s *Service) IssueGrant(ctx context.Context, req GrantRequest) (Grant, erro
 	if a.ClientRef == "" || a.SessionRef == "" || a.AgentRef == "" || a.Directory == "" || a.Worktree == "" || a.Nonce == "" || !validSignedRequests(a) {
 		return out, errors.New("invalid grant request")
 	}
-	selectedSurface, negotiationErr := NegotiateSurfaceVersion(a.SurfaceRange)
-	selectedEnvelope := "1.0"
-	if a.SurfaceRange == "" || a.EnvelopeVersions == "" || negotiationErr != nil || a.ManifestDigest != ManifestDigest || !containsVersion(a.EnvelopeVersions, selectedEnvelope) {
-		return out, errors.New("unsupported contract version")
+	if a.ManifestDigest != ManifestDigest {
+		return out, errors.New("manifest digest mismatch")
 	}
-	req.SurfaceVersion = selectedSurface
-	req.EnvelopeVersion = selectedEnvelope
 	now := s.now()
 	if a.IssuedAt.Before(now.Add(-s.skew())) || a.IssuedAt.After(now.Add(s.skew())) {
 		return out, errors.New("assertion timestamp outside clock skew")
@@ -378,7 +366,7 @@ func (s *Service) IssueGrant(ctx context.Context, req GrantRequest) (Grant, erro
 		derivedProjectsJSON, _ := json.Marshal(projects)
 		snapshotJSON, _ := json.Marshal(scopeSnapshot)
 		candidatesJSON, _ := json.Marshal(candidateProducts)
-		return store.PersistGrantTx(ctx, tx, store.GrantInsert{RecordID: recordID, TokenHash: hash[:], PrincipalRef: client.PrincipalRef, ClientRef: a.ClientRef, SessionRef: a.SessionRef, AgentRef: a.AgentRef, Directory: a.Directory, Worktree: a.Worktree, ClientVersion: a.ClientVersion, ClientKeyID: key.KeyID, SurfaceVersion: req.SurfaceVersion, EnvelopeVersion: req.EnvelopeVersion, ManifestDigest: ManifestDigest, CapabilitiesJSON: string(derivedCapsJSON), ProductScopeJSON: string(derivedProductsJSON), ProjectScopeJSON: string(derivedProjectsJSON), IssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: req.ExpiresAt.UTC().Format(time.RFC3339Nano), MaxUses: req.MaxUses, ScopeVersion: scopeVersion, ScopeSnapshotJSON: string(snapshotJSON), CandidateProductsJSON: string(candidatesJSON), Nonce: a.Nonce, NonceObservedAt: now.Format(time.RFC3339Nano), NonceExpiresAt: now.Add(s.skew()).Format(time.RFC3339Nano), NoncePruneBefore: now.Add(-s.skew()).Format(time.RFC3339Nano)})
+		return store.PersistGrantTx(ctx, tx, store.GrantInsert{RecordID: recordID, TokenHash: hash[:], PrincipalRef: client.PrincipalRef, ClientRef: a.ClientRef, SessionRef: a.SessionRef, AgentRef: a.AgentRef, Directory: a.Directory, Worktree: a.Worktree, ClientKeyID: key.KeyID, ManifestDigest: ManifestDigest, CapabilitiesJSON: string(derivedCapsJSON), ProductScopeJSON: string(derivedProductsJSON), ProjectScopeJSON: string(derivedProjectsJSON), IssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: req.ExpiresAt.UTC().Format(time.RFC3339Nano), MaxUses: req.MaxUses, ScopeVersion: scopeVersion, ScopeSnapshotJSON: string(snapshotJSON), CandidateProductsJSON: string(candidatesJSON), Nonce: a.Nonce, NonceObservedAt: now.Format(time.RFC3339Nano), NonceExpiresAt: now.Add(s.skew()).Format(time.RFC3339Nano), NoncePruneBefore: now.Add(-s.skew()).Format(time.RFC3339Nano)})
 	})
 	if err != nil {
 		var failure *store.Failure
@@ -387,7 +375,7 @@ func (s *Service) IssueGrant(ctx context.Context, req GrantRequest) (Grant, erro
 		}
 		return out, err
 	}
-	return Grant{RecordID: recordID, Token: token, PrincipalRef: client.PrincipalRef, ClientRef: a.ClientRef, SessionRef: a.SessionRef, AgentRef: a.AgentRef, Directory: a.Directory, Worktree: a.Worktree, ClientVersion: a.ClientVersion, ClientKeyID: key.KeyID, SurfaceVersion: req.SurfaceVersion, EnvelopeVersion: req.EnvelopeVersion, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(requestedCaps), ProductScope: candidateProducts, ProjectScope: requestedProjects, IssuedAt: now, ExpiresAt: req.ExpiresAt.UTC(), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: scopeSnapshot}, nil
+	return Grant{RecordID: recordID, Token: token, PrincipalRef: client.PrincipalRef, ClientRef: a.ClientRef, SessionRef: a.SessionRef, AgentRef: a.AgentRef, Directory: a.Directory, Worktree: a.Worktree, ClientKeyID: key.KeyID, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(requestedCaps), ProductScope: candidateProducts, ProjectScope: requestedProjects, IssuedAt: now, ExpiresAt: req.ExpiresAt.UTC(), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: scopeSnapshot}, nil
 }
 
 func intersect(left, right []string) []string {
@@ -401,11 +389,11 @@ func intersect(left, right []string) []string {
 }
 
 type Invocation struct {
-	GrantToken                                                                                                                         string
-	ClientRef, ClientVersion, PrincipalRef, SessionRef, AgentRef, Directory, Worktree, SurfaceVersion, EnvelopeVersion, ManifestDigest string
-	HostAssertionDigest                                                                                                                string
-	RequiredCapability                                                                                                                 Capability
-	ProductID, ProjectID                                                                                                               string
+	GrantToken                                                                         string
+	ClientRef, PrincipalRef, SessionRef, AgentRef, Directory, Worktree, ManifestDigest string
+	HostAssertionDigest                                                                string
+	RequiredCapability                                                                 Capability
+	ProductID, ProjectID                                                               string
 }
 
 func (s *Service) ValidateInvocation(ctx context.Context, in Invocation) (Grant, error) {
@@ -505,7 +493,7 @@ func (s *Service) validateGrantRecord(record store.GrantRecord, in Invocation, n
 	if record.ClientStatus != "active" || record.ClientKeyID != record.ActiveKeyID || record.RevokedAt != "" || record.ManifestDigest != ManifestDigest || record.ExpiresAt <= now.Format(time.RFC3339Nano) {
 		return g, errors.New("grant expired or revoked")
 	}
-	if record.ClientRef != in.ClientRef || record.ClientVersion != in.ClientVersion || record.PrincipalRef != in.PrincipalRef || record.SessionRef != in.SessionRef || record.AgentRef != in.AgentRef || record.Directory != in.Directory || record.Worktree != in.Worktree || record.SurfaceVersion != in.SurfaceVersion || record.EnvelopeVersion != in.EnvelopeVersion || in.ManifestDigest != record.ManifestDigest {
+	if record.ClientRef != in.ClientRef || record.PrincipalRef != in.PrincipalRef || record.SessionRef != in.SessionRef || record.AgentRef != in.AgentRef || record.Directory != in.Directory || record.Worktree != in.Worktree || in.ManifestDigest != record.ManifestDigest {
 		return g, errors.New("invocation binding mismatch")
 	}
 	if record.MaxUses > 0 && record.UsedCount >= record.MaxUses {
@@ -521,8 +509,8 @@ func (s *Service) validateGrantRecord(record store.GrantRecord, in Invocation, n
 		return g, err
 	}
 	g.RecordID, g.PrincipalRef, g.ClientRef, g.SessionRef, g.AgentRef = record.RecordID, record.PrincipalRef, record.ClientRef, record.SessionRef, record.AgentRef
-	g.Directory, g.Worktree, g.ClientVersion, g.ClientKeyID = record.Directory, record.Worktree, record.ClientVersion, record.ClientKeyID
-	g.SurfaceVersion, g.EnvelopeVersion, g.ManifestDigest = record.SurfaceVersion, record.EnvelopeVersion, record.ManifestDigest
+	g.Directory, g.Worktree, g.ClientKeyID = record.Directory, record.Worktree, record.ClientKeyID
+	g.ManifestDigest = record.ManifestDigest
 	g.ScopeVersion = record.ScopeVersion
 	_ = json.Unmarshal([]byte(record.ScopeSnapshotJSON), &g.ScopeSnapshot)
 	_ = json.Unmarshal([]byte(record.CandidateProductsJSON), &g.CandidateProducts)
@@ -591,15 +579,6 @@ func containsCapability(values []Capability, value Capability) bool {
 	return false
 }
 
-func containsVersion(values, wanted string) bool {
-	for _, value := range strings.Split(values, ",") {
-		if strings.TrimSpace(value) == wanted {
-			return true
-		}
-	}
-	return false
-}
-
 type ApprovalChallengeSpec struct {
 	OperationDigest     string
 	Scope               map[string]any
@@ -627,7 +606,6 @@ type HostApprovalAssertion struct {
 	SessionRef    string   `json:"session_ref"`
 	AgentRef      string   `json:"agent_ref"`
 	Worktree      string   `json:"worktree"`
-	ClientVersion string   `json:"client_version"`
 	IssuedAt      string   `json:"issued_at"`
 	Nonce         string   `json:"nonce"`
 	// Deprecated compatibility fields are intentionally ignored and excluded
@@ -642,8 +620,8 @@ type HostApprovalAssertion struct {
 func CanonicalHostApprovalAssertion(a HostApprovalAssertion) []byte {
 	scope, _ := json.Marshal(a.Scope)
 	versions, _ := json.Marshal(a.Versions)
-	values := []string{a.ChallengeRef, a.RequestDigest, string(scope), string(versions), a.SessionRef, a.AgentRef, a.Worktree, a.ClientVersion, a.IssuedAt, a.Nonce}
-	names := []string{"challenge_ref", "request_digest", "scope", "versions", "session_ref", "agent_ref", "worktree", "client_version", "issued_at", "nonce"}
+	values := []string{a.ChallengeRef, a.RequestDigest, string(scope), string(versions), a.SessionRef, a.AgentRef, a.Worktree, a.IssuedAt, a.Nonce}
+	names := []string{"challenge_ref", "request_digest", "scope", "versions", "session_ref", "agent_ref", "worktree", "issued_at", "nonce"}
 	var b strings.Builder
 	b.WriteString("host-approval-v1\x00")
 	for i, name := range names {
@@ -725,7 +703,7 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 	if err := s.authorityReady("agent_validate_host_approval"); err != nil {
 		return false, err
 	}
-	if tx == nil || len(assertion.Signature) != ed25519.SignatureSize || assertion.ChallengeRef != check.ApprovalRef || assertion.RequestDigest != check.OperationDigest || assertion.SessionRef != in.SessionRef || assertion.AgentRef != in.AgentRef || assertion.Worktree != in.Worktree || assertion.ClientVersion != in.ClientVersion || len(assertion.Nonce) < 16 || len(assertion.Nonce) > 256 {
+	if tx == nil || len(assertion.Signature) != ed25519.SignatureSize || assertion.ChallengeRef != check.ApprovalRef || assertion.RequestDigest != check.OperationDigest || assertion.SessionRef != in.SessionRef || assertion.AgentRef != in.AgentRef || assertion.Worktree != in.Worktree || len(assertion.Nonce) < 16 || len(assertion.Nonce) > 256 {
 		return false, transactionInvalid("agent_validate_host_approval")
 	}
 	issued, err := time.Parse(time.RFC3339Nano, assertion.IssuedAt)
@@ -919,7 +897,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false

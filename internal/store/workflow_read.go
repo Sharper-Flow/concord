@@ -343,49 +343,6 @@ func ResumeWorkflow(ctx context.Context, s *Store, workID string) (WorkflowResum
 	return boundary, nil
 }
 
-// WorkflowReplayEvidence exposes the registered upcaster result observed by a
-// completed rebuild. It never invents a successful replay: the stored event,
-// registered event metadata, and rebuilt work projection must all agree.
-type WorkflowReplayEvidence struct {
-	EventID              string `json:"event_id"`
-	Kind                 string `json:"kind"`
-	StoredPayloadVersion int    `json:"stored_payload_version"`
-	ReplayPayloadVersion int    `json:"replay_payload_version"`
-	ProjectionVersion    int64  `json:"projection_version"`
-}
-
-func ReadWorkflowReplayEvidence(ctx context.Context, s *Store, workID, kind string) (WorkflowReplayEvidence, error) {
-	var evidence WorkflowReplayEvidence
-	var event Event
-	var occurredAt string
-	if s == nil || s.db == nil {
-		return evidence, newFailure(KindUnavailable, "workflow_replay", "store is not open", false, "open the authority database")
-	}
-	if err := s.db.QueryRowContext(ctx, `SELECT event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq LIMIT 1`, SubjectWorkItem, workID, kind).Scan(&event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload); err != nil {
-		if err == sql.ErrNoRows {
-			return evidence, newFailure(KindProjectionNotFound, "workflow_replay", "replay event is missing", false, "reread_entities")
-		}
-		return evidence, wrapFailure(KindUnavailable, "workflow_replay", "cannot read replay event", true, "retry once the database is readable", err)
-	}
-	parsed, err := time.Parse(time.RFC3339Nano, occurredAt)
-	if err != nil {
-		return evidence, newFailure(KindInvalidEvent, "workflow_replay", "replay event timestamp is invalid", false, "repair the event log")
-	}
-	event.OccurredAt = parsed
-	replayed, err := upcastEvent(event)
-	if err != nil {
-		return evidence, err
-	}
-	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&evidence.ProjectionVersion); err != nil {
-		return evidence, wrapFailure(KindUnavailable, "workflow_replay", "cannot read rebuilt workflow projection", true, "retry once the database is readable", err)
-	}
-	evidence.EventID = event.EventID
-	evidence.Kind = event.Kind
-	evidence.StoredPayloadVersion = event.PayloadVersion
-	evidence.ReplayPayloadVersion = replayed.PayloadVersion
-	return evidence, nil
-}
-
 // ReadWorkflow is a concise alias used by read adapters.
 func ReadWorkflow(ctx context.Context, s *Store, workID string) (WorkflowReadProjection, error) {
 	return ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})

@@ -100,7 +100,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": env.ScopeVersion}
 	versions := map[string]any{"work": int64(7)}
 	approvalEnv := env
-	approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, grant.ClientVersion, fixedTime(), "boundary-approval")
+	approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "boundary-approval")
 	approved := challengeInput
 	approved["approval"] = map[string]any{"approval_ref": challengeRef}
 	response := invokeWorkflowBoundary(t, s, service, approvalEnv, approved, store.BuiltinWorkflowRegistry())
@@ -151,11 +151,10 @@ func TestWorkflowCorpusWF38UsesStrictInvokeBoundaryForStepActorAndPayload(t *tes
 	}
 }
 
-func TestWorkflowCorpusWF46ReplaysThroughAgentEnvelope(t *testing.T) {
+func TestWorkflowCorpusWF46RejectsRemovedAgentReplayShape(t *testing.T) {
 	scenario := readWorkflowBoundaryScenario(t, "WF46-event-version-fail-closed")
-	events, ok := scenario.Request.Fields["event_stream"].([]any)
-	if scenario.Action != "replay" || !ok || len(events) == 0 {
-		t.Fatalf("WF46 does not declare replay event stream: %#v", scenario.Request.Fields)
+	if scenario.Action != "replay" {
+		t.Fatalf("WF46 no longer declares the historical replay action: %q", scenario.Action)
 	}
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	workID := scenario.Setup.FixtureRefs.WorkItem
@@ -164,59 +163,30 @@ func TestWorkflowCorpusWF46ReplaysThroughAgentEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := mutationEnvelope(grant, scopeVersion)
-	invoke := func(key string) Envelope {
-		input := map[string]any{"work_id": workID, "expected_version": scenario.Request.ExpectedVersion, "action_id": scenario.Request.ActionID, "fields": scenario.Request.Fields, "idempotency_key": key}
-		raw, marshalErr := json.Marshal(input)
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		outer, marshalErr := json.Marshal(map[string]any{"call_envelope": env, "tool": "concord_work_transition", "operation": "workflow_action", "input": json.RawMessage(raw)})
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		decoded, decodedEnv, decodeErr := DecodeInvokeRequest(outer)
-		if decodeErr != nil {
-			t.Fatal(decodeErr)
-		}
-		response, invokeErr := Invoke(context.Background(), s, service, mustMarshalInvoke(t, decoded, decodedEnv))
-		if invokeErr != nil {
-			t.Fatal(invokeErr)
-		}
-		return response
+	var eventsBefore int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+		t.Fatal(err)
 	}
-	response := invoke(scenario.Request.Idempotency.Key)
-	if response.Error == nil || response.Error.Kind != "invariant_violation" || response.Error.RecoveryAction.Kind == "" {
-		t.Fatalf("WF46 future-event replay response kind=%v error=%+v", response.Error.Kind, response.Error)
-	}
-	future := events[len(events)-1].(map[string]any)
-	validBeforeFuture := events[len(events)-2].(map[string]any)
-	evidence, err := store.ReadWorkflowReplayEvidence(context.Background(), s, workID, "work.created")
+	input := map[string]any{"work_id": workID, "expected_version": scenario.Request.ExpectedVersion, "action_id": scenario.Action, "fields": scenario.Request.Fields, "idempotency_key": scenario.Request.Idempotency.Key}
+	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var beforeVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
+	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, mutationEnvelope(grant, scopeVersion))
+	if err != nil {
 		t.Fatal(err)
 	}
-	var afterVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+		if response.Error == nil {
+			t.Fatalf("WF46 removed replay response=%+v", response)
+		}
+		t.Fatalf("WF46 removed replay response outcome=%s error=%+v", response.Outcome, *response.Error)
+	}
+	var eventsAfter int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
-	var futureCount, validCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, future["event_id"]).Scan(&futureCount); err != nil {
-		t.Fatal(err)
+	if eventsAfter != eventsBefore {
+		t.Fatalf("WF46 removed replay shape appended events: before=%d after=%d", eventsBefore, eventsAfter)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, validBeforeFuture["event_id"]).Scan(&validCount); err != nil {
-		t.Fatal(err)
-	}
-	observation := map[string]any{
-		"authority":     map[string]any{"old_event": map[string]any{"upcasted": evidence.StoredPayloadVersion < evidence.ReplayPayloadVersion}},
-		"communication": map[string]any{"new_event": map[string]any{"error": map[string]any{"kind": response.Error.Kind}}},
-		"effects":       map[string]any{},
-	}
-	if futureCount != 0 || validCount != 0 || afterVersion != beforeVersion {
-		observation["effects"].(map[string]any)["mutation_after_new_event"] = true
-	}
-	assertAgentCorpus(t, observation, scenario.Expected.Assertions)
 }

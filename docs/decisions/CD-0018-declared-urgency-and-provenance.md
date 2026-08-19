@@ -184,7 +184,8 @@ happen to be in the same area — the edge records provenance, not topic similar
 - TS8 MAJOR: `urgency` appears on the read surface (`work_summary`), so strict
   clients see a new output field. A new `relation_kind` changes a closed variant set.
   Both require manifest edit, regeneration through
-  `scripts/generate-agent-contracts.py`, digest re-pin, and a surface version bump.
+  `scripts/generate-agent-contracts.py`, and digest re-pin. The generated current
+  manifest remains the only pre-go-live surface identity.
 - A schema migration adds `urgency` to `work_items` with default `standard`.
 - Every ready, list, blocked, and launcher query's `ORDER BY` changes.
 

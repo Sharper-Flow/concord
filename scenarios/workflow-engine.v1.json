@@ -3,7 +3,6 @@
   "schema_version": "1.0",
   "contract": "CD-0013",
   "contract_status": "accepted",
-  "surface_version": "4.0.0",
   "engine_status": "engine_shipped",
   "pending_amendments": [],
   "fixtures": {

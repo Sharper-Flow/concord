@@ -9,6 +9,9 @@ exception after the supported-model evidence gate was surfaced as unavailable.
 **Amended by:** CD-0041 makes the 3.0.0 Epic surface legacy, requires the next
 normal major to expose Initiative, and forbids reuse of D3's one-time TS9
 exception.
+**Further amended by:** CD-0042 closes the historical surface-version and TS9
+exception policy before go-live; this record remains historical evidence and does
+not define a current compatibility path.
 **Amends:** CD-0009 D1/D1a; TS8 and TS9.
 **Preserves:** CD-0005's generated canonical manifest, TS5 authority envelopes,
 CD-0010, and CD-0009's Epic constraints.

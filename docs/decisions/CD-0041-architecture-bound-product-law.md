@@ -12,6 +12,9 @@
   CD-0036
 - **Amends:** CD-0006 D5/D10/R3, CD-0009 D1/D1a, CD-0015,
   CD-0024 D1/D2/D4, and PM6/PM7 historical-scope vocabulary
+- **Amended by:** CD-0042 amends the pre-go-live agent-surface sequencing and
+  removes unreleased surface compatibility policy; the Domain-overlap runtime path
+  remains on the current generated manifest.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
   CD-0009 D2–D8 research-pack authority; CD-0036 breaking-law cutovers
 - **Supersedes:** Epic as Concord's current Product-facing initiative term and

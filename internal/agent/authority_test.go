@@ -30,7 +30,6 @@ func TestCanonicalHostApprovalVector(t *testing.T) {
 		SessionRef      string   `json:"session_ref"`
 		AgentRef        string   `json:"agent_ref"`
 		Worktree        string   `json:"worktree"`
-		ClientVersion   string   `json:"client_version"`
 		IssuedAt        string   `json:"issued_at"`
 		Nonce           string   `json:"nonce"`
 		CanonicalBase64 string   `json:"canonical_base64"`
@@ -38,7 +37,7 @@ func TestCanonicalHostApprovalVector(t *testing.T) {
 	if err := json.Unmarshal(raw, &vector); err != nil {
 		t.Fatal(err)
 	}
-	assertion := HostApprovalAssertion{ChallengeRef: vector.ChallengeRef, RequestDigest: vector.RequestDigest, Scope: vector.Scope, Versions: vector.Versions, SessionRef: vector.SessionRef, AgentRef: vector.AgentRef, Worktree: vector.Worktree, ClientVersion: vector.ClientVersion, IssuedAt: vector.IssuedAt, Nonce: vector.Nonce}
+	assertion := HostApprovalAssertion{ChallengeRef: vector.ChallengeRef, RequestDigest: vector.RequestDigest, Scope: vector.Scope, Versions: vector.Versions, SessionRef: vector.SessionRef, AgentRef: vector.AgentRef, Worktree: vector.Worktree, IssuedAt: vector.IssuedAt, Nonce: vector.Nonce}
 	if got := base64.StdEncoding.EncodeToString(CanonicalHostApprovalAssertion(assertion)); got != vector.CanonicalBase64 {
 		t.Fatalf("canonical assertion mismatch: got %s want %s", got, vector.CanonicalBase64)
 	}
@@ -51,7 +50,6 @@ func TestCanonicalAssertionArrayVector(t *testing.T) {
 	}
 	var vector struct {
 		ClientRef             string   `json:"client_ref"`
-		ClientVersion         string   `json:"client_version"`
 		SessionRef            string   `json:"session_ref"`
 		AgentRef              string   `json:"agent_ref"`
 		Directory             string   `json:"directory"`
@@ -61,8 +59,6 @@ func TestCanonicalAssertionArrayVector(t *testing.T) {
 		RequestedCapabilities []string `json:"requested_capabilities"`
 		IssuedAt              string   `json:"issued_at"`
 		Nonce                 string   `json:"nonce"`
-		SurfaceRange          string   `json:"surface_range"`
-		EnvelopeVersions      string   `json:"envelope_versions"`
 		ManifestDigest        string   `json:"manifest_digest"`
 		CanonicalBase64       string   `json:"canonical_base64"`
 	}
@@ -78,11 +74,11 @@ func TestCanonicalAssertionArrayVector(t *testing.T) {
 		capabilities[i] = Capability(capability)
 	}
 	assertion := SignedAssertion{
-		ClientRef: vector.ClientRef, ClientVersion: vector.ClientVersion, SessionRef: vector.SessionRef,
+		ClientRef: vector.ClientRef, SessionRef: vector.SessionRef,
 		AgentRef: vector.AgentRef, Directory: vector.Directory, Worktree: vector.Worktree,
 		RequestedProductID: vector.RequestedProductID, RequestedProjectIDs: vector.RequestedProjectIDs,
 		RequestedCapabilities: capabilities, IssuedAt: issuedAt, Nonce: vector.Nonce,
-		SurfaceRange: vector.SurfaceRange, EnvelopeVersions: vector.EnvelopeVersions, ManifestDigest: vector.ManifestDigest,
+		ManifestDigest: vector.ManifestDigest,
 	}
 	if got := base64.StdEncoding.EncodeToString(CanonicalAssertion(assertion)); got != vector.CanonicalBase64 {
 		t.Fatalf("canonical assertion mismatch: got %s want %s", got, vector.CanonicalBase64)
@@ -99,13 +95,12 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := grantRequest(privateKey, "nonce-000000000001")
-	request.SurfaceVersion = "99.0.0" // core must negotiate, not trust this caller field.
 	grant, err := service.IssueGrant(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if grant.SurfaceVersion != ManifestVersion {
-		t.Fatalf("server-selected surface = %s, want %s", grant.SurfaceVersion, ManifestVersion)
+	if grant.ManifestDigest != ManifestDigest {
+		t.Fatalf("grant manifest digest = %s, want %s", grant.ManifestDigest, ManifestDigest)
 	}
 	var persistedRef string
 	if err := db.DatabaseForTesting().QueryRow(`SELECT grant_ref FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&persistedRef); err != nil {
@@ -114,7 +109,7 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 	if persistedRef == grant.Token {
 		t.Fatal("bearer token persisted as grant record id")
 	}
-	invocation := Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"}
+	invocation := Invocation{GrantToken: grant.Token, ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"}
 	if _, err := service.ValidateInvocation(context.Background(), invocation); err != nil {
 		t.Fatal(err)
 	}
@@ -210,48 +205,6 @@ func TestGrantBootstrapAndInvocationBinding(t *testing.T) {
 	}
 }
 
-func TestGrantBootstrapRejectsPreviousSurface(t *testing.T) {
-	db := openAgentDB(t)
-	service := NewService(db)
-	service.Now = func() time.Time { return fixedTime() }
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	request := grantRequest(privateKey, "nonce-previous-surface")
-	request.Assertion.SurfaceRange = "3.8.0-3.8.0"
-	request.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(request.Assertion))
-	if _, err := service.IssueGrant(context.Background(), request); err == nil {
-		t.Fatal("previous surface grant was accepted after the 4.0 cutover")
-	}
-}
-
-// The Epic tool is a model-visible major change. A v2 adapter cannot receive a
-// lossless static tool set, so bootstrap must fail before it can create a grant
-// or reach any domain operation.
-func TestEpicMajorRefusesV2GrantBeforeIssuance(t *testing.T) {
-	db := openAgentDB(t)
-	service := NewService(db)
-	service.Now = fixedTime
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(context.Background(), ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	request := grantRequest(privateKey, "v2-major-boundary-nonce")
-	request.Assertion.SurfaceRange = "2.3.0-2.3.0"
-	request.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(request.Assertion))
-	if _, err := service.IssueGrant(context.Background(), request); err == nil {
-		t.Fatal("v2 adapter received a v3 Epic grant")
-	}
-	var grants int
-	if err := db.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM agent_grants`).Scan(&grants); err != nil {
-		t.Fatal(err)
-	}
-	if grants != 0 {
-		t.Fatalf("v2 bootstrap persisted %d grant(s)", grants)
-	}
-}
-
 func TestGrantUseLimitIsAtomicInsideCallerTransaction(t *testing.T) {
 	db := openAgentDB(t)
 	service := NewService(db)
@@ -272,7 +225,7 @@ func TestGrantUseLimitIsAtomicInsideCallerTransaction(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func() {
 			e := db.Transact(context.Background(), func(tx *store.Transaction) error {
-				_, err := service.ValidateAndConsumeGrantTx(context.Background(), tx, Invocation{GrantToken: grant.Token, ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"})
+				_, err := service.ValidateAndConsumeGrantTx(context.Background(), tx, Invocation{GrantToken: grant.Token, ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: Capability("product_read"), ProductID: "product-1", ProjectID: "project-1"})
 				return err
 			})
 			results <- e
@@ -303,7 +256,7 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation := Invocation{GrantToken: grant.Token, ClientRef: grant.ClientRef, ClientVersion: grant.ClientVersion, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, SurfaceVersion: grant.SurfaceVersion, EnvelopeVersion: grant.EnvelopeVersion, ManifestDigest: grant.ManifestDigest, RequiredCapability: Capability("product_read"), HostAssertionDigest: "sha256:host-resolution"}
+	invocation := Invocation{GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: grant.ManifestDigest, RequiredCapability: Capability("product_read"), HostAssertionDigest: "sha256:host-resolution"}
 	var challenge string
 	err = db.Transact(ctx, func(tx *store.Transaction) error {
 		var err error
@@ -378,14 +331,14 @@ func TestDirectApprovalAssertionConsumesExistingApprovalWithoutChallenge(t *test
 	const operationDigest = "sha256:operation"
 	scope := map[string]any{"product_id": "product-1"}
 	versions := map[string]any{"work": 3}
-	invocation := Invocation{ClientRef: "client-1", ClientVersion: ManifestVersion, PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Worktree: "/repo-wt", HostAssertionDigest: "sha256:host-resolution"}
+	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, HostAssertionDigest: "sha256:host-resolution"}
 	check := ApprovalCheck{ApprovalRef: approvalRef, OperationDigest: operationDigest, Scope: scope, Versions: versions, Consequence: "publication", ClientRef: invocation.ClientRef, SessionRef: invocation.SessionRef}
 	if err := db.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InsertApprovalTx(ctx, tx, store.ApprovalInsert{ApprovalRef: approvalRef, OperationDigest: operationDigest, ScopeJSON: `{"product_id":"product-1"}`, VersionJSON: `{"work":3}`, Consequence: check.Consequence, HumanPrincipalRef: invocation.PrincipalRef, ClientRef: invocation.ClientRef, SessionRef: invocation.SessionRef, IssuedAt: fixedTime().Format(time.RFC3339Nano), ExpiresAt: fixedTime().Add(time.Hour).Format(time.RFC3339Nano), MaxUses: 1, ProtectedEvidenceRef: "direct-approval-test", ProtectedEvidenceDigest: "sha256:evidence"})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	assertion := signedHostApproval(privateKey, approvalRef, operationDigest, scope, versions, invocation.SessionRef, invocation.AgentRef, invocation.Worktree, invocation.ClientVersion, fixedTime(), "direct-approval-0001")
+	assertion := signedHostApproval(privateKey, approvalRef, operationDigest, scope, versions, invocation.SessionRef, invocation.AgentRef, invocation.Worktree, fixedTime(), "direct-approval-0001")
 	if err := db.Transact(ctx, func(tx *store.Transaction) error {
 		isChallenge, err := service.ValidateHostApprovalAssertionTx(ctx, tx, invocation, *assertion, check)
 		if err != nil {
@@ -408,7 +361,7 @@ func TestDirectApprovalAssertionConsumesExistingApprovalWithoutChallenge(t *test
 	if challenges != 0 || used != 1 {
 		t.Fatalf("direct approval state = challenges %d used %d, want 0 and 1", challenges, used)
 	}
-	assertion = signedHostApproval(privateKey, approvalRef, operationDigest, scope, versions, invocation.SessionRef, invocation.AgentRef, invocation.Worktree, invocation.ClientVersion, fixedTime(), "direct-approval-0002")
+	assertion = signedHostApproval(privateKey, approvalRef, operationDigest, scope, versions, invocation.SessionRef, invocation.AgentRef, invocation.Worktree, fixedTime(), "direct-approval-0002")
 	if err := db.Transact(ctx, func(tx *store.Transaction) error {
 		isChallenge, err := service.ValidateHostApprovalAssertionTx(ctx, tx, invocation, *assertion, check)
 		if err != nil {
@@ -446,9 +399,9 @@ func TestAuthorityMethodsGuardNilServiceAndStore(t *testing.T) {
 }
 
 func grantRequest(privateKey ed25519.PrivateKey, nonce string) GrantRequest {
-	assertion := SignedAssertion{ClientRef: "client-1", ClientVersion: ManifestVersion, SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []Capability{"product_read"}, IssuedAt: fixedTime(), Nonce: nonce, SurfaceRange: ManifestVersion + "-" + ManifestVersion, EnvelopeVersions: "1.0", ManifestDigest: ManifestDigest}
+	assertion := SignedAssertion{ClientRef: "client-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []Capability{"product_read"}, IssuedAt: fixedTime(), Nonce: nonce, ManifestDigest: ManifestDigest}
 	assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(assertion))
-	return GrantRequest{Assertion: assertion, SurfaceVersion: ManifestVersion, EnvelopeVersion: "1.0", ExpiresAt: fixedTime().Add(time.Hour)}
+	return GrantRequest{Assertion: assertion, ExpiresAt: fixedTime().Add(time.Hour)}
 }
 
 func openAgentDB(t *testing.T) *store.Store {

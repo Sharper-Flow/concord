@@ -150,6 +150,7 @@ const (
 	KindModelIdentityMismatch FailureKind = "model_identity_mismatch"
 	KindUnauthorized          FailureKind = "unauthorized"
 	KindStaleLawRevision      FailureKind = "stale_law_revision"
+	KindDomainOverlap         FailureKind = "domain_overlap"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's
@@ -179,6 +180,9 @@ type Failure struct {
 	// StaleLawRevision carries the old and accepted successor law proofs without
 	// requiring callers to parse Detail.
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
+	// DomainOverlap carries both active contract identities and every derived
+	// bounded intersection needed to choose one of the closed recovery paths.
+	DomainOverlap *DomainOverlapFailure `json:"domain_overlap,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`

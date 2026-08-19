@@ -7,7 +7,7 @@
 > membership, accepted TS1–TS4 job/tool contracts, CD-0003 short-lived CLI, and
 > Concord's ambient-context/native-authority constraints.
 > **Does not decide:** transport/adapter implementation (TS6), result/error field
-> layout (TS7), registry evolution (TS8), measurement gates (TS9), user-interface
+> layout (TS7), manifest identity/change evidence (TS8), measurement evidence (TS9), user-interface
 > rendering, C14, or C15.
 
 ## 1. Decision
@@ -110,8 +110,8 @@ on every invocation. Tool input cannot name or impersonate a principal, widen sc
 or add capabilities. If the transport cannot provide a valid grant, the call is
 denied.
 
-`client_ref` identifies the calling integration/version for audit and compatibility
-and must match the grant binding; it is not independent authority. Grant secrets are
+`client_ref` identifies the calling integration for audit and must match the grant
+binding; it is not independent authority. Grant secrets are
 never exposed to the model, logged, or persisted in Product artifacts. Model name,
 prompt text, or an agent-asserted role is never a grant.
 

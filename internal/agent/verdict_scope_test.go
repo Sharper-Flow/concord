@@ -75,7 +75,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 			WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw,
 			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("2", 64), IdempotencyIdentity: "verdict-seed-" + actionID,
 			OperationID: "verdict-seed-op-" + actionID, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "verdict-seed-key-" + actionID,
-			RequestID: "verdict-seed-request-" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractVersion: ManifestVersion, Now: fixedTime(),
+			RequestID: "verdict-seed-request-" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: execActor}
 		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, fixedTime(), nil, func(tx *store.Transaction) error {

@@ -75,7 +75,7 @@ func TestDatabaseOverrideRefusesRepositoryLocalPath(t *testing.T) {
 
 func TestInvokeNeverEchoesGrantToken(t *testing.T) {
 	grantRef := strings.Repeat("a", 63) + "b"
-	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","grant_ref":"` + grantRef + `","client_ref":"c","scope_version":""},"tool":"concord_product_view","operation":"resolve","input":{}}`)
+	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","grant_ref":"` + grantRef + `","client_ref":"c","scope_version":"","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{}}`)
 	var out, errOut bytes.Buffer
 	if code := runInvoke(raw, nil, nil, &out, &errOut); code != 0 {
 		t.Fatalf("runInvoke exit=%d stderr=%q", code, errOut.String())
@@ -632,33 +632,30 @@ func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
 	assertion := cliAssertion(privateKey, repo, "nonce-e2e-command-boundary-0001")
 	grantRaw := runCLIJSON(t, []string{"grant"}, map[string]any{"assertion": assertion, "expires_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano), "max_uses": 0})
 	var grant struct {
-		GrantRef        string   `json:"grant_ref"`
-		GrantToken      string   `json:"grant_token"`
-		PrincipalRef    string   `json:"principal_ref"`
-		ClientRef       string   `json:"client_ref"`
-		SessionRef      string   `json:"session_ref"`
-		AgentRef        string   `json:"agent_ref"`
-		SurfaceVersion  string   `json:"surface_version"`
-		EnvelopeVersion string   `json:"envelope_version"`
-		ManifestDigest  string   `json:"manifest_digest"`
-		ProductIDs      []string `json:"product_ids"`
-		ProjectIDs      []string `json:"project_ids"`
-		ScopeVersion    string   `json:"scope_version"`
-		ClientVersion   string   `json:"client_version"`
+		GrantRef       string   `json:"grant_ref"`
+		GrantToken     string   `json:"grant_token"`
+		PrincipalRef   string   `json:"principal_ref"`
+		ClientRef      string   `json:"client_ref"`
+		SessionRef     string   `json:"session_ref"`
+		AgentRef       string   `json:"agent_ref"`
+		ManifestDigest string   `json:"manifest_digest"`
+		ProductIDs     []string `json:"product_ids"`
+		ProjectIDs     []string `json:"project_ids"`
+		ScopeVersion   string   `json:"scope_version"`
 	}
 	if err := json.Unmarshal(grantRaw, &grant); err != nil {
 		t.Fatal(err)
 	}
-	if grant.ClientVersion != agent.ManifestVersion {
-		t.Fatalf("grant client_version = %q, want %s", grant.ClientVersion, agent.ManifestVersion)
+	if grant.ManifestDigest != agent.ManifestDigest {
+		t.Fatalf("grant manifest_digest = %q, want %s", grant.ManifestDigest, agent.ManifestDigest)
 	}
 	invokeRaw := runCLIJSON(t, []string{"invoke"}, map[string]any{
 		"call_envelope": map[string]any{
 			"schema_version": "1.0", "request_id": "request-e2e", "grant_ref": grant.GrantToken,
-			"client_ref": grant.ClientRef, "client_version": agent.ManifestVersion, "principal_ref": grant.PrincipalRef,
+			"client_ref": grant.ClientRef, "principal_ref": grant.PrincipalRef,
 			"session_ref": grant.SessionRef, "agent_ref": grant.AgentRef, "directory": repo, "worktree": repo,
 			"ambient_project_id": "project-1", "selected_product_id": "product-1", "scope_version": grant.ScopeVersion,
-			"surface_version": grant.SurfaceVersion, "envelope_version": grant.EnvelopeVersion, "manifest_digest": grant.ManifestDigest,
+			"manifest_digest": grant.ManifestDigest,
 		},
 		"tool": "concord_product_view", "operation": "resolve", "input": map[string]any{"project_id": "project-1"},
 	})
@@ -773,26 +770,26 @@ func seedCLIAuthority(t *testing.T, client, productID, projectID string) (string
 }
 
 func cliAssertion(privateKey ed25519.PrivateKey, repo, nonce string) map[string]any {
-	a := agent.SignedAssertion{ClientRef: "client-1", ClientVersion: agent.ManifestVersion, SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, SurfaceRange: agent.ManifestVersion + "-" + agent.ManifestVersion, EnvelopeVersions: "1.0", ManifestDigest: agent.ManifestDigest}
+	a := agent.SignedAssertion{ClientRef: "client-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, ManifestDigest: agent.ManifestDigest}
 	a.Signature = ed25519.Sign(privateKey, agent.CanonicalAssertion(a))
 	return map[string]any{
-		"client_ref": a.ClientRef, "client_version": a.ClientVersion, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,
+		"client_ref": a.ClientRef, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,
 		"directory": a.Directory, "worktree": a.Worktree, "requested_product_id": a.RequestedProductID, "requested_project_ids": a.RequestedProjectIDs,
 		"requested_capabilities": []string{"product_read"}, "issued_at": a.IssuedAt.Format(time.RFC3339Nano), "nonce": a.Nonce,
-		"surface_range": a.SurfaceRange, "envelope_versions": a.EnvelopeVersions, "manifest_digest": a.ManifestDigest,
-		"signature": base64.StdEncoding.EncodeToString(a.Signature),
+		"manifest_digest": a.ManifestDigest,
+		"signature":       base64.StdEncoding.EncodeToString(a.Signature),
 	}
 }
 
 func adapterShapedAssertion(privateKey ed25519.PrivateKey, repo, nonce string) map[string]any {
-	a := agent.SignedAssertion{ClientRef: "client-1", ClientVersion: agent.ManifestVersion, SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProjectIDs: []string{}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, SurfaceRange: agent.ManifestVersion + "-" + agent.ManifestVersion, EnvelopeVersions: "1.0", ManifestDigest: agent.ManifestDigest}
+	a := agent.SignedAssertion{ClientRef: "client-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProjectIDs: []string{}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, ManifestDigest: agent.ManifestDigest}
 	a.Signature = ed25519.Sign(privateKey, agent.CanonicalAssertion(a))
 	return map[string]any{
-		"client_ref": a.ClientRef, "client_version": a.ClientVersion, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,
+		"client_ref": a.ClientRef, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,
 		"directory": a.Directory, "worktree": a.Worktree, "requested_product_id": "", "requested_project_ids": []string{},
 		"requested_capabilities": []string{"product_read"}, "issued_at": a.IssuedAt.Format(time.RFC3339Nano), "nonce": a.Nonce,
-		"surface_range": a.SurfaceRange, "envelope_versions": a.EnvelopeVersions, "manifest_digest": a.ManifestDigest,
-		"signature": base64.StdEncoding.EncodeToString(a.Signature),
+		"manifest_digest": a.ManifestDigest,
+		"signature":       base64.StdEncoding.EncodeToString(a.Signature),
 	}
 }
 

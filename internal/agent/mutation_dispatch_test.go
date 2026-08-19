@@ -303,7 +303,7 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	}
 	_ = exec.Command("git", "-C", repo, "config", "user.email", "test@example.invalid").Run()
 	_ = exec.Command("git", "-C", repo, "config", "user.name", "Concord Test").Run()
-	content := "---\nconcord_work_id: work-orphan\nwork_type: task\ntitle: Orphan\ncompleted_at: 2026-08-07T00:00:00Z\noutcome_tag: shipped\nlesson_tags: [test]\nterminal_state: completed\npriority: 1\nsummary: Orphan summary\nproduct_ids: [product-1]\nproject_ids: [project-1]\ncomponent_ids: []\ntag_ids: []\n---\n\nOrphan.\n"
+	content := "---\nconcord_work_id: work-orphan\nwork_type: task\ntitle: Orphan\ncompleted_at: 2026-08-07T00:00:00Z\noutcome_tag: shipped\nlesson_tags: [test]\nterminal_state: completed\npriority: 1\nsummary: Orphan summary\nproduct_ids: [product-1]\nproject_ids: [project-1]\ndomain_ids: []\ntag_ids: []\n---\n\nOrphan.\n"
 	sum := sha256.Sum256([]byte(content))
 	proofDigest := "sha256:" + hex.EncodeToString(sum[:])
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{

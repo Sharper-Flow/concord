@@ -486,7 +486,7 @@ func TestCompactionFoldRejectsRequiredConsumerAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(compactionLinkPayload{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, ComponentIDs: note.ComponentIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "direct fold test", ExpectedVersion: 3, ResultingVersion: 4})
+	payload, err := json.Marshal(compactionLinkPayloadV1{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, ComponentIDs: note.DomainIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "direct fold test", ExpectedVersion: 3, ResultingVersion: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +544,7 @@ func TestCompactionRetryReconcilesCrashWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(compactionLinkPayload{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, ComponentIDs: note.ComponentIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "proof-backed archive", ExpectedVersion: 3, ResultingVersion: 4})
+	payload, err := json.Marshal(compactionLinkPayloadV1{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, ComponentIDs: note.DomainIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "proof-backed archive", ExpectedVersion: 3, ResultingVersion: 4})
 	if err != nil {
 		t.Fatal(err)
 	}

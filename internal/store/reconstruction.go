@@ -99,6 +99,12 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 	}
 	replayCtx := workflowReplayContext(ctx)
 	for _, event := range events {
+		if prepared, err := prepareRegisteredEvent(event); err != nil {
+			return rollback(attributeFailure(err, event, prepared.stage))
+		}
+		if excludedFromReconstructionSnapshot(event.Kind) {
+			continue
+		}
 		if err := foldRegisteredEvent(replayCtx, tx, event); err != nil {
 			return rollback(err)
 		}
@@ -114,6 +120,19 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 		return snapshot, err
 	}
 	return snapshot, nil
+}
+
+// Domain registries are Git authority, and managed-resource/attachment state
+// is outside the bounded Product snapshot. Their events remain validated while
+// excluded from the scratch projection fold.
+func excludedFromReconstructionSnapshot(kind string) bool {
+	switch kind {
+	case managedResourceEventCreated, managedResourceEventConsumerAdded,
+		"domain.project_attachments_replaced", "domain.resource_attachments_replaced":
+		return true
+	default:
+		return false
+	}
 }
 
 func readSubjectEvents(ctx context.Context, tx *sql.Tx, subject SubjectRef, asOfSeq int64) ([]Event, error) {

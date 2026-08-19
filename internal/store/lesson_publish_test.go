@@ -161,3 +161,89 @@ func TestPublishLessonRecordValidatesScopesAndBounds(t *testing.T) {
 		t.Fatalf("expected evidence refusal, got %v", err)
 	}
 }
+
+func TestPublishLessonRecordPreservesV12DomainManifest(t *testing.T) {
+	repo := lessonRepoFixture(t)
+	manifestPath := filepath.Join(repo, lessonManifestPath)
+	manifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(manifest), `"schema_version": "1.1"`, `"schema_version": "1.2"`, 1)
+	updated = strings.Replace(updated, `  ],
+  "records": [`, `  ],
+  "domain_registry": {
+    "schema_version": "1.0",
+    "product_key": "concord",
+    "root_domain_id": "product-root:concord",
+    "domains": [{
+      "domain_id": "product-root:concord",
+      "name": "Concord",
+      "purpose": "Product-wide Concord law and architecture",
+      "status": "current",
+      "architecture_relations": []
+    }]
+  },
+  "records": [`, 1)
+	updated = strings.ReplaceAll(updated, `"component_ids"`, `"domain_ids"`)
+	if err := os.WriteFile(manifestPath, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := LessonPublication{
+		LessonID: "lesson-v12-domain", Title: "Domain lessons", Summary: "A version 1.2 manifest keeps its domain registry and domain-only scopes.",
+		Content: "# Domain lessons\n", Tags: []string{"domains"},
+		Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"product-root:concord"}},
+		Now:    time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC),
+	}
+	if _, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, req); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseKnowledgeManifest(written); err != nil {
+		t.Fatalf("published v1.2 manifest is invalid: %v", err)
+	}
+	if strings.Contains(string(written), `"component_ids"`) || !strings.Contains(string(written), `"domain_registry"`) {
+		t.Fatalf("published v1.2 manifest lost Domain-only shape:\n%s", written)
+	}
+
+	legacyScope := req
+	legacyScope.LessonID = "lesson-v12-component"
+	legacyScope.Scopes = KnowledgeRecordScopes{Mode: "explicit", ComponentIDs: []string{"legacy-component"}}
+	if _, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, legacyScope); err == nil || !strings.Contains(err.Error(), "cannot use component") {
+		t.Fatalf("expected v1.2 component-scope refusal, got %v", err)
+	}
+}
+
+func TestMarshalKnowledgeManifestPreservesV12LawHomes(t *testing.T) {
+	manifest := KnowledgeManifest{
+		SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"},
+		DomainRegistry: KnowledgeDomainRegistry{
+			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+			Domains: []KnowledgeDomain{
+				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+				{DomainID: "store", Name: "Store", Purpose: "Durable Product authority", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			},
+		},
+		Records: []KnowledgeRecord{{
+			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-law.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
+			Title: "Law", Summary: "A current law retains its Domain ownership after lesson publication.", Tags: []string{},
+			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}, domainIDsPresent: true},
+			HomeDomainID: "product-root:concord", AppliesToDomainIDs: []string{"store"}, SHA256: "sha256:" + strings.Repeat("a", 64),
+		}},
+	}
+	written, err := marshalKnowledgeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseKnowledgeManifest(written)
+	if err != nil {
+		t.Fatalf("serialized v1.2 law manifest is invalid: %v", err)
+	}
+	if got := parsed.Records[0]; got.HomeDomainID != "product-root:concord" || len(got.AppliesToDomainIDs) != 1 || got.AppliesToDomainIDs[0] != "store" {
+		t.Fatalf("law homes lost during serialization: %+v", got)
+	}
+}

@@ -51,13 +51,19 @@ type VerifiedNote struct {
 	SuccessorID   string
 	ProductIDs    []string
 	ProjectIDs    []string
+	DomainIDs     []string
 	ComponentIDs  []string
-	TagIDs        []string
-	ScopeMode     string
-	NotePath      string
-	CommitOID     string
-	ContentHash   string
-	Content       []byte
+	// HasDomainIDs and HasComponentIDs preserve whether the corresponding
+	// front-matter key was authored, including an explicitly empty array.
+	HasDomainIDs          bool
+	HasComponentIDs       bool
+	TagIDs                []string
+	ScopeMode             string
+	ManifestSchemaVersion string
+	NotePath              string
+	CommitOID             string
+	ContentHash           string
+	Content               []byte
 }
 
 // CommittedNote is the git-side proof of a publish: the commit that was made
@@ -87,6 +93,12 @@ func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, conte
 	}
 	if note.ID != workID || note.Kind != "work_note" {
 		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved note identity does not match the terminal work", false, "publish the canonical work note for the requested work ID")
+	}
+	if note.HasComponentIDs {
+		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "new canonical notes cannot author component_ids", false, "use domain_ids in canonical work-note front matter")
+	}
+	if !note.HasDomainIDs {
+		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "new canonical notes require domain_ids", false, "supply an explicit domain_ids array in canonical work-note front matter")
 	}
 	if expectedHash != "" {
 		sum := sha256.Sum256([]byte(content))
@@ -413,16 +425,18 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter exceeds the bounded size", false, "keep canonical metadata bounded")
 	}
 	values := map[string]string{}
-	allowed := map[string]bool{"concord_work_id": true, "id": true, "work_type": true, "type": true, "title": true, "completed_at": true, "outcome_tag": true, "lesson_tags": true, "terminal_state": true, "priority": true, "summary": true, "successor_work_id": true, "product_ids": true, "project_ids": true, "component_ids": true, "tag_ids": true}
+	seenKeys := map[string]bool{}
+	allowed := map[string]bool{"concord_work_id": true, "id": true, "work_type": true, "type": true, "title": true, "completed_at": true, "outcome_tag": true, "lesson_tags": true, "terminal_state": true, "priority": true, "summary": true, "successor_work_id": true, "product_ids": true, "project_ids": true, "domain_ids": true, "component_ids": true, "tag_ids": true}
 	for _, line := range strings.Split(front, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		key, value, ok := strings.Cut(line, ":")
 		key = strings.TrimSpace(key)
-		if !ok || key == "" || !allowed[key] || values[key] != "" {
+		if !ok || key == "" || !allowed[key] || seenKeys[key] {
 			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter has an unknown, malformed, or duplicate key", false, "use only the accepted canonical metadata keys")
 		}
+		seenKeys[key] = true
 		value = strings.TrimSpace(value)
 		if value == "" || len(value) > maxKnowledgeValue {
 			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an empty or oversized value", false, "supply bounded metadata values")
@@ -431,6 +445,9 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an unclosed quoted scalar", false, "use a closed scalar value")
 		}
 		values[key] = unquoteScalar(value)
+	}
+	if seenKeys["domain_ids"] && seenKeys["component_ids"] {
+		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter cannot declare both domain_ids and component_ids", false, "use domain_ids for new notes or retain component_ids only in a legacy note")
 	}
 	if values["concord_work_id"] != "" && values["id"] != "" {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter declares two stable identity keys", false, "use concord_work_id for work notes or id for other knowledge notes")
@@ -481,7 +498,9 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "priority is not a non-negative integer", false, "supply a bounded non-negative priority")
 	}
 	var err error
-	for key, target := range map[string]*[]string{"lesson_tags": &note.LessonTags, "product_ids": &note.ProductIDs, "project_ids": &note.ProjectIDs, "component_ids": &note.ComponentIDs, "tag_ids": &note.TagIDs} {
+	note.HasDomainIDs = seenKeys["domain_ids"]
+	note.HasComponentIDs = seenKeys["component_ids"]
+	for key, target := range map[string]*[]string{"lesson_tags": &note.LessonTags, "product_ids": &note.ProductIDs, "project_ids": &note.ProjectIDs, "domain_ids": &note.DomainIDs, "component_ids": &note.ComponentIDs, "tag_ids": &note.TagIDs} {
 		*target, err = parseScalarArray(values[key])
 		if err != nil {
 			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter array is malformed", false, "use a closed scalar array such as [sqlite, state-authority]")

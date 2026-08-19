@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // CompactionLinkRequest is the proof-backed PM6 linkage input. The helper
@@ -28,6 +30,33 @@ type CompactionLinkRequest struct {
 }
 
 type compactionLinkPayload struct {
+	ID               string   `json:"id"`
+	Type             string   `json:"type"`
+	Title            string   `json:"title"`
+	CompletedAt      string   `json:"completed_at"`
+	OutcomeTag       string   `json:"outcome_tag"`
+	LessonTags       []string `json:"lesson_tags"`
+	TerminalState    string   `json:"terminal_state"`
+	Priority         int64    `json:"priority"`
+	Summary          string   `json:"summary"`
+	SuccessorID      string   `json:"successor_work_id,omitempty"`
+	ProductIDs       []string `json:"product_ids"`
+	ProjectIDs       []string `json:"project_ids"`
+	DomainIDs        []string `json:"domain_ids"`
+	TagIDs           []string `json:"tag_ids"`
+	HomeProjectID    string   `json:"home_project_id"`
+	HomeLocatorID    string   `json:"home_locator_id"`
+	NotePath         string   `json:"note_path"`
+	CommitOID        string   `json:"commit_oid"`
+	ContentHash      string   `json:"content_hash"`
+	Reason           string   `json:"reason"`
+	ExpectedVersion  int64    `json:"expected_version"`
+	ResultingVersion int64    `json:"resulting_version"`
+}
+
+// compactionLinkPayloadV1 is kept separate from the current payload so that
+// replay can normalize legacy bytes without ever rewriting the event log.
+type compactionLinkPayloadV1 struct {
 	ID               string   `json:"id"`
 	Type             string   `json:"type"`
 	Title            string   `json:"title"`
@@ -108,11 +137,15 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "publish_compaction_link", "cannot inspect existing compaction linkage", true, "retry once the database is readable", err)
 	}
+	scopeDomainIDs := append([]string{}, note.DomainIDs...)
+	if len(scopeDomainIDs) == 0 && note.HasComponentIDs {
+		scopeDomainIDs = append([]string{}, note.ComponentIDs...)
+	}
 	payload := compactionLinkPayload{
 		ID: note.ID, Type: note.Kind, Title: note.Title, CompletedAt: note.CompletedAt,
 		OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState,
 		Priority: note.Priority, Summary: note.Summary, SuccessorID: note.SuccessorID,
-		ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, ComponentIDs: note.ComponentIDs,
+		ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, DomainIDs: scopeDomainIDs,
 		TagIDs: note.TagIDs, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID,
 		NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash,
 		Reason: req.Reason, ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1,
@@ -122,7 +155,7 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		return wrapFailure(KindInvalidPayload, "publish_compaction_link", "cannot encode the bounded compaction payload", false, "repair the note metadata", err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{
-		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 1, Payload: payloadBytes}},
+		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 2, Payload: payloadBytes}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
 	}); err != nil {
 		return err
@@ -140,6 +173,9 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if payload.ID == "" || payload.ID != event.SubjectID || payload.Type != "work_note" || payload.Title == "" || payload.CompletedAt == "" || payload.OutcomeTag == "" || payload.Summary == "" || payload.HomeProjectID == "" || payload.HomeLocatorID == "" || payload.NotePath == "" || payload.CommitOID == "" || payload.ContentHash == "" || payload.Reason == "" || payload.ExpectedVersion < 1 || payload.ResultingVersion != payload.ExpectedVersion+1 {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction_link.published payload is incomplete", false, "supply the complete verified PM6 linkage payload")
+	}
+	if err := validateCompactionScopeArrays(payload); err != nil {
+		return err
 	}
 	if err := validateCommitOID(payload.CommitOID); err != nil {
 		return err
@@ -182,8 +218,8 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, payload.ID, payload.Type, payload.Title, payload.CompletedAt, payload.OutcomeTag, marshalStrings(payload.LessonTags), payload.TerminalState, payload.Priority, payload.Summary, nullString(payload.SuccessorID), payload.HomeProjectID, payload.HomeLocatorID, payload.NotePath, payload.CommitOID, payload.ContentHash); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write archived work projection", true, "retry once the database is writable", err)
 	}
-	for table, values := range map[string][]string{"archived_work_products": payload.ProductIDs, "archived_work_projects": payload.ProjectIDs, "archived_work_components": payload.ComponentIDs, "archived_work_tags": payload.TagIDs} {
-		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_components": "component_id", "archived_work_tags": "tag_id"}[table]
+	for table, values := range map[string][]string{"archived_work_products": payload.ProductIDs, "archived_work_projects": payload.ProjectIDs, "archived_work_domains": payload.DomainIDs, "archived_work_tags": payload.TagIDs} {
+		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_domains": "domain_id", "archived_work_tags": "tag_id"}[table]
 		for _, value := range values {
 			if value == "" {
 				return newFailure(KindInvalidPayload, "fold_event", "compaction scope contains an empty ID", false, "supply non-empty frozen scope IDs")
@@ -196,11 +232,223 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	return nil
 }
 
+func validateCompactionScopeArrays(payload compactionLinkPayload) error {
+	arrays := []struct {
+		name   string
+		values []string
+	}{
+		{"lesson_tags", payload.LessonTags},
+		{"product_ids", payload.ProductIDs},
+		{"project_ids", payload.ProjectIDs},
+		{"domain_ids", payload.DomainIDs},
+		{"tag_ids", payload.TagIDs},
+	}
+	for _, array := range arrays {
+		if array.values == nil || len(array.values) > maxManifestArray {
+			return newFailure(KindInvalidPayload, "fold_event", array.name+" must be an explicit bounded array", false, "supply at most 64 unique non-empty values")
+		}
+		seen := make(map[string]struct{}, len(array.values))
+		for _, value := range array.values {
+			if value == "" || utf8.RuneCountInString(value) > maxManifestID || strings.TrimSpace(value) != value {
+				return newFailure(KindInvalidPayload, "fold_event", array.name+" contains an invalid value", false, "supply bounded clean values")
+			}
+			if _, duplicate := seen[value]; duplicate {
+				return newFailure(KindInvalidPayload, "fold_event", array.name+" contains a duplicate value", false, "supply unique values")
+			}
+			seen[value] = struct{}{}
+		}
+	}
+	return nil
+}
+
+// upcastCompactionLinkPublishedV1 converts only the in-memory event passed to
+// the fold. The stored v1 payload remains byte-for-byte historical evidence.
+func upcastCompactionLinkPublishedV1(event Event) (Event, error) {
+	if event.PayloadVersion != 1 {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "compaction_link.published upcaster requires payload version 1", false, "supply a legacy v1 compaction payload")
+	}
+	if err := rejectDuplicateJSONKeys(event.Payload); err != nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "compaction payload contains duplicate keys", false, "repair the stored event payload")
+	}
+	var fields map[string]json.RawMessage
+	decoder := json.NewDecoder(strings.NewReader(string(event.Payload)))
+	if err := decoder.Decode(&fields); err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "compaction payload is not an object", false, "repair the stored event payload", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload contains trailing JSON", false, "store exactly one compaction payload object")
+	}
+	if _, ok := fields["domain_ids"]; ok {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload already contains domain_ids", false, "remove mixed legacy and Domain vocabulary")
+	}
+	var legacy compactionLinkPayloadV1
+	strict := json.NewDecoder(strings.NewReader(string(event.Payload)))
+	strict.DisallowUnknownFields()
+	if err := strict.Decode(&legacy); err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload contains unknown or malformed fields", false, "repair the stored event payload", err)
+	}
+	current := compactionLinkPayload{
+		ID: legacy.ID, Type: legacy.Type, Title: legacy.Title, CompletedAt: legacy.CompletedAt,
+		OutcomeTag: legacy.OutcomeTag, LessonTags: legacy.LessonTags, TerminalState: legacy.TerminalState,
+		Priority: legacy.Priority, Summary: legacy.Summary, SuccessorID: legacy.SuccessorID,
+		ProductIDs: legacy.ProductIDs, ProjectIDs: legacy.ProjectIDs, DomainIDs: append([]string{}, legacy.ComponentIDs...),
+		TagIDs: legacy.TagIDs, HomeProjectID: legacy.HomeProjectID, HomeLocatorID: legacy.HomeLocatorID,
+		NotePath: legacy.NotePath, CommitOID: legacy.CommitOID, ContentHash: legacy.ContentHash,
+		Reason: legacy.Reason, ExpectedVersion: legacy.ExpectedVersion, ResultingVersion: legacy.ResultingVersion,
+	}
+	payload, err := json.Marshal(current)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot encode current compaction payload", false, "repair the stored event payload", err)
+	}
+	event.Payload, event.PayloadVersion = payload, 2
+	return event, nil
+}
+
 func nullString(value string) any {
 	if value == "" {
 		return nil
 	}
 	return value
+}
+
+type domainProjection struct {
+	ProductID        string
+	ProductKey       string
+	RegistryHash     string
+	RootDomainID     string
+	Domains          []domainProjectionDomain
+	Relations        []domainProjectionRelation
+	LawHomes         map[string]string
+	LawApplicability map[string][]string
+}
+
+type domainProjectionDomain struct {
+	ID             string
+	Name           string
+	Purpose        string
+	Status         string
+	ParentDomainID string
+}
+
+type domainProjectionRelation struct {
+	SourceDomainID  string
+	Kind            string
+	TargetDomainID  string
+	State           string
+	GoverningLawIDs []string
+}
+
+func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, manifest KnowledgeManifest) (domainProjection, error) {
+	registry := manifest.DomainRegistry
+	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
+	if len(registry.Domains) == 0 {
+		return result, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "Domain registry contains no Domains", false, "declare the Product root Domain and its retained Domains")
+	}
+	seen := map[string]bool{}
+	for _, domain := range registry.Domains {
+		if domain.DomainID == "" {
+			return result, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "Domain registry contains an empty Domain ID", false, "declare stable non-empty Domain IDs")
+		}
+		if seen[domain.DomainID] {
+			return result, newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "Domain registry contains duplicate Domain IDs", false, "declare each Domain ID once")
+		}
+		seen[domain.DomainID] = true
+		result.Domains = append(result.Domains, domainProjectionDomain{ID: domain.DomainID, Name: domain.Name, Purpose: domain.Purpose, Status: domain.Status, ParentDomainID: domain.ParentDomainID})
+		for _, relation := range domain.ArchitectureRelations {
+			result.Relations = append(result.Relations, domainProjectionRelation{SourceDomainID: domain.DomainID, Kind: relation.Kind, TargetDomainID: relation.TargetDomainID, State: relation.State, GoverningLawIDs: uniqueSorted(relation.GoverningLawIDs)})
+		}
+	}
+	if !seen[result.RootDomainID] {
+		return result, newFailure(KindUnknownScope, "rebuild_knowledge_index", "Domain registry root Domain is unknown", false, "declare the Product root Domain in the registry")
+	}
+	if result.ProductKey == "" {
+		return result, newFailure(KindUnknownScope, "rebuild_knowledge_index", "Domain registry does not identify its Product", false, "declare the owning Product in the registry")
+	}
+	var products []string
+	rows, err := s.db.QueryContext(ctx, `SELECT product_id FROM product_knowledge_homes WHERE project_id=? AND locator_id=? ORDER BY product_id`, home.HomeProjectID, home.HomeLocatorID)
+	if err != nil {
+		return result, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot resolve the Product knowledge home", true, "retry once the database is readable", err)
+	}
+	for rows.Next() {
+		var product string
+		if err := rows.Scan(&product); err != nil {
+			rows.Close()
+			return result, err
+		}
+		products = append(products, product)
+	}
+	if err := rows.Close(); err != nil {
+		return result, err
+	}
+	if len(products) != 1 {
+		return result, newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "Domain registry home must resolve exactly one Product", false, "assign exactly one Product knowledge home before rebuilding")
+	}
+	result.ProductID = products[0]
+	result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
+	for _, record := range manifest.Records {
+		if record.Kind != "decision" && record.Kind != "spec" {
+			continue
+		}
+		homeDomain := record.HomeDomainID
+		applies := append([]string(nil), record.AppliesToDomainIDs...)
+		if homeDomain == "" {
+			continue
+		}
+		if !seen[homeDomain] {
+			return result, newFailure(KindUnknownScope, "rebuild_knowledge_index", "law home Domain is unknown: "+homeDomain, false, "assign each current law to a Domain in the same Product registry")
+		}
+		result.LawHomes[record.ID] = homeDomain
+		result.LawApplicability[record.ID] = uniqueSorted(applies)
+	}
+	return result, nil
+}
+
+func uniqueSorted(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, projection domainProjection) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(home_project_id,home_locator_id,product_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, projection.ProductKey, projection.RootDomainID, "1.0", projection.RegistryHash, commit); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write Domain registry projection", true, "retry once the database is writable", err)
+	}
+	for _, domain := range projection.Domains {
+		status := domain.Status
+		if status == "" {
+			status = "current"
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, domain.ID, domain.Name, domain.Purpose, nullString(domain.ParentDomainID), status, projection.RegistryHash, commit); err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write Domain projection", true, "retry once the database is writable", err)
+		}
+	}
+	for _, relation := range projection.Relations {
+		state := relation.State
+		if state == "" {
+			state = "active"
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_architecture_relations(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,state,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, relation.SourceDomainID, relation.Kind, relation.TargetDomainID, state, projection.RegistryHash, commit); err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write Domain architecture relation", true, "retry once the database is writable", err)
+		}
+		for _, lawID := range relation.GoverningLawIDs {
+			result, err := tx.ExecContext(ctx, `INSERT INTO domain_relation_governing_laws(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,law_id,law_content_hash) SELECT ?,?,?,?,?,?,?,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, relation.SourceDomainID, relation.Kind, relation.TargetDomainID, lawID, home.HomeProjectID, home.HomeLocatorID, lawID)
+			if err != nil {
+				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write Domain relation governing law", true, "retry once the database is writable", err)
+			}
+			if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+				return newFailure(KindInvariantViolation, "rebuild_knowledge_index", "Domain relation governing law did not resolve exactly one accepted projection", false, "rebuild from a manifest with one accepted governing law")
+			}
+		}
+	}
+	return nil
 }
 
 // RebuildKnowledgeIndex replaces only the git-derived tables for one home.
@@ -254,10 +502,17 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 				return err
 			}
 			seen[record.ID], seenPaths[record.Path] = true, true
-			notes = append(notes, manifestRecordNote(record, commit))
+			notes = append(notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
 			if record.Kind == "decision" || record.Kind == "spec" {
 				laws = append(laws, record)
 			}
+		}
+	}
+	var domainProjectionData domainProjection
+	if !manifestMissing && manifest.SchemaVersion == "1.2" {
+		domainProjectionData, err = prepareDomainProjection(ctx, s, home, manifest)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -269,7 +524,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err := enterFold(ctx, tx); err != nil {
 		return rollback(err)
 	}
-	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_tags", "archived_work"} {
+	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_domains", "archived_work_tags", "archived_work"} {
 		deleteSQL := "DELETE FROM " + table + " WHERE home_project_id = ? AND home_locator_id = ?"
 		if table != "archived_work" {
 			deleteSQL = "DELETE FROM " + table + " WHERE work_id IN (SELECT id FROM archived_work WHERE home_project_id = ? AND home_locator_id = ?)"
@@ -283,6 +538,11 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err))
 		}
 	}
+	for _, table := range []string{"domain_relation_governing_laws", "law_domain_applicability", "law_domain_homes", "domain_architecture_relations", "domains", "domain_registries"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil {
+			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear Domain projection "+table, true, "retry once the database is writable", err))
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear the git knowledge watermark", true, "retry once the database is writable", err))
 	}
@@ -294,6 +554,25 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	for _, law := range laws {
 		if err := insertLawSubject(ctx, tx, home, law, commit); err != nil {
 			return rollback(err)
+		}
+	}
+	if !manifestMissing && manifest.SchemaVersion == "1.2" {
+		if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
+			return rollback(err)
+		}
+		for _, law := range laws {
+			homeDomain, hasHome := domainProjectionData.LawHomes[law.ID]
+			if !hasHome {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, homeDomain, law.SHA256, commit); err != nil {
+				return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain home", true, "retry once the database is writable", err))
+			}
+			for _, domainID := range domainProjectionData.LawApplicability[law.ID] {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_applicability(home_project_id,home_locator_id,law_id,product_id,domain_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, domainID, commit); err != nil {
+					return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain applicability", true, "retry once the database is writable", err))
+				}
+			}
 		}
 	}
 	for _, law := range laws {
@@ -384,11 +663,15 @@ func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, 
 }
 
 func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, note VerifiedNote) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullString(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash, note.ScopeMode); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullString(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash, note.ScopeMode, note.ManifestSchemaVersion); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert an indexed note", true, "retry once the database is writable", err)
 	}
-	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, "archived_work_components": note.ComponentIDs, "archived_work_tags": note.TagIDs} {
-		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_components": "component_id", "archived_work_tags": "tag_id"}[table]
+	scopeTable, scopeColumn, scopeIDs := "archived_work_components", "component_id", note.ComponentIDs
+	if note.HasDomainIDs || len(note.DomainIDs) > 0 {
+		scopeTable, scopeColumn, scopeIDs = "archived_work_domains", "domain_id", note.DomainIDs
+	}
+	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, scopeTable: scopeIDs, "archived_work_tags": note.TagIDs} {
+		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_tags": "tag_id", scopeTable: scopeColumn}[table]
 		for _, value := range values {
 			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (work_id, "+column+") VALUES (?, ?)", note.ID, value); err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert indexed note scope", true, "retry once the database is writable", err)
@@ -398,18 +681,25 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 	return nil
 }
 
-func manifestRecordNote(record KnowledgeRecord, commit string) VerifiedNote {
+func manifestRecordNote(record KnowledgeRecord, commit, schemaVersion string) VerifiedNote {
 	terminal := "completed"
 	if record.Status == "superseded" {
 		terminal = "superseded"
+	}
+	domainIDs, componentIDs := []string(nil), []string(nil)
+	hasDomainIDs, hasComponentIDs := false, false
+	if schemaVersion == "1.2" {
+		domainIDs, hasDomainIDs = append([]string(nil), record.Scopes.DomainIDs...), true
+	} else {
+		componentIDs, hasComponentIDs = append([]string(nil), record.Scopes.ComponentIDs...), true
 	}
 	return VerifiedNote{
 		ID: record.ID, Kind: record.Kind, Title: record.Title, CompletedAt: record.Date,
 		OutcomeTag: record.Status, LessonTags: append([]string(nil), record.Tags...),
 		TerminalState: terminal, Summary: record.Summary, SuccessorID: record.Successor,
 		ProductIDs: append([]string(nil), record.Scopes.ProductIDs...), ProjectIDs: append([]string(nil), record.Scopes.ProjectIDs...),
-		ComponentIDs: append([]string(nil), record.Scopes.ComponentIDs...), TagIDs: append([]string(nil), record.Scopes.TagIDs...),
-		ScopeMode: record.Scopes.Mode, NotePath: record.Path, CommitOID: commit, ContentHash: record.SHA256,
+		DomainIDs: domainIDs, ComponentIDs: componentIDs, HasDomainIDs: hasDomainIDs, HasComponentIDs: hasComponentIDs, TagIDs: append([]string(nil), record.Scopes.TagIDs...),
+		ScopeMode: record.Scopes.Mode, ManifestSchemaVersion: schemaVersion, NotePath: record.Path, CommitOID: commit, ContentHash: record.SHA256,
 	}
 }
 

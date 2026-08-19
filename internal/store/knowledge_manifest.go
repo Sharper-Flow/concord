@@ -24,6 +24,8 @@ const (
 	maxManifestTitle      = 256
 	maxManifestSummary    = 4096
 	maxManifestPath       = 512
+	maxManifestDomains    = 64
+	maxManifestRelations  = 64
 )
 
 var knowledgeKindsClosed = map[string]bool{
@@ -46,32 +48,64 @@ var lawRelationKinds = map[string]bool{
 // KnowledgeManifest is the one tracked registry for non-work-note durable
 // knowledge. It contains metadata and proofs, never document bodies.
 type KnowledgeManifest struct {
-	SchemaVersion  string            `json:"schema_version"`
-	SupportedKinds []string          `json:"supported_kinds"`
-	IndexedKinds   []string          `json:"indexed_kinds"`
-	Records        []KnowledgeRecord `json:"records"`
+	SchemaVersion         string                  `json:"schema_version"`
+	SupportedKinds        []string                `json:"supported_kinds"`
+	IndexedKinds          []string                `json:"indexed_kinds"`
+	DomainRegistry        KnowledgeDomainRegistry `json:"domain_registry"`
+	Records               []KnowledgeRecord       `json:"records"`
+	domainRegistryPresent bool
+}
+
+type KnowledgeDomainRegistry struct {
+	SchemaVersion string            `json:"schema_version"`
+	ProductKey    string            `json:"product_key"`
+	RootDomainID  string            `json:"root_domain_id"`
+	Domains       []KnowledgeDomain `json:"domains"`
+}
+
+type KnowledgeDomain struct {
+	DomainID              string                          `json:"domain_id"`
+	Name                  string                          `json:"name"`
+	Purpose               string                          `json:"purpose"`
+	ParentDomainID        string                          `json:"parent_domain_id,omitempty"`
+	Status                string                          `json:"status"`
+	ArchitectureRelations []KnowledgeArchitectureRelation `json:"architecture_relations"`
+	parentDomainPresent   bool
+}
+
+type KnowledgeArchitectureRelation struct {
+	Kind                 string   `json:"kind"`
+	TargetDomainID       string   `json:"target_domain_id"`
+	GoverningLawIDs      []string `json:"governing_law_ids,omitempty"`
+	State                string   `json:"state,omitempty"`
+	governingLawsPresent bool
+	statePresent         bool
 }
 
 // KnowledgeRecord is a bounded declaration whose path and hash identify the
 // authoritative markdown blob at one commit.
 type KnowledgeRecord struct {
-	ID           string                `json:"id"`
-	Kind         string                `json:"kind"`
-	Path         string                `json:"path"`
-	Status       string                `json:"status"`
-	Date         string                `json:"date"`
-	Title        string                `json:"title"`
-	Summary      string                `json:"summary"`
-	Tags         []string              `json:"tags"`
-	Scopes       KnowledgeRecordScopes `json:"scopes"`
-	Successor    string                `json:"successor,omitempty"`
-	SHA256       string                `json:"sha256"`
-	LawRelations []KnowledgeRelation   `json:"law_relations,omitempty"`
+	ID                 string                `json:"id"`
+	Kind               string                `json:"kind"`
+	Path               string                `json:"path"`
+	Status             string                `json:"status"`
+	Date               string                `json:"date"`
+	Title              string                `json:"title"`
+	Summary            string                `json:"summary"`
+	Tags               []string              `json:"tags"`
+	Scopes             KnowledgeRecordScopes `json:"scopes"`
+	Successor          string                `json:"successor,omitempty"`
+	SHA256             string                `json:"sha256"`
+	LawRelations       []KnowledgeRelation   `json:"law_relations,omitempty"`
+	HomeDomainID       string                `json:"home_domain_id,omitempty"`
+	AppliesToDomainIDs []string              `json:"applies_to_domain_ids,omitempty"`
 	// Evidence names implementation paths (scenarios, tests, code) that
 	// carry this record's guidance. The offline validator fails when an
 	// evidence path no longer exists — the structural law/implementation
 	// drift audit (CD-0026).
-	Evidence []string `json:"evidence,omitempty"`
+	Evidence                []string `json:"evidence,omitempty"`
+	homeDomainPresent       bool
+	appliesToDomainsPresent bool
 }
 
 // KnowledgeRelation is authored in the Git knowledge manifest. It is never a
@@ -82,11 +116,174 @@ type KnowledgeRelation struct {
 }
 
 type KnowledgeRecordScopes struct {
-	Mode         string   `json:"mode"`
-	ProductIDs   []string `json:"product_ids"`
-	ProjectIDs   []string `json:"project_ids"`
-	ComponentIDs []string `json:"component_ids"`
-	TagIDs       []string `json:"tag_ids"`
+	Mode                string   `json:"mode"`
+	ProductIDs          []string `json:"product_ids"`
+	ProjectIDs          []string `json:"project_ids"`
+	ComponentIDs        []string `json:"component_ids"`
+	DomainIDs           []string `json:"domain_ids,omitempty"`
+	TagIDs              []string `json:"tag_ids"`
+	componentIDsPresent bool
+	domainIDsPresent    bool
+}
+
+func (scopes *KnowledgeRecordScopes) UnmarshalJSON(data []byte) error {
+	type scopesAlias KnowledgeRecordScopes
+	var parsed scopesAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	*scopes = KnowledgeRecordScopes(parsed)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, scopes.componentIDsPresent = fields["component_ids"]
+	_, scopes.domainIDsPresent = fields["domain_ids"]
+	return nil
+}
+
+func (scopes KnowledgeRecordScopes) MarshalJSON() ([]byte, error) {
+	type scopeJSON struct {
+		Mode         string    `json:"mode"`
+		ProductIDs   []string  `json:"product_ids"`
+		ProjectIDs   []string  `json:"project_ids"`
+		ComponentIDs *[]string `json:"component_ids,omitempty"`
+		DomainIDs    *[]string `json:"domain_ids,omitempty"`
+		TagIDs       []string  `json:"tag_ids"`
+	}
+	encoded := scopeJSON{
+		Mode: scopes.Mode, ProductIDs: scopes.ProductIDs, ProjectIDs: scopes.ProjectIDs, TagIDs: scopes.TagIDs,
+	}
+	if scopes.componentIDsPresent || scopes.ComponentIDs != nil {
+		componentIDs := scopes.ComponentIDs
+		encoded.ComponentIDs = &componentIDs
+	}
+	if scopes.domainIDsPresent || scopes.DomainIDs != nil {
+		domainIDs := scopes.DomainIDs
+		encoded.DomainIDs = &domainIDs
+	}
+	return json.Marshal(encoded)
+}
+
+func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
+	type manifestAlias KnowledgeManifest
+	var parsed manifestAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("manifest contains trailing JSON values")
+	}
+	*manifest = KnowledgeManifest(parsed)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, manifest.domainRegistryPresent = fields["domain_registry"]
+	return nil
+}
+
+func (domain *KnowledgeDomain) UnmarshalJSON(data []byte) error {
+	type domainAlias KnowledgeDomain
+	var parsed domainAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	*domain = KnowledgeDomain(parsed)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["parent_domain_id"]; ok {
+		if string(raw) == "null" {
+			return fmt.Errorf("parent_domain_id cannot be null")
+		}
+		domain.parentDomainPresent = true
+	}
+	return nil
+}
+
+func (relation *KnowledgeArchitectureRelation) UnmarshalJSON(data []byte) error {
+	type relationAlias KnowledgeArchitectureRelation
+	var parsed relationAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	*relation = KnowledgeArchitectureRelation(parsed)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["governing_law_ids"]; ok {
+		if string(raw) == "null" {
+			return fmt.Errorf("governing_law_ids cannot be null")
+		}
+		relation.governingLawsPresent = true
+	}
+	if raw, ok := fields["state"]; ok {
+		if string(raw) == "null" {
+			return fmt.Errorf("state cannot be null")
+		}
+		relation.statePresent = true
+	}
+	return nil
+}
+
+func (record *KnowledgeRecord) UnmarshalJSON(data []byte) error {
+	type recordAlias KnowledgeRecord
+	var parsed recordAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	*record = KnowledgeRecord(parsed)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["home_domain_id"]; ok {
+		if string(raw) == "null" {
+			return fmt.Errorf("home_domain_id cannot be null")
+		}
+		record.homeDomainPresent = true
+	}
+	if raw, ok := fields["applies_to_domain_ids"]; ok {
+		if string(raw) == "null" {
+			return fmt.Errorf("applies_to_domain_ids cannot be null")
+		}
+		record.appliesToDomainsPresent = true
+	}
+	return nil
+}
+
+func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
+	type manifestJSON struct {
+		SchemaVersion  string                   `json:"schema_version"`
+		SupportedKinds []string                 `json:"supported_kinds"`
+		IndexedKinds   []string                 `json:"indexed_kinds"`
+		DomainRegistry *KnowledgeDomainRegistry `json:"domain_registry,omitempty"`
+		Records        []KnowledgeRecord        `json:"records"`
+	}
+	var registry *KnowledgeDomainRegistry
+	if manifest.SchemaVersion == "1.2" || manifest.domainRegistryPresent {
+		copy := manifest.DomainRegistry
+		registry = &copy
+	}
+	return json.Marshal(manifestJSON{SchemaVersion: manifest.SchemaVersion, SupportedKinds: manifest.SupportedKinds, IndexedKinds: manifest.IndexedKinds, DomainRegistry: registry, Records: manifest.Records})
+}
+
+func knowledgeDomainRegistryZero(registry KnowledgeDomainRegistry) bool {
+	return registry.SchemaVersion == "" && registry.ProductKey == "" && registry.RootDomainID == "" && registry.Domains == nil
 }
 
 func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
@@ -113,8 +310,19 @@ func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
 }
 
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
-	if (manifest.SchemaVersion != "1.0" && manifest.SchemaVersion != "1.1") || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
+	if (manifest.SchemaVersion != "1.0" && manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict v1 root fields")
+	}
+	hasRegistry := manifest.domainRegistryPresent || !knowledgeDomainRegistryZero(manifest.DomainRegistry)
+	if manifest.SchemaVersion == "1.2" {
+		if !hasRegistry {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
+		}
+		if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
+			return err
+		}
+	} else if hasRegistry {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry requires schema version 1.2", false, "remove domain_registry from a 1.0 or 1.1 manifest")
 	}
 	supported, err := validateManifestKindList(manifest.SupportedKinds, "supported_kinds")
 	if err != nil {
@@ -138,7 +346,10 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 	ids := map[string]bool{}
 	paths := map[string]bool{}
 	for _, record := range manifest.Records {
-		if err := validateKnowledgeRecord(record, supported, indexed); err != nil {
+		if err := validateKnowledgeRecordForSchema(record, supported, indexed, manifest.SchemaVersion); err != nil {
+			return err
+		}
+		if err := validateManifestLawHome(record, manifest.SchemaVersion, manifest.DomainRegistry); err != nil {
 			return err
 		}
 		if ids[record.ID] {
@@ -155,7 +366,319 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 	if err := validateManifestRelations(manifest); err != nil {
 		return err
 	}
+	if manifest.SchemaVersion == "1.2" {
+		if err := validateKnowledgeDomainLawReferences(manifest.DomainRegistry, manifest.Records); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateKnowledgeDomainRegistry(registry KnowledgeDomainRegistry) error {
+	if registry.SchemaVersion != "1.0" || !validProductKey(registry.ProductKey) || registry.RootDomainID != "product-root:"+registry.ProductKey || registry.Domains == nil || len(registry.Domains) > maxManifestDomains {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry root is invalid", false, "publish schema 1.0 registry metadata and a bounded domain array")
+	}
+	byID := make(map[string]KnowledgeDomain, len(registry.Domains))
+	parentGraph := map[string][]string{}
+	dependsGraph := map[string][]string{}
+	replacesGraph := map[string][]string{}
+	relationKeys := map[string]bool{}
+	rootFound := false
+	for _, domain := range registry.Domains {
+		if !validManifestID(domain.DomainID) || domain.Name == "" || utf8.RuneCountInString(domain.Name) > maxManifestTitle || strings.TrimSpace(domain.Name) != domain.Name || domain.Purpose == "" || utf8.RuneCountInString(domain.Purpose) > maxManifestSummary || strings.TrimSpace(domain.Purpose) != domain.Purpose || (domain.Status != "current" && domain.Status != "deprecated") || domain.ArchitectureRelations == nil || len(domain.ArchitectureRelations) > maxManifestRelations {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain record is invalid", false, "publish bounded domain metadata and architecture relations")
+		}
+		if _, exists := byID[domain.DomainID]; exists {
+			return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "domain registry contains duplicate domain IDs", false, "declare each domain once")
+		}
+		byID[domain.DomainID] = domain
+		if domain.DomainID == registry.RootDomainID {
+			rootFound = true
+			if domain.Status != "current" || domain.parentDomainPresent || domain.ParentDomainID != "" {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry root must be current and parentless", false, "make the product root a current parentless domain")
+			}
+		}
+		if domain.ParentDomainID != "" || domain.parentDomainPresent {
+			if !validManifestID(domain.ParentDomainID) || domain.ParentDomainID == domain.DomainID {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain parent is invalid or self-referential", false, "reference a distinct domain in the same registry")
+			}
+			parentGraph[domain.DomainID] = append(parentGraph[domain.DomainID], domain.ParentDomainID)
+		}
+		for _, relation := range domain.ArchitectureRelations {
+			if !validManifestID(relation.TargetDomainID) || relation.TargetDomainID == domain.DomainID {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation target is invalid or self-referential", false, "reference a distinct domain in the same registry")
+			}
+			if relation.Kind != "depends_on" && relation.Kind != "shares_contract_with" && relation.Kind != "replaces" {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation kind is not closed", false, "use depends_on, shares_contract_with, or replaces")
+			}
+			if relation.Kind != "replaces" && (relation.State != "" || relation.statePresent) {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation state is only valid for replaces", false, "omit state except on replacement relations")
+			}
+			key := relation.Kind + "\x00" + domain.DomainID + "\x00" + relation.TargetDomainID
+			switch relation.Kind {
+			case "depends_on":
+				if len(relation.GoverningLawIDs) == 0 {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "depends_on requires non-empty governing law IDs", false, "name current accepted laws governing the dependency")
+				}
+				dependsGraph[domain.DomainID] = append(dependsGraph[domain.DomainID], relation.TargetDomainID)
+			case "shares_contract_with":
+				if relation.TargetDomainID < domain.DomainID {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "shares_contract_with must use its canonical ordered pair", false, "author the lower domain ID as the relation source")
+				}
+				if len(relation.GoverningLawIDs) == 0 {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "shares_contract_with requires non-empty governing law IDs", false, "name current accepted laws governing the shared contract")
+				}
+				key = relation.Kind + "\x00" + domain.DomainID + "\x00" + relation.TargetDomainID
+			case "replaces":
+				if relation.governingLawsPresent || relation.GoverningLawIDs != nil {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "replaces cannot carry governing law IDs", false, "omit governing_law_ids from replacement relations")
+				}
+				if !relation.statePresent && relation.State == "" || relation.State != "declared" && relation.State != "building" && relation.State != "coexisting" && relation.State != "cutover" && relation.State != "retired" {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "replaces requires a closed state", false, "declare the replacement lifecycle state")
+				}
+				replacesGraph[domain.DomainID] = append(replacesGraph[domain.DomainID], relation.TargetDomainID)
+			}
+			if relationKeys[key] {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation is duplicated, including reverse shares_contract_with", false, "declare each architecture relation once")
+			}
+			relationKeys[key] = true
+			if err := validateOptionalManifestIDs(relation.GoverningLawIDs, "governing_law_ids"); err != nil {
+				return err
+			}
+		}
+	}
+	if !rootFound {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry root domain is not declared", false, "declare the current parentless root domain")
+	}
+	for _, domain := range registry.Domains {
+		if domain.ParentDomainID != "" || domain.parentDomainPresent {
+			if _, ok := byID[domain.ParentDomainID]; !ok {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain parent is dangling", false, "reference a domain declared in this registry")
+			}
+		}
+		for _, relation := range domain.ArchitectureRelations {
+			target, ok := byID[relation.TargetDomainID]
+			if !ok {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation target is dangling", false, "reference a domain declared in this registry")
+			}
+			if relation.Kind == "depends_on" && target.Status != "current" {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "depends_on target must be current", false, "reference a current domain in dependency relations")
+			}
+		}
+	}
+	if relationGraphHasCycle(parentGraph) || relationGraphHasCycle(dependsGraph) || relationGraphHasCycle(replacesGraph) {
+		return newFailure(KindCycleDetected, "parse_knowledge_manifest", "domain architecture graph contains a cycle", false, "remove cycles from hierarchy, dependency, or replacement relations")
+	}
+	return nil
+}
+
+func validProductKey(value string) bool {
+	if len(value) < 2 || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, char := range value[1:] {
+		if char != '-' && (char < 'a' || char > 'z') && (char < '0' || char > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// MigrateLegacyKnowledgeManifest converts one validated component-scoped
+// manifest into the Domain-only 1.2 form. Additional IDs let the operator include
+// components found in historical notes or other bounded compatibility sources.
+// The caller retains ownership of the input manifest and all of its slices.
+func MigrateLegacyKnowledgeManifest(manifest KnowledgeManifest, productKey string, additionalComponentIDs ...string) (KnowledgeManifest, error) {
+	if !validProductKey(productKey) {
+		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "migrate_legacy_knowledge_manifest", "product key is invalid", false, "supply a lowercase product key with letters, digits, or hyphens")
+	}
+	if manifest.SchemaVersion != "1.0" && manifest.SchemaVersion != "1.1" {
+		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "migrate_legacy_knowledge_manifest", "only valid schema 1.0 or 1.1 manifests can be migrated", false, "supply a legacy component-scoped manifest")
+	}
+	if err := validateKnowledgeManifest(manifest); err != nil {
+		return KnowledgeManifest{}, err
+	}
+
+	rootID := "product-root:" + productKey
+	componentIDs := map[string]bool{}
+	for _, componentID := range additionalComponentIDs {
+		if !validManifestID(componentID) {
+			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "migrate_legacy_knowledge_manifest", "additional legacy component ID is invalid", false, "supply bounded clean component IDs from compatibility sources")
+		}
+		if componentID == rootID {
+			return KnowledgeManifest{}, newFailure(KindKnowledgeAmbiguous, "migrate_legacy_knowledge_manifest", "legacy component ID collides with the derived product root", false, "rename the legacy component before migration or choose its actual product key")
+		}
+		componentIDs[componentID] = true
+	}
+	for _, record := range manifest.Records {
+		for _, componentID := range record.Scopes.ComponentIDs {
+			if componentID == rootID {
+				return KnowledgeManifest{}, newFailure(KindKnowledgeAmbiguous, "migrate_legacy_knowledge_manifest", "legacy component ID collides with the derived product root", false, "rename the legacy component before migration or choose its actual product key")
+			}
+			componentIDs[componentID] = true
+		}
+	}
+	components := make([]string, 0, len(componentIDs))
+	for componentID := range componentIDs {
+		components = append(components, componentID)
+	}
+	sort.Strings(components)
+
+	migrated := KnowledgeManifest{
+		SchemaVersion:  "1.2",
+		SupportedKinds: append([]string{}, manifest.SupportedKinds...),
+		IndexedKinds:   append([]string{}, manifest.IndexedKinds...),
+		DomainRegistry: KnowledgeDomainRegistry{
+			SchemaVersion: "1.0",
+			ProductKey:    productKey,
+			RootDomainID:  rootID,
+			Domains: []KnowledgeDomain{{
+				DomainID: rootID, Name: "Product root", Purpose: "Product-wide law and architecture", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{},
+			}},
+		},
+		Records: make([]KnowledgeRecord, len(manifest.Records)),
+	}
+	for _, componentID := range components {
+		migrated.DomainRegistry.Domains = append(migrated.DomainRegistry.Domains, KnowledgeDomain{
+			DomainID: componentID, Name: componentID, Purpose: "Migrated legacy component domain", ParentDomainID: rootID, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{},
+		})
+	}
+	for index, source := range manifest.Records {
+		record := source
+		record.Tags = append([]string{}, source.Tags...)
+		record.Evidence = append([]string{}, source.Evidence...)
+		record.LawRelations = append([]KnowledgeRelation{}, source.LawRelations...)
+		record.Scopes.ProductIDs = append([]string{}, source.Scopes.ProductIDs...)
+		record.Scopes.ProjectIDs = append([]string{}, source.Scopes.ProjectIDs...)
+		record.Scopes.TagIDs = append([]string{}, source.Scopes.TagIDs...)
+		record.Scopes.ComponentIDs = nil
+		record.Scopes.componentIDsPresent = false
+		record.Scopes.DomainIDs = append([]string{}, source.Scopes.ComponentIDs...)
+		sort.Strings(record.Scopes.DomainIDs)
+		record.Scopes.domainIDsPresent = true
+		if record.Kind == "decision" || record.Kind == "spec" {
+			switch len(record.Scopes.DomainIDs) {
+			case 0:
+				record.HomeDomainID = rootID
+				record.AppliesToDomainIDs = []string{}
+			case 1:
+				record.HomeDomainID = record.Scopes.DomainIDs[0]
+				record.AppliesToDomainIDs = []string{}
+			default:
+				record.HomeDomainID = rootID
+				record.AppliesToDomainIDs = append([]string{}, record.Scopes.DomainIDs...)
+			}
+			record.homeDomainPresent = true
+			record.appliesToDomainsPresent = true
+		} else {
+			record.HomeDomainID = ""
+			record.AppliesToDomainIDs = nil
+			record.homeDomainPresent = false
+			record.appliesToDomainsPresent = false
+		}
+		migrated.Records[index] = record
+	}
+	if err := validateKnowledgeManifest(migrated); err != nil {
+		return KnowledgeManifest{}, err
+	}
+	return migrated, nil
+}
+
+func validManifestID(value string) bool {
+	return value != "" && utf8.RuneCountInString(value) <= maxManifestID && strings.TrimSpace(value) == value
+}
+
+func validateOptionalManifestIDs(values []string, field string) error {
+	if values == nil {
+		return nil
+	}
+	return validateManifestStringArray(values, field)
+}
+
+func validateKnowledgeDomainLawReferences(registry KnowledgeDomainRegistry, records []KnowledgeRecord) error {
+	domainIDs := make(map[string]bool, len(registry.Domains))
+	for _, domain := range registry.Domains {
+		domainIDs[domain.DomainID] = true
+	}
+	acceptedLaws := map[string]bool{}
+	for _, record := range records {
+		if (record.Kind == "decision" || record.Kind == "spec") && record.Status == "accepted" {
+			acceptedLaws[record.ID] = true
+		}
+	}
+	for _, domain := range registry.Domains {
+		for _, relation := range domain.ArchitectureRelations {
+			if relation.Kind != "depends_on" && relation.Kind != "shares_contract_with" {
+				continue
+			}
+			for _, lawID := range relation.GoverningLawIDs {
+				if !acceptedLaws[lawID] {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation governing law is not a current accepted law", false, "reference an accepted decision or spec in the same manifest")
+				}
+			}
+		}
+	}
+	for _, record := range records {
+		for _, domainID := range record.Scopes.DomainIDs {
+			if !domainIDs[domainID] {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "knowledge scope domain is dangling", false, "reference a domain declared in the registry")
+			}
+		}
+		for _, domainID := range record.AppliesToDomainIDs {
+			if !domainIDs[domainID] {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law applies_to domain is dangling", false, "reference a domain declared in the registry")
+			}
+		}
+	}
+	return nil
+}
+
+func validateManifestLawHome(record KnowledgeRecord, schemaVersion string, registry KnowledgeDomainRegistry) error {
+	if schemaVersion != "1.2" {
+		if record.HomeDomainID != "" || record.AppliesToDomainIDs != nil || record.homeDomainPresent || record.appliesToDomainsPresent {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law-home fields require schema version 1.2", false, "remove domain law-home fields from a 1.0 or 1.1 manifest")
+		}
+		return nil
+	}
+	if record.Kind == "lesson" {
+		if record.HomeDomainID != "" || len(record.AppliesToDomainIDs) > 0 || record.homeDomainPresent || record.appliesToDomainsPresent {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "lessons cannot author domain law-home fields", false, "keep domain law-home fields on decisions and specs only")
+		}
+		return nil
+	}
+	hasHome := record.homeDomainPresent || record.HomeDomainID != ""
+	if record.Status == "accepted" && !hasHome {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "accepted decision/spec requires exactly one home domain", false, "author one home_domain_id")
+	}
+	if hasHome && !validManifestID(record.HomeDomainID) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law home domain is invalid", false, "reference one clean domain ID")
+	}
+	if hasHome && !domainRegistryHas(registry, record.HomeDomainID) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law home domain is dangling", false, "reference a domain declared in the registry")
+	}
+	if record.AppliesToDomainIDs != nil || record.appliesToDomainsPresent {
+		if !hasHome {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law applicability requires an authored home domain", false, "author home_domain_id before applies_to_domain_ids")
+		}
+		if err := validateManifestStringArray(record.AppliesToDomainIDs, "applies_to_domain_ids"); err != nil {
+			return err
+		}
+		for _, domainID := range record.AppliesToDomainIDs {
+			if domainID == record.HomeDomainID {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law applies_to domains repeat the home domain", false, "omit the home domain from applies_to_domain_ids")
+			}
+		}
+	}
+	return nil
+}
+
+func domainRegistryHas(registry KnowledgeDomainRegistry, id string) bool {
+	for _, domain := range registry.Domains {
+		if domain.DomainID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func validateManifestRelations(manifest KnowledgeManifest) error {
@@ -169,8 +692,8 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 		if len(record.LawRelations) == 0 {
 			continue
 		}
-		if manifest.SchemaVersion != "1.1" || record.Kind == "lesson" || !manifestRecordKinds[record.Kind] {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on 1.1 decision/spec records", false, "publish authored relations on a schema 1.1 decision or spec")
+		if (manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || record.Kind == "lesson" || !manifestRecordKinds[record.Kind] {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on 1.1 or 1.2 decision/spec records", false, "publish authored relations on a schema 1.1 or 1.2 decision or spec")
 		}
 		for _, relation := range record.LawRelations {
 			if !lawRelationKinds[relation.Kind] || relation.TargetID == "" || relation.TargetID == record.ID {
@@ -204,7 +727,7 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 		}
 	}
 	for _, record := range manifest.Records {
-		if manifest.SchemaVersion != "1.1" || record.Successor == "" {
+		if (manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || record.Successor == "" {
 			continue
 		}
 		found := false
@@ -303,6 +826,10 @@ func validateManifestKindList(values []string, field string) (map[string]bool, e
 }
 
 func validateKnowledgeRecord(record KnowledgeRecord, supported, indexed map[string]bool) error {
+	return validateKnowledgeRecordForSchema(record, supported, indexed, "1.0")
+}
+
+func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string) error {
 	if len(record.Evidence) > 32 {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many evidence paths", false, "supply at most thirty-two evidence paths")
 	}
@@ -353,7 +880,7 @@ func validateKnowledgeRecord(record KnowledgeRecord, supported, indexed map[stri
 	if err := validateManifestStringArray(record.Tags, "tags"); err != nil {
 		return err
 	}
-	if err := validateManifestScopes(record.Scopes); err != nil {
+	if err := validateManifestScopesForSchema(record.Scopes, schemaVersion); err != nil {
 		return err
 	}
 	if err := validateContentHash(record.SHA256); err != nil {
@@ -395,15 +922,32 @@ func validateManifestPath(value string) error {
 }
 
 func validateManifestScopes(scopes KnowledgeRecordScopes) error {
-	if scopes.Mode != "home" && scopes.Mode != "explicit" || scopes.ProductIDs == nil || scopes.ProjectIDs == nil || scopes.ComponentIDs == nil || scopes.TagIDs == nil {
+	return validateManifestScopesForSchema(scopes, "1.0")
+}
+
+func validateManifestScopesForSchema(scopes KnowledgeRecordScopes, schemaVersion string) error {
+	if scopes.Mode != "home" && scopes.Mode != "explicit" || scopes.ProductIDs == nil || scopes.ProjectIDs == nil || scopes.TagIDs == nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "scope mode is not closed", false, "use home or explicit scope mode")
 	}
-	for name, values := range map[string][]string{"product_ids": scopes.ProductIDs, "project_ids": scopes.ProjectIDs, "component_ids": scopes.ComponentIDs, "tag_ids": scopes.TagIDs} {
+	if schemaVersion == "1.2" {
+		if scopes.DomainIDs == nil || scopes.ComponentIDs != nil || scopes.componentIDsPresent {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 scopes require domain_ids and forbid component_ids", false, "use domain_ids in a schema 1.2 scope")
+		}
+	} else if scopes.ComponentIDs == nil || scopes.DomainIDs != nil || scopes.domainIDsPresent {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.0 or 1.1 scopes require component_ids and forbid domain_ids", false, "use component_ids in a compatibility scope")
+	}
+	valuesByName := map[string][]string{"product_ids": scopes.ProductIDs, "project_ids": scopes.ProjectIDs, "tag_ids": scopes.TagIDs}
+	if schemaVersion == "1.2" {
+		valuesByName["domain_ids"] = scopes.DomainIDs
+	} else {
+		valuesByName["component_ids"] = scopes.ComponentIDs
+	}
+	for name, values := range valuesByName {
 		if err := validateManifestStringArray(values, name); err != nil {
 			return err
 		}
 	}
-	if scopes.Mode == "home" && (len(scopes.ProductIDs) > 0 || len(scopes.ProjectIDs) > 0 || len(scopes.ComponentIDs) > 0 || len(scopes.TagIDs) > 0) {
+	if scopes.Mode == "home" && (len(scopes.ProductIDs) > 0 || len(scopes.ProjectIDs) > 0 || len(scopes.ComponentIDs) > 0 || len(scopes.DomainIDs) > 0 || len(scopes.TagIDs) > 0) {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "home scope cannot carry explicit scope IDs", false, "choose explicit mode for declared scope IDs")
 	}
 	return nil
@@ -421,6 +965,44 @@ func validateManifestStringArray(values []string, field string) error {
 		seen[value] = true
 	}
 	return nil
+}
+
+func domainRegistryContentHash(registry KnowledgeDomainRegistry) string {
+	normalized := KnowledgeDomainRegistry{
+		SchemaVersion: registry.SchemaVersion,
+		ProductKey:    registry.ProductKey,
+		RootDomainID:  registry.RootDomainID,
+		Domains:       make([]KnowledgeDomain, len(registry.Domains)),
+	}
+	for index, domain := range registry.Domains {
+		normalized.Domains[index] = domain
+		normalized.Domains[index].ArchitectureRelations = make([]KnowledgeArchitectureRelation, len(domain.ArchitectureRelations))
+		for relationIndex, relation := range domain.ArchitectureRelations {
+			normalizedRelation := relation
+			normalizedRelation.GoverningLawIDs = append([]string(nil), relation.GoverningLawIDs...)
+			sort.Strings(normalizedRelation.GoverningLawIDs)
+			normalized.Domains[index].ArchitectureRelations[relationIndex] = normalizedRelation
+		}
+		sort.Slice(normalized.Domains[index].ArchitectureRelations, func(left, right int) bool {
+			a, b := normalized.Domains[index].ArchitectureRelations[left], normalized.Domains[index].ArchitectureRelations[right]
+			if a.Kind != b.Kind {
+				return a.Kind < b.Kind
+			}
+			if a.TargetDomainID != b.TargetDomainID {
+				return a.TargetDomainID < b.TargetDomainID
+			}
+			return a.State < b.State
+		})
+	}
+	sort.Slice(normalized.Domains, func(left, right int) bool {
+		return normalized.Domains[left].DomainID < normalized.Domains[right].DomainID
+	})
+	canonical, err := json.Marshal(normalized)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeManifest, bool, error) {
@@ -490,13 +1072,17 @@ func sameKnowledgeRecord(a, b KnowledgeRecord) bool {
 		record.Scopes.ProductIDs = append([]string{}, record.Scopes.ProductIDs...)
 		record.Scopes.ProjectIDs = append([]string{}, record.Scopes.ProjectIDs...)
 		record.Scopes.ComponentIDs = append([]string{}, record.Scopes.ComponentIDs...)
+		record.Scopes.DomainIDs = append([]string{}, record.Scopes.DomainIDs...)
 		record.Scopes.TagIDs = append([]string{}, record.Scopes.TagIDs...)
+		record.AppliesToDomainIDs = append([]string{}, record.AppliesToDomainIDs...)
 		record.LawRelations = append([]KnowledgeRelation{}, record.LawRelations...)
 		sort.Strings(record.Tags)
 		sort.Strings(record.Scopes.ProductIDs)
 		sort.Strings(record.Scopes.ProjectIDs)
 		sort.Strings(record.Scopes.ComponentIDs)
+		sort.Strings(record.Scopes.DomainIDs)
 		sort.Strings(record.Scopes.TagIDs)
+		sort.Strings(record.AppliesToDomainIDs)
 		sort.Slice(record.LawRelations, func(i, j int) bool {
 			if record.LawRelations[i].Kind == record.LawRelations[j].Kind {
 				return record.LawRelations[i].TargetID < record.LawRelations[j].TargetID

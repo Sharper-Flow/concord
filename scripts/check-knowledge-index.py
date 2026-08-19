@@ -16,9 +16,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
-ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "records"}
-ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence"}
-ALLOWED_SCOPES = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
+ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "records"}
+ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids"}
+ALLOWED_SCOPES_V10 = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
+ALLOWED_SCOPES_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
+ALLOWED_DOMAIN_REGISTRY = {"schema_version", "product_key", "root_domain_id", "domains"}
+ALLOWED_DOMAIN = {"domain_id", "name", "purpose", "parent_domain_id", "status", "architecture_relations"}
+ALLOWED_ARCHITECTURE_RELATION = {"kind", "target_domain_id", "governing_law_ids", "state"}
 KINDS = {"work_note", "lesson", "decision", "spec", "research"}
 RECORD_KINDS = {"lesson", "decision", "spec"}
 LAW_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with"}
@@ -59,6 +63,123 @@ def valid_id(value: object) -> bool:
     return isinstance(value, str) and 0 < len(value) <= 256 and value == value.strip()
 
 
+def validate_domain_registry(registry: object, findings: list[str]) -> set[str]:
+    if not isinstance(registry, dict) or set(registry) != ALLOWED_DOMAIN_REGISTRY:
+        fail(findings, "manifest.domain_registry: invalid closed root")
+        return set()
+    if registry.get("schema_version") != "1.0":
+        fail(findings, "manifest.domain_registry: schema_version must be 1.0")
+    product_key = registry.get("product_key")
+    if not isinstance(product_key, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", product_key):
+        fail(findings, "manifest.domain_registry: product_key is not a clean slug")
+    if registry.get("root_domain_id") != f"product-root:{product_key}":
+        fail(findings, "manifest.domain_registry: root_domain_id does not match product_key")
+    domains = registry.get("domains")
+    if not isinstance(domains, list) or len(domains) > 64:
+        fail(findings, "manifest.domain_registry: domains must be a bounded non-null array")
+        return set()
+    by_id: dict[str, dict[str, object]] = {}
+    parent_graph: dict[str, list[str]] = {}
+    depends_graph: dict[str, list[str]] = {}
+    replaces_graph: dict[str, list[str]] = {}
+    relation_keys: set[tuple[str, str, str]] = set()
+    for number, domain in enumerate(domains):
+        prefix = f"manifest.domain_registry.domains[{number}]"
+        if not isinstance(domain, dict) or set(domain) - ALLOWED_DOMAIN:
+            fail(findings, f"{prefix}: unknown fields or non-object domain")
+            continue
+        missing = {"domain_id", "name", "purpose", "status", "architecture_relations"} - set(domain)
+        if missing:
+            fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
+            continue
+        if not valid_id(domain.get("domain_id")) or not isinstance(domain.get("name"), str) or not 0 < len(domain["name"]) <= 256 or domain["name"] != domain["name"].strip() or not isinstance(domain.get("purpose"), str) or not 0 < len(domain["purpose"]) <= 4096 or domain["purpose"] != domain["purpose"].strip() or domain.get("status") not in {"current", "deprecated"}:
+            fail(findings, f"{prefix}: invalid domain metadata")
+        if domain.get("domain_id") in by_id:
+            fail(findings, f"{prefix}: duplicate domain_id")
+        else:
+            by_id[domain.get("domain_id")] = domain
+        if "parent_domain_id" in domain:
+            parent = domain.get("parent_domain_id")
+            if not valid_id(parent) or parent == domain.get("domain_id"):
+                fail(findings, f"{prefix}: invalid or self-referential parent_domain_id")
+            parent_graph.setdefault(domain.get("domain_id"), []).append(parent)
+        relations = domain.get("architecture_relations")
+        if not isinstance(relations, list) or len(relations) > 64:
+            fail(findings, f"{prefix}: architecture_relations must be a bounded non-null array")
+            continue
+        for relation_number, relation in enumerate(relations):
+            relation_prefix = f"{prefix}.architecture_relations[{relation_number}]"
+            if not isinstance(relation, dict) or set(relation) - ALLOWED_ARCHITECTURE_RELATION or not {"kind", "target_domain_id"}.issubset(relation):
+                fail(findings, f"{relation_prefix}: invalid closed relation")
+                continue
+            kind = relation["kind"]
+            target = relation["target_domain_id"]
+            if kind not in {"depends_on", "shares_contract_with", "replaces"} or not valid_id(target) or target == domain.get("domain_id"):
+                fail(findings, f"{relation_prefix}: invalid kind, target, or self-edge")
+                continue
+            if kind in {"depends_on", "shares_contract_with"}:
+                laws = relation.get("governing_law_ids")
+                if not unique_string_list(laws, 64) or not laws:
+                    fail(findings, f"{relation_prefix}: relation requires non-empty unique governing_law_ids")
+                if "state" in relation:
+                    fail(findings, f"{relation_prefix}: state is only valid for replaces")
+            else:
+                if "governing_law_ids" in relation:
+                    fail(findings, f"{relation_prefix}: replaces forbids governing_law_ids")
+                if relation.get("state") not in {"declared", "building", "coexisting", "cutover", "retired"}:
+                    fail(findings, f"{relation_prefix}: replaces requires a closed state")
+            if kind == "shares_contract_with" and target < domain.get("domain_id"):
+                fail(findings, f"{relation_prefix}: shares_contract_with pair is not canonical")
+            key = (kind, domain.get("domain_id"), target)
+            if key in relation_keys:
+                fail(findings, f"{relation_prefix}: duplicate architecture relation")
+            relation_keys.add(key)
+            if kind == "depends_on":
+                depends_graph.setdefault(domain.get("domain_id"), []).append(target)
+            elif kind == "replaces":
+                replaces_graph.setdefault(domain.get("domain_id"), []).append(target)
+    root = registry.get("root_domain_id")
+    if root not in by_id:
+        fail(findings, "manifest.domain_registry: root domain is not declared")
+    else:
+        root_domain = by_id[root]
+        if root_domain.get("status") != "current" or "parent_domain_id" in root_domain:
+            fail(findings, "manifest.domain_registry: root domain must be current and parentless")
+    for domain_id, domain in by_id.items():
+        if "parent_domain_id" in domain and domain["parent_domain_id"] not in by_id:
+            fail(findings, f"manifest.domain_registry.domains[{domain_id}]: dangling parent_domain_id")
+        for relation in domain.get("architecture_relations", []):
+            if not isinstance(relation, dict):
+                continue
+            target_id = relation.get("target_domain_id")
+            if target_id not in by_id:
+                fail(findings, f"manifest.domain_registry.domains[{domain_id}]: dangling relation target")
+            elif relation.get("kind") == "depends_on" and by_id[target_id].get("status") != "current":
+                fail(findings, f"manifest.domain_registry.domains[{domain_id}]: depends_on target must be current")
+    if has_cycle(parent_graph) or has_cycle(depends_graph) or has_cycle(replaces_graph):
+        fail(findings, "manifest.domain_registry: hierarchy, dependency, or replacement relation contains a cycle")
+    return set(by_id)
+
+
+def has_cycle(graph: dict[str, list[str]]) -> bool:
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(node: str) -> bool:
+        if node in visiting:
+            return True
+        if node in visited:
+            return False
+        visiting.add(node)
+        if any(visit(child) for child in graph.get(node, [])):
+            return True
+        visiting.remove(node)
+        visited.add(node)
+        return False
+
+    return any(visit(node) for node in graph)
+
+
 def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     findings: list[str] = []
     if not isinstance(data, dict):
@@ -67,8 +188,8 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     if unknown:
         fail(findings, f"manifest: unknown fields: {sorted(unknown)}")
     schema_version = data.get("schema_version")
-    if schema_version not in {"1.0", "1.1"}:
-        fail(findings, "manifest: schema_version must be 1.0 or 1.1")
+    if schema_version not in {"1.0", "1.1", "1.2"}:
+        fail(findings, "manifest: schema_version must be 1.0, 1.1, or 1.2")
     supported = data.get("supported_kinds")
     indexed = data.get("indexed_kinds")
     records = data.get("records")
@@ -84,6 +205,17 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         fail(findings, "manifest: records must be a bounded array")
         records = []
 
+    registry = data.get("domain_registry")
+    if schema_version == "1.2":
+        if not isinstance(registry, dict):
+            fail(findings, "manifest: schema 1.2 requires a domain_registry object")
+            registry = {}
+        domain_ids = validate_domain_registry(registry, findings)
+    else:
+        if "domain_registry" in data:
+            fail(findings, "manifest: domain_registry requires schema_version 1.2")
+        domain_ids = set()
+
     ids: set[str] = set()
     paths: set[str] = set()
     for number, record in enumerate(records):
@@ -94,14 +226,14 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         unknown = set(record) - ALLOWED_RECORD
         if unknown:
             fail(findings, f"{prefix}: unknown fields: {sorted(unknown)}")
-        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence"}
+        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids"}
         missing = required - set(record)
         if missing:
             fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
             continue
 
-        if "law_relations" in record and schema_version != "1.1":
-            fail(findings, f"{prefix}: law_relations require schema_version 1.1")
+        if "law_relations" in record and schema_version not in {"1.1", "1.2"}:
+            fail(findings, f"{prefix}: law_relations require schema_version 1.1 or 1.2")
         relations = record.get("law_relations", [])
         if not isinstance(relations, list) or len(relations) > 32:
             fail(findings, f"{prefix}: law_relations must be a bounded array")
@@ -169,15 +301,36 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: invalid tags")
 
         scopes = record["scopes"]
-        if not isinstance(scopes, dict) or set(scopes) != ALLOWED_SCOPES or scopes.get("mode") not in {"home", "explicit"}:
+        allowed_scopes = ALLOWED_SCOPES_V12 if schema_version == "1.2" else ALLOWED_SCOPES_V10
+        if not isinstance(scopes, dict) or set(scopes) != allowed_scopes or scopes.get("mode") not in {"home", "explicit"}:
             fail(findings, f"{prefix}: invalid closed scopes")
         else:
-            for field in sorted(ALLOWED_SCOPES - {"mode"}):
+            for field in sorted(allowed_scopes - {"mode"}):
                 values = scopes[field]
                 if not unique_string_list(values, 64) or not all(valid_id(item) for item in values):
                     fail(findings, f"{prefix}: invalid {field}")
-            if scopes["mode"] == "home" and any(scopes[field] for field in ALLOWED_SCOPES - {"mode"}):
+            if scopes["mode"] == "home" and any(scopes[field] for field in allowed_scopes - {"mode"}):
                 fail(findings, f"{prefix}: home scopes cannot contain explicit IDs")
+            if schema_version == "1.2" and any(domain_id not in domain_ids for domain_id in scopes["domain_ids"]):
+                fail(findings, f"{prefix}: scope domain is dangling")
+
+        if schema_version != "1.2" and ("home_domain_id" in record or "applies_to_domain_ids" in record):
+            fail(findings, f"{prefix}: law-home fields require schema_version 1.2")
+        elif schema_version == "1.2":
+            if kind == "lesson" and ("home_domain_id" in record or "applies_to_domain_ids" in record):
+                fail(findings, f"{prefix}: lessons cannot author law-home fields")
+            if kind in {"decision", "spec"} and status == "accepted" and ("home_domain_id" not in record or not valid_id(record.get("home_domain_id"))):
+                fail(findings, f"{prefix}: accepted decision/spec requires one clean home_domain_id")
+            if "home_domain_id" in record and (not valid_id(record["home_domain_id"]) or record["home_domain_id"] not in domain_ids):
+                fail(findings, f"{prefix}: home domain is dangling or invalid")
+            if "applies_to_domain_ids" in record:
+                if "home_domain_id" not in record:
+                    fail(findings, f"{prefix}: applies_to_domain_ids requires home_domain_id")
+                values = record["applies_to_domain_ids"]
+                if not unique_string_list(values, 64) or not all(valid_id(item) and item in domain_ids for item in values):
+                    fail(findings, f"{prefix}: invalid or dangling applies_to_domain_ids")
+                if "home_domain_id" in record and record["home_domain_id"] in values:
+                    fail(findings, f"{prefix}: applies_to_domain_ids repeats home_domain_id")
 
         if not isinstance(record["sha256"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", record["sha256"]):
             fail(findings, f"{prefix}: invalid sha256 proof")
@@ -206,6 +359,21 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                 fail(findings, f"{prefix}: hash drift for {path}")
 
     by_id = {record.get("id"): record for record in records if isinstance(record, dict) and isinstance(record.get("id"), str)}
+    if schema_version == "1.2" and isinstance(registry, dict):
+        accepted_laws = {
+            record.get("id")
+            for record in records
+            if isinstance(record, dict) and record.get("kind") in {"decision", "spec"} and record.get("status") == "accepted"
+        }
+        for domain in registry.get("domains", []) if isinstance(registry.get("domains"), list) else []:
+            if not isinstance(domain, dict):
+                continue
+            for relation in domain.get("architecture_relations", []) if isinstance(domain.get("architecture_relations"), list) else []:
+                if not isinstance(relation, dict) or relation.get("kind") not in {"depends_on", "shares_contract_with"}:
+                    continue
+                for law_id in relation.get("governing_law_ids", []) if isinstance(relation.get("governing_law_ids"), list) else []:
+                    if law_id not in accepted_laws:
+                        fail(findings, "manifest.domain_registry: governing law must be a current accepted decision/spec")
     relation_keys: set[tuple[str, str, str]] = set()
     graph: dict[str, list[str]] = {}
     for number, record in enumerate(records):
@@ -234,7 +402,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                     fail(findings, f"{prefix}: supersedes relation disagrees with target successor")
             if kind in {"supersedes", "refines", "subordinate_to"}:
                 graph.setdefault(record.get("id"), []).append(relation.get("target_id"))
-    if schema_version == "1.1":
+    if schema_version in {"1.1", "1.2"}:
         for record in records:
             if not isinstance(record, dict) or not record.get("successor"):
                 continue

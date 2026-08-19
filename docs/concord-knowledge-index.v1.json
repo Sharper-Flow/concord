@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "supported_kinds": [
     "work_note",
     "decision",
@@ -13,6 +13,20 @@
     "spec",
     "lesson"
   ],
+  "domain_registry": {
+    "schema_version": "1.0",
+    "product_key": "concord",
+    "root_domain_id": "product-root:concord",
+    "domains": [
+      {
+        "domain_id": "product-root:concord",
+        "name": "Concord",
+        "purpose": "Product-wide Concord law and architecture",
+        "status": "current",
+        "architecture_relations": []
+      }
+    ]
+  },
   "records": [
     {
       "id": "CD-0002",
@@ -30,10 +44,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d2b0cad7b3d9205b7064c9c1e355f4b4754f3bebc7a47d55148bf09220572f7f"
+      "sha256": "sha256:d2b0cad7b3d9205b7064c9c1e355f4b4754f3bebc7a47d55148bf09220572f7f",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0003",
@@ -51,10 +66,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bb1315eb6cfff72fcceb4bde45a9ff3f193612346cb85134fd0c3c699a0a230b"
+      "sha256": "sha256:bb1315eb6cfff72fcceb4bde45a9ff3f193612346cb85134fd0c3c699a0a230b",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0005",
@@ -72,10 +88,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4a6c94584a38a757165af18bc72041b7684a1bd0780b698743edda97e7f38d98"
+      "sha256": "sha256:4a6c94584a38a757165af18bc72041b7684a1bd0780b698743edda97e7f38d98",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0006",
@@ -93,10 +110,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:9a20d1950cd868849a04fdcff0a5c5e51bcd415e52622408f7282ce99d9ee6f8"
+      "sha256": "sha256:9a20d1950cd868849a04fdcff0a5c5e51bcd415e52622408f7282ce99d9ee6f8",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0007",
@@ -114,10 +132,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:7571c7cc3f34fb86674746850989cd14765c75e7389298053f3837d6b91c4221"
+      "sha256": "sha256:7571c7cc3f34fb86674746850989cd14765c75e7389298053f3837d6b91c4221",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0008",
@@ -136,7 +155,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:24758757586b904377718a5ad7030f6e43e1ff96f1af18dfd3d8aaabb08b69fa",
@@ -144,7 +163,8 @@
         "internal/store/worktrees.go",
         "internal/store/worktrees_test.go",
         "internal/agent/trunk_firewall_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0009",
@@ -162,14 +182,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:d88e809feb0046fa209a1115fa1b32fad0c21c11ea53d1cfbe9b56486ee9b72c",
       "evidence": [
         "internal/store/research_mutations.go",
         "internal/agent/research_surface_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0010",
@@ -187,10 +208,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730"
+      "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0011",
@@ -208,10 +230,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5a5ee33a9440ce8f57768d17a0ed5acb1b9b398f8ea66fe40658e70815552bc4"
+      "sha256": "sha256:5a5ee33a9440ce8f57768d17a0ed5acb1b9b398f8ea66fe40658e70815552bc4",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0012",
@@ -229,10 +252,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:76a77efc281e49ba0afc8d57a0d1e2bf3321c772d249f46275ff15ddd0a2fbe5"
+      "sha256": "sha256:76a77efc281e49ba0afc8d57a0d1e2bf3321c772d249f46275ff15ddd0a2fbe5",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0013",
@@ -250,14 +274,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:5a941685adaa38f552a84804e91b238efe78fedbdd29e7af50b4478f5233d559",
       "evidence": [
         "scenarios/workflow-engine.v1.json",
         "internal/store/workflow_conformance_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0014",
@@ -277,10 +302,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:69572c989082346d22b3330f3b4b3596f3e0be9996bc5d9ec95647e63bdd8579"
+      "sha256": "sha256:69572c989082346d22b3330f3b4b3596f3e0be9996bc5d9ec95647e63bdd8579",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0015",
@@ -299,10 +325,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bb3a0c59a801229176511cc1e7578441bce8b6581276bb5bc48eacd0ae9a3f64"
+      "sha256": "sha256:bb3a0c59a801229176511cc1e7578441bce8b6581276bb5bc48eacd0ae9a3f64",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0016",
@@ -321,14 +348,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:98680244e6653e03458dcb6fb437417558807d47724e44077a6de330f86ca8c5",
       "evidence": [
         "internal/store/workflow_continuity.go",
         "internal/store/workflow_continuity_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0017",
@@ -348,7 +376,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
@@ -356,7 +384,8 @@
         "contracts/agent-lanes.v1.json",
         "internal/store/worker_authority_boundary_test.go",
         "adapter/opencode/evals/promptfooconfig.yaml"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0018",
@@ -377,10 +406,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5e6dc6e4e80fdcbda85e8f12d19b63f3c710e4eed4903a7c06bba74f52c88aa2"
+      "sha256": "sha256:5e6dc6e4e80fdcbda85e8f12d19b63f3c710e4eed4903a7c06bba74f52c88aa2",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0019",
@@ -399,10 +429,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ca70f98e6306b6aeb280f59405180c061e6c2553458f9fcf7553c94d88f9848a"
+      "sha256": "sha256:ca70f98e6306b6aeb280f59405180c061e6c2553458f9fcf7553c94d88f9848a",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0020",
@@ -422,10 +453,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45"
+      "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0021",
@@ -445,14 +477,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66",
       "evidence": [
         "internal/launcher/model.go",
         "docs/terminal-launcher-contract.md"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0022",
@@ -472,13 +505,14 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:af133dda5aa2698f263f94ce9bbd91acf8305f49a3e697c02757b343d1eb5027",
       "evidence": [
         "internal/store/research_operations.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0023",
@@ -497,14 +531,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:90f0743875136bd79b47e2cd1db241a8ef9020c6a1d9027bcf733408feb5a57f",
       "evidence": [
         "internal/agent/verdict_scope_test.go",
         "internal/store/workflow_verdict.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0024",
@@ -524,13 +559,14 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:4431affdf4ec77d7fd05dc06b24921ddff54f732b05673be56b01f80ea5a9c32",
       "evidence": [
         "internal/store/epic.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0025",
@@ -549,14 +585,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:952a7153df0e335a30312a994ffae31d14d21dbdd02224a434b81542f537cbc1",
       "evidence": [
         "internal/store/research_reliance.go",
         "internal/agent/research_surface_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0026",
@@ -575,7 +612,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:40d0f7f7eca5761348f116c6c51aeeaebaf97edff824174152074c9291431ad2",
@@ -584,7 +621,8 @@
         "internal/store/lesson_publish_test.go",
         "internal/agent/lesson_dispatch_test.go",
         "scripts/check-knowledge-index.py"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0027",
@@ -603,14 +641,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:27b590e86f5054250457065186b6ecd1ebf3f462e391af8e82fa44b39849049f",
       "evidence": [
         "internal/store/workflow_continuity.go",
         "internal/store/workflow_continuity_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0028",
@@ -629,14 +668,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:9eb67612cb80c4cf2ef84c707e653e0ac6b0cae14c05fcb9b4d29c7b38e4aeec",
       "evidence": [
         "internal/store/resource_claims.go",
         "internal/agent/resource_claims_dispatch_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0029",
@@ -655,14 +695,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:003f4d884c1dfc9dc12c79bc2ac9d0f6ba883c789103d72f13f736141ee0e29e",
       "evidence": [
         "internal/store/work_messages.go",
         "internal/agent/work_messages_dispatch_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0030",
@@ -681,7 +722,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:30df4765ec371069f28b8509483320e1fa9982ce23d4e1d8c7f33e97867ce9b1",
@@ -689,7 +730,8 @@
         "internal/store/work_observations.go",
         "internal/store/work_observations_test.go",
         "internal/agent/observation_dispatch_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0031",
@@ -708,7 +750,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:2a7934347c6eae0d2bb4f3d3ef7f4399a35d7dd2e50935ecf315c4d47726f0bb",
@@ -716,7 +758,8 @@
         "internal/sessionboot/sessionboot.go",
         "cmd/concord/session_test.go",
         "internal/launcher/render/bubbletea/model_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0033",
@@ -735,13 +778,14 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:cbe1aec76975566acf3442f2c0e74a6f4b8462f908646bc39d9c081c732423a3",
       "evidence": [
         "internal/store/workflow_supersession_confirmation_test.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0035",
@@ -760,7 +804,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:037eceaed277b5f4c825621d4b78b15552ef9ebe0064387d0ad8ab5aa8ee4fb8",
@@ -768,7 +812,8 @@
         "internal/store/governing_requirements.go",
         "internal/agent/mutations.go",
         "internal/agent/envelope.go"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0034",
@@ -787,14 +832,15 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:bfcbd7779f456c9c2b17b6443d4ccfe601787be0c84b8b8afc0d2339000fa1c4",
       "evidence": [
         "internal/store/worker_lanes.go",
         "adapter/opencode/dispatch.ts"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0036",
@@ -813,7 +859,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:d79282359486fbba3953dc2007683c2888c3b5e4993743787e399bf9eaacbd11",
@@ -821,7 +867,8 @@
         "internal/store/workflow_law_revision.go",
         "internal/store/workflow_law_revision_test.go",
         "docs/workflow-engine-contract.md"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0037",
@@ -840,7 +887,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:700c9184b4da80c3228dfb9f5fccf6714547f125b0562398de8b57a6fd01ec27",
@@ -848,7 +895,8 @@
         "internal/agent/authority.go",
         "docs/agent-call-context-contract.md",
         "scenarios/agent-jobs.v1.json"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0038",
@@ -867,7 +915,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:f4dbff5656cd932ac1ec30e00398e16d743317d220b3c77a102bab3069700673",
@@ -875,7 +923,8 @@
         "internal/agent/runtime.go",
         "contracts/agent-tool-surface.v1.json",
         "scenarios/agent-jobs.v1.json"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0039",
@@ -894,7 +943,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:b0f5731d030015730e47a27ee8c714d315aba9d55c0fe852ec6bafb0609e88aa",
@@ -902,7 +951,8 @@
         "internal/store/workflow_registry.go",
         "docs/workflow-engine-contract.md",
         "scenarios/agent-jobs.v1.json"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0040",
@@ -921,7 +971,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:d24c5659a7cd4c39bf5be8b1582145eaf3b504b69ff2dc2ed3a0d3c58f932692",
@@ -929,7 +979,8 @@
         "docs/decisions/CD-0008-concord-mechanism-hardening.md",
         "internal/store/work_observations.go",
         "docs/decisions/CD-0039-attributed-native-run-outcomes.md"
-      ]
+      ],
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "CD-0041",
@@ -950,10 +1001,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:8ae5ca7f9b63355491b0af038f353f9b3f034e50ae78729571e1a21275a57c50"
+      "sha256": "sha256:8ae5ca7f9b63355491b0af038f353f9b3f034e50ae78729571e1a21275a57c50",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "PM1",
@@ -971,10 +1023,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:22df0495687ab129d0145c9385394cea3a1efa33376a5f82ab415ac3ff8d5f21"
+      "sha256": "sha256:22df0495687ab129d0145c9385394cea3a1efa33376a5f82ab415ac3ff8d5f21",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "PM3",
@@ -992,10 +1045,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f6eb8eded54d912215f1da77306c0e9828ebd4eb5a0802807ecbadd35ef41b51"
+      "sha256": "sha256:f6eb8eded54d912215f1da77306c0e9828ebd4eb5a0802807ecbadd35ef41b51",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "PM6",
@@ -1014,10 +1068,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:55e1755f5902a6b9776d61217b7581153d28cce4fba15b793d9628cab3966806"
+      "sha256": "sha256:55e1755f5902a6b9776d61217b7581153d28cce4fba15b793d9628cab3966806",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "PM7",
@@ -1036,10 +1091,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e0d67bcbb61afe1cb089d536a91069c04f904c41438f575e9976452cf601dba6"
+      "sha256": "sha256:e0d67bcbb61afe1cb089d536a91069c04f904c41438f575e9976452cf601dba6",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "TS3",
@@ -1058,10 +1114,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:a8e3cf19916f1ade2a5b4533c4c66caffa9d8d96ae61df221d02049aa0721f3e"
+      "sha256": "sha256:a8e3cf19916f1ade2a5b4533c4c66caffa9d8d96ae61df221d02049aa0721f3e",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "TS7",
@@ -1080,10 +1137,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:68261681e4f1aac22787132be3e81cf1c0443e49791259914d65edd7fb1c69c8"
+      "sha256": "sha256:68261681e4f1aac22787132be3e81cf1c0443e49791259914d65edd7fb1c69c8",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "advance-predecessor-lessons",
@@ -1101,7 +1159,7 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
       "sha256": "sha256:348ef42c5debee51f2870c477243ac9ef451cf98fb3d0d45f6f98494ccbc103d"
@@ -1123,10 +1181,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:6b89edd732d1655dbfdd4186fdb00a37fbcd5eca999812ca44ad056975a7ec72"
+      "sha256": "sha256:6b89edd732d1655dbfdd4186fdb00a37fbcd5eca999812ca44ad056975a7ec72",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "routing-policy-contract",
@@ -1146,10 +1205,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e0cf80d25e1d384d5267b7e0de6c4fda83b17acdfe8afbbed4a23a30317e45cd"
+      "sha256": "sha256:e0cf80d25e1d384d5267b7e0de6c4fda83b17acdfe8afbbed4a23a30317e45cd",
+      "home_domain_id": "product-root:concord"
     },
     {
       "id": "workflow-engine-contract",
@@ -1167,10 +1227,11 @@
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "component_ids": [],
+        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f0e362fb544ce51fb1506de540495c301a2b3c033c8042f85becf111f5e3d1f4"
+      "sha256": "sha256:f0e362fb544ce51fb1506de540495c301a2b3c033c8042f85becf111f5e3d1f4",
+      "home_domain_id": "product-root:concord"
     }
   ]
 }

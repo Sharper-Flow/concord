@@ -206,7 +206,11 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work_project.added":                      registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRemoved, nil),
 	"work_project.role_changed":               registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRoleChanged, nil),
-	"compaction_link.published":               registerEventKind[compactionLinkPayload](1, 1, nil, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
+	"compaction_link.published":               registerEventKind[compactionLinkPayload](2, 1, map[int]Upcaster{1: upcastCompactionLinkPublishedV1}, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
+	"managed_resource.created":                registerEventKind[managedResourceCreatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceCreated, nil),
+	"managed_resource.consumer_added":         registerEventKind[managedResourceConsumerAddedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceConsumerAdded, nil),
+	"domain.project_attachments_replaced":     registerEventKind[domainProjectAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainProjectAttachmentsReplaced, nil),
+	"domain.resource_attachments_replaced":    registerEventKind[domainResourceAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainResourceAttachmentsReplaced, nil),
 	"epic_entry.added":                        registerEventKind[epicEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicEntryAdded, nil),
 	"epic_entry.removed":                      registerEventKind[epicEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicEntryRemoved, nil),
 	"epic_entry.reordered":                    registerEventKind[epicEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicEntryReordered, nil),
@@ -442,6 +446,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
+	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
+		return output, err
+	}
 	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
@@ -534,6 +541,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return output, rollback(err)
 	}
+	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
+		return output, rollback(err)
+	}
 	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
 		return output, rollback(err)
 	}
@@ -599,6 +609,11 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
 	for _, table := range []string{
+		// Domain attachments and C15 membership depend on Product projections;
+		// clear their edges and sets before Product memberships and resources.
+		"domain_resource_attachment_edges", "domain_project_attachment_edges",
+		"domain_resource_attachment_sets", "domain_project_attachment_sets",
+		"resource_products", "managed_resources",
 		// work-referencing RESTRICT-FK tables clear before work_items:
 		// observations (CD-0030), messages (CD-0029), claims (CD-0028).
 		"work_observations", "work_messages", "resource_claims",
@@ -627,6 +642,9 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		return rollback(err)
 	}
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
+		return rollback(err)
+	}
+	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
 		return rollback(err)
 	}
 	if err := validateEpicInvariantsTx(ctx, tx); err != nil {

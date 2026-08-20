@@ -33,7 +33,7 @@ func TestOpenAppliesRequiredPragmas(t *testing.T) {
 		want   string
 	}{
 		{"journal_mode", "wal"},
-		{"synchronous", "1"},
+		{"synchronous", "2"},
 		{"busy_timeout", "5000"},
 		{"foreign_keys", "1"},
 	} {

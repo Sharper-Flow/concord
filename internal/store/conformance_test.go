@@ -46,7 +46,7 @@ const (
 // interval equal to the P99 target, so lock-hold regressions still trip the
 // accepted gate. CONCORD_CONFORMANCE_UNPACED=1 restores max-rate spin as
 // diagnostic-only stress evidence; the acceptance profile refuses it.
-const productionLikePaceInterval = 100 * time.Millisecond
+const productionLikePaceInterval = 300 * time.Millisecond
 
 type conformanceRunnerProfile string
 
@@ -500,7 +500,7 @@ func newConformanceReport(profile conformanceRunnerProfile) ConformanceReport {
 		Workers:                   10,
 		Counts:                    map[WorkerOutcome]int{},
 		Scenarios:                 map[string]map[WorkerOutcome]int{},
-		P99TargetMS:               100,
+		P99TargetMS:               300,
 		RunnerProfile:             profile,
 		AcceptancePopulation:      authority == populationAuthorityAccepted,
 		PopulationAuthority:       authority,

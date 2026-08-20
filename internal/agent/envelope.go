@@ -149,20 +149,73 @@ type DomainOverlap struct {
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
 
+// ConsequenceSummary is the closed set of facts an operator is being asked to
+// approve. Every field is derived by the core from the exact digest, scope,
+// versions, consequence, and expiry bound to a minted approval challenge, so
+// the summary cannot drift from what approval consumption compares. Caller
+// prose never reaches it, and no renderer may add domain meaning to it.
+type ConsequenceSummary struct {
+	Tool            string   `json:"tool"`
+	Operation       string   `json:"operation"`
+	Consequence     string   `json:"consequence"`
+	OperationDigest string   `json:"operation_digest"`
+	Scope           []string `json:"scope"`
+	Versions        []string `json:"versions"`
+	ExpiresAt       string   `json:"expires_at"`
+}
+
 type TypedError struct {
-	Kind             string            `json:"kind"`
-	RetrySafe        bool              `json:"retry_safe"`
-	RecoveryAction   RecoveryAction    `json:"recovery_action"`
-	EffectState      EffectState       `json:"effect_state"`
-	AdapterReason    string            `json:"adapter_reason,omitempty"`
-	Message          string            `json:"message,omitempty"`
-	CurrentVersions  []ChangedRef      `json:"current_versions,omitempty"`
-	Candidates       []string          `json:"candidates,omitempty"`
-	Violations       []string          `json:"violations,omitempty"`
-	Options          []string          `json:"options,omitempty"`
-	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
-	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
-	Details          map[string]any    `json:"details,omitempty"`
+	Kind                   string              `json:"kind"`
+	RetrySafe              bool                `json:"retry_safe"`
+	RecoveryAction         RecoveryAction      `json:"recovery_action"`
+	EffectState            EffectState         `json:"effect_state"`
+	AdapterReason          string              `json:"adapter_reason,omitempty"`
+	Message                string              `json:"message,omitempty"`
+	CurrentVersions        []ChangedRef        `json:"current_versions,omitempty"`
+	Candidates             []string            `json:"candidates,omitempty"`
+	Violations             []string            `json:"violations,omitempty"`
+	Options                []string            `json:"options,omitempty"`
+	StaleLawRevision       *StaleLawRevision   `json:"stale_law_revision,omitempty"`
+	DomainOverlap          *DomainOverlap      `json:"domain_overlap,omitempty"`
+	ConsequenceSummary     *ConsequenceSummary `json:"consequence_summary,omitempty"`
+	SupportedBudgetSeconds int                 `json:"supported_budget_seconds,omitempty"`
+	Details                map[string]any      `json:"details,omitempty"`
+}
+
+// challengeBearingErrorKinds are the only refusals a core-minted approval
+// challenge can arrive on. A refusal that mints no challenge — a publish
+// missing its approval reference, a completion awaiting premise confirmation —
+// tells the caller how to supply authority and must not fabricate a consent
+// prompt.
+var challengeBearingErrorKinds = map[string]bool{"approval_required": true, "invariant_violation": true}
+
+func validateConsequenceSummary(err TypedError) error {
+	summary := err.ConsequenceSummary
+	if summary == nil {
+		return nil
+	}
+	if !challengeBearingErrorKinds[err.Kind] {
+		return fmt.Errorf("consequence summary is not permitted on %q", err.Kind)
+	}
+	if !bounded(summary.Tool, 1, 128) || !bounded(summary.Operation, 1, 128) {
+		return errors.New("consequence summary tool/operation is malformed")
+	}
+	if !validSHA256Proof(summary.OperationDigest) {
+		return errors.New("consequence summary operation digest is malformed")
+	}
+	if !contains(ContractConsequences, summary.Consequence) {
+		return fmt.Errorf("unknown consequence %q", summary.Consequence)
+	}
+	if len(summary.Scope) > 20 || !boundedStrings(summary.Scope, 1, 256) || !unique(summary.Scope) {
+		return errors.New("consequence summary scope bindings are malformed")
+	}
+	if len(summary.Versions) > 20 || !boundedStrings(summary.Versions, 1, 256) || !unique(summary.Versions) {
+		return errors.New("consequence summary version bindings are malformed")
+	}
+	if _, parseErr := time.Parse(time.RFC3339, summary.ExpiresAt); parseErr != nil {
+		return errors.New("consequence summary expiry is not RFC3339")
+	}
+	return nil
 }
 
 // GoverningConflictOptions is the closed operator-choice vocabulary of CD-0035
@@ -690,6 +743,14 @@ func validateError(err TypedError) error {
 	if err.Kind == "budget_refused" && err.RecoveryAction.Kind != "adjust_budget" {
 		return errors.New("budget recovery coupling violated")
 	}
+	// The ceiling a caller needs in order to recover is typed, not buried in
+	// diagnostic details, and it is meaningless on any other refusal.
+	if err.Kind == "budget_refused" && (err.SupportedBudgetSeconds < 1 || err.SupportedBudgetSeconds > MaxBudgetSeconds) {
+		return errors.New("budget refusal must declare the supported ceiling")
+	}
+	if err.Kind != "budget_refused" && err.SupportedBudgetSeconds != 0 {
+		return errors.New("supported budget ceiling is not permitted on this error kind")
+	}
 	if err.Kind == "invalid_cursor" && err.RecoveryAction.Kind != "restart_query" {
 		return errors.New("cursor recovery coupling violated")
 	}
@@ -703,6 +764,9 @@ func validateError(err TypedError) error {
 		return errors.New("cancel/timeout coupling violated")
 	}
 	if x := validateOptions(err); x != nil {
+		return x
+	}
+	if x := validateConsequenceSummary(err); x != nil {
 		return x
 	}
 	return nil

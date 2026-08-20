@@ -160,6 +160,13 @@ the approval inapplicable. The core consumes a single-use approval in the same
 transaction that records the authorized domain intent; cross-authority execution
 then follows the durable operation's recovery contract.
 
+The bound consequence summary is the typed `consequence_summary` object of
+[CD-0037](./decisions/CD-0037-core-derived-approval-consequence-summaries.md):
+the core derives it from the exact digest, scope, versions, consequence class,
+and expiry the challenge already binds, so drift is unrepresentable — changing
+anything it describes invalidates the challenge. Approval binds the facts the
+summary is derived from, not a second stored string that could drift from them.
+
 Rejected approval forms:
 
 - `approved: true`, `target_confirmed`, or other self-asserted booleans;

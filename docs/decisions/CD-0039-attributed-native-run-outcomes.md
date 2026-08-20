@@ -11,6 +11,10 @@
   ([`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md)),
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
 - **Supersedes:** nothing
+- **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
+  compatibility and negotiation treatment described in D6; that passage is
+  historical evidence, not current compatibility policy. The attributed
+  native-run record and its event/projection design are unaffected.
 - **Amended by:** CD-0040 external observation provenance, verification, and consumption rules
 
 ## Context

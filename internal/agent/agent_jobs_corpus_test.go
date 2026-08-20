@@ -291,21 +291,34 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	}
 	if withheld {
 		// Cross-check the wire: withholding authority must return the choice to
-		// the operator, not merely fail. Kind, recovery, and the option list are
-		// all required to be coherent.
+		// its owner in a coherent shape, not merely fail. Two shapes exist. A
+		// governing-law conflict hands the decision to the operator with
+		// options; a core-minted challenge asks for consent with the exact
+		// facts of the consequential operation (CD-0037).
 		commErr, ok := obs.Communication["error"].(map[string]any)
 		if !ok {
 			t.Error("evidence_authority: approval_authority_withheld but no error map in communication")
 			return
 		}
-		if kind, _ := commErr["kind"].(string); kind != "invariant_violation" {
-			t.Errorf("evidence_authority: approval_authority_withheld but error.kind=%q, want invariant_violation", kind)
-		}
-		if recovery, _ := commErr["recovery_action"].(string); recovery != "contact_operator" {
-			t.Errorf("evidence_authority: approval_authority_withheld but recovery_action=%q, want contact_operator", recovery)
-		}
-		if options, _ := obs.Communication["options"].([]any); len(options) == 0 {
-			t.Error("evidence_authority: approval_authority_withheld but no operator options were offered")
+		kind, _ := commErr["kind"].(string)
+		recovery, _ := commErr["recovery_action"].(string)
+		switch kind {
+		case "invariant_violation":
+			if recovery != "contact_operator" {
+				t.Errorf("evidence_authority: approval_authority_withheld (governing conflict) but recovery_action=%q, want contact_operator", recovery)
+			}
+			if options, _ := obs.Communication["options"].([]any); len(options) == 0 {
+				t.Error("evidence_authority: approval_authority_withheld (governing conflict) but no operator options were offered")
+			}
+		case "approval_required":
+			if recovery != "request_approval" {
+				t.Errorf("evidence_authority: approval_authority_withheld (challenge) but recovery_action=%q, want request_approval", recovery)
+			}
+			if summary, ok := obs.Communication["consequence_summary"].(*ConsequenceSummary); !ok || summary == nil {
+				t.Error("evidence_authority: approval_authority_withheld (challenge) without a core-derived consequence summary")
+			}
+		default:
+			t.Errorf("evidence_authority: approval_authority_withheld but error.kind=%q is not a coherent withholding shape", kind)
 		}
 	}
 	if supplied && !suppliedOK {
@@ -1063,13 +1076,20 @@ func envelopeToObservation(resp Envelope) jobObservation {
 		Authority:     map[string]any{},
 	}
 	if resp.Error != nil {
-		obs.Communication["error"] = map[string]any{
+		errorMap := map[string]any{
 			"kind":            resp.Error.Kind,
 			"candidate_ids":   resp.Error.Candidates,
 			"violations":      resp.Error.Violations,
 			"message":         resp.Error.Message,
 			"recovery_action": resp.Error.RecoveryAction.Kind,
 		}
+		// CD-0038 D3: the supported ceiling is a typed envelope affordance, so
+		// the corpus reads it from the envelope rather than from a binding's
+		// prose.
+		if resp.Error.SupportedBudgetSeconds > 0 {
+			errorMap["supported_budget_seconds"] = resp.Error.SupportedBudgetSeconds
+		}
+		obs.Communication["error"] = errorMap
 		// CD-0035 D1: the operator-choice list is a typed envelope affordance, so
 		// the corpus reads it from the envelope rather than from a binding's prose.
 		if len(resp.Error.Options) > 0 {
@@ -1256,9 +1276,9 @@ func init() {
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
 
 	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"
+	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
+	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
-	jobDeferrals["AJ8-budget-refused"] = "#173 budget tranche: needs a declared seconds-denominated operation budget with a supported ceiling"
 }
 
 // AJ1-ambient-ready-work: resolve product, list ready work.

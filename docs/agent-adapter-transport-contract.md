@@ -126,12 +126,17 @@ Consequential mutation flow:
 2. Adapter sends the canonical request with stable idempotency key. Core strictly
    validates the selection and digest before creating any approval challenge.
 3. Core returns `approval_required` with challenge ID, canonical digest, pinned
-   scope/versions, consequence summary, and approval policy. Workflow checkpoints
-   also include work/action/contract version, selected choice, and bounded premise
-   summary.
+   scope/versions, and the typed `consequence_summary` object (CD-0037). Workflow
+   checkpoints also include work/action/contract version, selected choice, and
+   bounded premise summary.
 4. Only then does the adapter call current tool-context
-   `ask({ permission, patterns, always, metadata })`, placing the exact checkpoint
-   metadata in `metadata`.
+   `ask({ permission, patterns, always, metadata })`, copying the typed
+   `consequence_summary` object unchanged into `metadata`. The adapter
+   transports the object; it never renders, derives, or augments it, and a
+   core-minted challenge that lacks it fails closed as a malformed core
+   response. A challenge-less `approval_required` refusal passes through to the
+   caller without a host prompt: it tells the caller how to supply authority
+   and is not a consent request.
 5. Current `ask` returns `void` on approval and throws on rejection. It provides no
    typed user reply.
 6. On rejection, adapter returns denied; no core mutation occurs.

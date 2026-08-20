@@ -9,6 +9,10 @@
   ([`agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md)),
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md))
 - **Supersedes:** nothing
+- **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
+  compatibility and negotiation treatment described in D6; that passage is
+  historical evidence, not current compatibility policy. The typed summary
+  itself and its challenge coupling are unaffected.
 
 ## Context
 

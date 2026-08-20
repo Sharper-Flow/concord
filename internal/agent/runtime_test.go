@@ -391,13 +391,65 @@ func TestBudgetFieldsRefuseOrBoundResultsStructurally(t *testing.T) {
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "budget_refused" {
 		t.Fatalf("max_bytes was ignored: %#v", response)
 	}
-	ctx, cancel, budget, err := applyBudget(context.Background(), []byte(`{"budget":{"max_bytes":65536,"max_items":1,"max_millis":1}}`))
+	requested, err := parseRequestBudget([]byte(`{"budget":{"max_bytes":65536,"max_items":1},"requested_budget_seconds":5}`))
+	if err != nil || requested.RequestedSeconds != 5 || requested.Size.MaxBytes != 65536 {
+		t.Fatalf("requested_budget_seconds was not parsed: budget=%#v err=%v", requested, err)
+	}
+	ctx, cancel, err := admitBudget(context.Background(), requested, 30)
 	defer cancel()
-	if err != nil || budget.MaxMillis != 1 {
-		t.Fatalf("max_millis was not accepted: budget=%#v err=%v", budget, err)
+	if err != nil {
+		t.Fatalf("a budget inside the ceiling was refused: %v", err)
 	}
 	if _, ok := ctx.Deadline(); !ok {
-		t.Fatal("max_millis did not install a context deadline")
+		t.Fatal("an accepted budget did not install a context deadline")
+	}
+}
+
+// A request above the operation ceiling must be refused outright and must name
+// the value that would work. Clamping it down to the ceiling and running anyway
+// is the failure mode: the caller cannot then tell a truncated result from a
+// complete one.
+func TestUnsupportedBudgetIsRefusedAndNeverClamped(t *testing.T) {
+	requested, err := parseRequestBudget([]byte(`{"requested_budget_seconds":60}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel, err := admitBudget(context.Background(), requested, 30)
+	defer cancel()
+	var refusal *budgetRefusal
+	if !errors.As(err, &refusal) {
+		t.Fatalf("an over-ceiling budget was admitted: err=%v", err)
+	}
+	if refusal.Supported != 30 || refusal.Requested != 60 {
+		t.Fatalf("refusal lost the requested or supported value: %#v", refusal)
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		t.Fatalf("a refused budget installed a deadline at %v", deadline)
+	}
+
+	response := budgetRefusedEnvelope(NewBase("request", "concord_work_transition", "workflow_action"), refusal)
+	if response.Error == nil || response.Error.Kind != "budget_refused" {
+		t.Fatalf("refusal did not produce a budget_refused envelope: %#v", response)
+	}
+	if response.Error.SupportedBudgetSeconds != 30 {
+		t.Fatalf("refusal hid the supported ceiling: %#v", response.Error)
+	}
+	if _, err := response.Encode(); err != nil {
+		t.Fatalf("budget refusal does not satisfy the envelope contract: %v", err)
+	}
+}
+
+// Every operation declares one ceiling within the global manifest bound, so a
+// refusal can always answer "what value would work?".
+func TestEveryOperationDeclaresABudgetCeilingWithinTheGlobalBound(t *testing.T) {
+	for _, op := range ContractOperations {
+		if op.SupportedBudgetSeconds < 1 || op.SupportedBudgetSeconds > MaxBudgetSeconds {
+			t.Fatalf("%s declares an out-of-range budget ceiling %d", op.ID, op.SupportedBudgetSeconds)
+		}
+	}
+	action, ok := ValidateContractOperation("concord_work_transition", "workflow_action")
+	if !ok || action.SupportedBudgetSeconds != 30 {
+		t.Fatalf("TS1 fixes the workflow_action ceiling at 30s, got %#v", action)
 	}
 }
 

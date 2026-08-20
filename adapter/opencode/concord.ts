@@ -178,25 +178,35 @@ async function invoke(toolName: string, args: any, context: ToolContext): Promis
   let response: any
   try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation") }
   if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core response failed the generated TS7 contract", "possible", "reconcile_operation")
-  if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
-    const details = response.error.details ?? {}
+  // CD-0037 D2: the consent-prompt path is coupled to challenge presence. A
+  // refusal that minted no challenge (a publish missing its approval reference,
+  // a completion awaiting premise confirmation) tells the caller how to supply
+  // authority; prompting the operator there would fabricate a challenge that
+  // does not exist, so it passes through to the caller unchanged below.
+  if (response?.outcome === "error" && response?.error?.kind === "approval_required" && typeof (response.error.details ?? {}).approval_ref === "string" && response.error.details.approval_ref.length > 0) {
+    const details = response.error.details
     const requiredChallengeFields = ["approval_ref", "operation_digest"]
     if (toolName === "concord_work_transition" && operation === "workflow_action") {
       requiredChallengeFields.push("work_id", "action_id", "contract_version", "selected_choice", "premise_summary")
       if (args.input?.action_id === "confirm_premise") requiredChallengeFields.push("decision_context_digest")
     }
     if (toolName === "concord_work_relate" && operation === "resolve_overlap") {
-      requiredChallengeFields.push("summary", "resolution_kind", "from_work_id", "to_work_id")
+      requiredChallengeFields.push("resolution_kind", "from_work_id", "to_work_id")
     }
     if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
     if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
     if (!Array.isArray(details.scope) || !Array.isArray(details.versions) || (toolName === "concord_work_transition" && operation === "workflow_action" && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge did not bind the exact workflow selection")
+    // CD-0037 D1/D5: a core-minted challenge must carry the typed consequence
+    // summary. The adapter transports it unchanged into host permission
+    // metadata; it never renders or derives it.
+    const summary = response.error.consequence_summary
+    if (summary === null || typeof summary !== "object" || Array.isArray(summary)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked the typed consequence summary")
     const askMetadata = toolName === "concord_work_transition" && operation === "workflow_action"
-      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary }
+      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary, consequence_summary: summary }
       : {
           approval_ref: details.approval_ref,
           operation_digest: details.operation_digest,
-          ...(typeof details.summary === "string" ? { summary: details.summary } : {}),
+          consequence_summary: summary,
           ...(Array.isArray(details.scope) ? { scope: details.scope } : {}),
           ...(Array.isArray(details.versions) ? { versions: details.versions } : {}),
           ...(typeof details.resolution_kind === "string" ? { resolution_kind: details.resolution_kind } : {}),

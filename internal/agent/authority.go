@@ -639,6 +639,40 @@ func CanonicalHostApprovalAssertion(a HostApprovalAssertion) []byte {
 	return []byte(b.String())
 }
 
+// deriveConsequenceSummary renders the facts a minted challenge already binds.
+// It reads only the challenge spec and the validated invocation, so no caller
+// prose — title, reason, tags, premise text, or any free-form field — can reach
+// the operator prompt. Because approval consumption compares these same values
+// byte for byte, changing anything the summary describes invalidates the
+// challenge instead of quietly changing what the operator sees.
+func deriveConsequenceSummary(tool, operation string, spec ApprovalChallengeSpec) *ConsequenceSummary {
+	return &ConsequenceSummary{
+		Tool:            tool,
+		Operation:       operation,
+		Consequence:     spec.Consequence,
+		OperationDigest: spec.OperationDigest,
+		Scope:           dedupeBindings(approvalScopeBindings(spec.Scope)),
+		Versions:        dedupeBindings(approvalVersionBindings(spec.Versions)),
+		ExpiresAt:       spec.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+}
+
+// dedupeBindings keeps the key-sorted order the binding renderers already
+// produce — which is what makes the rendering independent of map iteration —
+// while collapsing repeats so the rendered set matches the bound set exactly.
+func dedupeBindings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
 func approvalScopeBindings(scope map[string]any) []string {
 	keys := make([]string, 0, len(scope))
 	for key := range scope {

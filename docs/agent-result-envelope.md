@@ -108,6 +108,8 @@ current_versions[]?
 candidates[]?
 violations[]?
 options[]?           # operator resolutions; governing-law conflicts only (CD-0035)
+consequence_summary? # typed facts of a core-minted approval challenge (CD-0037)
+supported_budget_seconds?  # the declared ceiling, on budget_refused only (CD-0038)
 details?             # closed scalar/list values; bounded, no nested dump
 adapter_reason?      # required closed reason when origin=adapter
 ```
@@ -166,6 +168,24 @@ required, so an `invariant_violation` that offers no choice stays valid. A refus
 carrying `accept_scope_cut` also carries the `approval_ref` that option resolves
 against: the choice is actionable, not advisory. See
 [CD-0035](./decisions/CD-0035-governing-requirements-at-capture.md).
+
+`consequence_summary` is the closed set of facts an operator is being asked to
+approve: tool, operation, consequence class, canonical operation digest, scope
+bindings, version bindings, and challenge expiry. It is required whenever the
+core has minted an approval challenge — the coupling is challenge presence, not
+error kind alone — and it is derived from the exact facts the challenge binds,
+so changing any of them invalidates the challenge instead of silently changing
+the prompt. Caller prose never reaches it. A challenge-less `approval_required`
+refusal (a publish missing its approval reference, a completion awaiting
+premise confirmation) carries no summary and must not fabricate a consent
+prompt. See [CD-0037](./decisions/CD-0037-core-derived-approval-consequence-summaries.md).
+
+`supported_budget_seconds` is required on every `budget_refused` and forbidden
+elsewhere: the ceiling a caller needs in order to recover is typed, not buried
+in diagnostic details. Every operation declares one supported ceiling in the
+canonical manifest, and a request above it is refused before any effect — never
+quietly lowered to fit. See
+[CD-0038](./decisions/CD-0038-per-operation-seconds-budgets.md).
 
 ## 6. Authority, freshness, and omissions
 

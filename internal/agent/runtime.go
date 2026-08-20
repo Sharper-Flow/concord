@@ -84,9 +84,8 @@ type pageInput struct {
 	Limit  int     `json:"limit"`
 }
 type budgetInput struct {
-	MaxBytes  int `json:"max_bytes"`
-	MaxItems  int `json:"max_items"`
-	MaxMillis int `json:"max_millis"`
+	MaxBytes int `json:"max_bytes"`
+	MaxItems int `json:"max_items"`
 }
 type productResolveInput struct {
 	ProductID string      `json:"product_id"`
@@ -285,11 +284,24 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return base, err
 	}
-	ctx, cancel, budget, budgetErr := applyBudget(ctx, request.Input)
+	requested, budgetErr := parseRequestBudget(request.Input)
 	if budgetErr != nil {
-		return coreError(base, "budget_refused", budgetErr.Error(), "adjust_budget", false), nil
+		return coreError(base, "invalid_input", budgetErr.Error(), "reread_entities", false), nil
 	}
-	defer cancel()
+	budget := requested.Size
+	// A read has no idempotency record, so its ceiling is checked before query
+	// execution. A mutation is admitted after the idempotency lookup below, so
+	// an already committed request still replays its original result even when
+	// a later surface lowers the ceiling.
+	cancel := func() {}
+	if op.Kind == OperationRead {
+		var refusal *budgetRefusal
+		ctx, cancel, budgetErr = admitBudget(ctx, requested, op.SupportedBudgetSeconds)
+		if errors.As(budgetErr, &refusal) {
+			return budgetRefusedEnvelope(base, refusal), nil
+		}
+	}
+	defer func() { cancel() }()
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
@@ -318,6 +330,13 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 				return failureEnvelope(base, replayErr), nil
 			}
 			return replay, nil
+		}
+	}
+	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
+		var refusal *budgetRefusal
+		ctx, cancel, budgetErr = admitBudget(ctx, requested, op.SupportedBudgetSeconds)
+		if errors.As(budgetErr, &refusal) {
+			return budgetRefusedEnvelope(base, refusal), nil
 		}
 	}
 	if env.ScopeVersion == "" {
@@ -355,21 +374,61 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	return r.read(ctx, base, request.Input, op.QueryID)
 }
 
-func applyBudget(ctx context.Context, raw []byte) (context.Context, context.CancelFunc, budgetInput, error) {
+// requestBudget carries the caller's model-visible time intent alongside the
+// result-size bounds. The two are separate inputs: the size budget shapes a
+// response, the time budget bounds one invocation.
+type requestBudget struct {
+	Size             budgetInput
+	RequestedSeconds int
+}
+
+func parseRequestBudget(raw []byte) (requestBudget, error) {
 	var envelope struct {
-		Budget budgetInput `json:"budget"`
+		Budget                 budgetInput `json:"budget"`
+		RequestedBudgetSeconds int         `json:"requested_budget_seconds"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return ctx, func() {}, budgetInput{}, err
+		return requestBudget{}, err
 	}
-	if envelope.Budget.MaxMillis > 0 {
-		if envelope.Budget.MaxMillis > 300000 {
-			return ctx, func() {}, budgetInput{}, fmt.Errorf("max_millis exceeds supported bound")
-		}
-		child, cancel := context.WithTimeout(ctx, time.Duration(envelope.Budget.MaxMillis)*time.Millisecond)
-		return child, cancel, envelope.Budget, nil
+	if envelope.RequestedBudgetSeconds < 0 {
+		return requestBudget{}, errors.New("requested_budget_seconds must be a positive number of seconds")
 	}
-	return ctx, func() {}, envelope.Budget, nil
+	return requestBudget{Size: envelope.Budget, RequestedSeconds: envelope.RequestedBudgetSeconds}, nil
+}
+
+// admitBudget refuses an unsupported time budget before any scope resolution,
+// approval consumption, or domain effect, and never lowers the request to fit.
+// A caller that asked for more time than the operation supports must be told
+// the ceiling, because a silently truncated run is indistinguishable from a
+// complete one.
+func admitBudget(ctx context.Context, budget requestBudget, supportedSeconds int) (context.Context, context.CancelFunc, error) {
+	if budget.RequestedSeconds == 0 {
+		// Omission is not a request for the maximum. Existing internal bounds
+		// such as SQLite lock waits and per-command Git timeouts still apply.
+		return ctx, func() {}, nil
+	}
+	if budget.RequestedSeconds > supportedSeconds {
+		return ctx, func() {}, &budgetRefusal{Requested: budget.RequestedSeconds, Supported: supportedSeconds}
+	}
+	child, cancel := context.WithTimeout(ctx, time.Duration(budget.RequestedSeconds)*time.Second)
+	return child, cancel, nil
+}
+
+type budgetRefusal struct {
+	Requested int
+	Supported int
+}
+
+func (b *budgetRefusal) Error() string {
+	return fmt.Sprintf("requested budget of %ds exceeds the %ds this operation supports", b.Requested, b.Supported)
+}
+
+func budgetRefusedEnvelope(base Envelope, refusal *budgetRefusal) Envelope {
+	response := coreError(base, "budget_refused", refusal.Error(), "adjust_budget", false)
+	if response.Error != nil {
+		response.Error.Details = map[string]any{"requested_budget_seconds": refusal.Requested}
+	}
+	return response
 }
 
 func (r runtime) boundedLimit(limit int) int {
@@ -593,7 +652,19 @@ func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailu
 }
 func failureEnvelope(base Envelope, err error) Envelope {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return coreError(base, "timeout", "operation exceeded max_millis budget", "adjust_budget", true)
+		// An expired read commits nothing, so it can honestly claim no effect.
+		// A mutation cannot: the deadline may have fired around a commit, and
+		// cancelling the caller's context does not erase a write that landed.
+		// Reporting a possible effect over-states rather than hides one.
+		op, known := ValidateContractOperation(base.Tool, base.Operation)
+		if known && op.Kind != OperationRead {
+			out := coreError(base, "operation_conflict", "operation exceeded its requested budget and its effect is unresolved", "reconcile_operation", false)
+			if out.Error != nil {
+				out.Error.EffectState = EffectPossible
+			}
+			return out
+		}
+		return coreError(base, "timeout", "operation exceeded its requested budget", "retry_same_request", true)
 	}
 	var f *runtimeFailure
 	if errors.As(err, &f) {
@@ -638,9 +709,18 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
 }
 func coreError(base Envelope, kind, message, recovery string, retry bool) Envelope {
+	// Every operation declares one supported ceiling, so a budget refusal can
+	// always name the value that would work. Deriving it here keeps the typed
+	// affordance from depending on each refusal site remembering to set it.
+	supportedBudget := 0
+	if kind == "budget_refused" {
+		if op, ok := ValidateContractOperation(base.Tool, base.Operation); ok {
+			supportedBudget = op.SupportedBudgetSeconds
+		}
+	}
 	base.Authority = AuthorityAuthoritative
 	base.Outcome = OutcomeError
-	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
+	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message, SupportedBudgetSeconds: supportedBudget}
 	if _, err := base.Encode(); err == nil {
 		return base
 	}
@@ -652,7 +732,7 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 	errorBase.ResolvedScope = base.ResolvedScope
 	errorBase.Authority = AuthorityAuthoritative
 	errorBase.Outcome = OutcomeError
-	errorBase.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
+	errorBase.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message, SupportedBudgetSeconds: supportedBudget}
 	if _, err := errorBase.Encode(); err != nil {
 		// Scope is useful when it remains deliverable, but never at the expense
 		// of the limit error itself crossing the agent boundary.
@@ -772,6 +852,7 @@ func publicRecovery(kind, proposed string) string {
 }
 
 func decodeStrict(data []byte, value any) error {
+	data = stripAdmissionFields(data)
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(value); err != nil {
@@ -782,6 +863,28 @@ func decodeStrict(data []byte, value any) error {
 		return errors.New("trailing JSON")
 	}
 	return nil
+}
+
+// stripAdmissionFields removes the operation-admission fields every input may
+// carry before a domain struct decodes. Admission owns requested_budget_seconds:
+// parseRequestBudget validates it against the shared schema definition at
+// dispatch, and the canonical request digest still sees the raw input, so
+// domain decoding rejects unknown fields without having to re-own this one in
+// every operation's Go struct.
+func stripAdmissionFields(data []byte) []byte {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return data
+	}
+	if _, present := probe["requested_budget_seconds"]; !present {
+		return data
+	}
+	delete(probe, "requested_budget_seconds")
+	stripped, err := json.Marshal(probe)
+	if err != nil {
+		return data
+	}
+	return stripped
 }
 func cursorValue(page pageInput) string {
 	if page.Cursor == nil {

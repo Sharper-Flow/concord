@@ -128,6 +128,7 @@
           "capability",
           "consequence",
           "approval",
+          "supported_budget_seconds",
           "metadata"
         ],
         "properties": {
@@ -198,6 +199,11 @@
               "conditional",
               "required"
             ]
+          },
+          "supported_budget_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300
           },
           "metadata": {
             "$ref": "#/$defs/metadata"
@@ -340,7 +346,8 @@
         "max_changed_refs",
         "max_next_intents",
         "max_candidates",
-        "max_violations"
+        "max_violations",
+        "max_budget_seconds"
       ],
       "properties": {
         "max_output_bytes": {
@@ -369,6 +376,9 @@
         },
         "max_violations": {
           "const": 20
+        },
+        "max_budget_seconds": {
+          "const": 300
         }
       }
     },

@@ -173,7 +173,12 @@ test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", a
 
 const approvalChallenge = () => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
-  error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: { approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"] } },
+  error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", consequence_summary: {
+    tool: "concord_work_transition", operation: "lifecycle", consequence: "lifecycle",
+    operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"],
+    expires_at: "2026-08-20T12:10:00Z",
+  }, details: { approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"] } },
 })
 const approvalSuccess = () => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
@@ -246,10 +251,16 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
 
 test("overlap approval asks with exact direction and resolution consequence", async () => {
   const digest = `sha256:${"c".repeat(64)}`
+  const summary = {
+    tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
+    operation_digest: digest,
+    scope: ["product:product-1", "work:work-1", "work:work-2"],
+    versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
+    expires_at: "2026-08-20T12:10:00Z",
+  }
   const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", consequence_summary: summary, details: {
       approval_ref: "overlap-challenge-1", operation_digest: digest,
-      summary: "Approve the exact requested mutation, scope, and expected versions.",
       scope: ["product:product-1", "work:work-1", "work:work-2"],
       versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
       resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
@@ -276,11 +287,49 @@ test("overlap approval asks with exact direction and resolution consequence", as
   expect(result.outcome).toBe("ok")
   expect(askMetadata).toEqual({
     approval_ref: "overlap-challenge-1", operation_digest: digest,
-    summary: "Approve the exact requested mutation, scope, and expected versions.",
+    consequence_summary: summary,
     scope: ["product:product-1", "work:work-1", "work:work-2"],
     versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
     resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
   })
+})
+
+// CD-0037 D2: a refusal that minted no challenge tells the caller how to supply
+// authority. The adapter must not fabricate a host consent prompt for it.
+test("challenge-less approval refusal passes through without a host prompt", async () => {
+  const refusal = coreEnvelope("concord_work_compact", "publish", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none" },
+  })
+  let asks = 0
+  let calls = 0
+  const runner = { async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(refusal), stderr: "" }
+  } }
+  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+  const result: any = await adapter.work_compact.execute({ operation: "publish", input: { work_id: "work-1", idempotency_key: "publish-1" } }, contextFor(async () => { asks++ }))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("approval_required")
+  expect(asks).toBe(0)
+  expect(calls).toBe(2)
+})
+
+// CD-0037 D5: a core-minted challenge without the typed summary is a core
+// defect, not a prompt the adapter may render on its own.
+test("challenge without the typed consequence summary fails closed", async () => {
+  const bare = coreEnvelope("concord_work_transition", "lifecycle", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+      approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      scope: ["product:product-1"], versions: ["work:2"],
+    } },
+  })
+  let asks = 0
+  const result: any = await runTransition(runnerWithGrant(bare), async () => { asks++ })
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("malformed_response")
+  expect(result.error.adapter_reason).toBe("malformed_core_response")
+  expect(asks).toBe(0)
 })
 
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
@@ -343,8 +392,14 @@ test("approval challenge is resubmitted once with the same idempotency key and s
 
 test("workflow premise approval asks with exact checkpoint metadata and no human identity", async () => {
   const requests: any[] = []
+  const summary = {
+    tool: "concord_work_transition", operation: "workflow_action", consequence: "workflow_action",
+    operation_digest: "sha256:" + "a".repeat(64),
+    scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:7", "contract:1"],
+    expires_at: "2026-08-20T12:10:00Z",
+  }
   const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", consequence_summary: summary, details: {
       approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:7", "contract:1"],
       work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", premise_summary: "Ship the approved workflow premise.", decision_context_digest: "sha256:" + "b".repeat(64),
     } },
@@ -361,7 +416,7 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
   const result: any = await adapter.work_transition.execute({ operation: "workflow_action", input: { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" } }, contextFor(async (request: any) => { askMetadata = request.metadata }))
   expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
+  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise.", consequence_summary: summary })
   expect(requests[1].call_envelope.host_approval_assertion.operator_principal_ref).toBeUndefined()
   expect(requests[1].call_envelope.host_approval_assertion.operator_agent_ref).toBeUndefined()
   expect(requests[1].call_envelope.host_approval_assertion.operator_session_ref).toBeUndefined()

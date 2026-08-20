@@ -666,6 +666,23 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		return replay, nil
 	}
+	// CD-0038 D3: a workflow action checks its budget ceiling after the
+	// idempotency replay — a committed request replays its original result even
+	// if a later surface lowers the ceiling — and before operator selection,
+	// approval consumption, or any effect.
+	requested, budgetErr := parseRequestBudget(raw)
+	if budgetErr != nil {
+		return coreError(base, "invalid_input", budgetErr.Error(), "reread_entities", false), nil
+	}
+	ctx, budgetCancel, budgetErr := admitBudget(ctx, requested, op.SupportedBudgetSeconds)
+	if budgetErr != nil {
+		var refusal *budgetRefusal
+		if errors.As(budgetErr, &refusal) {
+			return budgetRefusedEnvelope(base, refusal), nil
+		}
+		return failureEnvelope(base, budgetErr), nil
+	}
+	defer budgetCancel()
 	if err := store.ValidateWorkflowOperatorSelection(ctx, r.Store, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -676,9 +693,10 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	if requiresApproval && approval == "" {
 		var challengeRef string
+		challengeSpec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, challengeSpec)
 			return err
 		})
 		if txErr != nil {
@@ -697,7 +715,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if premiseSummary == "" {
 			premiseSummary = "Workflow action " + in.ActionID
 		}
-		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(scope), "versions": approvalVersionBindings(versions), "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
+		response.Error.ConsequenceSummary = deriveConsequenceSummary(r.Tool, r.Operation, challengeSpec)
+		response.Error.Details = map[string]any{"approval_ref": challengeRef, "operation_digest": digest, "scope": approvalScopeBindings(scope), "versions": approvalVersionBindings(versions), "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
 		return response, nil
 	}
 
@@ -2053,14 +2072,14 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		if requiresApproval && approval == "" {
 			challengeScope := boundedApprovalScope(scope)
-			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			challengeSpec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, challengeSpec)
 			if err != nil {
 				return err
 			}
-			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+			details := map[string]any{"approval_ref": challengeRef, "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
 			if len(governingConflict) > 0 {
 				response = governingConflictEnvelope(base, governingConflict)
-				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
 			} else {
 				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
 			}
@@ -2069,6 +2088,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 					details[key] = value
 				}
 			}
+			response.Error.ConsequenceSummary = deriveConsequenceSummary(r.Tool, r.Operation, challengeSpec)
 			response.Error.Details = details
 			return nil
 		}

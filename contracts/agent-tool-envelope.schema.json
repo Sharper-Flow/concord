@@ -307,6 +307,21 @@
             "truncated": {"type": "boolean"}
           }
         },
+        "consequence_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool", "operation", "consequence", "operation_digest", "scope", "versions", "expires_at"],
+          "properties": {
+            "tool": {"type": "string", "minLength": 1, "maxLength": 128},
+            "operation": {"type": "string", "minLength": 1, "maxLength": 128},
+            "consequence": {"enum": ["read", "intent", "lifecycle", "workflow_action", "scope", "relation", "supersession", "publication", "recovery", "research", "claim"]},
+            "operation_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "scope": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "versions": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "expires_at": {"type": "string", "format": "date-time", "minLength": 20, "maxLength": 64}
+          }
+        },
+        "supported_budget_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
         "details": {
           "type": "object",
           "maxProperties": 20,
@@ -383,7 +398,11 @@
         },
         {
           "if": { "properties": { "kind": { "const": "budget_refused" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "adjust_budget" } } } } }
+          "then": { "required": ["supported_budget_seconds"], "properties": { "recovery_action": { "properties": { "kind": { "const": "adjust_budget" } } } } }
+        },
+        {
+          "if": { "required": ["supported_budget_seconds"] },
+          "then": { "properties": { "kind": { "const": "budget_refused" } } }
         },
         {
           "if": { "properties": { "kind": { "const": "invalid_cursor" } }, "required": ["kind"] },
@@ -400,6 +419,10 @@
         {
           "if": { "required": ["options"] },
           "then": { "properties": { "kind": { "const": "invariant_violation" }, "recovery_action": { "properties": { "kind": { "const": "contact_operator" } } } } }
+        },
+        {
+          "if": { "required": ["consequence_summary"] },
+          "then": { "properties": { "kind": { "enum": ["approval_required", "invariant_violation"] } } }
         }
       ]
     },

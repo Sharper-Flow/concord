@@ -494,7 +494,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -890,7 +890,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:700c9184b4da80c3228dfb9f5fccf6714547f125b0562398de8b57a6fd01ec27",
+      "sha256": "sha256:036366b8212ee6a2da40b2387ba699ca634c7a09012b9694cc70ab2feb6400c7",
       "evidence": [
         "internal/agent/authority.go",
         "docs/agent-call-context-contract.md",
@@ -946,7 +946,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:b0f5731d030015730e47a27ee8c714d315aba9d55c0fe852ec6bafb0609e88aa",
+      "sha256": "sha256:fbfc101beb3a93a8a6eaf59ea5c870801b47bbfa86f421254066336cf3ed5cb6",
       "evidence": [
         "internal/store/workflow_registry.go",
         "docs/workflow-engine-contract.md",
@@ -1227,7 +1227,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1b6546008b06db57a181a3abd511cfb190ab0b2396174647246e47e1b6998ddc",
+      "sha256": "sha256:b2f1cbc0ca33ec932743c03593e2a8d7ce1d3b8a88f280fad673c62e5a949f91",
       "home_domain_id": "product-root:concord"
     },
     {

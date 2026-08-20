@@ -1323,6 +1323,7 @@ func init() {
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
 	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
+	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback
 
 	// Deferred scenarios with precise reasons.
 }

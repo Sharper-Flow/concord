@@ -180,6 +180,14 @@
         "internal/store.validateManifestScopes"
       ],
       "reason": "Surfaced by the first CD-0047 reachability inventory and not yet assessed. This state is deliberate: inventing a rationale for code whose purpose has not been re-examined would make the manifest read as considered when it is merely recorded."
+    },
+    {
+      "id": "corpus-test-support-seam",
+      "state": "outstanding",
+      "functions": [
+        "internal/store.AdvanceWorkflowStepForTesting"
+      ],
+      "issue": 246
     }
   ]
 }

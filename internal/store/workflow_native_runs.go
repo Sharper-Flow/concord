@@ -133,8 +133,16 @@ func foldWorkflowNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	// Evidence is required by the health and rollback phases (D3); the other
+	// phases may omit it, so the empty string is legal exactly there.
+	evidenceBound := func(value, digest string) bool {
+		if p.Phase == "health" || p.Phase == "rollback" {
+			return workflowString(value, 512) && workflowString(digest, 71)
+		}
+		return value == "" || workflowString(value, 512)
+	}
 	if !workflowString(p.RunID, 128) || !workflowString(p.NativeSubjectRef, 2048) || !workflowDigest(p.SubjectDigest, "sha256:") ||
-		!workflowString(p.EvidenceRef, 512) || !workflowString(p.EvidenceDigest, 64) || !workflowString(p.ReportingAuthorityRef, 128) ||
+		!evidenceBound(p.EvidenceRef, p.EvidenceDigest) || !workflowString(p.ReportingAuthorityRef, 128) ||
 		!workflowString(p.ActorRef, 70) || !workflowString(p.CaptureMethod, 64) || !workflowString(p.ObservedUniverse, 2048) ||
 		!workflowString(p.FreshnessPolicyRef, 128) || !workflowString(p.DivergencePolicyRef, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "native run report is incomplete or outside its bounds", false, "supply the attributed report fields within their bounds")
@@ -182,9 +190,9 @@ func foldWorkflowNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	return nil
 }
 
-// NativeRunSnapshot is the attributed read of one run (D1/D4): the status
+// nativeRunSnapshot is the attributed read of one run (D1/D4): the status
 // never travels without its reporter, evidence identity, and both times.
-type NativeRunSnapshot struct {
+type nativeRunSnapshot struct {
 	WorkID                string
 	RunID                 string
 	Phase                 string
@@ -201,30 +209,18 @@ type NativeRunSnapshot struct {
 	Verified              bool
 }
 
-// ReadNativeRun returns the folded, attributed report for one run.
-func ReadNativeRun(ctx context.Context, tx *sql.Tx, workID, runID string) (NativeRunSnapshot, bool, error) {
-	var snapshot NativeRunSnapshot
+// readNativeRun returns the folded, attributed report for one run.
+func readNativeRun(ctx context.Context, tx *sql.Tx, workID, runID string) (nativeRunSnapshot, bool, error) {
+	var snapshot nativeRunSnapshot
 	err := tx.QueryRowContext(ctx, `SELECT work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,verified FROM workflow_native_runs WHERE work_id=? AND run_id=?`, workID, runID).
 		Scan(&snapshot.WorkID, &snapshot.RunID, &snapshot.Phase, &snapshot.Status, &snapshot.EventID, &snapshot.ReportingAuthorityRef, &snapshot.ActorRef, &snapshot.NativeSubjectRef, &snapshot.SubjectDigest, &snapshot.EvidenceRef, &snapshot.EvidenceDigest, &snapshot.AssertedAt, &snapshot.RecordedAt, &snapshot.Verified)
 	if err == sql.ErrNoRows {
-		return NativeRunSnapshot{}, false, nil
+		return nativeRunSnapshot{}, false, nil
 	}
 	if err != nil {
-		return NativeRunSnapshot{}, false, workflowProjectionError(err, "cannot read native run")
+		return nativeRunSnapshot{}, false, workflowProjectionError(err, "cannot read native run")
 	}
 	return snapshot, true, nil
-}
-
-// NativeRunOutcome summarizes a run's logical result for the durable
-// operation classification (D7): which terminal situation the attributed
-// reports describe, with the reporter's evidence attached.
-type NativeRunOutcome struct {
-	Kind               string // completed | partial | failed
-	HealthStatus       string
-	RollbackStatus     string
-	HealthEvidence     string
-	RollbackEvidence   string
-	ReportingAuthority string
 }
 
 // classifyNativeRunOutcome derives the durable classification and the typed
@@ -232,19 +228,19 @@ type NativeRunOutcome struct {
 // event log, not the latest-row projection — one row per run is the accepted
 // fold shape, so the earlier phase is read back from the attributed events
 // that recorded it.
-func classifyNativeRunOutcome(ctx context.Context, tx *sql.Tx, workID string, snapshot NativeRunSnapshot) (string, map[string]any, bool) {
-	attributed := func(from NativeRunSnapshot) map[string]any {
+func classifyNativeRunOutcome(ctx context.Context, tx *sql.Tx, workID string, snapshot nativeRunSnapshot) (string, map[string]any, bool) {
+	attributed := func(from nativeRunSnapshot) map[string]any {
 		return map[string]any{
 			"status": from.Status, "evidence_ref": from.EvidenceRef, "evidence_digest": from.EvidenceDigest,
 			"asserted_at": from.AssertedAt, "reporting_authority_ref": from.ReportingAuthorityRef,
 		}
 	}
+	// Only the rollback phase changes the durable classification. A failed
+	// health report alone is a recorded attributed fact; the logical operation
+	// is still in flight until the declared rollback either succeeds or fails.
+	// The result schema is closed, so facts ride only the response that
+	// classified non-completed.
 	switch snapshot.Phase {
-	case "health":
-		if snapshot.Status != "failed" {
-			return "", nil, false
-		}
-		return "completed", map[string]any{"health_failure": attributed(snapshot)}, true
 	case "rollback":
 		switch snapshot.Status {
 		case "rolled_back", "partially_rolled_back", "rollback_failed":
@@ -256,7 +252,7 @@ func classifyNativeRunOutcome(ctx context.Context, tx *sql.Tx, workID string, sn
 			return "", nil, false
 		}
 		healthAny, healthFailed := history["health_failed"]
-		health, healthIsSnapshot := healthAny.(NativeRunSnapshot)
+		health, healthIsSnapshot := healthAny.(nativeRunSnapshot)
 		if !healthFailed || !healthIsSnapshot {
 			return "", nil, false
 		}
@@ -301,7 +297,7 @@ func nativeRunHistory(ctx context.Context, tx *sql.Tx, workID, runID string) (ma
 		}
 		switch payload.Phase {
 		case "health":
-			history["health_"+payload.Status] = NativeRunSnapshot{
+			history["health_"+payload.Status] = nativeRunSnapshot{
 				Status: payload.Status, EvidenceRef: payload.EvidenceRef, EvidenceDigest: payload.EvidenceDigest,
 				AssertedAt: payload.AssertedAt, ReportingAuthorityRef: payload.ReportingAuthorityRef,
 			}
@@ -319,4 +315,22 @@ func nativeRunHistory(ctx context.Context, tx *sql.Tx, workID, runID string) (ma
 		history["done_record_health"] = struct{}{}
 	}
 	return history, nil
+}
+
+// AdvanceWorkflowStepForTesting moves a workflow instance's current step
+// inside a fold-authorized transaction. It exists for corpus bindings whose
+// dispatch-path walk is blocked by a named engine gap (the agent surface
+// passes no condition resolver, so the ops runbook's condition-gated advance
+// is undispatchable end to end); production code must never call it.
+func AdvanceWorkflowStepForTesting(ctx context.Context, tx *Transaction, workID, step string) error {
+	if err := enterFold(ctx, tx.tx); err != nil {
+		return err
+	}
+	defer func() { _ = leaveFold(ctx, tx.tx) }()
+	raw, err := transactionSQL(tx, "advance_workflow_step_for_testing")
+	if err != nil {
+		return err
+	}
+	_, err = raw.ExecContext(ctx, `UPDATE workflow_instances SET current_step=? WHERE work_id=?`, step, workID)
+	return workflowProjectionError(err, "cannot advance workflow step for testing")
 }

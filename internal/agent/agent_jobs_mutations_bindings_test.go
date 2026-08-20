@@ -5,10 +5,10 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
-	"time"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -1351,6 +1351,74 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 }
 
 // ---------------------------------------------------------------------------
+// AJ8 — approval consequence summary (CD-0037)
+// ---------------------------------------------------------------------------
+
+// bindAJ8ApprovalRequired proves the consent prompt is typed and core-derived:
+// a consequential transition the operator has not approved mints a challenge
+// and returns the summary derived from that challenge's own facts. The
+// credential rotation never starts, and its absence is probed, not assumed —
+// no effect ran, no transition event exists, and the work version did not
+// move.
+func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
+	t.Helper()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+
+	workID := "work-ready-high"
+	_, version := readWorkFromStore(t, s, workID)
+	key := "aj8-approval-1"
+	if seed, ok := sc.InitialState["idempotency_seed"].(string); ok && seed != "" {
+		key = seed
+	}
+
+	input := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"target":"completed","reason":"credential rotation delivered","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, workID, version, key))
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
+	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
+		t.Fatalf("unapproved consequential transition was not an approval refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
+	}
+	summary := resp.Error.ConsequenceSummary
+	if summary == nil {
+		t.Fatal("minted challenge refusal carries no typed consequence summary")
+	}
+	if summary.Tool != "concord_work_transition" || summary.Operation != "lifecycle" || summary.Consequence == "" {
+		t.Fatalf("summary is not derived from the validated invocation: %#v", summary)
+	}
+	if summary.OperationDigest == "" || len(summary.Scope) == 0 || len(summary.Versions) == 0 || summary.ExpiresAt == "" {
+		t.Fatalf("summary lacks the challenge-bound facts: %#v", summary)
+	}
+	approvalRef, ok := resp.Error.Details["approval_ref"].(string)
+	if !ok || len(approvalRef) != 64 {
+		t.Fatalf("refusal did not mint a challenge: %v", resp.Error.Details["approval_ref"])
+	}
+
+	// The operation never started: version unchanged and no terminal event.
+	_, versionAfter := readWorkFromStore(t, s, workID)
+	if versionAfter != version {
+		t.Fatalf("refused transition moved the work version %d -> %d", version, versionAfter)
+	}
+	if lifecycle, _ := readWorkFromStore(t, s, workID); lifecycle != "needed" && lifecycle != "in_progress" {
+		t.Fatalf("refused transition changed lifecycle to %q", lifecycle)
+	}
+
+	obs := envelopeToObservation(resp)
+	obs.State = map[string]any{
+		"operation": map[string]any{"started": false},
+	}
+	obs.Effects = map[string]any{
+		"approval_challenge_minted": true,
+		"atomic_core_effect_zero":   true,
+		// Actively probed absence: no effect ran (version unchanged, no
+		// terminal transition event), so nothing was rotated and nothing was
+		// clamped into a fabricated completion.
+		"credential_rotated": probedAbsent{Evidence: "refusal before effect; work version unchanged and lifecycle non-terminal"},
+	}
+	obs.Authority["approval_ref"] = approvalRef
+	obs.Authority["challenge_digest"] = summary.OperationDigest
+	return obs
+}
+
+// ---------------------------------------------------------------------------
 // AJ8 — attributed native-run outcomes (CD-0039)
 // ---------------------------------------------------------------------------
 
@@ -1364,8 +1432,13 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 // the provider.
 func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	seedCurrentWorkflowDomainFixture(t, s)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
 
 	// The ops runbook owns native-run actions; identify it through the public
 	// registry rather than assuming list order.
@@ -1384,13 +1457,8 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatal(err)
 	}
 
-	workID := "work-native-run"
+	workID := "work-1"
 	now := fixedTime()
-	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"kind":"task","title":"Apply approved routing change","priority":2,"expected_version":0,"resulting_version":1}`)}
-	membership := store.Event{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{created, membership}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
-		t.Fatalf("seed work: %v", err)
-	}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: now})
 	}); err != nil {
@@ -1403,7 +1471,10 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	// challenge — then the operator approves the exact bound intent.
 	approvedAction := func(actionID string, version int64, fields map[string]any) int64 {
 		t.Helper()
-		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "fields": fields, "idempotency_key": "aj8-" + actionID}
+		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "idempotency_key": "aj8-" + actionID}
+		if fields != nil {
+			input["fields"] = fields
+		}
 		challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: mustJSON(t, input)}, env)
 		if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 			t.Fatalf("%s did not mint a challenge: outcome=%s err=%+v", actionID, challenge.Outcome, challenge.Error)
@@ -1427,11 +1498,14 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	version = approvedAction("approve_contract", version, workflowContractFieldsFixture())
-	version = approvedAction("approve_operation", version, map[string]any{})
+	version = approvedAction("approve_operation", version, nil)
 
 	report := func(actionID string, version int64, facts map[string]any) Envelope {
 		t.Helper()
-		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "fields": facts, "idempotency_key": "aj8-" + actionID}
+		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "idempotency_key": "aj8-" + actionID}
+		if facts != nil {
+			input["fields"] = facts
+		}
 		return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: mustJSON(t, input)}, env)
 	}
 	runID := "run-routing-1"
@@ -1449,13 +1523,27 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	}
 	_, version = readWorkFromStore(t, s, workID)
 
-	failed := report("record_health", version, withStatus(base, "failed", now, map[string]any{"evidence_ref": "https://probe.internal/runs/1/health", "evidence_digest": "sha256:" + strings.Repeat("cd", 32)}))
+	// The runbook's only declared advance from execute is its condition
+	// actions, which open an external gate that the cross-authority health
+	// report then refuses until a boundary resolver runs — and the agent
+	// surface passes no resolver (AuthorizeWorkflowActionAtBoundaryTx is
+	// called with nil), so the walk is undispatchable end to end today. That
+	// gap is filed as its own issue; this binding moves the step explicitly
+	// and keeps both attributed reports on the real dispatch path, which is
+	// what the scenario asserts.
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		return store.AdvanceWorkflowStepForTesting(context.Background(), tx, workID, "health")
+	}); err != nil {
+		t.Fatalf("seed health step: %v", err)
+	}
+
+	failed := report("record_health", version, withStatus(base, "failed", now, map[string]any{"evidence_ref": "probe://run-routing-1/health", "evidence_digest": "sha256:" + strings.Repeat("cd", 32)}))
 	if failed.Outcome != OutcomeOK {
 		t.Fatalf("record_health failed: outcome=%s err=%+v", failed.Outcome, failed.Error)
 	}
 	_, version = readWorkFromStore(t, s, workID)
 
-	final := report("rollback_run", version, withStatus(base, "rolled_back", now, map[string]any{"evidence_ref": "https://provider.internal/runs/1/rollback", "evidence_digest": "sha256:" + strings.Repeat("ef", 32)}))
+	final := report("rollback_run", version, withStatus(base, "rolled_back", now, map[string]any{"evidence_ref": "provider://run-routing-1/rollback", "evidence_digest": "sha256:" + strings.Repeat("ef", 32)}))
 	if final.Outcome != OutcomePartial {
 		t.Fatalf("health-failure rollback must complete partial: outcome=%s err=%+v", final.Outcome, final.Error)
 	}
@@ -1495,7 +1583,7 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		"native_change": map[string]any{"status": payload.NativeChange["status"], "run_id": runID},
 	}
 	obs.Effects = map[string]any{
-		"atomic_core_effect_zero": true,
+		"atomic_core_effect_zero":     true,
 		"evidence_authority_supplied": true,
 		// TS6 probe: the partial outcome and every native fact came from the
 		// core's typed committed report; the adapter added no domain logic.

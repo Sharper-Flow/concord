@@ -417,7 +417,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if request.ActionID == "rollback_run" || request.ActionID == "record_health" {
 		if fields, fieldsErr := workflowActionObject(payload); fieldsErr == nil {
 			if runID, ok := workflowFieldString(fields, "run_id"); ok && runID != "" {
-				if snapshot, found, readErr := ReadNativeRun(ctx, tx, request.WorkID, runID); readErr == nil && found {
+				if snapshot, found, readErr := readNativeRun(ctx, tx, request.WorkID, runID); readErr == nil && found {
 					if classification, nativeFacts, classified := classifyNativeRunOutcome(ctx, tx, request.WorkID, snapshot); classified {
 						payloadMap := map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID}
 						for key, value := range nativeFacts {

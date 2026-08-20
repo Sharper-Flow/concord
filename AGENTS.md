@@ -151,8 +151,8 @@ rejection (local `python3` unittest; not part of CI).
 `docs/concord-knowledge-index.v1.json` is validated by
 `scripts/check-knowledge-index.py` and `docs/floor-readiness.v1.json` by
 `scripts/check-floor-readiness.py`. `scripts/check-json.py` (CI) nests those
-two plus `check-agent-contracts.py`, `check-tx-scope.py`, `check-store-boundary.py`, and
-`check-lane-evals.py` (adapter lane evals).
+two plus `check-agent-contracts.py`, `check-tx-scope.py`, `check-store-boundary.py`,
+`check-lane-evals.py` (adapter lane evals), and `check-law-coverage.py`.
 
 `docs/predecessor-operational-coverage.md` is validated by
 `scripts/check-predecessor-coverage.py`, which runs as its own CI step. It parses
@@ -166,6 +166,34 @@ first-usable floor. Editing it is how readiness state changes — a satisfied it
 requires an existing evidence path, an outstanding item requires a tracking
 issue, and `unmeasured` is a distinct state from incomplete. See
 [`docs/floor-readiness.md`](docs/floor-readiness.md).
+
+## Declared coverage (CD-0047)
+
+Two manifests record what is proved and what is merely present. Both reuse the
+floor-readiness state vocabulary, and both fail on an undeclared gap in either
+direction — a subject the manifest forgot, or a declaration that has gone stale.
+
+`docs/law-coverage.v1.json` gives every record in the knowledge index a coverage
+state. The subject set comes from the index, not from this manifest, so adding a
+CD without declaring how it is proved fails `scripts/check-law-coverage.py`. A
+`satisfied` record cites typed anchors — `go_test`, `scenario`, `validator`,
+`generated` — that must resolve, and executable anchors must be reached by a
+required check. A repository path is not an anchor, and a corpus scenario that a
+harness defers is refused because nothing executes it. `outstanding`,
+`unmeasured`, and `out_of_scope` are legal: prose-only law stays legal when it
+is declared prose-only.
+
+`docs/reachability-exceptions.v1.json` declares only exceptions. Reachability is
+computed, not asserted: `scripts/check-reachability.py` runs a version-pinned
+`deadcode` over `./cmd/...` — the complete entry set, since the adapter reaches
+Go only by executing the binary — subtracts the declared functions, and fails on
+any remainder. Adding an exported function no CLI path reaches means declaring
+why, when the reason is still known. Textual analysis cannot substitute here:
+`internal/store` is built on method plus tx-scoped-core pairs, so grepping for
+`.X(` reports live code as dead.
+
+Set `CONCORD_SKIP_REACHABILITY_ANALYSIS=1` to check manifest shape without a Go
+toolchain. It produces no verdict and never runs in CI.
 
 ## Release flow
 

@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/law-coverage.schema.json",
+  "title": "Concord recorded-law coverage manifest",
+  "description": "Closed contract for the record of how each piece of recorded law is proved. The subject set is docs/concord-knowledge-index.v1.json, not this file: scripts/check-law-coverage.py derives the complete set of indexed records and fails on any record this manifest omits, so law cannot escape coverage by being absent (CD-0047 D1). States reuse the vocabulary accepted in contracts/floor-readiness.schema.json (CD-0047 D2). A satisfied record cites typed anchors that resolve and, where executable, that a required check runs; a repository path is not an anchor (CD-0047 D3).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "records"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "source": {
+      "description": "The manifest whose records define this manifest's subject set. The coverage record never decides what counts as law; it only declares how known law is proved.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "description"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 512
+        },
+        "description": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1024
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "description": "A record id from the knowledge index, such as CD-0014 or a spec id.",
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 128
+          },
+          "state": {
+            "description": "satisfied: the record is proved by the cited anchors. outstanding: it should be proved and is not, tracked by an issue. unmeasured: coverage has not been assessed. out_of_scope: the record is deliberately not proved by executable evidence. Prose-only law stays legal when it is declared prose-only; the failure mode is the undeclared case.",
+            "type": "string",
+            "enum": [
+              "satisfied",
+              "outstanding",
+              "unmeasured",
+              "out_of_scope"
+            ]
+          },
+          "evidence": {
+            "description": "Typed anchors proving a satisfied record. Required when satisfied; forbidden otherwise.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "value"
+              ],
+              "properties": {
+                "kind": {
+                  "description": "go_test: <package>.<TestName>, executed by the required go test ./... step. scenario: an id declared by a corpus under scenarios/ and bound to a driver; a deferred scenario is executed by nothing and is refused. validator: a scripts/check-*.py that .github/workflows/ci.yml invokes, directly or nested through check-json.py. generated: <path>#<symbol> in an artifact carrying the generator marker.",
+                  "type": "string",
+                  "enum": [
+                    "go_test",
+                    "scenario",
+                    "validator",
+                    "generated"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 512
+                }
+              }
+            }
+          },
+          "issue": {
+            "description": "Public issue tracking an outstanding record. Required when outstanding; forbidden otherwise.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "description": "Why a record is unmeasured or out of scope. Required for those states; forbidden otherwise.",
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          }
+        }
+      }
+    }
+  }
+}

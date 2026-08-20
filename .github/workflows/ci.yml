@@ -52,6 +52,8 @@ jobs:
         run: git diff --exit-code
       - name: Vet
         run: go vet ./...
+      - name: Validate product reachability
+        run: python3 scripts/check-reachability.py
       - name: Test with race detector
         run: go test -race ./...
       - name: Run production-like ten-process acceptance conformance

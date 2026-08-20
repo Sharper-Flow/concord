@@ -105,6 +105,18 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"agent jobs drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    # Deliberately not guarded by is_file(). CD-0047 records which law is proved
+    # by which check; a coverage validator that skips itself when absent would
+    # let the whole record lapse silently, which is the failure it exists to
+    # surface. Its absence is a finding, not a reason to continue.
+    law_coverage_checker = ROOT / "scripts/check-law-coverage.py"
+    if not law_coverage_checker.is_file():
+        findings.append("law coverage checker is missing: scripts/check-law-coverage.py")
+    else:
+        checked = subprocess.run([sys.executable, str(law_coverage_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"law coverage drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     for finding in findings[:MAX_FINDINGS]:
         print(finding)
     if len(findings) > MAX_FINDINGS:

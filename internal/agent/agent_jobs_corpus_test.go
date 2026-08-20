@@ -282,12 +282,25 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	// a missing-evidence refusal, and CD-0035's governing-law conflict is the
 	// first scenario to exercise it.
 	withheld, withheldOK := obs.Effects["approval_authority_withheld"].(bool)
-	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK {
+	// A fourth refusal shape: the request itself was inadmissible against the
+	// declared contract — a budget above the operation ceiling — and was
+	// refused before any effect rather than clamped (CD-0038 D3). The probe is
+	// the binding's: no durable state changed and the idempotency key stayed
+	// reusable, which together rule out the silent clamp.
+	refused, refusedOK := obs.Effects["refused_before_effect"].(bool)
+	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK && !refusedOK {
 		t.Error("evidence_authority: binding did not record supplied, refused, withheld, or consumed authority evidence")
 		return
 	}
 	if consumedOK && !consumed {
 		t.Error("evidence_authority: approval_authority_consumed is false")
+	}
+	if refused {
+		// Cross-check the wire: an inadmissible request must surface as the
+		// typed refusal, never as a fabricated success carrying a clamp.
+		if kind, _ := obs.Communication["error"].(map[string]any)["kind"].(string); kind != "budget_refused" {
+			t.Error("evidence_authority: refused_before_effect recorded without a budget_refused error on the wire")
+		}
 	}
 	if withheld {
 		// Cross-check the wire: withholding authority must return the choice to
@@ -421,6 +434,13 @@ func invariantHonestRecovery(t *testing.T, obs jobObservation) {
 			if ar, _ := obs.Authority["approval_ref"].(string); ar == "" {
 				t.Error("honest_recovery: approval_required without an approval_ref the agent can sign against")
 			}
+		}
+	case "budget_refused":
+		// CD-0038 D3: the recovery value a caller needs is a typed field.
+		// A budget refusal whose ceiling lives only in prose or details is
+		// not a recovery path the agent can act on.
+		if supported, _ := commErr["supported_budget_seconds"].(float64); supported < 1 {
+			t.Error("honest_recovery: budget_refused without a structural supported_budget_seconds")
 		}
 	}
 }
@@ -1063,13 +1083,19 @@ func envelopeToObservation(resp Envelope) jobObservation {
 		Authority:     map[string]any{},
 	}
 	if resp.Error != nil {
-		obs.Communication["error"] = map[string]any{
+		errMap := map[string]any{
 			"kind":            resp.Error.Kind,
 			"candidate_ids":   resp.Error.Candidates,
 			"violations":      resp.Error.Violations,
 			"message":         resp.Error.Message,
 			"recovery_action": resp.Error.RecoveryAction.Kind,
 		}
+		// CD-0038 D3: the ceiling is a typed envelope affordance, so the corpus
+		// reads it from the envelope the same way it reads operator options.
+		if resp.Error.SupportedBudgetSeconds > 0 {
+			errMap["supported_budget_seconds"] = float64(resp.Error.SupportedBudgetSeconds)
+		}
+		obs.Communication["error"] = errMap
 		// CD-0035 D1: the operator-choice list is a typed envelope affordance, so
 		// the corpus reads it from the envelope rather than from a binding's prose.
 		if len(resp.Error.Options) > 0 {
@@ -1254,11 +1280,11 @@ func init() {
 	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
+	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 
 	// Deferred scenarios with precise reasons.
 	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"
 	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
-	jobDeferrals["AJ8-budget-refused"] = "#173 budget tranche: needs a declared seconds-denominated operation budget with a supported ceiling"
 }
 
 // AJ1-ambient-ready-work: resolve product, list ready work.

@@ -16,6 +16,7 @@ type ReadKind string
 const (
 	ReadPortfolio ReadKind = "portfolio"
 	ReadProduct   ReadKind = "product"
+	ReadDomains   ReadKind = "domains"
 	ReadWork      ReadKind = "work"
 	ReadKnowledge ReadKind = "knowledge"
 	ReadSearch    ReadKind = "search"
@@ -24,6 +25,10 @@ const (
 type Section string
 
 const (
+	// SectionDomains is S2's primary section: Domain hierarchy, architecture
+	// relations, and unresolved overlap render before the subordinate C17
+	// work modes (CD-0041 amended S2; no fourth screen).
+	SectionDomains   Section = "domains"
 	SectionRelations Section = "relations"
 	SectionRanked    Section = "ranked"
 	SectionKnowledge Section = "knowledge"
@@ -90,8 +95,10 @@ type RelationEdge struct {
 }
 
 type RelationTree struct {
-	Edges       []RelationEdge
-	Components  [][]string
+	Edges []RelationEdge
+	// Clusters are undirected graph clusters of the rendered work-relation
+	// graph (graph structure labels, unrelated to Product Domains).
+	Clusters    [][]string
 	Roots       []string
 	Invariant   string
 	Depth       int
@@ -112,6 +119,34 @@ type RankedWork struct {
 	ProjectCount               int
 	Blocked, Ready             bool
 	Blockers                   []Blocker
+}
+
+type DomainRow struct {
+	ID, Name, Purpose, ParentID string
+	Home                        bool
+}
+
+type DomainRelationEdge struct {
+	Kind, Source, Target, State string
+}
+
+type OverlapPair struct {
+	From, To, State string
+	SharedDomains   []string
+}
+
+// DomainSection is S2's Domain navigation body. Unavailable is typed and
+// distinct from authoritative-empty: an absent registry never renders as an
+// empty Domain list.
+type DomainSection struct {
+	Read      bool
+	State     string
+	Reason    string
+	Registry  string
+	Domains   []DomainRow
+	Relations []DomainRelationEdge
+	Overlaps  []OverlapPair
+	Truncated bool
 }
 
 type KnowledgeItem struct {
@@ -155,6 +190,7 @@ type Snapshot struct {
 	StatusMessage          string
 	FirstRun               bool
 	Section                Section
+	Domains                DomainSection
 	Relations              RelationTree
 	Ranked                 []RankedWork
 	Knowledge              KnowledgeSection
@@ -188,7 +224,7 @@ func (m *Model) Enter(ctx context.Context) error {
 func (m *Model) SelectProduct(ctx context.Context, product string) error {
 	for _, row := range m.snapshot.Rows {
 		if row.ID == product {
-			err := m.read(ctx, ReadRequest{Kind: ReadProduct, Product: product, Limit: 20, Section: SectionRelations})
+			err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 20, Section: SectionDomains})
 			if err != nil {
 				m.snapshot = Snapshot{Screen: ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 				return err
@@ -236,6 +272,9 @@ func (m *Model) Refresh(ctx context.Context) error {
 	case ScreenProduct:
 		if s.Section == SectionKnowledge {
 			return m.read(ctx, ReadRequest{Kind: ReadKnowledge, Product: s.AmbientProduct, Limit: 20, Section: SectionKnowledge})
+		}
+		if s.Section == SectionDomains {
+			return m.read(ctx, ReadRequest{Kind: ReadDomains, Product: s.AmbientProduct, Limit: 20, Section: SectionDomains})
 		}
 		return m.read(ctx, ReadRequest{Kind: ReadProduct, Product: s.AmbientProduct, Limit: 20, Section: s.Section})
 	case ScreenWork:
@@ -310,7 +349,25 @@ func (m *Model) Snapshot() Snapshot {
 	snapshot.OrderingKeys = cloneStrings(m.snapshot.OrderingKeys)
 	snapshot.Ranked = cloneRanked(m.snapshot.Ranked)
 	snapshot.Relations.Edges = append([]RelationEdge(nil), m.snapshot.Relations.Edges...)
-	snapshot.Relations.Components = cloneStringGroups(m.snapshot.Relations.Components)
+	snapshot.Relations.Clusters = cloneStringGroups(m.snapshot.Relations.Clusters)
+	snapshot.Domains.Read = m.snapshot.Domains.Read
+	snapshot.Domains.Registry = m.snapshot.Domains.Registry
+	snapshot.Domains.State, snapshot.Domains.Reason = m.snapshot.Domains.State, m.snapshot.Domains.Reason
+	snapshot.Domains.Truncated = m.snapshot.Domains.Truncated
+	snapshot.Domains.Domains = nil
+	for _, domain := range m.snapshot.Domains.Domains {
+		snapshot.Domains.Domains = append(snapshot.Domains.Domains, domain)
+	}
+	snapshot.Domains.Relations = nil
+	for _, relation := range m.snapshot.Domains.Relations {
+		snapshot.Domains.Relations = append(snapshot.Domains.Relations, relation)
+	}
+	snapshot.Domains.Overlaps = nil
+	for _, pair := range m.snapshot.Domains.Overlaps {
+		pair.SharedDomains = cloneStrings(pair.SharedDomains)
+		snapshot.Domains.Overlaps = append(snapshot.Domains.Overlaps, pair)
+	}
+	_ = snapshot
 	snapshot.Relations.Roots = cloneStrings(m.snapshot.Relations.Roots)
 	snapshot.Knowledge.Items = append([]KnowledgeItem(nil), m.snapshot.Knowledge.Items...)
 	snapshot.Detail = m.snapshot.Detail
@@ -395,7 +452,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if request.Kind == ReadWork && snapshot.Screen == ScreenPortfolio {
 		snapshot.Screen = ScreenWork
 	}
-	if request.Kind == ReadProduct || request.Kind == ReadWork || request.Kind == ReadKnowledge || request.Kind == ReadSearch {
+	if request.Kind == ReadProduct || request.Kind == ReadDomains || request.Kind == ReadWork || request.Kind == ReadKnowledge || request.Kind == ReadSearch {
 		if snapshot.AmbientProduct == "" {
 			snapshot.AmbientProduct = request.Product
 		}

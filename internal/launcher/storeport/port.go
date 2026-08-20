@@ -4,6 +4,7 @@ package storeport
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +32,22 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		return snapshotFromProduct(result, request.Product, request.Section), nil
+	case launcher.ReadDomains:
+		domains, err := p.Store.QueryLauncherDomains(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
+		if err != nil {
+			var failure *store.Failure
+			if errors.As(err, &failure) && (failure.Kind == store.KindDomainRegistryAbsent || failure.Kind == store.KindUnknownDomain) {
+				// An absent registry is a typed unavailable section, never an
+				// empty Domain list and never an unreachable screen.
+				return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unavailable", Domains: launcher.DomainSection{Read: true, State: "unavailable", Reason: string(failure.Kind)}}, nil
+			}
+			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		}
+		product, err := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
+		if err != nil {
+			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		}
+		return snapshotFromDomains(domains, product, request.Product), nil
 	case launcher.ReadWork:
 		result, err := p.Store.QueryLauncherWork(ctx, store.LauncherWorkRequest{Product: request.Product, Work: request.Work, Limit: request.Limit})
 		if err != nil {
@@ -58,6 +75,31 @@ func snapshotFromProduct(result store.LauncherProductResult, product string, sec
 		s.Relations.Coverage = "unavailable"
 		s.Coverage = "unavailable"
 		s.StatusMessage = "unavailable: " + strings.Join(result.Omissions, ", ")
+	}
+	return s
+}
+
+func snapshotFromDomains(result store.LauncherDomainsResult, product store.LauncherProductResult, productID string) launcher.Snapshot {
+	s := snapshotFromProduct(product, productID, launcher.SectionDomains)
+	s.QueryID, s.ContractVersion = result.QueryID, result.ContractVersion
+	s.Domains = launcher.DomainSection{Read: true, State: "authoritative"}
+	if result.Registry != nil {
+		s.Domains.Registry = result.Registry.ContentHash
+	}
+	for _, domain := range result.Domains {
+		s.Domains.Domains = append(s.Domains.Domains, launcher.DomainRow{ID: domain.DomainID, Name: domain.Name, Purpose: domain.Purpose, ParentID: domain.ParentDomainID, Home: domain.HomeDomain})
+	}
+	for _, relation := range result.Relations {
+		s.Domains.Relations = append(s.Domains.Relations, launcher.DomainRelationEdge{Kind: relation.Kind, Source: relation.SourceDomainID, Target: relation.TargetDomainID, State: relation.State})
+	}
+	for _, pair := range result.Overlaps {
+		converted := launcher.OverlapPair{From: pair.FromWorkID, To: pair.ToWorkID, State: pair.ResolutionState, SharedDomains: append([]string(nil), pair.SharedDomainIDs...)}
+		s.Domains.Overlaps = append(s.Domains.Overlaps, converted)
+	}
+	s.Domains.Truncated = result.Truncated
+	if result.Truncated {
+		s.Domains.State = "unavailable"
+		s.Domains.Reason = "domain_relations_bounded"
 	}
 	return s
 }
@@ -218,7 +260,7 @@ func relationTree(edges []store.RelationEdge, depth int, authority string) launc
 			queue = append(queue, undirected[current]...)
 		}
 		sort.Strings(component)
-		tree.Components = append(tree.Components, component)
+		tree.Clusters = append(tree.Clusters, component)
 	}
 	state := map[string]int{}
 	var cycle func(string)

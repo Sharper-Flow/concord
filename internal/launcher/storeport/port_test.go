@@ -1,10 +1,13 @@
 package storeport
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -18,8 +21,8 @@ func TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle(t *testi
 	if tree.Invariant != "" {
 		t.Fatalf("inverse edge became cycle: %#v", tree)
 	}
-	if len(tree.Components) != 1 || len(tree.Components[0]) != 4 {
-		t.Fatalf("components=%#v", tree.Components)
+	if len(tree.Clusters) != 1 || len(tree.Clusters[0]) != 4 {
+		t.Fatalf("components=%#v", tree.Clusters)
 	}
 }
 
@@ -44,8 +47,8 @@ func TestRelationTreeSurfacesCycles(t *testing.T) {
 	if tree.Invariant != "invariant_violation" {
 		t.Fatalf("cycle hidden: %#v", tree)
 	}
-	if len(tree.Components) != 1 {
-		t.Fatalf("cycle component=%#v", tree.Components)
+	if len(tree.Clusters) != 1 {
+		t.Fatalf("cycle component=%#v", tree.Clusters)
 	}
 }
 
@@ -74,5 +77,25 @@ func TestRelationTreeMarksDepthTruncationUnavailable(t *testing.T) {
 	}, 3, "authoritative")
 	if tree.Coverage != "unavailable" || tree.Unavailable != "relation depth limit reached" {
 		t.Fatalf("depth truncation must be visible: %#v", tree)
+	}
+}
+
+func TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(context.Background(), filepath.Join(dir, "launcher.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	port := New(s)
+	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: "product", Limit: 20, Section: launcher.SectionDomains})
+	if err != nil {
+		t.Fatalf("absent registry must not error the screen: %v", err)
+	}
+	if snapshot.Screen != launcher.ScreenProduct || snapshot.Section != launcher.SectionDomains {
+		t.Fatalf("screen/section = %s/%s", snapshot.Screen, snapshot.Section)
+	}
+	if snapshot.Coverage != "unavailable" || snapshot.Domains.State != "unavailable" || snapshot.Domains.Reason != "domain_registry_absent" {
+		t.Fatalf("absent registry must render typed unavailable, not empty: %#v", snapshot.Domains)
 	}
 }

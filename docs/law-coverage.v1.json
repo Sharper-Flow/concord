@@ -496,6 +496,11 @@
           "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
         }
       ]
+    },
+    {
+      "id": "CD-0048",
+      "state": "outstanding",
+      "issue": 239
     }
   ]
 }

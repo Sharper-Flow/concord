@@ -31,6 +31,7 @@ type ResolvedScope struct {
 	ProductID  string   `json:"product_id,omitempty"`
 	ProjectID  string   `json:"project_id,omitempty"`
 	WorkID     string   `json:"work_id,omitempty"`
+	DomainID   string   `json:"domain_id,omitempty"`
 	ProductIDs []string `json:"product_ids,omitempty"`
 	ProjectIDs []string `json:"project_ids,omitempty"`
 }

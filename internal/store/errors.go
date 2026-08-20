@@ -114,6 +114,13 @@ const (
 	KindInitiativeScopeViolation    FailureKind = "initiative_scope_violation"
 	KindInitiativeEntryConflict     FailureKind = "initiative_entry_conflict"
 	KindInitiativeCompletionBlocked FailureKind = "initiative_completion_blocked"
+	// KindDomainRegistryAbsent marks a Domain read against a Product whose Git
+	// knowledge home has not projected a Domain registry. Absent is a refusal,
+	// never an empty page: authoritative-empty requires a registry watermark.
+	KindDomainRegistryAbsent FailureKind = "domain_registry_absent"
+	// KindUnknownDomain marks a Domain reference that does not resolve to a
+	// current Domain in the Product's projected registry.
+	KindUnknownDomain FailureKind = "unknown_domain"
 	// KindDecisionRecordRequired marks the deliberate pre-workflow boundary for
 	// architecture spikes. Generic storage cannot yet verify accepted decision
 	// records, so completion fails closed rather than inferring proof from refs.

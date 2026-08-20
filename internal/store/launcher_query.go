@@ -462,3 +462,76 @@ func projectCount(ctx context.Context, tx *sql.Tx, workID string) (int, error) {
 	err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT project_id) FROM work_projects WHERE work_id=?`, workID).Scan(&count)
 	return count, err
 }
+
+// LauncherDomainRow is one current Domain in the launcher's S2 Domain section.
+type LauncherDomainRow struct {
+	DomainID       string
+	Name           string
+	Purpose        string
+	ParentDomainID string
+	HomeDomain     bool
+}
+
+// LauncherDomainRelation is one typed architecture relation edge.
+type LauncherDomainRelation struct {
+	Kind           string
+	SourceDomainID string
+	TargetDomainID string
+	State          string
+}
+
+// LauncherDomainsResult is the bounded S2 Domain navigation read: the current
+// Domain hierarchy, its typed architecture relations, and derived unresolved
+// overlap — one Product, one registry watermark, no fourth screen.
+type LauncherDomainsResult struct {
+	ResultMeta
+	Registry  *DomainRegistryView
+	Domains   []LauncherDomainRow
+	Relations []LauncherDomainRelation
+	Overlaps  []DomainOverlapPair
+	Truncated bool
+}
+
+func (s *Store) QueryLauncherDomains(ctx context.Context, req LauncherProductRequest) (LauncherDomainsResult, error) {
+	var out LauncherDomainsResult
+	list, err := s.QueryDomainList(ctx, DomainListRequest{Product: req.Product, Limit: domainListMaxLimit})
+	if err != nil {
+		return out, err
+	}
+	overlaps, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: req.Product})
+	if err != nil {
+		return out, err
+	}
+	for _, domain := range list.Domains {
+		out.Domains = append(out.Domains, LauncherDomainRow{DomainID: domain.DomainID, Name: domain.Name, Purpose: domain.Purpose, ParentDomainID: domain.ParentID, HomeDomain: domain.HomeDomain})
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT kind,source_domain_id,target_domain_id,state FROM domain_architecture_relations WHERE product_id=? ORDER BY kind,source_domain_id,target_domain_id LIMIT ?`, req.Product, domainListMaxLimit+1)
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot read Domain relations", true, "retry once the knowledge projection is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var relation LauncherDomainRelation
+		if err := rows.Scan(&relation.Kind, &relation.SourceDomainID, &relation.TargetDomainID, &relation.State); err != nil {
+			return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot decode Domain relations", true, "retry once the knowledge projection is readable", err)
+		}
+		out.Relations = append(out.Relations, relation)
+	}
+	if err := rows.Err(); err != nil {
+		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot enumerate Domain relations", true, "retry once the knowledge projection is readable", err)
+	}
+	if len(out.Relations) > domainListMaxLimit {
+		out.Relations = out.Relations[:domainListMaxLimit]
+		out.Truncated = true
+	}
+	out.Registry = list.Registry
+	out.Overlaps = overlaps.Pairs
+	if overlaps.Truncated {
+		out.Truncated = true
+	}
+	out.ResultMeta = ResultMeta{QueryID: "C14.DomainNav", ContractVersion: "C14/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"name", "domain_id", "kind", "source_domain_id", "target_domain_id"}}
+	if out.Truncated {
+		out.Omissions = []string{"domain_relations_bounded"}
+	}
+	return out, nil
+}

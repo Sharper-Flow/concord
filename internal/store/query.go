@@ -31,6 +31,7 @@ type ResolvedScope struct {
 	ProductID  string   `json:"product_id,omitempty"`
 	ProjectID  string   `json:"project_id,omitempty"`
 	WorkID     string   `json:"work_id,omitempty"`
+	DomainID   string   `json:"domain_id,omitempty"`
 	ProductIDs []string `json:"product_ids,omitempty"`
 	ProjectIDs []string `json:"project_ids,omitempty"`
 }
@@ -61,7 +62,6 @@ type Q3Request struct {
 	WorkIDs         []string
 	LifecycleStates []string
 	Kind            string
-	ComponentID     string
 	TagIDs          []string
 	PriorityMin     *int64
 	PriorityMax     *int64
@@ -661,7 +661,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if req.Detail != "" && req.Detail != "summary" && req.Detail != "full" {
 		return out, newFailure(KindInvalidFilter, "PM1.Q3", "detail must be summary or full", false, "choose a closed detail value")
 	}
-	if req.ComponentID != "" || len(req.TagIDs) > 0 {
+	if len(req.TagIDs) > 0 {
 		return out, newFailure(KindInvalidFilter, "PM1.Q3", "component and tag filters are not yet modeled in the live work projection", false, "remove the unsupported filter or use a Product/Project/work filter")
 	}
 	if req.PriorityMin != nil && req.PriorityMax != nil && *req.PriorityMin > *req.PriorityMax {

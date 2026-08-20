@@ -494,7 +494,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, component, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -1176,7 +1176,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:15102ed1710047dc00b51d24849f16fc893feb9eb29b3bb4dd336b3d8d43cd3f",
+      "sha256": "sha256:59b7c878cc447490c7bddf9be19488c14e1c2ec88afadecb1e220835fb7bf220",
       "home_domain_id": "product-root:concord"
     },
     {

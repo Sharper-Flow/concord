@@ -270,7 +270,7 @@ func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
 	writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "knowledge-id", "lesson", path, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"test"}, KnowledgeRecordScopes{Mode: "explicit"}))
 	commitKnowledgeRepo(t, repo, "ambiguous knowledge")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	authorizeKnowledgeProductHome(t, s, "prod-ambiguous", home)
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}

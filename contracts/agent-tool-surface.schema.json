@@ -37,7 +37,7 @@
           "const": "concord-agent-tool-surface"
         },
         "tool_count": {
-          "const": 9
+          "const": 10
         }
       }
     },
@@ -82,7 +82,7 @@
     "tools": {
       "type": "array",
       "minItems": 9,
-      "maxItems": 9,
+      "maxItems": 10,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -114,7 +114,7 @@
     "operations": {
       "type": "array",
       "minItems": 48,
-      "maxItems": 48,
+      "maxItems": 53,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -155,7 +155,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14)|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries)$"
+            "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14)|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
           },
           "input_schema": {
             "type": "string",

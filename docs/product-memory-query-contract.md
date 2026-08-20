@@ -6,9 +6,9 @@
 > **Scenario corpus:** [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json).
 > **Purpose:** Define the smallest storage- and tool-neutral read contract that
 > makes Concord useful as Product memory and that judges PM2/PM3 and TS1/TS3.
-> **Amended by CD-0041:** Domain replaces component as the canonical
-> architecture/filter identity. Legacy component inputs remain readable only
-> through the bounded major migration.
+> **Amended by CD-0041 and CD-0042:** Domain replaces component as the canonical
+> architecture/filter identity. Issue #197 changes the pre-go-live primary path
+> directly; component inputs are not a supported compatibility surface.
 
 ## 1. Decision boundary
 

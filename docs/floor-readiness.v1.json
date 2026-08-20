@@ -184,8 +184,14 @@
       "condition": "fc2",
       "title": "Agents resolve and address canonical Domain identity",
       "requirement": "Agent reads and mutations resolve the Product Git home's canonical Domain registry, law homes, and typed local attachments without accepting legacy component identity as new authority.",
-      "state": "outstanding",
-      "issue": 193
+      "state": "satisfied",
+      "evidence": [
+        "docs/concord-knowledge-index.v1.json",
+        "internal/store/knowledge_manifest.go",
+        "internal/store/domain_attachments.go",
+        "internal/store/domain_projection_test.go",
+        "scripts/check-knowledge-index.py"
+      ]
     },
     {
       "id": "fc2-domain-read-surface",
@@ -273,14 +279,20 @@
       "condition": "fc3",
       "title": "Every workflow type declares whether it changes Product truth",
       "requirement": "The workflow registry structurally classifies every definition with `changes_product_truth`; Product-changing contracts require a complete architecture binding, while non-Product-changing and generic work cannot write Product law or architecture.",
-      "state": "outstanding",
-      "issue": 194
+      "state": "satisfied",
+      "evidence": [
+        "contracts/workflow-definition.schema.json",
+        "internal/store/workflow_registry.go",
+        "internal/store/workflow_registry_test.go",
+        "internal/store/workflow_architecture_binding.go",
+        "internal/store/workflow_architecture_binding_test.go"
+      ]
     },
     {
       "id": "fc3-initiative-migration",
       "condition": "fc3",
-      "title": "Initiative replaces Epic without gaining architecture authority",
-      "requirement": "Initiative preserves narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles through a normal major migration while remaining secondary to each entry's Domain/law contract.",
+      "title": "Initiative directly replaces Epic without gaining architecture authority",
+      "requirement": "The current pre-go-live path deletes Epic runtime vocabulary and replaces it with Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
       "state": "outstanding",
       "issue": 196
     },
@@ -395,10 +407,16 @@
     {
       "id": "fc5-domain-migration",
       "condition": "fc5",
-      "title": "Domain and law-home migration preserves authority and rebuilds",
-      "requirement": "Legacy component/Epic manifests, notes, events, and projections migrate to Domain/Initiative vocabulary through deterministic upcasters without rewriting history, introducing a second authority, or regressing backup, restore, rebuild, or concurrent-write conformance.",
-      "state": "outstanding",
-      "issue": 193
+      "title": "Domain and law-home projections preserve one authority and rebuild",
+      "requirement": "Canonical Domain registries, law homes, typed attachments, and their knowledge-index projections validate and rebuild from the accepted Git/event authorities without introducing a second Domain or law authority.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/knowledge_manifest.go",
+        "internal/store/knowledge_manifest_test.go",
+        "internal/store/domain_attachments.go",
+        "internal/store/domain_attachments_test.go",
+        "internal/store/reconstruction.go"
+      ]
     },
     {
       "id": "fc6-predecessor-surface-enumeration",

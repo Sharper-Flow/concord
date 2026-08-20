@@ -4,8 +4,9 @@
 > locator, publish proof, and bounded lazy pruning are binding under accepted PM6/PM7.
 > **Depends on:** [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2c (three storage tiers) and §2d (structured-artifact policy).
 > **Companion to:** [`decisions/CD-0003-concord-storage-layer-shape.md`](./decisions/CD-0003-concord-storage-layer-shape.md).
-> **Amended by CD-0041:** new durable notes record `domain_ids`; legacy
-> `component_ids` upcast through PM6/PM7's bounded migration.
+> **Amended by CD-0041 and CD-0042:** durable notes record `domain_ids`; #197
+> removes `component_ids` directly from the pre-go-live primary path rather than
+> retaining a migration/upcast branch.
 
 ## Purpose
 

@@ -10,9 +10,9 @@
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, agent tools, or exact maintenance thresholds.
-> **Amended by CD-0041:** historical scope uses `domain_ids` and
-> `archived_work_domains`; legacy component scope upcasts during the bounded
-> migration.
+> **Amended by CD-0041 and CD-0042:** historical scope uses `domain_ids` and
+> `archived_work_domains`; #197 replaces component scope directly on the
+> pre-go-live primary path without an upcaster or compatibility window.
 
 ## 1. Proposed decision
 

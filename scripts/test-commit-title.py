@@ -15,6 +15,13 @@ spec = importlib.util.spec_from_file_location(
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 
+# Subjects that reached main before this guard existed. Published history
+# cannot be rewritten, so the assertion below names them rather than bounding
+# itself to a recent window that would hide them by accident. This set must
+# never grow: a new entry means the pr-title workflow did not run, or did not
+# block, and that is the finding.
+PRE_GUARD_EXCEPTIONS = frozenset({"Update priorities (#61)"})
+
 
 def rejects(subject: str) -> bool:
     return bool(guard.findings_for(subject))
@@ -128,21 +135,74 @@ def test_cli_exit_codes() -> None:
     assert missing.returncode == 2, "a missing subject must not pass"
 
 
-def test_repository_history_since_the_guard_is_clean() -> None:
-    # Every subject the guard will govern going forward must already pass, so
-    # the guard cannot be introduced red.
-    subjects = subprocess.run(
-        ["git", "log", "--format=%s", "-40", "--no-merges"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
+def git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True
     )
-    if subjects.returncode:
+
+
+def test_default_branch_history_is_clean() -> None:
+    """The subjects already on the default branch must satisfy the guard.
+
+    This is a bootstrap assertion, not an ongoing guarantee: once the pr-title
+    workflow is required, every new subject on main has been validated before
+    the merge, and this test only proves the guard was not introduced red.
+
+    Scope is deliberately the default branch rather than HEAD. The repository
+    squashes, so a pull request's intermediate commit subjects never become
+    commits on main, and asserting against HEAD would enforce a rule stricter
+    than the one release.py reads.
+
+    The assertion needs real history and says so. GitHub Actions checks out
+    refs/pull/N/merge at depth 1, where the synthetic merge commit's parents
+    are absent from the object graph — git cannot count them, `--no-merges`
+    cannot filter on them, and the merge subject reaches the guard as though it
+    were repository history. Skipping an unanswerable question is honest;
+    answering it against a synthetic commit is not.
+    """
+    if git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
         return
-    for subject in subjects.stdout.splitlines():
+    ref = next(
+        (
+            candidate
+            for candidate in ("origin/main", "main")
+            if git("rev-parse", "--verify", "--quiet", candidate).returncode == 0
+        ),
+        None,
+    )
+    if ref is None:
+        return
+    subjects = git("log", "--format=%s", "--no-merges", ref)
+    assert subjects.returncode == 0, subjects.stderr
+    lines = subjects.stdout.splitlines()
+    assert lines, "default-branch history is empty"
+    offenders = []
+    for subject in lines:
         # Strip the reference GitHub appends when squashing.
         trimmed = subject.rsplit(" (#", 1)[0] if subject.endswith(")") else subject
-        assert not rejects(trimmed), f"history subject rejected: {subject!r}"
+        if rejects(trimmed) and subject not in PRE_GUARD_EXCEPTIONS:
+            offenders.append(subject)
+    assert not offenders, f"history subjects rejected: {offenders}"
+
+
+def test_pre_guard_exceptions_are_still_needed() -> None:
+    """An exception that has become unnecessary must not linger.
+
+    Published history cannot be rewritten, so the exception set is permanent in
+    practice; this test exists so that if one ever stops being reachable — a
+    rebase before publication, say — it is removed rather than quietly
+    weakening the assertion above.
+    """
+    if git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+        return
+    if git("rev-parse", "--verify", "--quiet", "origin/main").returncode != 0:
+        return
+    history = set(git("log", "--format=%s", "--no-merges", "origin/main").stdout.splitlines())
+    for subject in PRE_GUARD_EXCEPTIONS:
+        assert subject in history, f"unused pre-guard exception: {subject!r}"
+        assert rejects(subject.rsplit(" (#", 1)[0]), (
+            f"exception no longer needed, the guard accepts it: {subject!r}"
+        )
 
 
 if __name__ == "__main__":

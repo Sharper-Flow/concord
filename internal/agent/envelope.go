@@ -165,24 +165,24 @@ type ConsequenceSummary struct {
 }
 
 type TypedError struct {
-	Kind               string               `json:"kind"`
-	RetrySafe          bool                 `json:"retry_safe"`
-	RecoveryAction     RecoveryAction       `json:"recovery_action"`
-	EffectState        EffectState          `json:"effect_state"`
-	AdapterReason      string               `json:"adapter_reason,omitempty"`
-	Message            string               `json:"message,omitempty"`
-	CurrentVersions    []ChangedRef         `json:"current_versions,omitempty"`
-	Candidates         []string             `json:"candidates,omitempty"`
-	Violations         []string             `json:"violations,omitempty"`
-	Options            []string             `json:"options,omitempty"`
-	StaleLawRevision   *StaleLawRevision    `json:"stale_law_revision,omitempty"`
-	DomainOverlap      *DomainOverlap       `json:"domain_overlap,omitempty"`
-	ConsequenceSummary *ConsequenceSummary  `json:"consequence_summary,omitempty"`
+	Kind               string              `json:"kind"`
+	RetrySafe          bool                `json:"retry_safe"`
+	RecoveryAction     RecoveryAction      `json:"recovery_action"`
+	EffectState        EffectState         `json:"effect_state"`
+	AdapterReason      string              `json:"adapter_reason,omitempty"`
+	Message            string              `json:"message,omitempty"`
+	CurrentVersions    []ChangedRef        `json:"current_versions,omitempty"`
+	Candidates         []string            `json:"candidates,omitempty"`
+	Violations         []string            `json:"violations,omitempty"`
+	Options            []string            `json:"options,omitempty"`
+	StaleLawRevision   *StaleLawRevision   `json:"stale_law_revision,omitempty"`
+	DomainOverlap      *DomainOverlap      `json:"domain_overlap,omitempty"`
+	ConsequenceSummary *ConsequenceSummary `json:"consequence_summary,omitempty"`
 	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
 	// budget_refused error — seconds refusal, result-size overrun, and the
 	// legacy millisecond bound alike — so the value a caller needs to recover
 	// is a field, never a details entry an implementation may forget to mint.
-	SupportedBudgetSeconds int           `json:"supported_budget_seconds,omitempty"`
+	SupportedBudgetSeconds int            `json:"supported_budget_seconds,omitempty"`
 	Details                map[string]any `json:"details,omitempty"`
 }
 

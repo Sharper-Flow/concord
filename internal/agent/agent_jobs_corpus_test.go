@@ -1152,6 +1152,19 @@ func envelopeToObservation(resp Envelope) jobObservation {
 	if resp.Outcome != "" {
 		obs.Communication["outcome"] = string(resp.Outcome)
 	}
+	// CD-0039 D7: a partial cross-authority outcome reports the steps that
+	// finished and its recovery route; the ordered-cross-authority invariant
+	// reads both from the envelope.
+	if len(resp.CompletedSteps) > 0 {
+		steps := make([]any, len(resp.CompletedSteps))
+		for i, step := range resp.CompletedSteps {
+			steps[i] = step
+		}
+		obs.Communication["completed_steps"] = steps
+	}
+	if resp.Error != nil && resp.Error.RecoveryAction.Kind != "" {
+		obs.Communication["recovery_action"] = resp.Error.RecoveryAction.Kind
+	}
 	obs.Authority["tool"] = resp.Tool
 	obs.Authority["operation"] = resp.Operation
 	// Authority status, omissions, and the source watermark are typed envelope
@@ -1318,9 +1331,9 @@ func init() {
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
 	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
+	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
+	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback
 
-	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
 }
 
 // AJ1-ambient-ready-work: resolve product, list ready work.

@@ -5024,6 +5024,10 @@ const GeneratedPayloadSchemaDocument = `{
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding"
                 },
+                "asserted_at": {
+                  "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T",
+                  "type": "string"
+                },
                 "attempt_epoch": {
                   "maximum": 2147483647,
                   "minimum": 1,
@@ -5050,6 +5054,14 @@ const GeneratedPayloadSchemaDocument = `{
                 "edge_kind": {},
                 "entity_kind": {},
                 "entity_ref": {},
+                "evidence_digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "evidence_ref": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                },
                 "evidence_refs": {},
                 "expected_within_seconds": {
                   "maximum": 31536000,
@@ -5072,6 +5084,11 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "array"
                 },
                 "mode": {},
+                "native_subject_ref": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                },
                 "new_contract_version": {},
                 "next_read_expectations": {},
                 "notice_id": {},
@@ -5093,6 +5110,9 @@ const GeneratedPayloadSchemaDocument = `{
                 "resolver_result": {},
                 "restart": {},
                 "route_conventions": {},
+                "run_id": {
+                  "$ref": "#/$defs/id"
+                },
                 "severity": {},
                 "source_contract_version": {},
                 "source_work_id": {},
@@ -5104,6 +5124,21 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "array"
                 },
                 "staleness_rule_id": {},
+                "status": {
+                  "enum": [
+                    "started",
+                    "failed_to_start",
+                    "healthy",
+                    "degraded",
+                    "failed",
+                    "rolled_back",
+                    "partially_rolled_back",
+                    "rollback_failed",
+                    "cleaned",
+                    "cleanup_failed"
+                  ],
+                  "type": "string"
+                },
                 "strategy": {},
                 "successor_work_id": {},
                 "summary": {},

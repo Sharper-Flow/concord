@@ -566,10 +566,17 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["law_id", "content_hash"],
+            "required": [
+              "law_id",
+              "content_hash"
+            ],
             "properties": {
-              "law_id": {"$ref": "#/$defs/id"},
-              "content_hash": {"$ref": "#/$defs/digest"}
+              "law_id": {
+                "$ref": "#/$defs/id"
+              },
+              "content_hash": {
+                "$ref": "#/$defs/digest"
+              }
             }
           }
         },
@@ -762,15 +769,38 @@
           }
         },
         "stale_law_revision": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "additionalProperties": false,
-          "required": ["old_law_id", "old_content_hash", "accepted_successor_law_id", "accepted_successor_content_hash", "recovery_actions"],
+          "required": [
+            "old_law_id",
+            "old_content_hash",
+            "accepted_successor_law_id",
+            "accepted_successor_content_hash",
+            "recovery_actions"
+          ],
           "properties": {
-            "old_law_id": {"$ref": "#/$defs/id"},
-            "old_content_hash": {"$ref": "#/$defs/digest"},
-            "accepted_successor_law_id": {"$ref": "#/$defs/id"},
-            "accepted_successor_content_hash": {"$ref": "#/$defs/digest"},
-            "recovery_actions": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/id"}}
+            "old_law_id": {
+              "$ref": "#/$defs/id"
+            },
+            "old_content_hash": {
+              "$ref": "#/$defs/digest"
+            },
+            "accepted_successor_law_id": {
+              "$ref": "#/$defs/id"
+            },
+            "accepted_successor_content_hash": {
+              "$ref": "#/$defs/digest"
+            },
+            "recovery_actions": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "$ref": "#/$defs/id"
+              }
+            }
           }
         }
       }
@@ -913,9 +943,6 @@
         },
         "kind": {
           "$ref": "#/$defs/work_kind"
-        },
-        "component_id": {
-          "$ref": "#/$defs/id"
         },
         "tag_ids": {
           "type": "array",
@@ -2180,9 +2207,6 @@
             "$ref": "#/$defs/id"
           }
         },
-        "component_id": {
-          "$ref": "#/$defs/id"
-        },
         "workflow_type_ref": {
           "$ref": "#/$defs/id"
         },
@@ -2249,9 +2273,6 @@
             "$ref": "#/$defs/id"
           }
         },
-        "component_id": {
-          "$ref": "#/$defs/id"
-        },
         "workflow_type_ref": {
           "$ref": "#/$defs/id"
         },
@@ -2310,9 +2331,6 @@
           "items": {
             "$ref": "#/$defs/id"
           }
-        },
-        "component_id": {
-          "$ref": "#/$defs/id"
         },
         "external_ref": {
           "$ref": "#/$defs/short"
@@ -2957,19 +2975,43 @@
         "idempotency_key"
       ],
       "properties": {
-        "from_work_id": { "$ref": "#/$defs/id" },
-        "to_work_id": { "$ref": "#/$defs/id" },
-        "from_expected_version": { "$ref": "#/$defs/version" },
-        "to_expected_version": { "$ref": "#/$defs/version" },
-        "from_contract_version": { "$ref": "#/$defs/version" },
-        "to_contract_version": { "$ref": "#/$defs/version" },
+        "from_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "to_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "from_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "to_expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "from_contract_version": {
+          "$ref": "#/$defs/version"
+        },
+        "to_contract_version": {
+          "$ref": "#/$defs/version"
+        },
         "resolution_kind": {
           "type": "string",
-          "enum": ["compatible_with", "depends_on", "blocks", "merged_into", "supersedes"]
+          "enum": [
+            "compatible_with",
+            "depends_on",
+            "blocks",
+            "merged_into",
+            "supersedes"
+          ]
         },
-        "reason": { "$ref": "#/$defs/short" },
-        "idempotency_key": { "$ref": "#/$defs/id" },
-        "approval": { "$ref": "#/$defs/approval" }
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
       }
     },
     "work_relate_unlink_input": {
@@ -3772,13 +3814,6 @@
             "$ref": "#/$defs/id"
           }
         },
-        "component_ids": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
         "tag_ids": {
           "type": "array",
           "maxItems": 32,
@@ -4390,13 +4425,6 @@
             "$ref": "#/$defs/id"
           }
         },
-        "component_ids": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
         "tag_ids": {
           "type": "array",
           "maxItems": 32,
@@ -4924,6 +4952,507 @@
         },
         "continuity": {
           "$ref": "#/$defs/continuity_snapshot"
+        }
+      }
+    },
+    "domain_list_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        }
+      }
+    },
+    "domain_detail_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "domain_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "domain_active_work_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "domain_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        }
+      }
+    },
+    "domain_attachments_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "domain_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "domain_overlaps_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "domain_registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "product_key",
+        "root_domain_id",
+        "content_hash",
+        "scanned_commit_oid"
+      ],
+      "properties": {
+        "product_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "product_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "root_domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "content_hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "scanned_commit_oid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "domain_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain_id",
+        "name",
+        "purpose",
+        "status",
+        "home_domain"
+      ],
+      "properties": {
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "parent_domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "current"
+          ]
+        },
+        "home_domain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "domain_list_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "domains"
+      ],
+      "properties": {
+        "registry": {
+          "$ref": "#/$defs/domain_registry"
+        },
+        "domains": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/domain_summary"
+          }
+        }
+      }
+    },
+    "domain_law_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "law_id",
+        "kind",
+        "title",
+        "path",
+        "content_hash"
+      ],
+      "properties": {
+        "law_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "decision",
+            "spec"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "content_hash": {
+          "type": "string"
+        },
+        "applies_to": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "scanned_commit_oid": {
+          "type": "string"
+        }
+      }
+    },
+    "domain_relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_domain_id",
+        "target_domain_id",
+        "state"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "depends_on",
+            "shares_contract_with",
+            "replaces"
+          ]
+        },
+        "source_domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "target_domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "declared",
+            "building",
+            "coexisting",
+            "cutover",
+            "retired"
+          ]
+        },
+        "governing_law_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "domain_detail_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "domain",
+        "current_law",
+        "relations"
+      ],
+      "properties": {
+        "registry": {
+          "$ref": "#/$defs/domain_registry"
+        },
+        "domain": {
+          "$ref": "#/$defs/domain_summary"
+        },
+        "current_law": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/domain_law_record"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/domain_relation"
+          }
+        }
+      }
+    },
+    "domain_active_work_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "kind",
+        "title",
+        "lifecycle",
+        "priority",
+        "contract_version",
+        "home_domain"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "lifecycle": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "home_domain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "domain_active_work_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "work"
+      ],
+      "properties": {
+        "registry": {
+          "$ref": "#/$defs/domain_registry"
+        },
+        "work": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/domain_active_work_item"
+          }
+        }
+      }
+    },
+    "domain_attachments_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "domain",
+        "attachments"
+      ],
+      "properties": {
+        "registry": {
+          "$ref": "#/$defs/domain_registry"
+        },
+        "domain": {
+          "$ref": "#/$defs/domain_summary"
+        },
+        "attachments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "project_attachments",
+            "resource_attachments",
+            "project_set_version",
+            "resource_set_version"
+          ],
+          "properties": {
+            "project_attachments": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "project_id",
+                  "role"
+                ],
+                "properties": {
+                  "project_id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "primary",
+                      "supporting"
+                    ]
+                  }
+                }
+              }
+            },
+            "resource_attachments": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "resource_id"
+                ],
+                "properties": {
+                  "resource_id": {
+                    "$ref": "#/$defs/id"
+                  }
+                }
+              }
+            },
+            "project_set_version": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resource_set_version": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "domain_overlap_pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_work_id",
+        "to_work_id",
+        "shared_domain_ids",
+        "resolution_state"
+      ],
+      "properties": {
+        "from_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "to_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "shared_domain_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "shared_law_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "resolution_state": {
+          "type": "string",
+          "enum": [
+            "absent",
+            "current",
+            "sequenced",
+            "stale"
+          ]
+        },
+        "resolution_kind": {
+          "type": "string"
+        }
+      }
+    },
+    "domain_overlaps_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "pairs",
+        "truncated"
+      ],
+      "properties": {
+        "registry": {
+          "$ref": "#/$defs/domain_registry"
+        },
+        "pairs": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/domain_overlap_pair"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
         }
       }
     }

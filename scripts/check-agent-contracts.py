@@ -488,7 +488,7 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             if adapter_tests.returncode: return adapter_tests.returncode
             source = (ROOT / "adapter/opencode/concord.ts").read_text(encoding="utf-8")
             exports = re.findall(r"export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(", source)
-            if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "work_initiative", "work_transition", "work_relate", "work_compact"]:
+            if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_initiative", "work_transition", "work_relate", "work_compact"]:
                 print(f"adapter export drift: {exports}", file=sys.stderr); return 1
         print("agent contract check passed (Bun syntax/build)")
     else:

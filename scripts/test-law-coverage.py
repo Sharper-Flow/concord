@@ -61,15 +61,27 @@ def test_go_test_anchor_rejects_a_malformed_value() -> None:
 def test_scenario_anchor_rejects_a_deferred_scenario() -> None:
     """The bug this resolver was written with, and the reason it is tested.
 
-    AJ8-approval-required is present in scenarios/agent-jobs.v1.json and is
-    recorded in jobDeferrals, so no driver executes it. Accepting it would
-    assert a rule that no test enforces — presence standing in for
-    enforcement, which is precisely the defect CD-0047 exists to close.
+    A deferred scenario is present in the corpus and executed by nothing.
+    Accepting it as evidence would assert a rule that no test enforces —
+    presence standing in for enforcement, which is precisely the defect
+    CD-0047 exists to close. The corpus is fully bound today, so the test
+    seeds its own deferral rather than depending on the repo retaining one.
     """
-    deferred = guard.deferred_scenarios()
-    assert deferred, "expected at least one deferred scenario in the corpus harnesses"
-    for scenario in deferred:
-        assert anchor_findings("scenario", scenario), scenario
+    seeded = guard.ROOT / "internal" / "agent" / "zz_seeded_deferral_test.go"
+    original = seeded.exists()
+    backup = seeded.read_text(encoding="utf-8") if original else None
+    seeded.write_text(
+        'package agent\n\nvar seededForCoverageTest = true\n\nfunc init() { _ = jobDeferrals }\n\nconst zz = `jobDeferrals["ZZ-seeded-deferred"] = "coverage fixture"`\n',
+        encoding="utf-8",
+    )
+    try:
+        assert "ZZ-seeded-deferred" in guard.deferred_scenarios(), "seeded deferral not discovered"
+        assert anchor_findings("scenario", "ZZ-seeded-deferred"), "deferred scenario accepted as evidence"
+    finally:
+        if original:
+            seeded.write_text(backup, encoding="utf-8")
+        else:
+            seeded.unlink()
 
 
 def test_scenario_anchor_accepts_a_bound_scenario() -> None:

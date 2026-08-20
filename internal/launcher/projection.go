@@ -22,7 +22,30 @@ func Project(snapshot Snapshot, width int) Projection {
 	columns := []string{"Product", "Stage", "Reliance", "Actions", "Focus"}
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))
-	if snapshot.Screen == ScreenProduct {
+	if snapshot.Screen == ScreenProduct && snapshot.Section == SectionDomains {
+		columns = []string{"Domain", "Marker", "Parent", "Relations"}
+		for _, domain := range snapshot.Domains.Domains {
+			marker := "DOMAIN"
+			if domain.Home {
+				marker = "HOME"
+			}
+			parent := domain.ParentID
+			if parent == "" {
+				parent = "-"
+			}
+			relations := 0
+			for _, relation := range snapshot.Domains.Relations {
+				if relation.Source == domain.ID || relation.Target == domain.ID {
+					relations++
+				}
+			}
+			rows = append(rows, []string{domain.ID + " " + domain.Name, marker, parent, fmt.Sprintf("%d", relations)})
+		}
+		if snapshot.Domains.State == "unavailable" {
+			rows = append(rows, []string{"unavailable: " + snapshot.Domains.Reason, "!", "-", "-"})
+		}
+	}
+	if snapshot.Screen == ScreenProduct && snapshot.Section != SectionDomains {
 		columns = []string{"Work", "Priority", "Urgency", "Lifecycle", "Blocked", "Projects"}
 		for _, item := range snapshot.Ranked {
 			blocked := "no"

@@ -324,8 +324,10 @@ func (p *coordinationPort) Read(_ context.Context, request launcher.ReadRequest)
 	switch request.Kind {
 	case launcher.ReadPortfolio:
 		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: []launcher.ProductRow{{ID: "product-1", Name: "Product One"}}}, nil
+	case launcher.ReadDomains:
+		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Clusters: [][]string{{"work-1", "work-2"}}, Roots: []string{"work-1"}, Depth: 3}, Domains: launcher.DomainSection{Read: true, State: "authoritative", Registry: "sha256:fixed", Domains: []launcher.DomainRow{{ID: "product-root:one", Name: "Product One", Home: true}, {ID: "work-nav", Name: "Work navigation", ParentID: "product-root:one"}}, Relations: []launcher.DomainRelationEdge{{Kind: "depends_on", Source: "work-nav", Target: "product-root:one", State: "active"}}, Overlaps: []launcher.OverlapPair{{From: "work-1", To: "work-2", State: "absent", SharedDomains: []string{"work-nav"}}}}}, nil
 	case launcher.ReadProduct:
-		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: request.Section, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Depth: 3}}, nil
+		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: request.Section, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Clusters: [][]string{{"work-1", "work-2"}}, Roots: []string{"work-1"}, Depth: 3}}, nil
 	case launcher.ReadSearch:
 		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionRanked, Coverage: "authoritative", QueryResult: true, QuerySubmitted: request.Query, Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}}}, nil
 	case launcher.ReadWork:
@@ -348,7 +350,8 @@ func TestS2S3NavigationRestoresProductSelectionAndScroll(t *testing.T) {
 	if core.Snapshot().Screen != launcher.ScreenProduct || p.reads != 2 {
 		t.Fatalf("S2=%#v reads=%d", core.Snapshot(), p.reads)
 	}
-	m.UpdateKey("tab") // relation -> ranked
+	m.UpdateKey("tab") // domains -> relations
+	m.UpdateKey("tab") // relations -> ranked
 	m.UpdateKey("j")
 	m.UpdateKey("enter")
 	if core.Snapshot().Screen != launcher.ScreenWork || core.Handoff().WorkID != "work-2" || p.reads != 3 {
@@ -369,15 +372,20 @@ func TestKnowledgeIsLazyAndQuerySubmitsExactlyOnce(t *testing.T) {
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
 	reads := p.reads
-	m.UpdateKey("tab")
+	m.UpdateKey("tab") // domains -> relations
+	if p.reads != reads {
+		t.Fatalf("domains to relations read=%d", p.reads)
+	}
+	m.UpdateKey("tab") // relations -> ranked
 	if p.reads != reads {
 		t.Fatalf("relation to ranked read=%d", p.reads)
 	}
-	m.UpdateKey("tab")
+	m.UpdateKey("tab") // ranked -> knowledge
 	if p.reads != reads+1 || !core.Snapshot().Knowledge.Read {
 		t.Fatalf("knowledge read=%d snapshot=%#v", p.reads, core.Snapshot())
 	}
-	m.UpdateKey("tab") // knowledge -> relations
+	m.UpdateKey("tab") // knowledge -> domains
+	m.UpdateKey("tab") // domains -> relations
 	m.UpdateKey("tab") // relations -> ranked
 	m.UpdateKey("s")
 	m.Update(keyPress('b', "b", 0))
@@ -398,7 +406,8 @@ func TestDisplayedQueryEscRestoresSnapshotCursorAndScroll(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
-	m.UpdateKey("tab")
+	m.UpdateKey("tab") // domains -> relations
+	m.UpdateKey("tab") // relations -> ranked
 	m.UpdateKey("j")
 	m.scroll = 1
 	m.UpdateKey("s")
@@ -477,6 +486,8 @@ func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	if called != (launcher.SessionHandoff{ProductID: "product-1"}) {
 		t.Fatalf("S2 handoff=%#v", called)
 	}
+	// S2 opens on the Domain section; two tabs reach the ranked work mode.
+	m.UpdateKey("tab")
 	m.UpdateKey("tab")
 	m.UpdateKey("enter")
 	m.UpdateKey("l")
@@ -513,5 +524,28 @@ func TestSessionLauncherFailsClosedWithoutRunningBinaryIdentity(t *testing.T) {
 	defer func() { executablePath = original }()
 	if cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1"}); err == nil || cmd != nil {
 		t.Fatalf("session process=%v err=%v", cmd, err)
+	}
+}
+
+func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
+	p := &coordinationPort{}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("enter")
+	rendered := m.Render()
+	for _, want := range []string{"HOME product-root:one Product One", "DOMAIN work-nav Work navigation parent=product-root:one", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("domains render missing %q: %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "COMPONENT ") {
+		t.Fatalf("retired component label still rendered: %q", rendered)
+	}
+	m.UpdateKey("tab") // domains -> relations (work-relation clusters)
+	if !strings.Contains(m.Render(), "CLUSTER 1:") {
+		t.Fatalf("work-relation cluster label missing after rename: %q", m.Render())
 	}
 }

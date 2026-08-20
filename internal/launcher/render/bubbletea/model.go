@@ -273,8 +273,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "tab":
 		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
-			next := launcher.SectionRelations
+			next := launcher.SectionDomains
 			switch m.core.Section() {
+			case launcher.SectionDomains:
+				next = launcher.SectionRelations
 			case launcher.SectionRelations:
 				next = launcher.SectionRanked
 			case launcher.SectionRanked:
@@ -556,6 +558,8 @@ func (m *Model) renderS2(headers []string) string {
 		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
 	}
 	switch s.Section {
+	case launcher.SectionDomains:
+		lines = append(lines, domainLines(s.Domains)...)
 	case launcher.SectionRelations:
 		if s.Relations.Unavailable != "" {
 			lines = append(lines, "RELATIONS: unavailable: "+s.Relations.Unavailable)
@@ -566,11 +570,11 @@ func (m *Model) renderS2(headers []string) string {
 		if len(s.Relations.Roots) > 0 {
 			lines = append(lines, "ROOTS: "+strings.Join(s.Relations.Roots, ", "))
 		}
-		if len(s.Relations.Components) == 0 {
+		if len(s.Relations.Clusters) == 0 {
 			lines = append(lines, "RELATIONS: authoritative-empty")
 		}
-		for i, component := range s.Relations.Components {
-			lines = append(lines, "COMPONENT "+fmtInt(i+1)+": "+strings.Join(component, " -> "))
+		for i, cluster := range s.Relations.Clusters {
+			lines = append(lines, "CLUSTER "+fmtInt(i+1)+": "+strings.Join(cluster, " -> "))
 		}
 		for _, edge := range s.Relations.Edges {
 			lines = append(lines, "EDGE "+edge.Kind+": "+edge.Source+" -> "+edge.Target)
@@ -681,6 +685,48 @@ func (m *Model) renderS3(headers []string) string {
 		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
 	}
 	return strings.Join(wrapHeaders(lines, m.width), "\n")
+}
+
+func domainLines(section launcher.DomainSection) []string {
+	if !section.Read {
+		return []string{"DOMAINS: unavailable: not_read"}
+	}
+	if section.State == "unavailable" {
+		reason := section.Reason
+		if reason == "" {
+			reason = "unavailable"
+		}
+		return []string{"DOMAINS: unavailable: " + reason}
+	}
+	var lines []string
+	if len(section.Domains) == 0 {
+		lines = append(lines, "DOMAINS: authoritative-empty")
+	}
+	for _, domain := range section.Domains {
+		marker := "DOMAIN"
+		if domain.Home {
+			marker = "HOME"
+		}
+		parent := ""
+		if domain.ParentID != "" {
+			parent = " parent=" + domain.ParentID
+		}
+		lines = append(lines, marker+" "+domain.ID+" "+domain.Name+parent)
+	}
+	for _, relation := range section.Relations {
+		lines = append(lines, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)
+	}
+	for _, pair := range section.Overlaps {
+		resolution := pair.State
+		if resolution == "" {
+			resolution = "absent"
+		}
+		lines = append(lines, "OVERLAP "+pair.From+" & "+pair.To+" domains="+strings.Join(pair.SharedDomains, ",")+" resolution="+resolution)
+	}
+	if section.Truncated {
+		lines = append(lines, "DOMAINS: truncated: bounded read reached")
+	}
+	return lines
 }
 
 func knowledgeLines(section launcher.KnowledgeSection) []string {

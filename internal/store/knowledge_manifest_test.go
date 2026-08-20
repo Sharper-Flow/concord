@@ -291,7 +291,7 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	commitKnowledgeRepo(t, repo, "structured knowledge ranking")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	authorizeKnowledgeProductHome(t, s, "product-ranking", home)
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
@@ -334,12 +334,12 @@ func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.
 	writeManifestFixture(t, repo,
 		manifestFixture{ID: "title-match", Kind: "decision", Path: "docs/decisions/CD-0101-title.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "SQLite", Summary: "title", Tags: []string{"title"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
 		manifestFixture{ID: "tag-match", Kind: "lesson", Path: "docs/lessons/tag.md", Status: "published", Date: "2026-08-09T00:00:00Z", Title: "Tag lesson", Summary: "tag", Tags: []string{"SQLITE"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", TagIDs: []string{"SQLITE"}}},
-		manifestFixture{ID: "component-match", Kind: "spec", Path: "docs/specs/component.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Component spec", Summary: "component", Tags: []string{"component"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", ComponentIDs: []string{"SQLITE"}}},
+		manifestFixture{ID: "domain-match", Kind: "spec", Path: "docs/specs/domain.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Domain spec", Summary: "domain", Tags: []string{"domain"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"SQLITE"}}},
 	)
 	commitKnowledgeRepo(t, repo, "structured exact fields")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	authorizeKnowledgeProductHome(t, s, "product-exact-fields", home)
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.
 	for _, item := range result.Items {
 		ids = append(ids, item.ID)
 	}
-	want := []string{"title-match", "tag-match", "component-match"}
+	want := []string{"title-match", "tag-match", "domain-match"}
 	if !equalStrings(ids, want) {
 		t.Fatalf("exact-field IDs = %#v, want %#v", ids, want)
 	}
@@ -413,7 +413,7 @@ func TestKnowledgeCoverageDistinguishesIndexedEmptyFromUnavailableResearch(t *te
 	commitKnowledgeRepo(t, repo, "empty manifest")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	authorizeKnowledgeProductHome(t, s, "product-coverage", home)
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
@@ -479,13 +479,13 @@ func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
 	firstRepo := initKnowledgeRepo(t)
 	writeManifestFixture(t, firstRepo,
 		manifestFixture{ID: "home-first", Kind: "decision", Path: "docs/decisions/CD-0001-home-first.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "First home", Summary: "First home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "explicit-first", Kind: "decision", Path: "docs/decisions/CD-0002-explicit-first.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "First explicit", Summary: "First explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-a"}, ProjectIDs: []string{"project-a"}, ComponentIDs: []string{"component-a"}}},
+		manifestFixture{ID: "explicit-first", Kind: "decision", Path: "docs/decisions/CD-0002-explicit-first.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "First explicit", Summary: "First explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-a"}, ProjectIDs: []string{"project-a"}, DomainIDs: []string{"domain-a"}}},
 	)
 	commitKnowledgeRepo(t, firstRepo, "first canonical home")
 	secondRepo := initKnowledgeRepo(t)
 	writeManifestFixture(t, secondRepo,
 		manifestFixture{ID: "home-second", Kind: "decision", Path: "docs/decisions/CD-0003-home-second.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Second home", Summary: "Second home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "explicit-second", Kind: "decision", Path: "docs/decisions/CD-0004-explicit-second.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "Second explicit", Summary: "Second explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-b"}, ProjectIDs: []string{"project-b"}, ComponentIDs: []string{"component-b"}}},
+		manifestFixture{ID: "explicit-second", Kind: "decision", Path: "docs/decisions/CD-0004-explicit-second.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "Second explicit", Summary: "Second explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-b"}, ProjectIDs: []string{"project-b"}, DomainIDs: []string{"domain-b"}}},
 	)
 	commitKnowledgeRepo(t, secondRepo, "second canonical home")
 	s := openTemp(t)
@@ -499,8 +499,8 @@ func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(ctx, secondHome); err != nil {
 		t.Fatal(err)
 	}
-	queryIDs := func(home KnowledgeHome, product, project, component string) []string {
-		result, err := s.QueryQ9(ctx, Q9Request{Product: product, Project: project, Component: component, Home: home})
+	queryIDs := func(home KnowledgeHome, product, project, domain string) []string {
+		result, err := s.QueryQ9(ctx, Q9Request{Product: product, Project: project, Domain: domain, Home: home})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -510,7 +510,7 @@ func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
 		}
 		return ids
 	}
-	firstIDs := queryIDs(firstHome, "product-a", "project-a", "component-a")
+	firstIDs := queryIDs(firstHome, "product-a", "project-a", "domain-a")
 	if len(firstIDs) != 1 || !containsKnowledgeString(firstIDs, "explicit-first") || containsKnowledgeString(firstIDs, "home-first") || containsKnowledgeString(firstIDs, "home-second") || containsKnowledgeString(firstIDs, "explicit-second") {
 		t.Fatalf("first-home routing=%v", firstIDs)
 	}
@@ -518,7 +518,7 @@ func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
 	if len(firstHomeIDs) != 1 || !containsKnowledgeString(firstHomeIDs, "home-first") || containsKnowledgeString(firstHomeIDs, "home-second") || containsKnowledgeString(firstHomeIDs, "explicit-first") || containsKnowledgeString(firstHomeIDs, "explicit-second") {
 		t.Fatalf("first home scope visibility=%v", firstHomeIDs)
 	}
-	secondIDs := queryIDs(secondHome, "product-b", "project-b", "component-b")
+	secondIDs := queryIDs(secondHome, "product-b", "project-b", "domain-b")
 	if len(secondIDs) != 1 || !containsKnowledgeString(secondIDs, "explicit-second") || containsKnowledgeString(secondIDs, "home-second") || containsKnowledgeString(secondIDs, "home-first") || containsKnowledgeString(secondIDs, "explicit-first") {
 		t.Fatalf("second-home routing=%v", secondIDs)
 	}
@@ -526,7 +526,7 @@ func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
 	if len(secondHomeIDs) != 1 || !containsKnowledgeString(secondHomeIDs, "home-second") || containsKnowledgeString(secondHomeIDs, "home-first") || containsKnowledgeString(secondHomeIDs, "explicit-first") || containsKnowledgeString(secondHomeIDs, "explicit-second") {
 		t.Fatalf("second home scope visibility=%v", secondHomeIDs)
 	}
-	if got := queryIDs(firstHome, "product-a", "project-b", "component-b"); len(got) != 0 {
+	if got := queryIDs(firstHome, "product-a", "project-b", "domain-b"); len(got) != 0 {
 		t.Fatalf("cross-scope explicit records leaked into first home: %v", got)
 	}
 }
@@ -548,7 +548,7 @@ func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) 
 	firstCommit := commitKnowledgeRepo(t, repo, "good manifest")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	authorizeKnowledgeProductHome(t, s, "product-rollback", home)
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}

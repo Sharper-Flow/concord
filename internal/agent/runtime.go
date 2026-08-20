@@ -118,7 +118,6 @@ type workListInput struct {
 	WorkIDs       []string    `json:"work_ids"`
 	Lifecycle     string      `json:"lifecycle"`
 	Kind          string      `json:"kind"`
-	ComponentID   string      `json:"component_id"`
 	TagIDs        []string    `json:"tag_ids"`
 	PriorityMin   *int64      `json:"priority_min"`
 	PriorityMax   *int64      `json:"priority_max"`
@@ -195,9 +194,16 @@ type initiativeEntriesInput struct {
 	InitiativeWorkID string      `json:"initiative_work_id"`
 	Budget           budgetInput `json:"budget"`
 }
+type domainReadInput struct {
+	ProductID string      `json:"product_id"`
+	DomainID  string      `json:"domain_id"`
+	Page      pageInput   `json:"page"`
+	Budget    budgetInput `json:"budget"`
+}
 type knowledgeSearchInput struct {
 	ProductID string   `json:"product_id"`
 	ProjectID string   `json:"project_id"`
+	DomainID  string   `json:"domain_id"`
 	Kinds     []string `json:"kinds"`
 	Tags      []string `json:"tags"`
 	Text      string   `json:"text"`
@@ -687,6 +693,8 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "unreachable"
 	case store.KindUnknownScope:
 		return "unknown_scope"
+	case store.KindDomainRegistryAbsent, store.KindUnknownDomain:
+		return "unknown_scope"
 	case store.KindProjectionNotFound:
 		return "unknown_scope"
 	case store.KindAmbiguousScope:
@@ -863,7 +871,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		req := store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, ComponentID: in.ComponentID, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
+		req := store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
 		q, err := r.Store.QueryQ3(ctx, req)
 		if err != nil {
 			return failureEnvelope(base, err), nil
@@ -1093,7 +1101,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
+		q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
@@ -1112,6 +1120,67 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return failureEnvelope(base, err), nil
 		}
 		return r.q10(base, q)
+	case "concord_domain.list", "concord_domain.detail", "concord_domain.active_work", "concord_domain.attachments", "concord_domain.overlaps":
+		var in domainReadInput
+		if err := decodeStrict(input, &in); err != nil {
+			return base, err
+		}
+		product := in.ProductID
+		if product == "" {
+			product = r.Envelope.SelectedProductID
+		}
+		if product == "" {
+			return coreError(base, "unknown_scope", "Domain reads require a resolved Product", "reread_entities", false), nil
+		}
+		switch queryID {
+		case "concord_domain.list":
+			result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: r.boundedLimit(in.Page.Limit), Cursor: deref(in.Page.Cursor)})
+			if err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+			if err != nil {
+				return response, err
+			}
+			return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product, "domains")
+		case "concord_domain.detail":
+			if in.DomainID == "" {
+				return coreError(base, "invalid_input", "Domain detail requires domain_id", "reread_entities", false), nil
+			}
+			result, err := r.Store.QueryDomainDetail(ctx, store.DomainDetailRequest{Product: product, Domain: in.DomainID})
+			if err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+		case "concord_domain.active_work":
+			if in.DomainID == "" {
+				return coreError(base, "invalid_input", "active Domain work requires domain_id", "reread_entities", false), nil
+			}
+			result, err := r.Store.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: in.DomainID, Limit: r.boundedLimit(in.Page.Limit), Cursor: deref(in.Page.Cursor)})
+			if err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+			if err != nil {
+				return response, err
+			}
+			return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product+":"+in.DomainID, "work")
+		case "concord_domain.attachments":
+			if in.DomainID == "" {
+				return coreError(base, "invalid_input", "Domain attachments require domain_id", "reread_entities", false), nil
+			}
+			result, err := r.Store.QueryDomainAttachments(ctx, store.DomainAttachmentsRequest{Product: product, Domain: in.DomainID})
+			if err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+		default:
+			result, err := r.Store.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: product, Domain: in.DomainID})
+			if err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+		}
 	default:
 		return base, errors.New("unsupported read operation")
 	}

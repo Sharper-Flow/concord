@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "surface": {
     "name": "concord-agent-tool-surface",
-    "tool_count": 9
+    "tool_count": 10
   },
   "envelope": {
     "schema_version": "1.0",
@@ -121,6 +121,17 @@
         "concord_work_compact.publish",
         "concord_work_compact.reconcile",
         "concord_work_compact.lesson_publish"
+      ]
+    },
+    {
+      "id": "concord_domain",
+      "description": "Navigate Product architecture: current Domains, current law, active Domain-bound work, attachments, and unresolved overlap.",
+      "operations": [
+        "concord_domain.list",
+        "concord_domain.detail",
+        "concord_domain.active_work",
+        "concord_domain.attachments",
+        "concord_domain.overlaps"
       ]
     }
   ],
@@ -1085,6 +1096,106 @@
           "1.0"
         ]
       }
+    },
+    {
+      "id": "concord_domain.list",
+      "tool": "concord_domain",
+      "kind": "read",
+      "query_id": "C22.DomainList",
+      "input_schema": "#/schemas/domain_list_input",
+      "result_schema": "#/schemas/domain_list_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_domain.detail",
+      "tool": "concord_domain",
+      "kind": "read",
+      "query_id": "C22.DomainDetail",
+      "input_schema": "#/schemas/domain_detail_input",
+      "result_schema": "#/schemas/domain_detail_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_domain.active_work",
+      "tool": "concord_domain",
+      "kind": "read",
+      "query_id": "C22.DomainActiveWork",
+      "input_schema": "#/schemas/domain_active_work_input",
+      "result_schema": "#/schemas/domain_active_work_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_domain.attachments",
+      "tool": "concord_domain",
+      "kind": "read",
+      "query_id": "C22.DomainAttachments",
+      "input_schema": "#/schemas/domain_attachments_input",
+      "result_schema": "#/schemas/domain_attachments_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
+    },
+    {
+      "id": "concord_domain.overlaps",
+      "tool": "concord_domain",
+      "kind": "read",
+      "query_id": "C22.DomainOverlaps",
+      "input_schema": "#/schemas/domain_overlaps_input",
+      "result_schema": "#/schemas/domain_overlaps_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      }
     }
   ],
   "schemas": {
@@ -1355,6 +1466,46 @@
     "work_define_observation_record_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_observation_record_input",
       "closed": true
+    },
+    "domain_list_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_input",
+      "closed": true
+    },
+    "domain_list_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_result",
+      "closed": true
+    },
+    "domain_detail_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_input",
+      "closed": true
+    },
+    "domain_detail_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_result",
+      "closed": true
+    },
+    "domain_active_work_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_active_work_input",
+      "closed": true
+    },
+    "domain_active_work_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_active_work_result",
+      "closed": true
+    },
+    "domain_attachments_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_attachments_input",
+      "closed": true
+    },
+    "domain_attachments_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_attachments_result",
+      "closed": true
+    },
+    "domain_overlaps_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_input",
+      "closed": true
+    },
+    "domain_overlaps_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_result",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1405,6 +1556,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:68b36c6559026c7af13632c044369f22fb746ab9bc0dd6d44b1bbaa7306212cf",
-  "digest": "sha256:ae6e82fb897695246527afed1aea908ade5b71bcfe02de1618c14d177ec61427"
+  "payload_digest": "sha256:9f3bb36bd60fcad1e50b1239ce78d1f085a79f5b6337cb96fbe193ad1be0c198",
+  "digest": "sha256:0e158cbf49df229878f178a0c9dbb645cecacfa0194e291720836c25ae58ec1c"
 }

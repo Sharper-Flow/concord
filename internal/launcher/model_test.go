@@ -100,3 +100,26 @@ func TestProductAndWorkProjectionCarriesTypedScreenSections(t *testing.T) {
 		t.Fatalf("work projection=%#v", work)
 	}
 }
+
+func TestSelectingProductOpensOnDomainSection(t *testing.T) {
+	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
+	model := New(port)
+	if err := model.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	port.snapshot = Snapshot{Screen: ScreenProduct, Section: SectionDomains, Coverage: "authoritative", Domains: DomainSection{Read: true, State: "authoritative", Domains: []DomainRow{{ID: "root", Name: "One", Home: true}}}}
+	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(port.requests) != 2 || port.requests[1].Kind != ReadDomains || port.requests[1].Section != SectionDomains {
+		t.Fatalf("S2 entry requests=%#v", port.requests)
+	}
+	if got := model.Snapshot(); got.Section != SectionDomains || len(got.Domains.Domains) != 1 || !got.Domains.Domains[0].Home {
+		t.Fatalf("S2 default section must be Domains: %#v", got)
+	}
+	cloned := model.Snapshot()
+	cloned.Domains.Domains[0].Name = "mutated"
+	if model.Snapshot().Domains.Domains[0].Name == "mutated" {
+		t.Fatal("Snapshot leaked Domain rows by reference")
+	}
+}

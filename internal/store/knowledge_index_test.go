@@ -240,11 +240,11 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
+	seedKnowledgeWork(t, s, "work-done", "Auth release")
+	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	seedKnowledgeWork(t, s, "work-done", "Auth release")
-	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
 	if err := PublishCompactionLink(ctx, s, CompactionLinkRequest{EventID: "compact-work-done", WorkID: "work-done", ExpectedVersion: 3, Actor: "operator", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: workPath, Reason: "durable outcome"}); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
 	writeManifestFixture(t, firstRepo, manifestFixtureFromFile(t, firstRepo, "first-home", "lesson", firstPath, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
 	commitKnowledgeRepo(t, firstRepo, "first home")
 	firstHome := KnowledgeHome{HomeProjectID: "project-first", HomeLocatorID: "locator-first", RepoPath: firstRepo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, firstHome)
+	authorizeKnowledgeProductHome(t, s, "product-first-home", firstHome)
 	if err := s.RebuildKnowledgeIndex(ctx, firstHome); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
 	writeManifestFixture(t, secondRepo, manifestFixtureFromFile(t, secondRepo, "second-home", "lesson", secondPath, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
 	commitKnowledgeRepo(t, secondRepo, "second home")
 	secondHome := KnowledgeHome{HomeProjectID: "project-second", HomeLocatorID: "locator-second", RepoPath: secondRepo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, secondHome)
+	authorizeKnowledgeProductHome(t, s, "product-second-home", secondHome)
 	if err := s.RebuildKnowledgeIndex(ctx, secondHome); err != nil {
 		t.Fatal(err)
 	}

@@ -21,7 +21,7 @@ EVALS = ROOT / "adapter/opencode/evals"
 CONFIG = EVALS / "promptfooconfig.yaml"
 PACKETS = EVALS / "packets"
 GENERATED = ROOT / "adapter/opencode/generated-agent-lanes.ts"
-AGENTS = ROOT / "adapter/opencode/agents"
+AGENTS = ROOT / ".opencode/agents"
 
 PACKET_REQUIRED = (
     "schema_version",
@@ -127,7 +127,7 @@ def main():
 
         prose = AGENTS / f"concord-{lane_id}.md"
         if not prose.is_file():
-            findings.append(f"adapter/opencode/agents/concord-{lane_id}.md: missing lane prose")
+            findings.append(f".opencode/agents/concord-{lane_id}.md: missing lane prose")
 
     known = {lane["id"] for lane in lanes}
     for lane_id in sorted(set(packets_by_lane) - known):

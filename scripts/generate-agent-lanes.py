@@ -224,7 +224,7 @@ def main() -> int:
             ROOT / "docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
             ROOT / "docs/routing-policy-contract.md": routing_docs_projection(policy, policy_digest),
         }
-        expected.update({ROOT / "adapter/opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane) for lane in manifest["lanes"]})
+        expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane) for lane in manifest["lanes"]})
         if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text(encoding="utf-8") != content:

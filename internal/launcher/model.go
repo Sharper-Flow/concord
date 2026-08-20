@@ -124,6 +124,8 @@ type RankedWork struct {
 type DomainRow struct {
 	ID, Name, Purpose, ParentID string
 	Home                        bool
+	CurrentLawCount             int
+	ActiveWorkCount             int
 }
 
 type DomainRelationEdge struct {

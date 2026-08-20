@@ -39,7 +39,7 @@ func Project(snapshot Snapshot, width int) Projection {
 					relations++
 				}
 			}
-			rows = append(rows, []string{domain.ID + " " + domain.Name, marker, parent, fmt.Sprintf("%d", relations)})
+			rows = append(rows, []string{domain.ID + " " + domain.Name, marker, parent, fmt.Sprintf("r%d law%d act%d", relations, domain.CurrentLawCount, domain.ActiveWorkCount)})
 		}
 		if snapshot.Domains.State == "unavailable" {
 			rows = append(rows, []string{"unavailable: " + snapshot.Domains.Reason, "!", "-", "-"})

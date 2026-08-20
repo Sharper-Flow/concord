@@ -536,7 +536,7 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
 	rendered := m.Render()
-	for _, want := range []string{"HOME product-root:one Product One", "DOMAIN work-nav Work navigation parent=product-root:one", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
+	for _, want := range []string{"HOME product-root:one Product One law=0 active=0", "DOMAIN work-nav Work navigation parent=product-root:one law=0 active=0", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("domains render missing %q: %q", want, rendered)
 		}

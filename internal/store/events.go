@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -104,9 +105,7 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 		e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
 	if err != nil {
 		if isUniqueViolation(err) {
-			return 0, wrapFailure(KindDuplicateEvent, "append_event",
-				"event "+e.EventID+" is already recorded", true,
-				"treat the existing event as the durable effect", err)
+			return 0, classifyEventIDConflict(ctx, tx, e, err)
 		}
 		return 0, wrapFailure(KindUnavailable, "append_event", "cannot append the event", true,
 			"retry once the database is writable", err)
@@ -178,4 +177,84 @@ func isUniqueViolation(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unique constraint failed")
+}
+
+// classifyEventIDConflict inspects the event that already holds the requested
+// event_id and reports whether the second attempt is an equivalent retry or a
+// divergent reuse. It runs inside the caller's transaction so the read observes
+// the durable row from the same connection, never a stale snapshot from a
+// separate pool member.
+//
+// The SQLite default ON CONFLICT resolution is ABORT, which rolls back only
+// the failing statement and leaves the transaction usable for the follow-up
+// SELECT. If that guarantee ever changes, callers will see a read failure
+// rather than silently classify the wrong operation, and this function reports
+// it as KindUnavailable rather than guessing.
+//
+// occurred_at is deliberately excluded from semantic identity: a legitimate
+// retry carries a fresh clock reading and must not be misclassified as
+// divergent. A future reader must not "fix" that omission.
+func classifyEventIDConflict(ctx context.Context, tx *sql.Tx, attempted Event, insertErr error) error {
+	var existing Event
+	if err := tx.QueryRowContext(ctx,
+		`SELECT seq, kind, subject_type, subject_id, actor, payload_version, payload FROM domain_events WHERE event_id = ?`,
+		attempted.EventID,
+	).Scan(&existing.Seq, &existing.Kind, &existing.SubjectType, &existing.SubjectID, &existing.Actor, &existing.PayloadVersion, &existing.Payload); err != nil {
+		return wrapFailure(KindUnavailable, "append_event",
+			"cannot read the conflicting event_id "+attempted.EventID, true,
+			"retry once the database is readable", err)
+	}
+	if diffs := eventIdentityDifferences(attempted, existing); len(diffs) > 0 {
+		return newFailure(KindIdempotencyConflict, "append_event",
+			fmt.Sprintf("event_id %q is already recorded with a different %s", attempted.EventID, strings.Join(diffs, ", ")),
+			false,
+			"choose a new event_id; the recorded event is a different operation")
+	}
+	return wrapFailure(KindDuplicateEvent, "append_event",
+		fmt.Sprintf("event %s is already recorded at sequence %d", attempted.EventID, existing.Seq),
+		true,
+		"treat the existing event as the durable effect", insertErr)
+}
+
+// eventIdentityDifferences returns the names of semantic-identity fields that
+// differ between attempted and existing, in a stable order. occurred_at is
+// deliberately omitted: a legitimate retry carries a fresh clock reading and
+// must not be misclassified as divergent. The canonical payload comparison
+// rules live on canonicalJSON.
+func eventIdentityDifferences(attempted, existing Event) []string {
+	var diffs []string
+	if attempted.Kind != existing.Kind {
+		diffs = append(diffs, "kind")
+	}
+	if attempted.SubjectType != existing.SubjectType {
+		diffs = append(diffs, "subject_type")
+	}
+	if attempted.SubjectID != existing.SubjectID {
+		diffs = append(diffs, "subject_id")
+	}
+	if attempted.Actor != existing.Actor {
+		diffs = append(diffs, "actor")
+	}
+	if attempted.PayloadVersion != existing.PayloadVersion {
+		diffs = append(diffs, "payload_version")
+	}
+	if !payloadsCanonicallyEqual(attempted.Payload, existing.Payload) {
+		diffs = append(diffs, "payload")
+	}
+	return diffs
+}
+
+// payloadsCanonicallyEqual reports whether two JSON payloads are semantically
+// equal under canonicalJSON. A canonicalization failure on either side is
+// treated as divergent so a malformed payload never silently masks a conflict.
+func payloadsCanonicallyEqual(a, b []byte) bool {
+	aCanonical, errA := canonicalJSON(a)
+	if errA != nil {
+		return false
+	}
+	bCanonical, errB := canonicalJSON(b)
+	if errB != nil {
+		return false
+	}
+	return string(aCanonical) == string(bCanonical)
 }

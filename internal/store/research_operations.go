@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -90,13 +91,38 @@ func normalizeRevision(input ResearchRevisionInput) (ResearchRevisionInput, erro
 	return input, nil
 }
 
+// canonicalJSON returns the canonical form of raw so two semantically equal
+// JSON values compare byte-for-byte. The rules are:
+//
+//   - object keys are ordered lexicographically at every depth. Go's
+//     map[string]any marshalling sorts keys, so unmarshalling into a map and
+//     re-marshalling produces the canonical order;
+//   - numeric literals are preserved verbatim rather than passing through
+//     float64. Decoding with json.Decoder.UseNumber keeps each literal as a
+//     json.Number whose MarshalJSON returns the original bytes, so two
+//     payloads that differ only in a large integer beyond float64's exact
+//     range stay distinct;
+//   - insignificant whitespace is removed by the marshaller's default
+//     compact encoding;
+//   - on duplicate keys within one object, the last occurrence wins. The
+//     map[string]any unmarshaller keeps only the last value, so the canonical
+//     form matches what a caller that decoded and re-encoded would see.
+//
+// Input carrying more than one JSON value is rejected. A caller comparing
+// canonical forms must not have trailing content silently discarded, because
+// two inputs differing only after the first value would compare equal.
 func canonicalJSON(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty json")
 	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	if err := dec.Decode(&value); err != nil {
 		return nil, err
+	}
+	if dec.More() {
+		return nil, fmt.Errorf("json carries more than one value")
 	}
 	return json.Marshal(value)
 }

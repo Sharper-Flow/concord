@@ -50,6 +50,12 @@ type WorkflowActionExecutionResult struct {
 	ChangedRefs      []string
 	ResultingVersion int64
 	Result           json.RawMessage
+	// ResultKind is the durable operation classification: completed, partial,
+	// or failed. CD-0039 D7 sets partial when an attributed native report shows
+	// the approved logical operation did not succeed; D8 forbids ok over a
+	// failed or rolled-back folded row, so the agent surface reads this rather
+	// than inferring from the payload.
+	ResultKind string
 }
 
 // WorkflowActionDefinitionFor returns the registered action policy after the
@@ -399,10 +405,33 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	result.OperationID = request.OperationID
 	resultVersion := request.ExpectedVersion + int64(len(events))
 	result.ResultingVersion = resultVersion
+	result.ResultKind = "completed"
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
 	result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID})
+	// CD-0039 D7: when an attributed native report shows the approved logical
+	// operation did not complete successfully, the durable operation classifies
+	// as partial or failed in this same transaction, and the result carries the
+	// attributed failure and rollback facts. A health failure followed by a
+	// successful rollback is partial — start, health, and rollback steps ran;
+	// the approved production change is not successful.
+	if request.ActionID == "rollback_run" || request.ActionID == "record_health" {
+		if fields, fieldsErr := workflowActionObject(payload); fieldsErr == nil {
+			if runID, ok := workflowFieldString(fields, "run_id"); ok && runID != "" {
+				if snapshot, found, readErr := ReadNativeRun(ctx, tx, request.WorkID, runID); readErr == nil && found {
+					if classification, nativeFacts, classified := classifyNativeRunOutcome(ctx, tx, request.WorkID, snapshot); classified {
+						payloadMap := map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID}
+						for key, value := range nativeFacts {
+							payloadMap[key] = value
+						}
+						result.ResultKind = classification
+						result.Result, _ = json.Marshal(payloadMap)
+					}
+				}
+			}
+		}
+	}
 	durableChangedRef, _ := json.Marshal(changedRef)
-	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind=?,result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, result.ResultKind, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
 	}
 	return result, nil
@@ -488,6 +517,12 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return []Event{workflowTypedEvent(eventID, WorkflowContextBoundaryCrossed, request.WorkID, actor, request.Now, expected, map[string]any{
 			"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "workflow_definition_version": workflowDefinitionVersion, "workflow_definition_digest": workflowDigestValue, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
 		})}, nil
+	case "start_run", "record_health", "rollback_run", "cleanup_run":
+		event, err := buildNativeRunEvent(eventID, request.WorkID, actor, request.Now, expected, request.ActionID, fields)
+		if err != nil {
+			return nil, err
+		}
+		return []Event{event}, nil
 	case "approve_contract":
 		if rawOutcome, present := fields["outcome"]; present && string(rawOutcome) == "null" {
 			return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")

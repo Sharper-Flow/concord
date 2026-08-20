@@ -1325,7 +1325,6 @@ func init() {
 	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
 
 	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
 }
 
 // AJ1-ambient-ready-work: resolve product, list ready work.

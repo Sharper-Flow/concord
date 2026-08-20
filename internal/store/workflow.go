@@ -34,6 +34,7 @@ const (
 	WorkflowConditionResolved      = "workflow.condition_resolved"
 	WorkflowConditionCancelled     = "workflow.condition_cancelled"
 	WorkflowContextCheckpointed    = "workflow.context_checkpointed"
+	WorkflowNativeRunRecorded      = "workflow.native_run_recorded"
 	WorkflowContextBoundaryCrossed = "workflow.context_boundary_crossed"
 	WorkflowCompleted              = "workflow.completed"
 )

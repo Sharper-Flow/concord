@@ -745,7 +745,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 		base.ResolvedScope = scopeFromMap(scope)
-		result = r.mutationResult(base, execution.Result, changed, nil)
+		if execution.ResultKind == "partial" || execution.ResultKind == "failed" {
+			result = r.nativePartialEnvelope(base, execution, operationID, in.ActionID)
+		} else {
+			result = r.mutationResult(base, execution.Result, changed, nil)
+		}
 		if result.Outcome == OutcomeError {
 			resultRejected = true
 			return errors.New("mutation result rejected")
@@ -1964,6 +1968,35 @@ func membershipIDs(values []mutationMembership) []string {
 	out := make([]string, len(values))
 	for i, value := range values {
 		out[i] = value.ProjectID
+	}
+	return out
+}
+
+// nativePartialEnvelope maps a CD-0039 D7 durable classification to the TS7
+// partial shape: the same operation ID, the native steps that actually
+// completed, the attributed failure and rollback facts, and
+// operation_conflict with reconcile so cancellation cannot erase a possible
+// effect. The adapter cannot synthesize this from provider output; only the
+// core derives it from the typed committed report.
+func (r runtime) nativePartialEnvelope(base Envelope, execution store.WorkflowActionExecutionResult, operationID, actionID string) Envelope {
+	state := OperationPartial
+	if execution.ResultKind == "failed" {
+		state = OperationFailed
+	}
+	steps := []string{actionID}
+	var payload struct {
+		CompletedNativeSteps []string `json:"completed_native_steps"`
+	}
+	if err := json.Unmarshal(execution.Result, &payload); err == nil && len(payload.CompletedNativeSteps) > 0 {
+		steps = payload.CompletedNativeSteps
+	}
+	out := NewPartial(base, OperationRef{ID: operationID, Kind: "workflow_action", Version: "1", State: state, CurrentStep: actionID, UpdatedAt: r.Authority.now().UTC()}, steps, TypedError{
+		Kind: "operation_conflict", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial,
+		Message: "attributed native report shows the approved operation did not complete successfully",
+	})
+	out.Result = execution.Result
+	if _, err := out.Encode(); err != nil {
+		return coreError(base, "internal_error", "native partial envelope is invalid", "contact_operator", false)
 	}
 	return out
 }

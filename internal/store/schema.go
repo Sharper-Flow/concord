@@ -1540,6 +1540,7 @@ BEGIN
 END;
 		`,
 	},
+
 	{
 		Version: 30,
 		Name:    "worktree_claims_and_entries",
@@ -2174,6 +2175,48 @@ CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations FOR EACH ROW BE
 CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
 CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
         `,
+	}, {
+		Version: 41,
+		Name:    "workflow_native_runs",
+		SQL: `
+-- CD-0039 D4: fold-only projection of attributed native-run reports. One row
+-- per (work_id, run_id) holding the LATEST phase; the status never travels
+-- without its reporter, evidence identity, and both times.
+CREATE TABLE workflow_native_runs (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    run_id TEXT NOT NULL CHECK(length(run_id) BETWEEN 1 AND 128),
+    phase TEXT NOT NULL CHECK(phase IN ('start','health','rollback','cleanup')),
+    status TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    reporting_authority_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    native_subject_ref TEXT NOT NULL CHECK(length(native_subject_ref) BETWEEN 1 AND 2048),
+    subject_digest TEXT NOT NULL,
+    evidence_ref TEXT NOT NULL,
+    evidence_digest TEXT NOT NULL,
+    asserted_at TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    verified INTEGER NOT NULL DEFAULT 0,
+    capture_method TEXT NOT NULL,
+    observed_universe TEXT NOT NULL,
+    freshness_policy_ref TEXT NOT NULL,
+    divergence_policy_ref TEXT NOT NULL,
+    PRIMARY KEY (work_id, run_id),
+    CHECK(length(status) BETWEEN 2 AND 64),
+    CHECK(length(event_id) BETWEEN 8 AND 256),
+    CHECK(length(subject_digest) = 71 AND substr(subject_digest,1,7) = 'sha256:'),
+    CHECK(length(evidence_ref) BETWEEN 0 AND 512),
+    CHECK(length(evidence_digest) BETWEEN 0 AND 71),
+    CHECK(length(capture_method) BETWEEN 2 AND 64),
+    CHECK(length(observed_universe) BETWEEN 2 AND 2048),
+    CHECK(length(freshness_policy_ref) BETWEEN 1 AND 128),
+    CHECK(length(divergence_policy_ref) BETWEEN 1 AND 128),
+    CHECK((phase != 'health' AND phase != 'rollback') OR (length(evidence_ref) BETWEEN 1 AND 512 AND length(evidence_digest) BETWEEN 8 AND 71))
+);
+CREATE TRIGGER workflow_native_runs_guard_insert BEFORE INSERT ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_native_runs_guard_update BEFORE UPDATE ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_native_runs_guard_delete BEFORE DELETE ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
 	},
 }
 

@@ -348,8 +348,17 @@
     },
     {
       "id": "CD-0039",
-      "state": "outstanding",
-      "issue": 174
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "scenario",
+          "value": "AJ8-health-failure-rollback"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentJobsCorpus"
+        }
+      ]
     },
     {
       "id": "CD-0040",

@@ -28,7 +28,7 @@
     {
       "id": "fc5",
       "ordinal": 5,
-      "title": "Concord-owned data and workflow boundaries satisfy Priority 2 (no locks, no hand-repair, safe evolution)."
+      "title": "Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution)."
     },
     {
       "id": "fc6",
@@ -400,12 +400,13 @@
     {
       "id": "fc5-concurrent-process-conformance",
       "condition": "fc5",
-      "title": "Concurrent agent-facing writes do not contend",
-      "requirement": "A production-like multi-process harness demonstrates correctness and recovery under concurrent agent writes without lock contention on the agent-facing path.",
+      "title": "Concurrent agent-facing writes are admitted within the accepted bound",
+      "requirement": "A production-like multi-process harness on the isolated acceptance population reports zero escaped busy failures, zero lost effects, zero unexpected duplicates, and zero invariant violations, with writer-admission wait, commit duration, and wall time measured separately and sustained P99 at or below the accepted target. Correctness precedes latency: a failed correctness population forces an inconclusive verdict and fails the run.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/workflow_conformance_test.go",
-        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md"
+        "internal/store/conformance_test.go",
+        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+        "docs/decisions/CD-0045-writer-admission-invariant.md"
       ]
     },
     {

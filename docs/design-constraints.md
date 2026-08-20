@@ -16,12 +16,14 @@ remain in `clarifications.md`.
 
 ## 1. One user, one machine, many-agent concurrency
 
-**Requirement.** One human operator and many local AI agents work concurrently on one machine with **no contention, no lock waits, no failed-writes-retry storms**, and no manual coordination.
+**Requirement.** One human operator and many local AI agents work concurrently on one machine with **zero escaped busy failures, zero lost or duplicated effects, bounded writer-admission wait**, and no manual coordination. Writes are serialized, not contention-free: one writer holds the lock at a time and the others queue. What is forbidden is a wait that escapes as an error, grows without bound, or forces the caller into a retry storm.
 
 **Implication.** One operator per installation is a permanent boundary. Other humans
 may run independent installations against shared git knowledge; live workflow state
 is not shared and Concord does not become a team server. Local concurrency must be
-non-blocking for reads and serialize writes without retry storms.
+non-blocking for reads and serialize writes without retry storms. Writer-admission
+wait, commit duration, and escaped busy failure are distinct quantities, measured
+and reported separately against a named population per CD-0045.
 
 **Direction.** Product-scoped partitioning; single-writer-per-entity or append-only writes. Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
 
@@ -65,9 +67,9 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 
 ---
 
-## 4. No locks, no history repair
+## 4. Bounded writer admission, no history repair
 
-**Requirement.** Concord-owned state never suffers database-lock contention, and history is never "repaired" by hand. If the past is wrong, the correction is appended; the original record remains intact and inspectable.
+**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. History is never "repaired" by hand: if the past is wrong, the correction is appended; the original record remains intact and inspectable.
 
 **Implication.** This is a constraint on **Concord's own state model**, not a mandate to rewrite any existing system. It is the storage-model constraint.
 
@@ -326,7 +328,7 @@ traceability and implementation conformance, not as active blockers.
 | §1 concurrency | 2, 5 | [`product-data-model.md`](./product-data-model.md) |
 | §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) |
 | §3 idle-boundary updates | 2, 6 | [`workflows.md`](./workflows.md) |
-| §4 no locks / no repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
+| §4 bounded writer admission / no repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
 | §5 fast read-path | 4 | [`rollout-plan.md`](./rollout-plan.md) |
 | §6 lightweight interface | Operating envelope | [`priorities.md`](./priorities.md) |
 | §7 language choice | 2, 4 | [`core-architecture.md`](./core-architecture.md) |

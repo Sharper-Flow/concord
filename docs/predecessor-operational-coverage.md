@@ -185,7 +185,7 @@ Territory that appears across all six and is an outcome in its own right.
 
 | Outcome | State | Evidence or reason |
 |---|---|---|
-| Many concurrent agents mutate shared state on one machine without lock contention | Covered | Ten-process conformance harness, `internal/store/` |
+| Many concurrent agents mutate shared state on one machine with bounded writer admission and no escaped busy failure | Covered | Ten-process conformance harness, `internal/store/conformance_test.go`; invariant stated by CD-0045 |
 | Reconstruct any subject at any point in its history | Covered | `ReconstructSubjectAt`, `internal/store/reconstruction.go` |
 | Rebuild every projection from the event log without loss | Covered | `internal/store/reconstruction.go`; rebuild byte-equality scenario in `scenarios/workflow-engine.v1.json` |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Grants and scope validation, `internal/agent/authority.go` |

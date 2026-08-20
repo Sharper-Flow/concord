@@ -99,7 +99,7 @@ substrate. Data safety is the first implementation obligation serving the
 Product-law model.
 
 **Key implications.**
-- No database lock contention for agent-facing writes.
+- Agent-facing writes queue behind one writer and are admitted within the accepted bound: no escaped busy failure, no lost or duplicated effect, no retry storm. Reads are lock-free. See CD-0045.
 - No hand-repair of history; corrections are appended, not destructive.
 - Workflow and schema changes must be safe for in-flight work.
 - Storage and IO are a founding design decision, not an afterthought. State
@@ -224,7 +224,7 @@ It becomes usable when:
 2. Agents can read, write, and execute within that Product and Domain context through tools.
 3. Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence.
 4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
-5. Concord-owned data and workflow boundaries satisfy Priority 2 (no locks, no hand-repair, safe evolution).
+5. Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution).
 6. The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage.
 
 ---

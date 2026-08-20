@@ -11,10 +11,11 @@
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
 > tools, workflow/gate ceremony, PM8 WIP-byte exclusion, PM9 no-receipt boundary, PM10 recovery, or
 > external-system polling.
-> **Amended by CD-0041:** Initiative replaces Epic; new Initiative membership
-> uses the dedicated `includes`/entry projection rather than generic `parent`;
-> architecture-overlap resolutions extend the work-pair grammar in the next
-> normal major. Legacy Epic/parent records remain readable through upcasters.
+> **Amended by CD-0041 and CD-0042:** Initiative replaces Epic; Initiative
+> membership uses the dedicated `includes`/entry projection rather than generic
+> `parent`; architecture-overlap resolutions extend the work-pair grammar.
+> Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
+> upcasters, or compatibility windows.
 
 ## 1. Decision
 

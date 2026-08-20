@@ -192,10 +192,11 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
   `adv_epic_promote_shell`, `adv_epic_link_change`, `adv_epic_move_change`,
   `adv_epic_list`, `adv_epic_show`, `adv_epic_reorder`, `adv_epic_retire`,
   `adv_epic_unlink_change`, `adv_epic_update`. Initiative-grouping containers.
-- **Concord:** CD-0041 replaces Epic with Product-scoped Initiative through a
-  bounded major migration. Narrative, ordering, requiredness, and independent
-  entry lifecycles remain; Initiative is secondary business/outcome context and
-  owns no architecture or law authority.
+- **Concord:** CD-0041 and CD-0042 replace Epic directly with Product-scoped
+  Initiative on the pre-go-live primary path. Narrative, ordering, requiredness,
+  and independent entry lifecycles remain; Initiative is secondary
+  business/outcome context and owns no architecture or law authority. No Epic
+  alias, upcaster, or compatibility branch remains after #196.
 - **Bucket call:** Refactor/Extend — preserve the initiative-framing outcome,
   discard predecessor hierarchy as architecture, and rebuild entries over
   Domain-bound work (see §3.1, §3.4, §3.20, §3.21).

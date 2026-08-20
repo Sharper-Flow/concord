@@ -171,7 +171,8 @@ CD-0041 amends CD-0009's Epic shape. Initiative is a derived Product view over
 canonical `work_items.kind = initiative`, PM5 scope, and the bounded
 Initiative-entry projection. Product does not embed mutable Initiative records,
 and Initiative is not a second Product, Domain, or architecture authority.
-Legacy Epic events remain readable only through the bounded major migration.
+CD-0042 makes this a direct pre-go-live replacement: #196 deletes Epic runtime
+forms instead of preserving aliases, upcasters, or a compatibility window.
 
 Member records carry **identity + role + metadata** — not credentials, not live
 connections.

@@ -132,7 +132,7 @@ func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 			"versions":         []string{"work:3"},
 			"operation_digest": "sha256:abc",
 		},
-		ConsequenceSummary: &ConsequenceSummary{Tool: "concord_work_define", Operation: "capture", Consequence: "product_write", OperationDigest: "0123456789abcdef0123456789abcdef", Scope: []string{"product_id:PM1"}, Versions: []string{"work:3"}, ExpiresAt: "2026-08-20T00:00:00Z"},
+		ConsequenceSummary: &ConsequenceSummary{Tool: "concord_work_define", Operation: "capture", Consequence: "product_write", OperationDigest: "sha256:" + strings.Repeat("a", 64), Scope: []string{"product_id:PM1"}, Versions: []string{"work:3"}, ExpiresAt: "2026-08-20T00:00:00Z"},
 	})
 	if _, err := envelope.Encode(); err != nil {
 		t.Fatalf("bounded approval details rejected: %v", err)

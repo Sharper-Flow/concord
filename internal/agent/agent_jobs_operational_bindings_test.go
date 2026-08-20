@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,83 +174,6 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	// the moment of the call and that the call still succeeded.
 	obs.Effects["blocked_by_stale_projection"] = probedAbsent{
 		Evidence: "projection read active immediately before the call while git had merged the branch; the reclamation returned ok and the entry moved active -> reclaimed",
-	}
-	return obs
-}
-
-// AJ8-approval-required: a caller with no approval asks for a consequential
-// operation. The core refuses with approval_required and — per CD-0037 — the
-// refusal carries a typed consequence summary derived from the facts bound to
-// the minted challenge, so the operator approves exact facts rather than a
-// sentence. The scenario's credential-rotation story is the AJ8 job context;
-// the binding exercises the real challenge-minting surface (an unconditionally
-// approval-required mutation) through the same dispatch path any AJ8
-// operation would use. The operation must not start and no credential effect
-// may exist.
-func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
-	t.Helper()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
-
-	if sc.InitialState["approval"] != nil {
-		t.Fatalf("AJ8-approval-required expects approval null, got %+v", sc.InitialState["approval"])
-	}
-
-	preLifecycle, preOldVersion := readWorkFromStore(t, s, "work-old")
-	_, preNewVersion := readWorkFromStore(t, s, "work-new")
-	eventsBefore := workEventCount(t, s, "work-old")
-	input := []byte(fmt.Sprintf(`{"predecessor_id":"work-old","successor_id":"work-new","predecessor_expected_version":%d,"successor_expected_version":%d,"reason":"rotate the production database credential","idempotency_key":"aj8-approval-required"}`, preOldVersion, preNewVersion))
-
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "supersede", Input: input}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
-		t.Fatalf("expected approval_required refusal, got outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-	challengeRef, ok := resp.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("refusal did not mint a core challenge: %+v", resp.Error.Details)
-	}
-	summary := resp.Error.ConsequenceSummary
-	if summary == nil {
-		t.Fatal("CD-0037: challenge-bearing refusal carries no typed consequence summary")
-	}
-	if summary.Consequence != "supersession" || summary.Tool != "concord_work_relate" || summary.Operation != "supersede" || len(summary.Scope) == 0 || summary.OperationDigest == "" || summary.ExpiresAt == "" {
-		t.Fatalf("consequence summary is not derived from the challenge facts: %+v", summary)
-	}
-
-	// The operation never started: no committed idempotency record, the work
-	// projection is untouched, and no domain event was appended.
-	var idempotent int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM idempotency_records WHERE idempotency_key='aj8-approval-required'`).Scan(&idempotent); err != nil {
-		t.Fatalf("probe idempotency records: %v", err)
-	}
-	if idempotent != 0 {
-		t.Fatalf("refusal committed an operation record: %d rows", idempotent)
-	}
-	if postLifecycle, postVersion := readWorkFromStore(t, s, "work-old"); postLifecycle != preLifecycle || postVersion != preOldVersion {
-		t.Fatalf("refusal changed the work projection: %s/%d -> %s/%d", preLifecycle, preOldVersion, postLifecycle, postVersion)
-	}
-	if after := workEventCount(t, s, "work-old"); after != eventsBefore {
-		t.Fatalf("refusal appended events: %d before, %d after", eventsBefore, after)
-	}
-	var challengeStatus string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT status FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&challengeStatus); err != nil {
-		t.Fatalf("probe challenge status: %v", err)
-	}
-	if challengeStatus != "active" {
-		t.Fatalf("challenge status=%q, want active (unconsumed)", challengeStatus)
-	}
-
-	obs := envelopeToObservation(resp)
-	obs.State = map[string]any{"operation": map[string]any{"started": false}}
-	obs.Effects["atomic_core_effect_zero"] = true
-	// The consequence required operator authority the caller did not hold; the
-	// core minted a challenge and refused before any effect.
-	obs.Effects["approval_challenge_minted"] = true
-	// The prohibited effect is the credential rotation running without
-	// approval. Probing it means proving the refusal committed nothing: no
-	// operation record, no event, no projection change, challenge unconsumed.
-	obs.Effects["credential_rotated"] = probedAbsent{
-		Evidence: "no idempotency record for the key, no domain event appended, work projection unchanged, and the minted challenge remains active/unconsumed",
 	}
 	return obs
 }

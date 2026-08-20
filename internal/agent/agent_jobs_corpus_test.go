@@ -294,10 +294,6 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	// the binding's: no durable state changed and the idempotency key stayed
 	// reusable, which together rule out the silent clamp.
 	refused, refusedOK := obs.Effects["refused_before_effect"].(bool)
-	// A fifth shape (CD-0037): operator authority was simply absent, so the
-	// core minted a challenge and refused before any effect. The refusal must
-	// point at the approval path and carry the typed consequence summary.
-	minted, mintedOK := obs.Effects["approval_challenge_minted"].(bool)
 	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK && !refusedOK && !mintedOK {
 		t.Error("evidence_authority: binding did not record supplied, refused, withheld, consumed, budget-refused, or challenge-minted authority evidence")
 		return

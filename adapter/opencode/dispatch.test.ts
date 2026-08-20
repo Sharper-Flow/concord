@@ -1,6 +1,12 @@
 import { test, expect } from "bun:test"
 import { agentLanes, routingPolicies, routingPolicyManifestDigest, routingPolicyVersion } from "./generated-agent-lanes"
 import { dispatchWorker, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import type { CredentialStore } from "./credentials"
+
+// The adapter signs worker evidence with its registered client key (CD-0044).
+// Tests supply a deterministic seed so dispatch does not reach the host
+// credential service.
+const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
 
 const lane = agentLanes[0]
 const packet = (): AgentLanePacket => ({
@@ -47,7 +53,7 @@ test("packet validation is closed before any runner call", async () => {
   let calls = 0
   const invalid = { ...packet(), inputs: { task: "" } }
   expect(validateAgentLanePacket(invalid)).toBe(false)
-  const result = await dispatchWorker(invalid, { runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } } })
+  const result = await dispatchWorker(invalid, { credentials: testCredentials, runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } } })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(calls).toBe(0)
@@ -55,21 +61,21 @@ test("packet validation is closed before any runner call", async () => {
 
 test("unknown lane identity fails closed before spawn", async () => {
   const unknown = { ...packet(), lane_id: "unknown" }
-  const result = await dispatchWorker(unknown, { runner: { async run() { throw new Error("must not spawn") } } })
+  const result = await dispatchWorker(unknown, { credentials: testCredentials, runner: { async run() { throw new Error("must not spawn") } } })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
 })
 
 test("spawn failure is a typed blocked outcome with bounded diagnostic", async () => {
   let argv: string[] = []
-  const result = await dispatchWorker(packet(), { binary: "opencode-test", runner: { async run(args) { argv = args; return { exitCode: 1, stdout: "", stderr: "provider unavailable", fallbackExhausted: true } } } })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, binary: "opencode-test", runner: { async run(args) { argv = args; return { exitCode: 1, stdout: "", stderr: "provider unavailable", fallbackExhausted: true } } } })
   expect(result.outcome).toBe("blocked")
   expect(result.error?.kind).toBe("blocked")
   expect(argv).toEqual(["opencode-test", "run", "--agent", "concord-research", "--model", lane.pinned_model, "--format", "json", JSON.stringify(packet())])
 })
 
 test("spawn failure without exhaustion evidence is not mislabeled blocked", async () => {
-  const result = await dispatchWorker(packet(), { runner: { async run() { return { exitCode: 1, stdout: "", stderr: "provider unavailable" } } } })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run() { return { exitCode: 1, stdout: "", stderr: "provider unavailable" } } } })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("error")
 })
@@ -79,7 +85,7 @@ test("recorded session metadata proves the executing model and exposes fallback"
   const fallbackOutput = runOutput(JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", status: { action: { reason: "account_rate_limit" } } } }))
   expect(readRunSessionMetadata(fallbackOutput)).toEqual({ session_id: "session-1", fallback_reason: "rate_limit" })
   expect(readExportSessionMetadata(exportedSession(fallback), "session-1")).toEqual({ readback_model: fallback, session_id: "session-1" })
-  const result = await dispatchWorker(packet(), { runner: workerRunner(fallback, fallbackOutput) })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(fallback, fallbackOutput) })
   expect(result.outcome).toBe("fallback")
   expect(result.readback_model).toBe(fallback)
   expect(result.error?.kind).toBe("fallback")
@@ -88,7 +94,7 @@ test("recorded session metadata proves the executing model and exposes fallback"
 })
 
 test("matching recorded session metadata returns bounded ok envelope", async () => {
-  const result = await dispatchWorker(packet(), { runner: workerRunner() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner() })
   expect(result.outcome).toBe("ok")
   expect(result.agent).toBe("concord-research")
   expect(result.resolved_model).toBe(lane.pinned_model)
@@ -101,7 +107,7 @@ test("matching recorded session metadata returns bounded ok envelope", async () 
 test("dispatch obtains readback from a sanitized session export", async () => {
   const calls: string[][] = []
   const base = workerRunner()
-  const result = await dispatchWorker(packet(), {
+  const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: { async run(argv, input, signal) { calls.push(argv); return base.run(argv, input, signal) } },
     evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
   })
@@ -111,14 +117,14 @@ test("dispatch obtains readback from a sanitized session export", async () => {
 })
 
 test("undeclared readback is rejected instead of becoming an implicit fallback", async () => {
-  const result = await dispatchWorker(packet(), { runner: workerRunner("openai/not-declared") })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner("openai/not-declared") })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("model_identity_mismatch")
 })
 
 test("a successful run records dispatch evidence before completion evidence", async () => {
   const calls: { argv: string[]; input: string }[] = []
-  const result = await dispatchWorker(packet(), {
+  const result = await dispatchWorker(packet(), { credentials: testCredentials,
     concordBinary: "concord-test",
     runner: workerRunner(),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
@@ -152,7 +158,7 @@ test("a successful run records dispatch evidence before completion evidence", as
 test("a declared fallback is recorded as fallback evidence, not as a failure", async () => {
   const fallbackOutput = runOutput(JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", status: { action: { reason: "account_rate_limit" } } } }))
   const calls: { argv: string[]; input: string }[] = []
-  const result = await dispatchWorker(packet(), {
+  const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: workerRunner("zai-coding-plan/glm-5.2", fallbackOutput),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
@@ -168,7 +174,7 @@ test("a declared fallback is recorded as fallback evidence, not as a failure", a
 
 test("a run whose evidence cannot be recorded is not reported as a success", async () => {
   const refuse = async (argv: string[]) => argv[1] === "worker-dispatch" ? { exitCode: 1, stdout: "", stderr: "resolved model is not a declared routing-policy member" } : { exitCode: 0, stdout: "", stderr: "" }
-  const result = await dispatchWorker(packet(), {
+  const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: workerRunner(),
     evidenceRunner: { async run(argv) { return refuse(argv) } },
   })
@@ -180,7 +186,7 @@ test("a run whose evidence cannot be recorded is not reported as a success", asy
 
 test("a completion that cannot be recorded is not reported as a success", async () => {
   let recorded = 0
-  const result = await dispatchWorker(packet(), {
+  const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: workerRunner(),
     evidenceRunner: { async run(argv) { recorded++; return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
   })
@@ -193,7 +199,7 @@ test("generic host agents are not dispatchable and never spawn or record", async
   for (const generic of ["general", "explore", "build", "plan"]) {
     let spawned = 0
     let recorded = 0
-    const result = await dispatchWorker({ ...packet(), lane_id: generic }, {
+    const result = await dispatchWorker({ ...packet(), lane_id: generic }, { credentials: testCredentials,
       runner: { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } },
       evidenceRunner: { async run() { recorded++; return { exitCode: 0, stdout: "", stderr: "" } } },
     })

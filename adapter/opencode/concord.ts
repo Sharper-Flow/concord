@@ -1,24 +1,13 @@
-import { createPrivateKey, sign as signBytes } from "node:crypto"
+import { sign as signBytes } from "node:crypto"
 import { tool, type ToolContext } from "@opencode-ai/plugin"
+import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { contractOperations, canonicalAssertion, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 
 const MAX_STDERR = 8192
 const GRANT_TTL_MS = 50 * 60 * 1000
 
-export interface CredentialStore { getPrivateKey(clientRef: string): Promise<Uint8Array> }
 export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }> }
-
-class SecretToolCredentialStore implements CredentialStore {
-  async getPrivateKey(clientRef: string): Promise<Uint8Array> {
-    const child = Bun.spawn(["secret-tool", "lookup", "service", "concord", "account", clientRef], { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-    const output = (await new Response(child.stdout).text()).trim()
-    const code = await child.exited
-    if (code !== 0 || !output) throw new Error("credential service unavailable")
-    const value = output.replace(/^base64:/, "")
-    try { return Uint8Array.from(Buffer.from(value, "base64")) } catch { throw new Error("credential value is not valid base64") }
-  }
-}
 
 const defaultRunner: ChildRunner = {
   async run(argv, input, signal) {
@@ -139,21 +128,13 @@ function validateCoreResponse(response: any, toolName: string, operation: string
   return true
 }
 
-function privateKeyObject(raw: Uint8Array) {
-  if (raw.length !== 32) throw new Error("credential is not an Ed25519 seed")
-  const prefix = Buffer.from("302e020100300506032b657004220420", "hex")
-  return createPrivateKey({ key: Buffer.concat([prefix, Buffer.from(raw)]), format: "der", type: "pkcs8" })
-}
 
-function b64(value: Uint8Array) { return Buffer.from(value).toString("base64") }
 export function canonicalHostApproval(assertion: Record<string, any>) {
   const names = ["challenge_ref", "request_digest", "scope", "versions", "session_ref", "agent_ref", "worktree", "issued_at", "nonce"]
   const body = names.map((key) => { const value = assertion[key]; const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value); const bytes = new TextEncoder().encode(text); return `${key}=${bytes.length}:${text}|` }).join("")
   return new TextEncoder().encode(`host-approval-v1\0${body}`)
 }
-function randomNonce() { return crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "") }
 function cacheKey(context: ToolContext, capability: string) { return `${context.sessionID}|${context.agent}|${context.worktree}|${manifestDigest}|${selectedProductID()}|${capability}` }
-function clientRef() { return process.env.CONCORD_CLIENT_REF ?? "opencode" }
 function selectedProductID() {
   const value = process.env.CONCORD_SELECTED_PRODUCT_ID ?? ""
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/.test(value) ? value : ""

@@ -118,7 +118,10 @@ func validTrustedPolicy(policy TrustedClientPolicy) bool {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
-		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative", "cross_scope", "research") {
+		// worker_evidence is registrable in a client policy but deliberately
+		// absent from the grant-request vocabulary below: it authorizes signed
+		// worker-evidence writes only, and no bearer grant can carry it.
+		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative", "cross_scope", "research", string(CapabilityWorkerEvidence)) {
 			return false
 		}
 	}

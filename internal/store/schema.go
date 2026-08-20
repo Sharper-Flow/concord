@@ -1396,7 +1396,7 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 		Name:    "worker_routing_resolution_evidence",
 		SQL: `
 ALTER TABLE worker_attempts ADD COLUMN routing_policy_digest TEXT NOT NULL
-    DEFAULT 'sha256:99a5805ad7593954f6b5219511760609b80493a899c3d00fa1f68204d5e56046'
+    DEFAULT 'sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736'
     CHECK(length(routing_policy_digest) = 71 AND substr(routing_policy_digest,1,7)='sha256:');
 ALTER TABLE worker_attempts ADD COLUMN resolution_role TEXT NOT NULL DEFAULT 'preferred'
     CHECK(resolution_role IN ('preferred','fallback'));
@@ -1676,7 +1676,7 @@ CREATE TABLE worker_attempts (
     capability_class TEXT NOT NULL,
     routing_policy_version TEXT NOT NULL,
     routing_policy_digest TEXT NOT NULL
-        DEFAULT 'sha256:99a5805ad7593954f6b5219511760609b80493a899c3d00fa1f68204d5e56046',
+        DEFAULT 'sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736',
     resolved_model TEXT NOT NULL,
     resolution_role TEXT NOT NULL DEFAULT 'preferred',
     fallback_reason TEXT NOT NULL DEFAULT '',

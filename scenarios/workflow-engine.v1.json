@@ -14467,7 +14467,7 @@
             "target": "worker_attempts",
             "path": "attempt:wf48-lane-pipeline-review.lane_digest",
             "op": "eq",
-            "value": "sha256:b71b048949a3da7fcb7b06d8aa957f800921f39b98a63990478e69cbd876fc23"
+            "value": "sha256:cc4d20f113f1bd0a1587afe400b3c3e5421536814efc177bbdda8a4572e53a56"
           },
           {
             "target": "state",
@@ -14691,7 +14691,7 @@
               "lane_digest": "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb",
               "capability_class": "research",
               "routing_policy_version": "routing-v1",
-              "routing_policy_digest": "sha256:99a5805ad7593954f6b5219511760609b80493a899c3d00fa1f68204d5e56046",
+              "routing_policy_digest": "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736",
               "resolved_model": "openai/gpt-5.6-luna",
               "resolution_role": "preferred",
               "fallback_reason": "",
@@ -14726,7 +14726,7 @@
               "lane_digest": "sha256:84f204c2145897411b16e16f5d6d099ee792213042aecb01f59059090636de85",
               "capability_class": "implementation",
               "routing_policy_version": "routing-v1",
-              "routing_policy_digest": "sha256:99a5805ad7593954f6b5219511760609b80493a899c3d00fa1f68204d5e56046",
+              "routing_policy_digest": "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736",
               "resolved_model": "openai/gpt-5.6-luna",
               "resolution_role": "preferred",
               "fallback_reason": "",
@@ -14758,11 +14758,11 @@
               "attempt_id": "attempt:wf48-lane-pipeline-review",
               "lane_id": "review",
               "lane_version": 1,
-              "lane_digest": "sha256:b71b048949a3da7fcb7b06d8aa957f800921f39b98a63990478e69cbd876fc23",
+              "lane_digest": "sha256:cc4d20f113f1bd0a1587afe400b3c3e5421536814efc177bbdda8a4572e53a56",
               "capability_class": "review",
               "routing_policy_version": "routing-v1",
-              "routing_policy_digest": "sha256:99a5805ad7593954f6b5219511760609b80493a899c3d00fa1f68204d5e56046",
-              "resolved_model": "zai-coding-plan/glm-5.2",
+              "routing_policy_digest": "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736",
+              "resolved_model": "zai-coding-plan/glm-5.3",
               "resolution_role": "preferred",
               "fallback_reason": "",
               "packet_schema_version": "1.0",
@@ -14778,7 +14778,7 @@
             "payload_version": 1,
             "payload": {
               "attempt_id": "attempt:wf48-lane-pipeline-review",
-              "readback_model": "zai-coding-plan/glm-5.2",
+              "readback_model": "zai-coding-plan/glm-5.3",
               "report_schema_version": "1.0"
             }
           }

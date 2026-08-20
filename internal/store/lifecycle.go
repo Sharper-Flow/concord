@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -905,11 +904,11 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err == nil {
 		return nil
 	}
-	if isUniqueViolation(err) || strings.Contains(strings.ToLower(err.Error()), "check constraint failed") {
+	if isUniqueViolation(err) || isCheckViolation(err) {
 		return wrapFailure(KindRelationConflict, "fold_event", "relation violates a uniqueness or self-edge constraint", false,
 			"remove the duplicate or self-edge from the operation", err)
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "foreign key constraint failed") {
+	if isForeignKeyViolation(err) {
 		return wrapFailure(KindProjectionNotFound, "fold_event", "relation endpoint does not exist", false,
 			"create both work items before adding a relation", err)
 	}

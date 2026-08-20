@@ -247,7 +247,7 @@ func insertProductProject(ctx context.Context, tx *sql.Tx, payload membershipPay
 		return newFailure(KindMembershipConflict, "fold_event", "Product membership already exists or another primary is present", false,
 			"remove the duplicate or use product_project.role_changed to promote a Project")
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "foreign key constraint failed") {
+	if isForeignKeyViolation(err) {
 		return newFailure(KindProjectionNotFound, "fold_event", "Product or Project membership endpoint does not exist", false,
 			"create both endpoints before adding membership")
 	}
@@ -265,7 +265,7 @@ func insertWorkProject(ctx context.Context, tx *sql.Tx, payload membershipPayloa
 		return newFailure(KindMembershipConflict, "fold_event", "work membership already exists or another primary is present", false,
 			"remove the duplicate or use work_project.role_changed to promote a Project")
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "foreign key constraint failed") {
+	if isForeignKeyViolation(err) {
 		return newFailure(KindProjectionNotFound, "fold_event", "work or Project membership endpoint does not exist", false,
 			"create the work and Project before adding membership")
 	}

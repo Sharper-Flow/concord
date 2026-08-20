@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -517,7 +516,7 @@ func workflowOverlapResolutionProjectionError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "constraint") || isUniqueViolation(err) {
+	if isConstraintViolation(err) {
 		return newFailure(KindProjectionConflict, "workflow_domain_overlap", "overlap resolution projection conflicts with current history", false, "reread the active overlap and resolve it again")
 	}
 	return wrapFailure(KindUnavailable, "workflow_domain_overlap", fmt.Sprintf("cannot update overlap resolution projection: %v", err), true, "retry once the database is writable", err)

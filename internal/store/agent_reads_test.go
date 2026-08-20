@@ -74,6 +74,6 @@ func TestReadWorkItemSummaryNotFoundIsTyped(t *testing.T) {
 	if got.Kind != "task" {
 		t.Fatalf("kind=%q", got.Kind)
 	}
-	_, err = s.ReadWorkItemSummary(context.Background(), "missing-epic")
+	_, err = s.ReadWorkItemSummary(context.Background(), "missing-initiative")
 	assertFailureKind(t, err, KindProjectionNotFound)
 }

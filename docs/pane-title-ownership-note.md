@@ -31,10 +31,10 @@ rename. The plugin has no opt-out for its title emission.
    chain avoids this.
 
 2. **Human titles need a disk source.** The launcher resolved human change titles
-   from the projection `changes[].title` — one JSON read, worked well. Epic titles
-   had no disk source (`epics_available: false` boolean only) and fell back to raw
+   from the projection `changes[].title` — one JSON read, worked well. Initiative
+   titles have a bounded projection source and do not fall back to raw
    id. Any projection that feeds a title surface should carry display titles for
-   both changes and Epics.
+   both changes and Initiatives.
 
 3. **A resident TUI solves the freeze problem.** zlauncher execs into OpenCode —
    its title is frozen at launch. The plugin's live updates are better because

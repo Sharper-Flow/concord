@@ -233,7 +233,7 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 	}
 }
 
-func TestMigrateV22ToV23AddsBoundedEpicNarrative(t *testing.T) {
+func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concord-v22.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -256,7 +256,7 @@ func TestMigrateV22ToV23AddsBoundedEpicNarrative(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('pre-existing','epic','Epic','needed',1,1,'now','now')`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('pre-existing','initiative','Initiative','needed',1,1,'now','now')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {

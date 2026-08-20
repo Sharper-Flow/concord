@@ -10,7 +10,7 @@
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement evidence (TS9), workflow-type registration/gate vocabulary, C14, or C15.
 > **Amended direction:** CD-0041 requires typed architecture binding for
-> Product-changing work and replaces the historical Epic route with Initiative.
+> Product-changing work uses the direct Initiative route.
 > CD-0042 makes the generated current manifest the only pre-go-live surface
 > identity; this contract does not authorize partial Domain or Initiative writes.
 

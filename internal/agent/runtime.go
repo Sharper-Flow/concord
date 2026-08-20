@@ -191,9 +191,9 @@ type relationInput struct {
 	Depth         int         `json:"depth"`
 	Budget        budgetInput `json:"budget"`
 }
-type epicEntriesInput struct {
-	EpicWorkID string      `json:"epic_work_id"`
-	Budget     budgetInput `json:"budget"`
+type initiativeEntriesInput struct {
+	InitiativeWorkID string      `json:"initiative_work_id"`
+	Budget           budgetInput `json:"budget"`
 }
 type knowledgeSearchInput struct {
 	ProductID string   `json:"product_id"`
@@ -478,7 +478,7 @@ func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
 		return mutationWorkIdentity{}, err
 	}
 	var result mutationWorkIdentity
-	for _, field := range []string{"work_id", "epic_work_id", "child_work_id", "from_work_id", "to_work_id", "predecessor_id", "successor_id", "replacement_successor_id"} {
+	for _, field := range []string{"work_id", "initiative_work_id", "child_work_id", "from_work_id", "to_work_id", "predecessor_id", "successor_id", "replacement_successor_id"} {
 		if value, ok := fields[field]; ok {
 			var id string
 			if json.Unmarshal(value, &id) == nil && id != "" {
@@ -707,9 +707,9 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "invalid_transition"
 	case store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
 		return "invalid_relation"
-	case store.KindEpicScopeViolation:
+	case store.KindInitiativeScopeViolation:
 		return "invariant_violation"
-	case store.KindEpicEntryConflict:
+	case store.KindInitiativeEntryConflict:
 		return "invalid_relation"
 	case store.KindMembershipInvariant, store.KindMembershipConflict:
 		return "invariant_violation"
@@ -1039,34 +1039,34 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return failureEnvelope(base, err), nil
 		}
 		return r.q8(base, q)
-	case "concord_work_epic.entries":
-		var in epicEntriesInput
+	case "concord_work_initiative.entries":
+		var in initiativeEntriesInput
 		if err := decodeStrict(input, &in); err != nil {
 			return base, err
 		}
-		summary, err := r.Store.ReadWorkItemSummary(ctx, in.EpicWorkID)
+		summary, err := r.Store.ReadWorkItemSummary(ctx, in.InitiativeWorkID)
 		if err != nil {
 			var failure *store.Failure
 			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-				return coreError(base, "unknown_scope", "Epic does not exist", "reread_entities", false), nil
+				return coreError(base, "unknown_scope", "Initiative does not exist", "reread_entities", false), nil
 			}
 			return failureEnvelope(base, err), nil
 		}
-		if summary.Kind != "epic" {
-			return coreError(base, "invariant_violation", "entry read target is not an Epic", "reread_entities", false), nil
+		if summary.Kind != "initiative" {
+			return coreError(base, "invariant_violation", "entry read target is not an Initiative", "reread_entities", false), nil
 		}
-		products, err := r.Store.ProductsForWorkIDs(ctx, []string{in.EpicWorkID})
+		products, err := r.Store.ProductsForWorkIDs(ctx, []string{in.InitiativeWorkID})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		if len(products[in.EpicWorkID]) != 1 {
-			return coreError(base, "invariant_violation", "Epic does not derive exactly one Product", "resolve_ambiguity", false), nil
+		if len(products[in.InitiativeWorkID]) != 1 {
+			return coreError(base, "invariant_violation", "Initiative does not derive exactly one Product", "resolve_ambiguity", false), nil
 		}
-		entries, err := r.Store.ReadEpicEntries(ctx, in.EpicWorkID)
+		entries, err := r.Store.ReadInitiativeEntries(ctx, in.InitiativeWorkID)
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		meta := store.ResultMeta{QueryID: queryID, ContractVersion: "C21/1.0", ResolvedScope: store.ResolvedScope{ProductID: products[in.EpicWorkID][0], WorkID: in.EpicWorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"position", "child_work_id"}}
+		meta := store.ResultMeta{QueryID: queryID, ContractVersion: "C21/1.0", ResolvedScope: store.ResolvedScope{ProductID: products[in.InitiativeWorkID][0], WorkID: in.InitiativeWorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"position", "child_work_id"}}
 		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"entries": entries, "narrative": summary.Narrative})
 	case "concord_knowledge.search":
 		var in knowledgeSearchInput
@@ -1331,7 +1331,7 @@ func summary(w store.WorkItem) workSummary {
 		ids = append(ids, p.ID)
 	}
 	kind := w.Kind
-	if kind != "task" && kind != "bug" && kind != "decision" && kind != "research" && kind != "epic" && kind != "other" {
+	if kind != "task" && kind != "bug" && kind != "decision" && kind != "research" && kind != "initiative" && kind != "other" {
 		kind = "other"
 	}
 	var terminal *string

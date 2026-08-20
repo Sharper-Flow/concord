@@ -100,7 +100,6 @@
         "bug",
         "decision",
         "research",
-        "epic",
         "other"
       ]
     },
@@ -108,6 +107,8 @@
       "type": "string",
       "enum": [
         "parent",
+        "includes",
+        "included_by",
         "blocks",
         "implements",
         "supersedes",
@@ -2269,7 +2270,7 @@
         }
       }
     },
-    "epic_create_input": {
+    "initiative_create_input": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -2321,18 +2322,18 @@
         }
       }
     },
-    "epic_add_entry_input": {
+    "initiative_add_entry_input": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "epic_work_id",
+        "initiative_work_id",
         "child_work_id",
         "expected_version",
         "position",
         "idempotency_key"
       ],
       "properties": {
-        "epic_work_id": {
+        "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
         "child_work_id": {
@@ -2355,17 +2356,17 @@
         }
       }
     },
-    "epic_remove_entry_input": {
+    "initiative_remove_entry_input": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "epic_work_id",
+        "initiative_work_id",
         "child_work_id",
         "expected_version",
         "idempotency_key"
       ],
       "properties": {
-        "epic_work_id": {
+        "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
         "child_work_id": {
@@ -2379,18 +2380,18 @@
         }
       }
     },
-    "epic_reorder_entry_input": {
+    "initiative_reorder_entry_input": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "epic_work_id",
+        "initiative_work_id",
         "child_work_id",
         "expected_version",
         "position",
         "idempotency_key"
       ],
       "properties": {
-        "epic_work_id": {
+        "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
         "child_work_id": {
@@ -2409,18 +2410,18 @@
         }
       }
     },
-    "epic_change_requiredness_input": {
+    "initiative_change_requiredness_input": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "epic_work_id",
+        "initiative_work_id",
         "child_work_id",
         "expected_version",
         "required",
         "idempotency_key"
       ],
       "properties": {
-        "epic_work_id": {
+        "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
         "child_work_id": {
@@ -2437,18 +2438,18 @@
         }
       }
     },
-    "epic_revise_narrative_input": {
+    "initiative_revise_narrative_input": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "epic_work_id",
+        "initiative_work_id",
         "expected_version",
         "narrative",
         "reason",
         "idempotency_key"
       ],
       "properties": {
-        "epic_work_id": {
+        "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
         "expected_version": {
@@ -2467,14 +2468,14 @@
         }
       }
     },
-    "epic_entries_input": {
+    "initiative_entries_input": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "epic_work_id"
+        "initiative_work_id"
       ],
       "properties": {
-        "epic_work_id": {
+        "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
         "budget": {
@@ -2482,7 +2483,7 @@
         }
       }
     },
-    "epic_entries_result": {
+    "initiative_entries_result": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -2501,13 +2502,13 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "epic_work_id",
+              "initiative_work_id",
               "child_work_id",
               "position",
               "required"
             ],
             "properties": {
-              "epic_work_id": {
+              "initiative_work_id": {
                 "$ref": "#/$defs/id"
               },
               "child_work_id": {

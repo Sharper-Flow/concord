@@ -265,7 +265,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	}
 	// All Product edges are read in the same transaction as the rows. The
 	// depends_on inverse is a display label, not a second stored relation.
-	erows, err := tx.QueryContext(ctx, `SELECT r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE r.kind IN ('parent','blocks','supersedes','implements') AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_from AND pp.product_id=?) AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_to AND pp.product_id=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 201`, req.Product, req.Product)
+	erows, err := tx.QueryContext(ctx, `SELECT r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE r.kind IN ('parent','includes','blocks','supersedes','implements') AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_from AND pp.product_id=?) AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_to AND pp.product_id=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 201`, req.Product, req.Product)
 	if err != nil {
 		return out, err
 	}

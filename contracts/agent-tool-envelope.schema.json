@@ -26,8 +26,8 @@
         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_knowledge" }, "operation": { "const": "search" }, "query_id": { "const": "PM1.Q9" } } },
         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_knowledge" }, "operation": { "const": "resolve_note" }, "query_id": { "const": "PM1.Q10" } } },
          { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_define" }, "operation": { "enum": ["capture", "revise_intent"] } } },
-         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_epic" }, "operation": { "enum": ["create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative"] } } },
-         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_epic" }, "operation": { "const": "entries" }, "query_id": { "const": "C21.EpicEntries" } } },
+         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_initiative" }, "operation": { "enum": ["create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative"] } } },
+         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_initiative" }, "operation": { "const": "entries" }, "query_id": { "const": "C21.InitiativeEntries" } } },
         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_transition" }, "operation": { "enum": ["lifecycle", "workflow_action"] } } },
          { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_relate" }, "operation": { "enum": ["set_memberships", "link", "unlink", "supersede", "restore_superseded", "resolve_overlap"] } } },
         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_compact" }, "operation": { "enum": ["publish", "reconcile"] } } }
@@ -49,7 +49,7 @@
         "tool": {
           "enum": [
             "concord_product_view", "concord_work_browse", "concord_work_trace",
-             "concord_knowledge", "concord_work_define", "concord_work_epic", "concord_work_transition",
+             "concord_knowledge", "concord_work_define", "concord_work_initiative", "concord_work_transition",
             "concord_work_relate", "concord_work_compact"
           ]
         },
@@ -62,7 +62,7 @@
              "reconcile", "create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative", "entries"
           ]
         },
-         "query_id": { "type": "string", "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.EpicEntries)$" },
+         "query_id": { "type": "string", "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$" },
         "outcome": { "enum": ["ok", "pending", "partial", "error"] },
         "resolved_scope": {
           "oneOf": [
@@ -174,7 +174,7 @@
         "tool": {
           "enum": [
             "concord_product_view", "concord_work_browse", "concord_work_trace",
-             "concord_knowledge", "concord_work_define", "concord_work_epic", "concord_work_transition",
+             "concord_knowledge", "concord_work_define", "concord_work_initiative", "concord_work_transition",
             "concord_work_relate", "concord_work_compact"
           ]
         },
@@ -187,7 +187,7 @@
              "reconcile", "create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative", "entries"
           ]
         },
-         "query_id": { "type": "string", "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.EpicEntries)$" },
+         "query_id": { "type": "string", "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$" },
         "reason_code": { "type": "string", "minLength": 1, "maxLength": 64 },
         "required_fields": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 64 } }
       },
@@ -424,7 +424,7 @@
             {
               "if": {
                 "properties": {
-                   "tool": { "enum": ["concord_work_define", "concord_work_epic", "concord_work_transition", "concord_work_relate", "concord_work_compact"] }
+                   "tool": { "enum": ["concord_work_define", "concord_work_initiative", "concord_work_transition", "concord_work_relate", "concord_work_compact"] }
                 },
                 "required": ["tool"]
               },

@@ -317,6 +317,58 @@ func TestIntentRevisionReplaysDeterministically(t *testing.T) {
 	}
 }
 
+func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
+	s := openTemp(t)
+	seedSchemaEvolutionBase(t, s)
+	create := Event{EventID: "intent-shape-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"Original","value_statement":"Original statement","priority":2,"tags":["alpha"],"external_ref":"tracker:issue-42"}`)}
+	membership := Event{EventID: "intent-shape-membership", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"intent-shape","project_id":"schema-project","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{create, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "intent-shape"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	revise := Event{EventID: "intent-shape-revise", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"title":"Revised","value_statement":"Revised statement","kind":"task","priority":3,"tags":["beta"],"reason":"sharpened","expected_version":2,"resulting_version":3}`)}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{revise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "intent-shape"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-shape'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	var intent map[string]any
+	if err := json.Unmarshal([]byte(stored), &intent); err != nil {
+		t.Fatal(err)
+	}
+	wantKeys := []string{"title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref"}
+	if len(intent) != len(wantKeys) {
+		t.Fatalf("intent_json key set = %d keys (%v), want exactly %d", len(intent), intent, len(wantKeys))
+	}
+	for _, key := range wantKeys {
+		if _, ok := intent[key]; !ok {
+			t.Fatalf("intent_json is missing key %q: %s", key, stored)
+		}
+	}
+	for _, forbidden := range []string{"reason", "expected_version", "resulting_version"} {
+		if _, ok := intent[forbidden]; ok {
+			t.Fatalf("intent_json leaked event field %q: %s", forbidden, stored)
+		}
+	}
+	if intent["external_ref"] != "tracker:issue-42" {
+		t.Fatalf("revision dropped the capture-owned external_ref: %s", stored)
+	}
+	if intent["title"] != "Revised" || intent["priority"] != float64(3) || intent["urgency"] != "standard" {
+		t.Fatalf("revision did not replace the mutable block: %s", stored)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	var rebuilt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT intent_json FROM work_items WHERE id='intent-shape'`).Scan(&rebuilt); err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt != stored {
+		t.Fatalf("intent replay changed shape: before=%s after=%s", stored, rebuilt)
+	}
+}
+
 func TestSchemaManifestCompatibilityReportsCurrentVersion(t *testing.T) {
 	s := openTemp(t)
 	compatibility, err := CheckSchemaCompatibility(context.Background(), s.DatabaseForTesting())

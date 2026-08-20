@@ -33,6 +33,51 @@ import (
 // Bindings below all follow this rule.
 
 // ---------------------------------------------------------------------------
+// AJ5 — Initiative framing
+// ---------------------------------------------------------------------------
+
+func bindAJ5FrameInitiative(t *testing.T, sc jobScenario) jobObservation {
+	t.Helper()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	seed, _ := sc.InitialState["idempotency_seed"].(string)
+	if seed == "" {
+		t.Fatal("AJ5-frame-initiative: missing idempotency_seed")
+	}
+	create := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: []byte(fmt.Sprintf(`{"title":"Release framing","value_statement":"Coordinate the release","project_ids":["proj-web"],"idempotency_key":"%s-create"}`, seed))}, env)
+	if create.Outcome != OutcomeOK || len(create.ChangedRefs) != 1 {
+		t.Fatalf("initiative create outcome=%s changed=%+v err=%+v", create.Outcome, create.ChangedRefs, create.Error)
+	}
+	initiativeID := create.ChangedRefs[0].ID
+	beforeLifecycle, _ := readWorkFromStore(t, s, "work-ready-low")
+	add := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "add_entry", Input: []byte(fmt.Sprintf(`{"initiative_work_id":"%s","child_work_id":"work-ready-low","expected_version":2,"position":0,"required":true,"idempotency_key":"%s-add"}`, initiativeID, seed))}, env)
+	if add.Outcome != OutcomeOK {
+		t.Fatalf("initiative add_entry outcome=%s err=%+v", add.Outcome, add.Error)
+	}
+	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "add_entry", Input: []byte(fmt.Sprintf(`{"initiative_work_id":"%s","child_work_id":"work-ready-low","expected_version":2,"position":0,"required":true,"idempotency_key":"%s-add"}`, initiativeID, seed))}, env)
+	if !replay.Replayed {
+		t.Fatal("initiative add_entry replay did not set Replayed=true")
+	}
+	entries, err := s.ReadInitiativeEntries(context.Background(), initiativeID)
+	if err != nil || len(entries) != 1 || entries[0].ChildWorkID != "work-ready-low" || !entries[0].Required {
+		t.Fatalf("initiative entries=%+v err=%v", entries, err)
+	}
+	afterLifecycle, _ := readWorkFromStore(t, s, "work-ready-low")
+	if beforeLifecycle != afterLifecycle {
+		t.Fatalf("child lifecycle changed from %q to %q", beforeLifecycle, afterLifecycle)
+	}
+	obs := envelopeToObservation(add)
+	obs.State = map[string]any{
+		"initiative": map[string]any{
+			"kind":    "initiative",
+			"entries": map[string]any{"0": map[string]any{"kind": "includes", "required": true}},
+		},
+	}
+	obs.Effects = map[string]any{"child_lifecycle_preserved": true, "atomic_core_effect": "complete", "retry_safe_replayed": true}
+	return obs
+}
+
+// ---------------------------------------------------------------------------
 // AJ3 — capture_needed_work
 // ---------------------------------------------------------------------------
 

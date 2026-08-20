@@ -5,7 +5,7 @@ import (
 	"database/sql"
 )
 
-// WorkItemSummary contains the bounded fields needed to establish an Epic
+// WorkItemSummary contains the bounded fields needed to establish an Initiative
 // read target and render its coordination narrative.
 type WorkItemSummary struct {
 	Kind      string

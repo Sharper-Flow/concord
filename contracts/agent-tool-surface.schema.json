@@ -155,7 +155,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14)|C14\\.ProductRows|C19\\.Continuity|C21\\.EpicEntries)$"
+            "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14)|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries)$"
           },
           "input_schema": {
             "type": "string",
@@ -172,7 +172,7 @@
               "research",
               "work_compact",
               "work_define",
-              "work_epic",
+              "work_initiative",
               "work_relate",
               "work_transition"
             ]
@@ -221,7 +221,7 @@
           "research",
           "work_compact",
           "work_define",
-          "work_epic",
+          "work_initiative",
           "work_relate",
           "work_transition"
         ]

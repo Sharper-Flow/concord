@@ -247,7 +247,13 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
 test("overlap approval asks with exact direction and resolution consequence", async () => {
   const digest = `sha256:${"c".repeat(64)}`
   const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+      consequence_summary: {
+        tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
+        operation_digest: digest, scope: ["product_id:product-1", "work_ids:work-1", "work_ids:work-2"],
+        versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"], expires_at: "2026-08-20T00:00:00Z",
+      },
+      details: {
       approval_ref: "overlap-challenge-1", operation_digest: digest,
       summary: "Approve the exact requested mutation, scope, and expected versions.",
       scope: ["product:product-1", "work:work-1", "work:work-2"],
@@ -280,6 +286,11 @@ test("overlap approval asks with exact direction and resolution consequence", as
     scope: ["product:product-1", "work:work-1", "work:work-2"],
     versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
     resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
+    consequence_summary: {
+      tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
+      operation_digest: digest, scope: ["product_id:product-1", "work_ids:work-1", "work_ids:work-2"],
+      versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"], expires_at: "2026-08-20T00:00:00Z",
+    },
   })
 })
 

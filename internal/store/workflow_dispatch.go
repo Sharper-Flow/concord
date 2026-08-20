@@ -50,6 +50,11 @@ type WorkflowActionExecutionResult struct {
 	ChangedRefs      []string
 	ResultingVersion int64
 	Result           json.RawMessage
+	// NativeRun is the attributed report this action recorded, if any. A
+	// failure-classified report makes the logical operation partial (CD-0039
+	// D7/D8): the native steps are durable facts, the approved change did not
+	// complete successfully, and ok is reserved for successful predicates.
+	NativeRun *NativeRunReport
 }
 
 // WorkflowActionDefinitionFor returns the registered action policy after the
@@ -343,6 +348,15 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		}
 		if len(semantic) != 0 {
 			events = append(events, semantic...)
+			for _, semanticEvent := range semantic {
+				if semanticEvent.Kind != WorkflowNativeRunRecorded {
+					continue
+				}
+				var report nativeRunPayload
+				if decodePayload(semanticEvent, &report) == nil {
+					result.NativeRun = &NativeRunReport{RunID: report.RunID, Phase: report.Phase, Status: report.Status, EventID: semanticEvent.EventID, ReportingAuthorityRef: report.ReportingAuthorityRef, ActorRef: report.ActorRef, NativeSubjectRef: report.NativeSubjectRef, SubjectDigest: report.SubjectDigest, EvidenceRef: report.EvidenceRef, EvidenceDigest: report.EvidenceDigest, AssertedAt: report.AssertedAt, RecordedAt: semanticEvent.OccurredAt.UTC().Format(time.RFC3339Nano), Unverified: true}
+				}
+			}
 		}
 	}
 	if request.ActionID == "complete" {
@@ -445,6 +459,34 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	}
 	eventID := request.OperationID + ":semantic"
 	switch request.ActionID {
+	case "start_run", "record_health", "rollback_run", "cleanup_run":
+		// CD-0039 D5/D6: the native-run actions carry typed phase payloads.
+		// The action ID fixes the phase; callers never choose it.
+		phaseByAction := map[string]string{"start_run": "start", "record_health": "health", "rollback_run": "rollback", "cleanup_run": "cleanup"}
+		phase := phaseByAction[request.ActionID]
+		runID, runOK := workflowFieldString(fields, "run_id")
+		subjectRef, subjectOK := workflowFieldString(fields, "native_subject_ref")
+		status, statusOK := workflowFieldString(fields, "status")
+		evidenceRef, evidenceOK := workflowFieldString(fields, "evidence_ref")
+		evidenceDigest, digestOK := workflowFieldString(fields, "evidence_digest")
+		assertedAt := workflowFieldStringDefault(fields, "asserted_at", request.Now.Format(time.RFC3339Nano))
+		missing := []string{}
+		for name, ok := range map[string]bool{"run_id": runOK, "native_subject_ref": subjectOK, "status": statusOK, "evidence_ref": evidenceOK, "evidence_digest": digestOK} {
+			if !ok {
+				missing = append(missing, name)
+			}
+		}
+		if len(missing) > 0 || runID == "" || subjectRef == "" || status == "" || evidenceRef == "" || evidenceDigest == "" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", request.ActionID+" requires typed native-run fields: run_id, native_subject_ref, status, evidence_ref, evidence_digest", false, "supply the native authority's attributed report fields")
+		}
+		if !nativeRunStatusVocab[phase][status] {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", status+" is not a "+phase+" status", false, "use the closed status vocabulary for this phase")
+		}
+		nativeEvent, err := buildNativeRunEvent(eventID+":native-run", request.WorkID, request.Actor, request.Now, expected, phase, runID, subjectRef, status, evidenceRef, evidenceDigest, assertedAt)
+		if err != nil {
+			return nil, err
+		}
+		return []Event{nativeEvent}, nil
 	case "checkpoint_context":
 		var workflowRef, workflowDigestValue string
 		var workflowDefinitionVersion, attemptEpoch int64

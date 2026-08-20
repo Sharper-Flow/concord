@@ -180,6 +180,15 @@ durable results include current step and a safe next action—never a bare "star
 | `concord_work_relate` | AJ5 dependency, cycle rejection, atomic supersession, operator-approved Domain-overlap resolution |
 | `concord_work_compact` | AJ6 publication and partial reconciliation |
 
+Native-run actions (`start_run`, `record_health`, `rollback_run`, `cleanup_run`)
+carry typed attributed-report fields per CD-0039: the native authority performs
+and proves the operation while Concord folds one `workflow.native_run_recorded`
+event per report with the reporting client, subject, evidence, and both times
+alongside the status. A report that the approved logical operation did not
+complete successfully classifies the action `partial` with
+`operation_conflict`/`reconcile_operation`; `ok` is reserved for successful
+native predicates. The adapter never derives outcomes from provider output.
+
 AJ8 native execution/rollback/reclamation is deliberately not claimed as a Concord
 mutation. Its Concord-visible intent/evidence/lifecycle uses define/transition;
 the accepted native authority performs and proves the real operation.

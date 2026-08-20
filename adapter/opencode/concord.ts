@@ -207,6 +207,9 @@ async function invoke(toolName: string, args: any, context: ToolContext): Promis
           ...(typeof details.resolution_kind === "string" ? { resolution_kind: details.resolution_kind } : {}),
           ...(typeof details.from_work_id === "string" ? { from_work_id: details.from_work_id } : {}),
           ...(typeof details.to_work_id === "string" ? { to_work_id: details.to_work_id } : {}),
+          // CD-0037 D5: the typed consequence summary is copied unchanged
+          // into host permission metadata; the host renders it.
+          ...(response.error?.consequence_summary ? { consequence_summary: response.error.consequence_summary } : {}),
         }
     // Built-in question supplies semantic choice; ToolContext.ask authorizes
     // only this exact core-issued challenge.

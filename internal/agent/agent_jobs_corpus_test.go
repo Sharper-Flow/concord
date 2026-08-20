@@ -295,7 +295,7 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	// reusable, which together rule out the silent clamp.
 	refused, refusedOK := obs.Effects["refused_before_effect"].(bool)
 	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK && !refusedOK && !mintedOK {
-		t.Error("evidence_authority: binding did not record supplied, refused, withheld, or consumed authority evidence")
+		t.Error("evidence_authority: binding did not record supplied, refused, withheld, consumed, budget-refused, or challenge-minted authority evidence")
 		return
 	}
 	if consumedOK && !consumed {
@@ -1146,6 +1146,23 @@ func envelopeToObservation(resp Envelope) jobObservation {
 			}
 			obs.Communication["options"] = options
 		}
+		// CD-0037 D1: the consequence summary is a typed envelope affordance
+		// derived from the minted challenge facts, not binding prose.
+		if resp.Error.ConsequenceSummary != nil {
+			summary := resp.Error.ConsequenceSummary
+			scope := make([]any, len(summary.Scope))
+			for i, binding := range summary.Scope {
+				scope[i] = binding
+			}
+			versions := make([]any, len(summary.Versions))
+			for i, binding := range summary.Versions {
+				versions[i] = binding
+			}
+			obs.Communication["consequence_summary"] = map[string]any{
+				"tool": summary.Tool, "operation": summary.Operation, "consequence": summary.Consequence,
+				"operation_digest": summary.OperationDigest, "scope": scope, "versions": versions, "expires_at": summary.ExpiresAt,
+			}
+		}
 	}
 	if len(resp.Result) > 0 {
 		var result map[string]any
@@ -1155,6 +1172,19 @@ func envelopeToObservation(resp Envelope) jobObservation {
 	}
 	if resp.Outcome != "" {
 		obs.Communication["outcome"] = string(resp.Outcome)
+	}
+	// CD-0039 D7: a partial cross-authority outcome reports the steps that
+	// finished and its recovery route; the ordered-cross-authority invariant
+	// reads both from the envelope.
+	if len(resp.CompletedSteps) > 0 {
+		steps := make([]any, len(resp.CompletedSteps))
+		for i, step := range resp.CompletedSteps {
+			steps[i] = step
+		}
+		obs.Communication["completed_steps"] = steps
+	}
+	if resp.Error != nil && resp.Error.RecoveryAction.Kind != "" {
+		obs.Communication["recovery_action"] = resp.Error.RecoveryAction.Kind
 	}
 	obs.Authority["tool"] = resp.Tool
 	obs.Authority["operation"] = resp.Operation
@@ -1321,11 +1351,9 @@ func init() {
 	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
-	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
-
-	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
+	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
+	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback
 }
 
 // AJ1-ambient-ready-work: resolve product, list ready work.

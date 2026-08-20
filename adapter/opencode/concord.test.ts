@@ -18,6 +18,7 @@ const fakeTool = Object.assign((config: any) => config, {
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
+const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.url)).text()
 const adapter = await import("./concord")
 
 test("exports exactly the generated tool names", () => {
@@ -31,7 +32,7 @@ test("transport and approval boundaries stay fail-closed", () => {
   expect(source).toContain('always: []')
   expect(source).toContain("malformed_core_response")
   expect(source).toContain("operation_conflict")
-  expect(source).toContain("secret-tool")
+  expect(credentialSource).toContain("secret-tool")
   expect(source).not.toContain("console.log")
   expect(source).not.toContain("grant_token:")
 })

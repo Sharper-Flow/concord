@@ -1,4 +1,6 @@
+import { sign as signBytes } from "node:crypto"
 import { agentLanePacketSchema, agentLanes, routingPolicies, routingPolicyManifestDigest, routingPolicyVersion, type AgentLane } from "./generated-agent-lanes"
+import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 
 const MAX_OUTPUT_BYTES = 65_536
 const MAX_ERROR_BYTES = 8_192
@@ -70,10 +72,12 @@ const defaultRunner: DispatchRunner = {
 
 let runner: DispatchRunner = defaultRunner
 let evidenceRunner: DispatchRunner = defaultRunner
+let defaultCredentials: CredentialStore = new SecretToolCredentialStore()
 
-export function configureWorkerDispatch(overrides: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner } = {}): void {
+export function configureWorkerDispatch(overrides: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; credentials?: CredentialStore } = {}): void {
   runner = overrides.runner ?? defaultRunner
   evidenceRunner = overrides.evidenceRunner ?? defaultRunner
+  defaultCredentials = overrides.credentials ?? new SecretToolCredentialStore()
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -216,6 +220,32 @@ function concordBinaryPath(override?: string): string {
   return override ?? process.env.CONCORD_BIN ?? "concord"
 }
 
+// canonicalWorkerEvidence mirrors CanonicalWorkerEvidenceAssertion in
+// internal/agent/worker_evidence.go. The byte sequence is pinned by the shared
+// vector at worker-evidence-vector.json, which both sides test against, so a
+// drift between the two encoders fails a test rather than weakening the
+// boundary. Field order is part of the contract.
+export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uint8Array {
+  const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "routing_policy_version", "routing_policy_digest", "resolved_model", "readback_model", "failure_kind", "host_provenance_digest", "issued_at", "nonce"]
+  const body = names.map((key) => {
+    const value = assertion[key]
+    const text = value == null ? "" : typeof value === "number" ? String(value) : String(value)
+    const bytes = new TextEncoder().encode(text)
+    return `${key}=${bytes.length}:${text}|`
+  }).join("")
+  return new TextEncoder().encode(`worker-evidence-v1\0${body}`)
+}
+
+// signWorkerEvidence proves the adapter is the registered client authorized to
+// record this exact attempt's evidence (CD-0044 / issue #185). The signature
+// never reaches the worker: it is produced here, after the run, and is not part
+// of the lane packet or any prompt surface.
+async function signWorkerEvidence(credentials: CredentialStore, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const assertion = { ...fields, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: randomNonce() }
+  const privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef()))
+  return { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerEvidence(assertion)), privateKey)) }
+}
+
 // recordWorkerEvent appends one worker evidence event through the short-lived
 // JSON CLI, the same transport concord.ts uses for every tool invocation. The
 // adapter stays envelope-thin per CD-0017 D2 and never writes the event log
@@ -288,7 +318,7 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 32) }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -340,6 +370,39 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   // defaults to that same transport unless a distinct evidenceRunner is given.
   const cliRunner = options.evidenceRunner ?? options.runner ?? evidenceRunner
   const cli = concordBinaryPath(options.concordBinary)
+  const credentials = options.credentials ?? defaultCredentials
+  const provenance = await computeHostPromptProvenance(lane.id)
+  let dispatchAssertion: Record<string, unknown>
+  let completionAssertion: Record<string, unknown>
+  try {
+    dispatchAssertion = await signWorkerEvidence(credentials, {
+      verb: "worker-dispatch",
+      work_id: packet.work_id,
+      attempt_id: packet.attempt_id,
+      lane_id: lane.id,
+      lane_version: lane.version,
+      lane_digest: lane.digest,
+      routing_policy_version: routingPolicyVersion,
+      routing_policy_digest: routingPolicyManifestDigest,
+      resolved_model: envelope.resolved_model,
+      host_provenance_digest: provenance.digest,
+    })
+    completionAssertion = await signWorkerEvidence(credentials, {
+      verb: "worker-complete",
+      work_id: packet.work_id,
+      attempt_id: packet.attempt_id,
+      lane_id: lane.id,
+      lane_version: lane.version,
+      lane_digest: lane.digest,
+      routing_policy_version: routingPolicyVersion,
+      routing_policy_digest: routingPolicyManifestDigest,
+      readback_model: metadata.readback_model,
+    })
+  } catch (error) {
+    // Without a credential the adapter cannot authorize evidence, and evidence
+    // that cannot be recorded is never reported as a successful run.
+    return errorEnvelope(lane, packet, "error", "error", String(error).slice(0, MAX_ERROR_BYTES), "contact_operator")
+  }
   const dispatchFailure = await recordWorkerEvent(cliRunner, cli, "worker-dispatch", {
     event_id: crypto.randomUUID(),
     work_id: packet.work_id,
@@ -354,7 +417,8 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     fallback_reason: envelope.fallback_reason,
     packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION,
-    host_provenance: await computeHostPromptProvenance(lane.id),
+    host_provenance: provenance,
+    assertion: dispatchAssertion,
   }, signal)
   if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
 
@@ -364,6 +428,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     attempt_id: packet.attempt_id,
     readback_model: metadata.readback_model,
     report_schema_version: REPORT_SCHEMA_VERSION,
+    assertion: completionAssertion,
   }, signal)
   if (completionFailure) return errorEnvelope(lane, packet, "error", "error", completionFailure, "reconcile_operation")
 

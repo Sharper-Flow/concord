@@ -453,8 +453,34 @@ func (s *Store) WorkerAttemptByID(ctx context.Context, attemptID string) (Worker
 	if s == nil || s.db == nil {
 		return WorkerAttempt{}, newFailure(KindUnavailable, "worker_attempt_read", "database is not open", true, "open the authority database")
 	}
+	return workerAttemptByID(ctx, s.db, attemptID)
+}
+
+// WorkerAttemptByIDTx is the transaction-scoped lookup. Authenticating a worker
+// evidence write, checking that the attempt has not already reached a recorded
+// outcome, and appending the evidence must observe one snapshot, so the caller
+// reads the attempt through its own transaction rather than through the pooled
+// connection.
+func WorkerAttemptByIDTx(ctx context.Context, transaction *Transaction, attemptID string) (WorkerAttempt, error) {
+	tx, err := transactionSQL(transaction, "worker_attempt_read")
+	if err != nil {
+		return WorkerAttempt{}, err
+	}
+	return workerAttemptByID(ctx, tx, attemptID)
+}
+
+// WorkerAttemptIsTerminal reports whether an attempt already reached a recorded
+// outcome. A terminal attempt refuses further evidence, so a valid signature
+// cannot overwrite a completion with a failure or a failure with a completion.
+func WorkerAttemptIsTerminal(attempt WorkerAttempt) bool {
+	return attempt.LifecycleState == "completed" || attempt.LifecycleState == "failed"
+}
+
+func workerAttemptByID(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, attemptID string) (WorkerAttempt, error) {
 	var attempt WorkerAttempt
-	err := s.db.QueryRowContext(ctx, `SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,COALESCE(failure_kind,''),COALESCE(failure_detail,''),dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(
+	err := q.QueryRowContext(ctx, `SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,COALESCE(failure_kind,''),COALESCE(failure_detail,''),dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(
 		&attempt.WorkID, &attempt.AttemptID, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.CapabilityClass, &attempt.RoutingPolicyVersion, &attempt.RoutingPolicyDigest, &attempt.ResolvedModel, &attempt.ResolutionRole, &attempt.FallbackReason, &attempt.ReadbackModel, &attempt.PacketSchemaVersion, &attempt.ReportSchemaVersion, &attempt.LifecycleState, &attempt.FailureKind, &attempt.FailureDetail, &attempt.DispatchedAt, &attempt.CompletedAt, &attempt.FailedAt,
 	)
 	if err == sql.ErrNoRows {

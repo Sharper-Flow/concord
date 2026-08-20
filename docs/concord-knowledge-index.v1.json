@@ -494,7 +494,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -1091,6 +1091,34 @@
         "internal/agent/worker_evidence.go",
         "cmd/concord/worker_evidence_test.go",
         "adapter/opencode/credentials.ts"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0045",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0045-writer-admission-invariant.md",
+      "status": "accepted",
+      "date": "2026-08-20T00:00:00Z",
+      "title": "Concurrency law states bounded writer admission, not zero waiting",
+      "summary": "The Priority 2 concurrency invariant states bounded writer admission rather than zero contention; writer-admission wait, commit duration, and escaped busy failure are distinct measured quantities, correctness precedes latency, population identity is part of the bound, and CD-0011 retains sole ownership of the reopen conditions.",
+      "tags": [
+        "concurrency",
+        "sqlite",
+        "floor-readiness"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:7af6da8fa054084e21443739a76a17a4342f338fc5ae46b1b0d930a268e50f4b",
+      "evidence": [
+        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+        "docs/core-architecture.md",
+        "docs/floor-readiness.v1.json"
       ],
       "home_domain_id": "product-root:concord"
     },

@@ -87,6 +87,15 @@ type budgetInput struct {
 	MaxBytes  int `json:"max_bytes"`
 	MaxItems  int `json:"max_items"`
 	MaxMillis int `json:"max_millis"`
+	// RequestedSeconds is the CD-0038 D1 caller budget, parsed from the input
+	// top level. SupportedSeconds is the operation's declared ceiling from the
+	// contract registry, never caller-controlled. CeilingRefused marks
+	// requested-above-supported; the refusal itself is minted by the caller's
+	// admission point, because reads refuse at dispatch while mutations refuse
+	// only after their idempotency lookup (CD-0038 D3).
+	RequestedSeconds int  `json:"-"`
+	SupportedSeconds int  `json:"-"`
+	CeilingRefused   bool `json:"-"`
 }
 type productResolveInput struct {
 	ProductID string      `json:"product_id"`
@@ -260,7 +269,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 		}
 		var strictAction actionMutationInput
-		if err := decodeStrict(request.Input, &strictAction); err != nil {
+		if err := decodeOperationInput(request.Input, &strictAction); err != nil {
 			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 		}
 		if len(strictAction.WorkID) < 2 || len(strictAction.WorkID) > 128 {
@@ -285,11 +294,23 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return base, err
 	}
-	ctx, cancel, budget, budgetErr := applyBudget(ctx, request.Input)
+	ctx, cancel, budget, budgetErr := applyBudget(ctx, op, request.Input)
 	if budgetErr != nil {
-		return coreError(base, "budget_refused", budgetErr.Error(), "adjust_budget", false), nil
+		if budgetErr.kind == "invalid_input" {
+			return coreError(base, "invalid_input", budgetErr.message, "none", false), nil
+		}
+		readRefusal := runtime{Tool: request.Tool, Operation: request.Operation, Budget: budget}
+		return readRefusal.budgetRefusal(base, budgetErr.message), nil
 	}
 	defer cancel()
+	// CD-0038 D3: reads have no idempotency identity, so ceiling admission for
+	// a read happens here, immediately after strict input validation. A
+	// mutation must not refuse here — its idempotency lookup precedes budget
+	// admission, and the mutation paths enforce the ceiling themselves.
+	if op.Kind == OperationRead && budget.CeilingRefused {
+		readRefusal := runtime{Tool: request.Tool, Operation: request.Operation, Budget: budget}
+		return readRefusal.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", budget.RequestedSeconds, budget.SupportedSeconds)), nil
+	}
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
@@ -355,21 +376,68 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	return r.read(ctx, base, request.Input, op.QueryID)
 }
 
-func applyBudget(ctx context.Context, raw []byte) (context.Context, context.CancelFunc, budgetInput, error) {
+// budgetFailure carries the distinction applyBudget must report: a
+// budget_refused finding needs the typed ceiling and adjust_budget recovery,
+// while a malformed or self-contradictory budget is invalid_input. Both are
+// admission outcomes; only one is a refusal. Callers read the typed fields —
+// it deliberately implements no interface.
+type budgetFailure struct {
+	kind    string
+	message string
+}
+
+func applyBudget(ctx context.Context, op ContractOperation, raw []byte) (context.Context, context.CancelFunc, budgetInput, *budgetFailure) {
 	var envelope struct {
-		Budget budgetInput `json:"budget"`
+		Budget           budgetInput `json:"budget"`
+		RequestedSeconds int         `json:"requested_budget_seconds"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return ctx, func() {}, budgetInput{}, err
+		return ctx, func() {}, budgetInput{}, &budgetFailure{kind: "invalid_input", message: "budget fields are not valid"}
 	}
-	if envelope.Budget.MaxMillis > 0 {
-		if envelope.Budget.MaxMillis > 300000 {
-			return ctx, func() {}, budgetInput{}, fmt.Errorf("max_millis exceeds supported bound")
+	budget := envelope.Budget
+	budget.RequestedSeconds = envelope.RequestedSeconds
+	budget.SupportedSeconds = op.SupportedBudgetSeconds
+	if budget.RequestedSeconds < 0 {
+		return ctx, func() {}, budget, &budgetFailure{kind: "invalid_input", message: "requested_budget_seconds must be at least 1"}
+	}
+	if budget.MaxMillis > 300000 {
+		return ctx, func() {}, budget, &budgetFailure{kind: "budget_refused", message: "max_millis exceeds supported bound"}
+	}
+	// CD-0038 D6: during the compatibility window both denominations may be
+	// sent, but only if they express one exact duration. A preference or
+	// rounding rule would silently pick a budget the caller did not request.
+	if budget.RequestedSeconds > 0 && budget.MaxMillis > 0 && budget.RequestedSeconds*1000 != budget.MaxMillis {
+		return ctx, func() {}, budget, &budgetFailure{kind: "invalid_input", message: "requested_budget_seconds and budget.max_millis must express the same duration"}
+	}
+	if budget.RequestedSeconds > budget.SupportedSeconds {
+		budget.CeilingRefused = true
+	}
+	if budget.MaxMillis > 0 {
+		child, cancel := context.WithTimeout(ctx, time.Duration(budget.MaxMillis)*time.Millisecond)
+		return child, cancel, budget, nil
+	}
+	if budget.RequestedSeconds > 0 {
+		child, cancel := context.WithTimeout(ctx, time.Duration(budget.RequestedSeconds)*time.Second)
+		return child, cancel, budget, nil
+	}
+	return ctx, func() {}, budget, nil
+}
+
+// budgetRefusal mints the one refusal envelope every budget_refused site uses,
+// so the typed ceiling cannot be forgotten at an emission point. The ceiling
+// resolves from the parsed budget, and from the contract registry when the
+// budget was constructed without one — a caller that never went through
+// applyBudget still owes the caller its ceiling.
+func (r runtime) budgetRefusal(base Envelope, message string) Envelope {
+	supported := r.Budget.SupportedSeconds
+	if supported < 1 {
+		if op, ok := ValidateContractOperation(r.Tool, r.Operation); ok {
+			supported = op.SupportedBudgetSeconds
 		}
-		child, cancel := context.WithTimeout(ctx, time.Duration(envelope.Budget.MaxMillis)*time.Millisecond)
-		return child, cancel, envelope.Budget, nil
 	}
-	return ctx, func() {}, envelope.Budget, nil
+	out := coreError(base, "budget_refused", message, "adjust_budget", false)
+	out.Error.SupportedBudgetSeconds = supported
+	return out
 }
 
 func (r runtime) boundedLimit(limit int) int {
@@ -593,7 +661,12 @@ func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailu
 }
 func failureEnvelope(base Envelope, err error) Envelope {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return coreError(base, "timeout", "operation exceeded max_millis budget", "adjust_budget", true)
+		// CD-0038 D5: expiry before any durable effect claims no effect. The
+		// store rolls an open transaction back on error, so an in-process
+		// deadline reaching this point means no commit happened. External
+		// effects that outlive cancellation are the native-run surface's
+		// problem (CD-0039), not this envelope's.
+		return coreError(base, "timeout", "operation budget expired", "retry_same_request", true)
 	}
 	var f *runtimeFailure
 	if errors.As(err, &f) {
@@ -783,6 +856,32 @@ func decodeStrict(data []byte, value any) error {
 	}
 	return nil
 }
+
+// decodeOperationInput is the strict decoder for operation inputs. CD-0038 D1
+// supplies requested_budget_seconds to every operation through one shared
+// schema definition rather than per-operation restatement, and the budget
+// layer parses and enforces it before any typed input decode. Stripping it
+// here — after the canonical digest was taken over the raw input, which is
+// what makes changing the budget change the request — keeps every typed input
+// struct closed without 53 copies of the same field.
+func decodeOperationInput(data []byte, value any) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		// Not an object — the shared domain field cannot be present, and the
+		// caller may be decoding a legitimately non-object payload such as a
+		// workflow-action field list. The strict decoder owns the verdict.
+		return decodeStrict(data, value)
+	}
+	if _, shared := fields["requested_budget_seconds"]; !shared {
+		return decodeStrict(data, value)
+	}
+	delete(fields, "requested_budget_seconds")
+	core, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	return decodeStrict(core, value)
+}
 func cursorValue(page pageInput) string {
 	if page.Cursor == nil {
 		return ""
@@ -794,7 +893,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 	switch r.Tool + "." + r.Operation {
 	case "concord_product_view.resolve":
 		var in productResolveInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		if in.ProductID == "" && in.ProjectID == "" {
@@ -818,7 +917,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
 	case "concord_product_view.snapshot":
 		var in productSnapshotInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		if in.ProductID == "" {
@@ -831,7 +930,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.q2(base, q)
 	case "concord_product_view.portfolio":
 		var in productRowPortfolioInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		q, err := portfolio.Read(ctx, r.Store, store.ProductRowRequest{Product: in.ProductID, Limit: r.boundedLimit(in.Page.Limit), Cursor: cursorValue(in.Page), Source: in.Source})
@@ -841,7 +940,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.productRows(base, q)
 	case "concord_product_view.blocked_sessions":
 		var in blockedSessionsInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		if in.ProductID == "" {
@@ -858,7 +957,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"sessions": result.Sessions})
 	case "concord_work_browse.list":
 		var in workListInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		if in.ProductID == "" {
@@ -883,7 +982,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
 	case "concord_work_browse.ready":
 		var in workReadyInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		bindingInput := in
@@ -904,7 +1003,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
 	case "concord_work_browse.blocked":
 		var in workBlockedInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		bindingInput := in
@@ -925,7 +1024,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
 	case "concord_work_browse.scope":
 		var in workScopeInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		bindingInput := in
@@ -946,7 +1045,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
 	case "concord_work_browse.resource_claims":
 		var in resourceClaimsInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		if in.ProductID == "" {
@@ -960,7 +1059,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"claims": claims})
 	case "concord_work_browse.messages":
 		var in messagesInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		messages, err := r.Store.MessagesForWork(ctx, in.WorkID, r.boundedLimit(in.Page.Limit))
@@ -971,7 +1070,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
 	case "concord_work_trace.history":
 		var in historyInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		bindingInput := in
@@ -992,7 +1091,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
 	case "concord_work_trace.continuity":
 		var in continuityInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		bindingInput := in
@@ -1013,7 +1112,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "continuity")
 	case "concord_work_trace.research":
 		var in researchReadInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		if (in.PackID == "") == (in.WorkID == "") {
@@ -1039,7 +1138,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.resultEnvelope(base, store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: pack.OwnerWorkID}, SourceVersionWatermark: pack.CurrentRevision, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: pack.UpdatedAt}, OrderingKeys: []string{"pack:" + pack.PackID}}, r.scope(store.ResultMeta{}), pack)
 	case "concord_work_trace.relations":
 		var in relationInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		q, err := r.Store.QueryQ8(ctx, store.Q8Request{Work: in.WorkID, RelationKinds: in.RelationKinds, Direction: in.Direction, Depth: in.Depth})
@@ -1049,7 +1148,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.q8(base, q)
 	case "concord_work_initiative.entries":
 		var in initiativeEntriesInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		summary, err := r.Store.ReadWorkItemSummary(ctx, in.InitiativeWorkID)
@@ -1078,7 +1177,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"entries": entries, "narrative": summary.Narrative})
 	case "concord_knowledge.search":
 		var in knowledgeSearchInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		if in.ProductID == "" {
@@ -1112,7 +1211,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
 	case "concord_knowledge.resolve_note":
 		var in knowledgeResolveInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		q, err := r.Store.QueryQ10(ctx, store.Q10Request{Work: in.WorkID, KnowledgeID: in.KnowledgeID, Product: r.Envelope.SelectedProductID, Home: store.KnowledgeHome{}})
@@ -1122,7 +1221,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.q10(base, q)
 	case "concord_domain.list", "concord_domain.detail", "concord_domain.active_work", "concord_domain.attachments", "concord_domain.overlaps":
 		var in domainReadInput
-		if err := decodeStrict(input, &in); err != nil {
+		if err := decodeOperationInput(input, &in); err != nil {
 			return base, err
 		}
 		product := in.ProductID
@@ -1339,10 +1438,10 @@ func (r runtime) resultEnvelope(base Envelope, meta store.ResultMeta, scope *Sco
 		return base, err
 	}
 	if r.Budget.MaxBytes > 0 && len(raw) > r.Budget.MaxBytes {
-		return coreError(base, "budget_refused", "result exceeds requested max_bytes budget", "adjust_budget", false), nil
+		return r.budgetRefusal(base, "result exceeds requested max_bytes budget"), nil
 	}
 	if r.Budget.MaxItems > 0 && maxArrayLength(raw) > r.Budget.MaxItems {
-		return coreError(base, "budget_refused", "result exceeds requested max_items budget", "adjust_budget", false), nil
+		return r.budgetRefusal(base, "result exceeds requested max_items budget"), nil
 	}
 	base = applyMeta(base, meta, scope)
 	base.Outcome = OutcomeOK

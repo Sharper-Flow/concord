@@ -162,7 +162,12 @@ type TypedError struct {
 	Options          []string          `json:"options,omitempty"`
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
-	Details          map[string]any    `json:"details,omitempty"`
+	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
+	// budget_refused error — seconds refusal, result-size overrun, and the
+	// legacy millisecond bound alike — so the value a caller needs to recover
+	// is a field, never a details entry an implementation may forget to mint.
+	SupportedBudgetSeconds int            `json:"supported_budget_seconds,omitempty"`
+	Details                map[string]any `json:"details,omitempty"`
 }
 
 // GoverningConflictOptions is the closed operator-choice vocabulary of CD-0035
@@ -689,6 +694,12 @@ func validateError(err TypedError) error {
 	}
 	if err.Kind == "budget_refused" && err.RecoveryAction.Kind != "adjust_budget" {
 		return errors.New("budget recovery coupling violated")
+	}
+	// CD-0038 D3: the ceiling is a typed field, required wherever the kind
+	// appears. Byte and item overruns carry it too — the coupling is on the
+	// kind, not on which budget was exceeded.
+	if err.Kind == "budget_refused" && err.SupportedBudgetSeconds < 1 {
+		return errors.New("budget refusal must carry supported_budget_seconds")
 	}
 	if err.Kind == "invalid_cursor" && err.RecoveryAction.Kind != "restart_query" {
 		return errors.New("cursor recovery coupling violated")

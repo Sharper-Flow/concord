@@ -16,6 +16,10 @@ import (
 // freshness fail-closed; a stale required revision refuses the action.
 
 func researchSurfaceFixture(t *testing.T) (*store.Store, *Service, Grant, string) {
+	return researchSurfaceFixtureWithCapabilities(t, []Capability{"product_read", "work_define", "work_transition", "research"})
+}
+
+func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
@@ -51,12 +55,12 @@ func researchSurfaceFixture(t *testing.T) (*store.Store, *Service, Grant, string
 		return store.ProjectResolution{ProjectID: "project-1"}, nil
 	}
 	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_define", "work_transition", "research"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}
+	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: capabilities, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
 		t.Fatal(err)
 	}
 	grantReq := grantRequest(privateKey, "research-surface-nonce-1")
-	grantReq.Assertion.RequestedCapabilities = []Capability{"product_read", "work_define", "work_transition", "research"}
+	grantReq.Assertion.RequestedCapabilities = capabilities
 	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
 	grant, err := service.IssueGrant(ctx, grantReq)
 	if err != nil {
@@ -159,6 +163,49 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	}
 	if refused.Error == nil || refused.Error.Kind != "stale_requires_review" || !strings.Contains(refused.Error.Message, "stale") {
 		t.Fatalf("expected stale_requires_review refusal, got %+v", refused.Error)
+	}
+}
+
+// Capability requirements derive from the per-operation contract registry.
+// A grant scoped to only the research capability must execute research
+// mutations; a grant without research must be refused for them.
+func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
+	ctx := context.Background()
+
+	scopedInvoke := func(capabilities []Capability, op string, input any) Envelope {
+		t.Helper()
+		s, service, grant, _ := researchSurfaceFixtureWithCapabilities(t, capabilities)
+		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(input)
+		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForOperation(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+
+	create := scopedInvoke([]Capability{"product_read", "research"}, "research_pack_create", map[string]any{
+		"owner_work_id":   "work-1",
+		"revision":        map[string]any{"question": "Which capability authorizes this pack?", "method": "contract registry"},
+		"idempotency_key": "cap-research-only-1",
+	})
+	if create.Outcome != OutcomeOK {
+		t.Fatalf("research-only grant must execute research_pack_create: %+v", create.Error)
+	}
+
+	refused := scopedInvoke([]Capability{"product_read", "work_define"}, "research_pack_create", map[string]any{
+		"owner_work_id":   "work-1",
+		"revision":        map[string]any{"question": "Which capability authorizes this pack?", "method": "contract registry"},
+		"idempotency_key": "cap-work-define-only-1",
+	})
+	if refused.Outcome == OutcomeOK {
+		t.Fatal("grant without research capability must not execute research_pack_create")
+	}
+	if refused.Error == nil || refused.Error.Kind != "unauthorized" {
+		t.Fatalf("expected unauthorized refusal, got %+v", refused.Error)
 	}
 }
 

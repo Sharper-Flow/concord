@@ -312,8 +312,21 @@
     },
     {
       "id": "CD-0037",
-      "state": "outstanding",
-      "issue": 172
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "scenario",
+          "value": "AJ8-approval-required"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestMintedChallengeRefusalCarriesTheTypedSummary"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestConsequenceSummaryDerivesFromTheChallengeSpec"
+        }
+      ]
     },
     {
       "id": "CD-0038",

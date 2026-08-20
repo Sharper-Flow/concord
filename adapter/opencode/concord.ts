@@ -191,11 +191,16 @@ async function invoke(toolName: string, args: any, context: ToolContext): Promis
     if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
     if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
     if (!Array.isArray(details.scope) || !Array.isArray(details.versions) || (toolName === "concord_work_transition" && operation === "workflow_action" && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge did not bind the exact workflow selection")
+    // CD-0037 D5: the typed consequence summary rides host permission metadata
+    // unchanged. The host renders the operator prompt; this is transport, not
+    // adapter-owned domain logic.
+    const consequenceSummary = response.error.consequence_summary && typeof response.error.consequence_summary === "object" ? response.error.consequence_summary : null
     const askMetadata = toolName === "concord_work_transition" && operation === "workflow_action"
-      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary }
+      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary, ...(consequenceSummary ? { consequence_summary: consequenceSummary } : {}) }
       : {
           approval_ref: details.approval_ref,
           operation_digest: details.operation_digest,
+          ...(consequenceSummary ? { consequence_summary: consequenceSummary } : {}),
           ...(typeof details.summary === "string" ? { summary: details.summary } : {}),
           ...(Array.isArray(details.scope) ? { scope: details.scope } : {}),
           ...(Array.isArray(details.versions) ? { versions: details.versions } : {}),

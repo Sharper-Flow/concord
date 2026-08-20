@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -493,4 +495,84 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		}
 	}
 	return out
+}
+
+func TestSupersessionReleasesHeldResourceClaims(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "claim-holder")
+	seedWork(t, s, "claim-successor")
+	claim := operationEvent("claim-holder-claim", "work.resource_claimed", SubjectWorkItem, "claim-holder", map[string]any{
+		"work_id": "claim-holder", "resource_key": "fence:supersession-release", "reason": "hold while work is active",
+		"holder_agent": "agent:test", "holder_session": "session:test",
+		"expected_version": 2, "resulting_version": 3,
+	})
+	if err := applyWorkEvent(t, s, claim, workVersion("claim-holder", 2)); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyWorkEvent(t, s, workSupersededEvent("claim-holder-superseded", "claim-successor", "claim-holder", 3, 4), workVersion("claim-holder", 3)); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM resource_claims WHERE resource_key=?`, "fence:supersession-release").Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "released" {
+		t.Fatalf("superseded work still holds its claim: state=%q", state)
+	}
+}
+
+func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
+	cases := []struct {
+		name, kind, wantDetail string
+		removed                bool
+	}{
+		{name: "includes added", kind: "includes", wantDetail: "Initiative entry events"},
+		{name: "includes removed", kind: "includes", wantDetail: "Initiative entry removal events", removed: true},
+		{name: "compatible_with added", kind: "compatible_with", wantDetail: "resolve_overlap"},
+		{name: "merged_into added", kind: "merged_into", wantDetail: "resolve_overlap"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			s := openTemp(t)
+			seedWork(t, s, "rel-from")
+			seedWork(t, s, "rel-to")
+			var err error
+			if testCase.removed {
+				err = applyWorkEvent(t, s, relationRemovedEvent("rel-composite", testCase.kind, "rel-from", "rel-to", 2, 3), workVersion("rel-from", 2))
+			} else {
+				err = applyWorkEvent(t, s, relationAddedEvent("rel-composite", testCase.kind, "rel-from", "rel-to", 2, 3), workVersion("rel-from", 2))
+			}
+			assertFailureKind(t, err, KindRelationContractViolation)
+			var failure *Failure
+			if !errors.As(err, &failure) || !strings.Contains(failure.Detail, testCase.wantDetail) {
+				t.Fatalf("refusal detail does not name the owning operation: %v", err)
+			}
+		})
+	}
+}
+
+func TestIntentRevisionRefusesTerminalWork(t *testing.T) {
+	for _, state := range []string{"completed", "cancelled", "superseded"} {
+		t.Run(state, func(t *testing.T) {
+			s := openTemp(t)
+			id := "revise-" + state
+			version := seedState(t, s, id, state)
+			event := operationEvent("revise-"+state, "work.intent_revised", SubjectWorkItem, id, map[string]any{
+				"title": "Revised", "value_statement": "Revised statement", "kind": "task", "priority": 2, "tags": []string{},
+				"reason": "late clarity", "expected_version": version, "resulting_version": version + 1,
+			})
+			err := applyWorkEvent(t, s, event, workVersion(id, version))
+			assertFailureKind(t, err, KindIllegalLifecycleTransition)
+		})
+	}
+}
+
+func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
+	s := openTemp(t)
+	event := operationEvent("mismatched-create", "work.created", SubjectWorkItem, "work-subject", map[string]any{
+		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch", "priority": 1,
+	})
+	event.PayloadVersion = 2
+	err := applyWorkEvent(t, s, event, workVersion("work-subject", 0))
+	assertFailureKind(t, err, KindInvalidPayload)
 }

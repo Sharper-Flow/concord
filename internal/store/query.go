@@ -1458,9 +1458,9 @@ type relationSpec struct {
 
 func relationSpecs(kinds []string) ([]relationSpec, error) {
 	if len(kinds) == 0 {
-		kinds = []string{"parent", "blocks", "supersedes", "implements"}
+		kinds = []string{"parent", "includes", "blocks", "supersedes", "implements"}
 	}
-	valid := map[string]relationSpec{"parent": {"parent", "parent", false}, "child_of": {"child_of", "parent", true}, "blocks": {"blocks", "blocks", false}, "blocked_by": {"blocked_by", "blocks", true}, "depends_on": {"depends_on", "blocks", true}, "supersedes": {"supersedes", "supersedes", false}, "superseded_by": {"superseded_by", "supersedes", true}, "implements": {"implements", "implements", false}, "implemented_by": {"implemented_by", "implements", true}, "raised_from": {"raised_from", "raised_from", false}, "raised": {"raised", "raised_from", true}}
+	valid := map[string]relationSpec{"parent": {"parent", "parent", false}, "child_of": {"child_of", "parent", true}, "includes": {"includes", "includes", false}, "included_by": {"included_by", "includes", true}, "blocks": {"blocks", "blocks", false}, "blocked_by": {"blocked_by", "blocks", true}, "depends_on": {"depends_on", "blocks", true}, "supersedes": {"supersedes", "supersedes", false}, "superseded_by": {"superseded_by", "supersedes", true}, "implements": {"implements", "implements", false}, "implemented_by": {"implemented_by", "implements", true}, "raised_from": {"raised_from", "raised_from", false}, "raised": {"raised", "raised_from", true}}
 	out := make([]relationSpec, 0, len(kinds))
 	for _, k := range kinds {
 		s, ok := valid[k]

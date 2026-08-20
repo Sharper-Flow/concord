@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:c6be78fb39cba9d44cd7fb40f0ba265d4d8b5f6f0865589cf66c72fa4027e6b9`
-Payload schema digest: `sha256:ede9774838ea2ef83427fb1c95712a99a996dce2577838344ef10d120b730c26`
+Manifest digest: `sha256:ae6e82fb897695246527afed1aea908ade5b71bcfe02de1618c14d177ec61427`
+Payload schema digest: `sha256:68b36c6559026c7af13632c044369f22fb746ab9bc0dd6d44b1bbaa7306212cf`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -30,13 +30,13 @@ Envelope schema: `1.0`
 | `concord_work_define.research_source_record` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.research_freshness_set` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.observation_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
-| `concord_work_epic.create` | `mutation` | `—` | `work_epic` | `intent` | `always` |
-| `concord_work_epic.add_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
-| `concord_work_epic.remove_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
-| `concord_work_epic.reorder_entry` | `mutation` | `—` | `work_epic` | `relation` | `always` |
-| `concord_work_epic.change_requiredness` | `mutation` | `—` | `work_epic` | `relation` | `always` |
-| `concord_work_epic.revise_narrative` | `mutation` | `—` | `work_epic` | `intent` | `always` |
-| `concord_work_epic.entries` | `read` | `C21.EpicEntries` | `product_read` | `read` | `always` |
+| `concord_work_initiative.create` | `mutation` | `—` | `work_initiative` | `intent` | `always` |
+| `concord_work_initiative.add_entry` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
+| `concord_work_initiative.remove_entry` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
+| `concord_work_initiative.reorder_entry` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
+| `concord_work_initiative.change_requiredness` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
+| `concord_work_initiative.revise_narrative` | `mutation` | `—` | `work_initiative` | `intent` | `always` |
+| `concord_work_initiative.entries` | `read` | `C21.InitiativeEntries` | `product_read` | `read` | `always` |
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |
 | `concord_work_transition.worktree_claim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |

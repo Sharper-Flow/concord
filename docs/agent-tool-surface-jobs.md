@@ -275,6 +275,6 @@ and asserts the current `compatible_with` resolution plus its relation companion
 also actively proves that an ordinary `compatible_with` link writes no overlap
 authority. `TestAgentJobsCorpus/AJ5-resolve-domain-overlap` is the executable binding.
 
-This amendment adds one scenario, bringing the corpus to 22. It does not add a ninth
+This amendment adds one scenario, bringing the corpus to 23. It does not add a ninth
 job or a tenth tool. Operator approval for the current manifest change is recorded in
 [issue #195](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5346330133).

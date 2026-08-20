@@ -54,7 +54,7 @@ type reviseMutationInput struct {
 	Reason          string   `json:"reason"`
 	IdempotencyKey  string   `json:"idempotency_key"`
 }
-type epicCreateMutationInput struct {
+type initiativeCreateMutationInput struct {
 	Title          string   `json:"title"`
 	ValueStatement string   `json:"value_statement"`
 	ProjectIDs     []string `json:"project_ids"`
@@ -65,26 +65,26 @@ type epicCreateMutationInput struct {
 	ExternalRef    string   `json:"external_ref"`
 	IdempotencyKey string   `json:"idempotency_key"`
 }
-type epicEntryMutationInput struct {
-	EpicWorkID      string `json:"epic_work_id"`
-	ChildWorkID     string `json:"child_work_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	Position        int64  `json:"position"`
-	Required        *bool  `json:"required"`
-	IdempotencyKey  string `json:"idempotency_key"`
+type initiativeEntryMutationInput struct {
+	InitiativeWorkID string `json:"initiative_work_id"`
+	ChildWorkID      string `json:"child_work_id"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	Position         int64  `json:"position"`
+	Required         *bool  `json:"required"`
+	IdempotencyKey   string `json:"idempotency_key"`
 }
-type epicRemoveEntryMutationInput struct {
-	EpicWorkID      string `json:"epic_work_id"`
-	ChildWorkID     string `json:"child_work_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
+type initiativeRemoveEntryMutationInput struct {
+	InitiativeWorkID string `json:"initiative_work_id"`
+	ChildWorkID      string `json:"child_work_id"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	IdempotencyKey   string `json:"idempotency_key"`
 }
-type epicNarrativeMutationInput struct {
-	EpicWorkID      string `json:"epic_work_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	Narrative       string `json:"narrative"`
-	Reason          string `json:"reason"`
-	IdempotencyKey  string `json:"idempotency_key"`
+type initiativeNarrativeMutationInput struct {
+	InitiativeWorkID string `json:"initiative_work_id"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	Narrative        string `json:"narrative"`
+	Reason           string `json:"reason"`
+	IdempotencyKey   string `json:"idempotency_key"`
 }
 type lifecycleMutationInput struct {
 	WorkID          string         `json:"work_id"`
@@ -782,6 +782,9 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
+		if in.Kind == "epic" || in.Kind == "initiative" {
+			return coreError(base, "invalid_input", "capture cannot create Initiative work; use concord_work_initiative.create", "use_initiative_operation", false), nil
+		}
 		if len(in.ProjectIDs) == 0 {
 			return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil
 		}
@@ -871,6 +874,9 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
+		if in.Kind == "epic" || in.Kind == "initiative" {
+			return coreError(base, "invalid_input", "revise_intent cannot create Initiative work; use the dedicated Initiative operation", "use_initiative_operation", false), nil
+		}
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		var registeredDefinition store.RegisteredDefinition
@@ -912,13 +918,13 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
-	case "concord_work_epic.create":
-		var in epicCreateMutationInput
+	case "concord_work_initiative.create":
+		var in initiativeCreateMutationInput
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
 		if len(in.ProjectIDs) == 0 {
-			return coreError(base, "invalid_input", "Epic creation requires at least one Project membership", "reread_entities", false), nil
+			return coreError(base, "invalid_input", "Initiative creation requires at least one Project membership", "reread_entities", false), nil
 		}
 		scope["project_ids"] = in.ProjectIDs
 		productsByProject, err := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
@@ -926,21 +932,21 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			return failureEnvelope(base, err), nil
 		}
 		if products := uniqueProducts(productsByProject, in.ProjectIDs); len(products) != 1 {
-			return coreError(base, "invariant_violation", "Epic creation requires exactly one derived Product", "resolve_ambiguity", false), nil
+			return coreError(base, "invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false), nil
 		}
-		workID := "epic-" + digest[7:31]
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_epic"}}
+		workID := "initiative-" + digest[7:31]
+		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_initiative"}}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
-			if products, err := deriveEpicProductsTx(ctx, tx, in.ProjectIDs); err != nil {
+			if products, err := deriveInitiativeProductsTx(ctx, tx, in.ProjectIDs); err != nil {
 				return nil, nil, nil, err
 			} else if len(products) != 1 {
-				return nil, nil, nil, newRuntimeFailure("invariant_violation", "Epic creation requires exactly one derived Product", "resolve_ambiguity", false)
+				return nil, nil, nil, newRuntimeFailure("invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false)
 			}
 			urgency := in.Urgency
 			if urgency == "" {
 				urgency = "standard"
 			}
-			payload, _ := json.Marshal(map[string]any{"work_kind": "epic", "title": in.Title, "value_statement": in.ValueStatement, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "component_id": in.ComponentID, "external_ref": in.ExternalRef})
+			payload, _ := json.Marshal(map[string]any{"work_kind": "initiative", "title": in.Title, "value_statement": in.ValueStatement, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "component_id": in.ComponentID, "external_ref": in.ExternalRef})
 			memberships := make([]storeMembership, len(in.ProjectIDs))
 			for i, project := range in.ProjectIDs {
 				role := "secondary"
@@ -961,77 +967,77 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "2"}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
-	case "concord_work_epic.add_entry", "concord_work_epic.reorder_entry", "concord_work_epic.change_requiredness":
-		var in epicEntryMutationInput
+	case "concord_work_initiative.add_entry", "concord_work_initiative.reorder_entry", "concord_work_initiative.change_requiredness":
+		var in initiativeEntryMutationInput
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		versions["epic"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.EpicWorkID, in.ChildWorkID}
-		kind := "epic_entry.added"
-		intentReason := "inspect_epic_entries"
-		if op.ID == "concord_work_epic.reorder_entry" {
-			kind = "epic_entry.reordered"
-			intentReason = "inspect_reordered_epic"
-		} else if op.ID == "concord_work_epic.change_requiredness" {
-			kind = "epic_entry.requiredness_changed"
-			intentReason = "inspect_epic_requiredness"
+		versions["initiative"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
+		kind := "initiative_entry.added"
+		intentReason := "inspect_initiative_entries"
+		if op.ID == "concord_work_initiative.reorder_entry" {
+			kind = "initiative_entry.reordered"
+			intentReason = "inspect_reordered_initiative"
+		} else if op.ID == "concord_work_initiative.change_requiredness" {
+			kind = "initiative_entry.requiredness_changed"
+			intentReason = "inspect_initiative_requiredness"
 		}
-		intents = []NextIntent{{Tool: "concord_work_epic", Operation: "entries", QueryID: "C21.EpicEntries", ReasonCode: intentReason}}
+		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: intentReason}}
 		required := true
 		if in.Required != nil {
 			required = *in.Required
 		}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
-			event, err := store.EpicEntryEvent(digest+":entry", kind, in.EpicWorkID, store.EpicEntry{EpicWorkID: in.EpicWorkID, ChildWorkID: in.ChildWorkID, Position: in.Position, Required: required}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
+			event, err := store.InitiativeEntryEvent(digest+":entry", kind, in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID, Position: in.Position, Required: required}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.EpicWorkID): in.ExpectedVersion}})
+			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.EpicWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
-	case "concord_work_epic.remove_entry":
-		var in epicRemoveEntryMutationInput
+	case "concord_work_initiative.remove_entry":
+		var in initiativeRemoveEntryMutationInput
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		versions["epic"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.EpicWorkID, in.ChildWorkID}
-		intents = []NextIntent{{Tool: "concord_work_epic", Operation: "entries", QueryID: "C21.EpicEntries", ReasonCode: "inspect_removed_epic_entry"}}
+		versions["initiative"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
+		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "inspect_removed_initiative_entry"}}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
-			event, err := store.EpicEntryEvent(digest+":entry", "epic_entry.removed", in.EpicWorkID, store.EpicEntry{EpicWorkID: in.EpicWorkID, ChildWorkID: in.ChildWorkID}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
+			event, err := store.InitiativeEntryEvent(digest+":entry", "initiative_entry.removed", in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.EpicWorkID): in.ExpectedVersion}})
+			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.EpicWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
-	case "concord_work_epic.revise_narrative":
-		var in epicNarrativeMutationInput
+	case "concord_work_initiative.revise_narrative":
+		var in initiativeNarrativeMutationInput
 		if err := decodeStrict(raw, &in); err != nil {
 			return base, err
 		}
-		versions["epic"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.EpicWorkID}
-		intents = []NextIntent{{Tool: "concord_work_epic", Operation: "entries", QueryID: "C21.EpicEntries", ReasonCode: "refresh_epic_context"}}
+		versions["initiative"] = in.ExpectedVersion
+		scope["work_ids"] = []string{in.InitiativeWorkID}
+		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "refresh_initiative_context"}}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
-			event, err := store.EpicNarrativeEvent(digest+":narrative", in.EpicWorkID, in.Narrative, in.Reason, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
+			event, err := store.InitiativeNarrativeEvent(digest+":narrative", in.InitiativeWorkID, in.Narrative, in.Reason, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.EpicWorkID): in.ExpectedVersion}})
+			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.EpicWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 			return mutationPayload(changed, intents), result.EventIDs, changed, nil
 		}
 	case "concord_work_transition.lifecycle":
@@ -1560,7 +1566,7 @@ func uniqueProducts(byProject map[string][]string, projectIDs []string) []string
 	return products
 }
 
-func deriveEpicProductsTx(ctx context.Context, tx *store.Transaction, projectIDs []string) ([]string, error) {
+func deriveInitiativeProductsTx(ctx context.Context, tx *store.Transaction, projectIDs []string) ([]string, error) {
 	byProject, err := store.ProductsForProjectIDsTx(ctx, tx, projectIDs)
 	if err != nil {
 		return nil, err
@@ -2212,8 +2218,8 @@ func capabilityForMutation(tool string) Capability {
 		return "work_transition"
 	case "concord_work_relate":
 		return "work_relate"
-	case "concord_work_epic":
-		return "work_epic"
+	case "concord_work_initiative":
+		return "work_initiative"
 	default:
 		return "work_compact"
 	}

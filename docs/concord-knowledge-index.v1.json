@@ -564,7 +564,7 @@
       },
       "sha256": "sha256:be2ff3010ee2a0a52bfbc851cd49717b326d32b150c1294e50e3478a928c30bc",
       "evidence": [
-        "internal/store/epic.go"
+        "internal/store/initiative.go"
       ],
       "home_domain_id": "product-root:concord"
     },
@@ -1079,7 +1079,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:0f4ce9d7a85187b9c389c496622f649b77fa1a1216bf4952a76135a6bb941e7a",
+      "sha256": "sha256:efeb33a4f55362e61f1fdf6c05c67d475acc15c95c5c2a78a417fbac05ee1e53",
       "home_domain_id": "product-root:concord"
     },
     {

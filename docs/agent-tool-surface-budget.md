@@ -3,7 +3,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS2; binding input to CD-0005 §2 and TS3–TS9.
-> **Binding input:** accepted TS1 canonical jobs and 22-scenario corpus.
+> **Binding input:** accepted TS1 canonical jobs and 23-scenario corpus.
 > **Does not decide:** exact tool names/count within the budget, read operations
 > (TS3), mutation operations (TS4), call context (TS5), transport (TS6), result
 > envelopes (TS7), current manifest identity/change evidence (TS8), or measurement evidence (TS9).

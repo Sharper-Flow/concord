@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,15 +20,15 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead(t *testing.T) {
+func TestDispatchInitiativeSurfaceUsesInitiativeEventsAndBoundedEntriesRead(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_epic"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_initiative"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	create := InvokeRequest{Tool: "concord_work_epic", Operation: "create", Input: json.RawMessage(`{"title":"Epic","value_statement":"Coordinate work","project_ids":["project-1"],"idempotency_key":"epic-create"}`)}
+	create := InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: json.RawMessage(`{"title":"Initiative","value_statement":"Coordinate work","project_ids":["project-1"],"idempotency_key":"initiative-create"}`)}
 	created, err := Dispatch(ctx, s, service, create, env)
 	if err != nil || created.Outcome != OutcomeOK {
 		t.Fatalf("create response=%+v err=%v", created, err)
@@ -35,10 +36,10 @@ func TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead(t *testing.T) {
 	if len(created.ChangedRefs) != 1 {
 		t.Fatalf("create changed refs=%+v", created.ChangedRefs)
 	}
-	epicID := created.ChangedRefs[0].ID
+	initiativeID := created.ChangedRefs[0].ID
 	var kind string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT kind FROM work_items WHERE id=?`, epicID).Scan(&kind); err != nil || kind != "epic" {
-		t.Fatalf("created Epic kind=%q err=%v", kind, err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT kind FROM work_items WHERE id=?`, initiativeID).Scan(&kind); err != nil || kind != "initiative" {
+		t.Fatalf("created Initiative kind=%q err=%v", kind, err)
 	}
 
 	mutations := []struct {
@@ -46,45 +47,49 @@ func TestDispatchEpicSurfaceUsesEpicEventsAndBoundedEntriesRead(t *testing.T) {
 		input     string
 		version   int64
 	}{
-		{"add_entry", `{"epic_work_id":"` + epicID + `","child_work_id":"work-1","expected_version":2,"position":0,"idempotency_key":"epic-add"}`, 3},
-		{"change_requiredness", `{"epic_work_id":"` + epicID + `","child_work_id":"work-1","expected_version":3,"required":false,"idempotency_key":"epic-required"}`, 4},
-		{"reorder_entry", `{"epic_work_id":"` + epicID + `","child_work_id":"work-1","expected_version":4,"position":0,"idempotency_key":"epic-reorder"}`, 5},
-		{"revise_narrative", `{"epic_work_id":"` + epicID + `","expected_version":5,"narrative":"Current coordination context","reason":"operator correction","idempotency_key":"epic-narrative"}`, 6},
+		{"add_entry", `{"initiative_work_id":"` + initiativeID + `","child_work_id":"work-1","expected_version":2,"position":0,"idempotency_key":"initiative-add"}`, 3},
+		{"change_requiredness", `{"initiative_work_id":"` + initiativeID + `","child_work_id":"work-1","expected_version":3,"required":false,"idempotency_key":"initiative-required"}`, 4},
+		{"reorder_entry", `{"initiative_work_id":"` + initiativeID + `","child_work_id":"work-1","expected_version":4,"position":0,"idempotency_key":"initiative-reorder"}`, 5},
+		{"revise_narrative", `{"initiative_work_id":"` + initiativeID + `","expected_version":5,"narrative":"Current coordination context","reason":"operator correction","idempotency_key":"initiative-narrative"}`, 6},
 	}
 	for _, mutation := range mutations {
-		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_epic", Operation: mutation.operation, Input: json.RawMessage(mutation.input)}, env)
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: mutation.operation, Input: json.RawMessage(mutation.input)}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
 			t.Fatalf("%s response=%+v err=%v", mutation.operation, response, dispatchErr)
 		}
-		if got := workVersion(t, s, epicID); got != mutation.version {
+		if got := workVersion(t, s, initiativeID); got != mutation.version {
 			t.Fatalf("%s version=%d want %d", mutation.operation, got, mutation.version)
 		}
 	}
 
-	read, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_epic", Operation: "entries", Input: json.RawMessage(`{"epic_work_id":"` + epicID + `"}`)}, env)
+	read, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "entries", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `"}`)}, env)
 	if err != nil || read.Outcome != OutcomeOK {
 		t.Fatalf("entries response=%+v err=%v", read, err)
 	}
 	var entryResult struct {
-		Entries   []store.EpicEntry `json:"entries"`
-		Narrative string            `json:"narrative"`
+		Entries   []store.InitiativeEntry `json:"entries"`
+		Narrative string                  `json:"narrative"`
 	}
 	if err := json.Unmarshal(read.Result, &entryResult); err != nil || len(entryResult.Entries) != 1 || entryResult.Entries[0].Required || entryResult.Narrative != "Current coordination context" {
 		t.Fatalf("entries result=%s err=%v", read.Result, err)
 	}
 
-	removed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_epic", Operation: "remove_entry", Input: json.RawMessage(`{"epic_work_id":"` + epicID + `","child_work_id":"work-1","expected_version":6,"idempotency_key":"epic-remove"}`)}, env)
+	childLifecycle := workLifecycle(t, s, "work-1")
+	removed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "remove_entry", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `","child_work_id":"work-1","expected_version":6,"idempotency_key":"initiative-remove"}`)}, env)
 	if err != nil || removed.Outcome != OutcomeOK {
 		t.Fatalf("remove response=%+v err=%v", removed, err)
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='parent' AND work_id_from='`+epicID+`' AND work_id_to='work-1'`) != 0 {
-		t.Fatal("removing Epic entry retained parent relation")
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='includes' AND work_id_from='`+initiativeID+`' AND work_id_to='work-1'`) != 0 {
+		t.Fatal("removing Initiative entry retained includes relation")
+	}
+	if got := workLifecycle(t, s, "work-1"); got != childLifecycle {
+		t.Fatalf("removing Initiative entry changed child lifecycle from %q to %q", childLifecycle, got)
 	}
 }
 
-func TestDispatchEpicCreateRejectsAmbiguousProductBeforeCreation(t *testing.T) {
+func TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_epic", "cross_scope"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_initiative", "cross_scope"})
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
 		{EventID: "fixture-product-2", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Second Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: "fixture-product-project-2", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-2","project_id":"project-1","role":"secondary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
@@ -95,12 +100,32 @@ func TestDispatchEpicCreateRejectsAmbiguousProductBeforeCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_epic", Operation: "create", Input: json.RawMessage(`{"title":"Ambiguous","value_statement":"Must reject","project_ids":["project-1"],"idempotency_key":"epic-ambiguous"}`)}, mutationEnvelope(grant, scopeVersion))
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: json.RawMessage(`{"title":"Ambiguous","value_statement":"Must reject","project_ids":["project-1"],"idempotency_key":"initiative-ambiguous"}`)}, mutationEnvelope(grant, scopeVersion))
 	if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invariant_violation" {
 		t.Fatalf("response=%+v err=%v", response, err)
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE kind='epic'`) != 0 {
-		t.Fatal("ambiguous Epic create left a work projection")
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE kind='initiative'`) != 0 {
+		t.Fatal("ambiguous Initiative create left a work projection")
+	}
+}
+
+func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_initiative"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	obsolete, obsoleteErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_epic", Operation: "create", Input: json.RawMessage(`{"title":"obsolete","value_statement":"must reject","project_ids":["project-1"],"idempotency_key":"obsolete"}`)}, env)
+	if obsoleteErr == nil && (obsolete.Error == nil || obsolete.Error.Kind != "invalid_input" && obsolete.Error.Kind != "unauthorized") {
+		t.Fatalf("obsolete Epic surface response=%+v err=%v", obsolete, obsoleteErr)
+	}
+	for _, kind := range []string{"epic", "initiative"} {
+		response, responseErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(fmt.Sprintf(`{"title":"%s","value_statement":"must reject","kind":"%s","project_ids":["project-1"],"idempotency_key":"capture-%s"}`, kind, kind, kind))}, env)
+		if responseErr == nil && (response.Error == nil || response.Error.Kind != "invalid_input") {
+			t.Fatalf("generic %s capture response=%+v err=%v", kind, response, responseErr)
+		}
 	}
 }
 

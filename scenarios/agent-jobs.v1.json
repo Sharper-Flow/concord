@@ -205,6 +205,21 @@
       }
     },
     {
+      "id": "AJ5-frame-initiative",
+      "job_id": "AJ5",
+      "instruction": "Frame an Initiative for work-ready-low, preserving the child's independent lifecycle.",
+      "initial_state": { "fixture": "PM1", "idempotency_seed": "initiative-frame" },
+      "expected": {
+        "assertions": [
+          { "target": "state", "path": "initiative.kind", "op": "eq", "value": "initiative" },
+          { "target": "state", "path": "initiative.entries.0.kind", "op": "eq", "value": "includes" },
+          { "target": "state", "path": "initiative.entries.0.required", "op": "eq", "value": true },
+          { "target": "effects", "path": "child_lifecycle_preserved", "op": "eq", "value": true }
+        ],
+        "invariants": ["atomic_core_effect", "retry_safe", "canonical_authority"]
+      }
+    },
+    {
       "id": "AJ5-add-dependency",
       "job_id": "AJ5",
       "instruction": "Make work-ready-low depend on work-cross.",

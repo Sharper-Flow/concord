@@ -211,11 +211,11 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"managed_resource.consumer_added":         registerEventKind[managedResourceConsumerAddedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceConsumerAdded, nil),
 	"domain.project_attachments_replaced":     registerEventKind[domainProjectAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainProjectAttachmentsReplaced, nil),
 	"domain.resource_attachments_replaced":    registerEventKind[domainResourceAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainResourceAttachmentsReplaced, nil),
-	"epic_entry.added":                        registerEventKind[epicEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicEntryAdded, nil),
-	"epic_entry.removed":                      registerEventKind[epicEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicEntryRemoved, nil),
-	"epic_entry.reordered":                    registerEventKind[epicEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicEntryReordered, nil),
-	"epic_entry.requiredness_changed":         registerEventKind[epicEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicEntryRequirednessChanged, nil),
-	"epic.narrative_revised":                  registerEventKind[epicNarrativePayload](1, 1, nil, EventAppendAuthorityGeneric, foldEpicNarrativeRevised, nil),
+	"initiative_entry.added":                  registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryAdded, nil),
+	"initiative_entry.removed":                registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRemoved, nil),
+	"initiative_entry.reordered":              registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryReordered, nil),
+	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRequirednessChanged, nil),
+	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeNarrativeRevised, nil),
 	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](3, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
 	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              registerEventKind[WorkerFailedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
@@ -450,7 +450,7 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
-	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
+	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
 	if ownFoldGuard {
@@ -545,7 +545,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
 		return output, rollback(err)
 	}
-	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
+	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
 		return output, rollback(err)
 	}
 	output.Impact, err = membershipImpact(ctx, tx, operation)
@@ -648,7 +648,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",
 		"workflow_contracts", "workflow_decision_records", "workflow_instances", "workflow_actors",
-		"epic_entries", "relations", "work_projects", "work_items", "product_projects",
+		"initiative_entries", "relations", "work_projects", "work_items", "product_projects",
 		"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
 	} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
@@ -678,7 +678,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
 		return rollback(err)
 	}
-	if err := validateEpicInvariantsTx(ctx, tx); err != nil {
+	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
 		return rollback(err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {

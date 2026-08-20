@@ -19,10 +19,9 @@ import (
 // observations are comparable.
 //
 // Capabilities granted: product_read, work_define, work_transition,
-// work_relate. work_compact and work_epic are deliberately excluded
-// because the AJ3/AJ4/AJ5 mutation corpus exercises only the four core
-// mutation families; expanding the capability set invites unrelated
-// recovery coupling to pass when a scenario ought to be refused.
+// work_relate, and work_initiative. work_compact is deliberately excluded
+// because the AJ3/AJ4/AJ5 mutation corpus exercises only the mutation
+// families covered by these bindings.
 func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, pm1fixture.Corpus) {
 	t.Helper()
 	corpus, err := pm1fixture.Load()
@@ -47,7 +46,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 		PublicKey: publicKey,
 		Policy: TrustedClientPolicy{
 			PrincipalRef: "human-operator",
-			Capabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"},
+			Capabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative"},
 			ProductScope: []string{"prod-alpha", "prod-beta"},
 			ProjectScope: []string{"proj-web", "proj-api", "proj-shared"},
 		},
@@ -62,7 +61,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 		Worktree:              "/repo-wt",
 		RequestedProductID:    "prod-alpha",
 		RequestedProjectIDs:   []string{"proj-web", "proj-api", "proj-shared"},
-		RequestedCapabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"},
+		RequestedCapabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative"},
 		IssuedAt:              fixedTime(),
 		Nonce:                 "agent-jobs-mutation-nonce",
 		ManifestDigest:        ManifestDigest,

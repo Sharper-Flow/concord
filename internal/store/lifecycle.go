@@ -73,10 +73,25 @@ type workIntentPayload struct {
 	Tags             []string `json:"tags"`
 	ComponentID      string   `json:"component_id,omitempty"`
 	WorkflowTypeRef  string   `json:"workflow_type_ref,omitempty"`
-	ExternalRef      string   `json:"external_ref,omitempty"`
 	Reason           string   `json:"reason,omitempty"`
 	ExpectedVersion  int64    `json:"expected_version"`
 	ResultingVersion int64    `json:"resulting_version"`
+}
+
+// workIntentProjection is the stored intent_json shape. Creation and revision
+// both encode exactly this block: the closed mutable intent plus the
+// capture-owned external reference. Event bookkeeping (reason, versions) never
+// enters the projection, and revision carries external_ref forward unchanged.
+type workIntentProjection struct {
+	Title           string   `json:"title"`
+	ValueStatement  string   `json:"value_statement"`
+	Kind            string   `json:"kind"`
+	Priority        int64    `json:"priority"`
+	Urgency         string   `json:"urgency"`
+	Tags            []string `json:"tags"`
+	ComponentID     string   `json:"component_id"`
+	WorkflowTypeRef string   `json:"workflow_type_ref"`
+	ExternalRef     string   `json:"external_ref"`
 }
 
 type workMembershipsPayload struct {
@@ -131,7 +146,7 @@ type relationPayload struct {
 }
 
 var relationKinds = map[string]bool{
-	"parent": true, "blocks": true, "supersedes": true, "implements": true, "raised_from": true,
+	"parent": true, "includes": true, "blocks": true, "supersedes": true, "implements": true, "raised_from": true,
 	"depends_on": true, "compatible_with": true, "merged_into": true,
 }
 
@@ -158,6 +173,13 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "work.created payload has empty kind or title", false,
 			"supply non-empty work kind and title")
 	}
+	if payload.WorkID != "" && payload.WorkID != event.SubjectID {
+		return newFailure(KindInvalidPayload, "fold_event", "work.created payload work_id does not match the event subject", false,
+			"address the event to the work item it creates")
+	}
+	if payload.WorkKind == "epic" {
+		return newFailure(KindInvalidPayload, "fold_event", "obsolete work kind is not accepted", false, "use Initiative through the dedicated Initiative operation")
+	}
 	urgency := payload.Urgency
 	if urgency == "" {
 		urgency = "standard"
@@ -167,8 +189,15 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 			"supply urgency of 'standard' or 'expedite'")
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	intent, _ := json.Marshal(map[string]any{"title": payload.Title, "value_statement": payload.ValueStatement, "kind": payload.WorkKind, "priority": *payload.Priority, "urgency": urgency, "tags": payload.Tags, "component_id": payload.ComponentID, "workflow_type_ref": payload.WorkflowTypeRef, "external_ref": payload.ExternalRef})
-	_, err := tx.ExecContext(ctx, `
+	intent, err := json.Marshal(workIntentProjection{
+		Title: payload.Title, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
+		Priority: *payload.Priority, Urgency: urgency, Tags: payload.Tags,
+		ComponentID: payload.ComponentID, WorkflowTypeRef: payload.WorkflowTypeRef, ExternalRef: payload.ExternalRef,
+	})
+	if err != nil {
+		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json)
 		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?)`,
 		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent))
@@ -194,6 +223,9 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.Title == "" || payload.ValueStatement == "" || payload.Kind == "" || payload.Reason == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "work.intent_revised payload is incomplete", false, "supply the complete mutable intent and reason")
 	}
+	if payload.Kind == "epic" || payload.Kind == "initiative" {
+		return newFailure(KindInvalidPayload, "fold_event", "obsolete work kind is not accepted", false, "use Initiative through the dedicated Initiative operation")
+	}
 	urgency := payload.Urgency
 	if urgency == "" {
 		urgency = "standard"
@@ -206,14 +238,32 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return err
 	}
+	if isTerminalLifecycle(current.lifecycle) {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "work intent cannot be revised on terminal work", false,
+			"reopen the work item before revising its intent")
+	}
 	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
-	intent, err := json.Marshal(payload)
+	var intent workIntentProjection
+	if err := json.Unmarshal([]byte(current.intentJSON), &intent); err != nil {
+		return wrapFailure(KindInvariantViolation, "fold_event", "stored work intent is not readable", false,
+			"rebuild the work item projection from its event log", err)
+	}
+	// external_ref is capture-owned; revision carries it forward unchanged.
+	intent.Title = payload.Title
+	intent.ValueStatement = payload.ValueStatement
+	intent.Kind = payload.Kind
+	intent.Priority = payload.Priority
+	intent.Urgency = urgency
+	intent.Tags = payload.Tags
+	intent.ComponentID = payload.ComponentID
+	intent.WorkflowTypeRef = payload.WorkflowTypeRef
+	encoded, err := json.Marshal(intent)
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode revised work intent", false, "supply a JSON-safe mutable intent", err)
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE work_items SET kind=?,title=?,priority=?,urgency=?,intent_json=?,version=?,updated_at=? WHERE id=? AND version=?`, payload.Kind, payload.Title, payload.Priority, urgency, string(intent), payload.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, payload.ExpectedVersion)
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET kind=?,title=?,priority=?,urgency=?,intent_json=?,version=?,updated_at=? WHERE id=? AND version=?`, payload.Kind, payload.Title, payload.Priority, urgency, string(encoded), payload.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, payload.ExpectedVersion)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot revise work intent", true, "retry once the database is writable", err)
 	}
@@ -303,8 +353,8 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 			// not treated as heuristic substitutes for that future proof.
 			return newFailure(KindDecisionRecordRequired, "fold_event", "architecture_spike completion requires an accepted decision record", false, "complete through the accepted decision-record workflow once implemented")
 		}
-		if kind == "epic" {
-			if _, err := epicRequiredChildrenComplete(ctx, tx, event.SubjectID); err != nil {
+		if kind == "initiative" {
+			if _, err := initiativeRequiredChildrenComplete(ctx, tx, event.SubjectID); err != nil {
 				return err
 			}
 		}
@@ -431,7 +481,12 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 	}
-	return removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt)
+	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
+		return err
+	}
+	// CD-0028: a terminal work item holds nothing — supersession cannot
+	// deadlock a resource.
+	return foldTerminalReleasesResourceClaims(ctx, tx, event)
 }
 
 func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -547,8 +602,19 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "relation.added payload has invalid fields", false,
 			"supply two work IDs, one accepted relation kind, and a non-empty reason")
 	}
-	if payload.Kind == "supersedes" || payload.Kind == "compatible_with" || payload.Kind == "merged_into" {
-		return relationContractViolation()
+	switch payload.Kind {
+	case "supersedes":
+		return newFailure(KindRelationContractViolation, "fold_event",
+			"supersedes relations must be created by work.superseded", false,
+			"append a work.superseded event so the edge and lifecycle change remain atomic")
+	case "compatible_with", "merged_into":
+		return newFailure(KindRelationContractViolation, "fold_event",
+			"overlap-resolution relations must be created by resolve_overlap", false,
+			"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")
+	case "includes":
+		return newFailure(KindRelationContractViolation, "fold_event",
+			"Initiative membership edges must be created by Initiative entry events", false,
+			"append an Initiative entry event")
 	}
 	if payload.Kind == "parent" {
 		fromKind, err := readWorkKind(ctx, tx, payload.From)
@@ -559,8 +625,8 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err != nil {
 			return err
 		}
-		if fromKind == "epic" || toKind == "epic" {
-			return newFailure(KindRelationContractViolation, "fold_event", "Epic parent edges must be created by Epic entry events", false, "append an Epic entry event")
+		if fromKind == "initiative" || toKind == "initiative" {
+			return newFailure(KindRelationContractViolation, "fold_event", "Initiative parent edges must be created by Initiative entry events", false, "append an Initiative entry event")
 		}
 	}
 	current, err := readWork(ctx, tx, payload.From)
@@ -619,8 +685,19 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "relation.removed payload has invalid fields", false,
 			"supply the exact stored relation identity and a non-empty reason")
 	}
-	if payload.Kind == "supersedes" || payload.Kind == "compatible_with" || payload.Kind == "merged_into" {
-		return relationContractViolation()
+	switch payload.Kind {
+	case "supersedes":
+		return newFailure(KindRelationContractViolation, "fold_event",
+			"supersedes relations are removed by reopening the superseded work item", false,
+			"reopen the superseded work item through its active supersession edge")
+	case "compatible_with", "merged_into":
+		return newFailure(KindRelationContractViolation, "fold_event",
+			"overlap-resolution relations are owned by resolve_overlap", false,
+			"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")
+	case "includes":
+		return newFailure(KindRelationContractViolation, "fold_event",
+			"Initiative membership edges must be removed by Initiative entry removal events", false,
+			"append an Initiative entry removal event")
 	}
 	if payload.Kind == "parent" {
 		fromKind, err := readWorkKind(ctx, tx, payload.From)
@@ -631,8 +708,8 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err != nil {
 			return err
 		}
-		if fromKind == "epic" || toKind == "epic" {
-			return newFailure(KindRelationContractViolation, "fold_event", "Epic parent edges must be removed by Epic entry events", false, "append an Epic entry removal event")
+		if fromKind == "initiative" || toKind == "initiative" {
+			return newFailure(KindRelationContractViolation, "fold_event", "Initiative parent edges must be removed by Initiative entry removal events", false, "append an Initiative entry removal event")
 		}
 	}
 	current, err := readWork(ctx, tx, payload.From)
@@ -675,13 +752,14 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 type workProjection struct {
-	lifecycle string
-	version   int64
+	lifecycle  string
+	version    int64
+	intentJSON string
 }
 
 func readWork(ctx context.Context, tx *sql.Tx, id string) (workProjection, error) {
 	var work workProjection
-	err := tx.QueryRowContext(ctx, `SELECT lifecycle, version FROM work_items WHERE id = ?`, id).Scan(&work.lifecycle, &work.version)
+	err := tx.QueryRowContext(ctx, `SELECT lifecycle, version, intent_json FROM work_items WHERE id = ?`, id).Scan(&work.lifecycle, &work.version, &work.intentJSON)
 	if err == sql.ErrNoRows {
 		return work, newFailure(KindProjectionNotFound, "fold_event", "work item does not exist", false,
 			"create the work item before changing it")
@@ -779,12 +857,6 @@ func illegalTransition(from, to string) *Failure {
 		"use an accepted lifecycle event for the requested transition")
 }
 
-func relationContractViolation() *Failure {
-	return newFailure(KindRelationContractViolation, "fold_event",
-		"overlap-resolution relations must be created by resolve_overlap", false,
-		"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")
-}
-
 func relationWouldCycle(ctx context.Context, tx *sql.Tx, from, to, kind string) (bool, error) {
 	// UNION is required here: it deduplicates the recursive working set and
 	// terminates even if a pre-existing database already contains a cycle. The
@@ -819,7 +891,7 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err := tx.QueryRowContext(ctx, `
 		SELECT count(*) FROM domain_events
 		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		AND kind IN ('relation.added', 'workflow.overlap_resolved', 'work.superseded', 'work.reopened_from_superseded', 'epic_entry.added')`, event.EventID).Scan(&relationID); err != nil {
+		AND kind IN ('relation.added', 'workflow.overlap_resolved', 'work.superseded', 'work.reopened_from_superseded', 'initiative_entry.added')`, event.EventID).Scan(&relationID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
 			"retry once the event log is readable", err)
 	}

@@ -157,7 +157,7 @@ CREATE TABLE relations (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     work_id_from TEXT NOT NULL REFERENCES work_items(id),
     work_id_to   TEXT NOT NULL REFERENCES work_items(id),
-    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'blocks', 'supersedes', 'implements')),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'includes', 'blocks', 'supersedes', 'implements')),
     created_at   TEXT NOT NULL,
     CHECK(work_id_from <> work_id_to),
     UNIQUE(work_id_from, work_id_to, kind)
@@ -502,7 +502,7 @@ CREATE TABLE idempotency_records (
 	},
 	{
 		Version: 8,
-		Name:    "active_research_and_epic_entries",
+		Name:    "active_research_and_initiative_entries",
 		SQL: `
 CREATE TABLE active_research_packs (
     pack_id         TEXT PRIMARY KEY,
@@ -591,16 +591,16 @@ CREATE TABLE active_research_consumers (
 CREATE INDEX active_research_consumers_by_work
     ON active_research_consumers(consumer_work_id, pack_id, revision);
 
-CREATE TABLE epic_entries (
-    epic_work_id   TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+CREATE TABLE initiative_entries (
+    initiative_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     position       INTEGER NOT NULL CHECK(position >= 0),
     required       INTEGER NOT NULL CHECK(required IN (0,1)),
-    PRIMARY KEY(epic_work_id, child_work_id),
-    UNIQUE(epic_work_id, position),
-    CHECK(epic_work_id <> child_work_id)
+    PRIMARY KEY(initiative_work_id, child_work_id),
+    UNIQUE(initiative_work_id, position),
+    CHECK(initiative_work_id <> child_work_id)
 );
-CREATE INDEX epic_entries_by_child ON epic_entries(child_work_id, epic_work_id);
+CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id);
 		`,
 	},
 	{
@@ -869,7 +869,7 @@ CREATE TABLE relations (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     work_id_from TEXT NOT NULL REFERENCES work_items(id),
     work_id_to   TEXT NOT NULL REFERENCES work_items(id),
-    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'blocks', 'supersedes', 'implements', 'forward_link')),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'includes', 'blocks', 'supersedes', 'implements', 'forward_link')),
     created_at   TEXT NOT NULL,
     CHECK(work_id_from <> work_id_to),
     UNIQUE(work_id_from, work_id_to, kind)
@@ -1342,7 +1342,7 @@ CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflo
 	},
 	{
 		Version: 23,
-		Name:    "epic_narrative",
+		Name:    "initiative_narrative",
 		SQL: `
 ALTER TABLE work_items ADD COLUMN narrative TEXT NOT NULL DEFAULT ''
     CHECK(length(narrative) <= 16384);
@@ -1422,7 +1422,7 @@ CREATE TABLE relations (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     work_id_from TEXT NOT NULL REFERENCES work_items(id),
     work_id_to   TEXT NOT NULL REFERENCES work_items(id),
-    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'blocks', 'supersedes', 'implements', 'forward_link', 'raised_from')),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent', 'includes', 'blocks', 'supersedes', 'implements', 'forward_link', 'raised_from')),
     created_at   TEXT NOT NULL,
     CHECK(work_id_from <> work_id_to),
     UNIQUE(work_id_from, work_id_to, kind)
@@ -2157,7 +2157,7 @@ CREATE TABLE relations (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     work_id_from TEXT NOT NULL REFERENCES work_items(id),
     work_id_to   TEXT NOT NULL REFERENCES work_items(id),
-    kind         TEXT NOT NULL CHECK(kind IN ('parent','blocks','implements','supersedes','forward_link','raised_from','depends_on','compatible_with','merged_into')),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent','includes','blocks','implements','supersedes','forward_link','raised_from','depends_on','compatible_with','merged_into')),
     created_at   TEXT NOT NULL,
     resolution_id TEXT,
     CHECK(work_id_from <> work_id_to),

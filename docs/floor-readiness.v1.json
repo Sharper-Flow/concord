@@ -174,8 +174,8 @@
     {
       "id": "fc2-ts1-corpus-complete",
       "condition": "fc2",
-      "title": "All 22 TS1 scenarios are bound and passing",
-      "requirement": "All 22 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today nineteen of twenty-two are bound: the four AJ1/AJ2 read scenarios, the ten AJ3/AJ4/AJ5 mutation scenarios, the two AJ6 compaction scenarios, the two AJ7 knowledge scenarios, and AJ8-ground-truth-reclamation. The remaining three are deferred and must be bound for this item to be satisfied: AJ8-approval-required (#172), AJ8-budget-refused (#173), and AJ8-health-failure-rollback (#174).",
+      "title": "All 23 TS1 scenarios are bound and passing",
+      "requirement": "All 23 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today nineteen of twenty-three are bound: the four AJ1/AJ2 read scenarios, the eleven AJ3/AJ4/AJ5 mutation scenarios, the two AJ6 compaction scenarios, the two AJ7 knowledge scenarios, and AJ8-ground-truth-reclamation. The remaining three are deferred and must be bound for this item to be satisfied: AJ8-approval-required (#172), AJ8-budget-refused (#173), and AJ8-health-failure-rollback (#174).",
       "state": "outstanding",
       "issue": 165
     },
@@ -291,8 +291,8 @@
     {
       "id": "fc3-initiative-migration",
       "condition": "fc3",
-      "title": "Initiative directly replaces Epic without gaining architecture authority",
-      "requirement": "The current pre-go-live path deletes Epic runtime vocabulary and replaces it with Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
+      "title": "Initiative owns grouping without gaining architecture authority",
+      "requirement": "The current pre-go-live path uses Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
       "state": "outstanding",
       "issue": 196
     },

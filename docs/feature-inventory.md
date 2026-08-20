@@ -188,15 +188,13 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
   plan.
 
 ### 2.3 Initiative context under the Product entity
-- **Today:** `adv_epic_create` (scope_kind repo/product), `adv_epic_add_shell`,
-  `adv_epic_promote_shell`, `adv_epic_link_change`, `adv_epic_move_change`,
-  `adv_epic_list`, `adv_epic_show`, `adv_epic_reorder`, `adv_epic_retire`,
-  `adv_epic_unlink_change`, `adv_epic_update`. Initiative-grouping containers.
-- **Concord:** CD-0041 and CD-0042 replace Epic directly with Product-scoped
-  Initiative on the pre-go-live primary path. Narrative, ordering, requiredness,
-  and independent entry lifecycles remain; Initiative is secondary
-  business/outcome context and owns no architecture or law authority. No Epic
-  alias, upcaster, or compatibility branch remains after #196.
+- **Today:** predecessor grouping commands provide scope, ordering, and
+  requiredness context for initiatives.
+- **Concord:** CD-0041 and CD-0042 use Product-scoped Initiative on the
+  pre-go-live primary path. Narrative, ordering, requiredness, and independent
+  entry lifecycles remain; Initiative is secondary business/outcome context and
+  owns no architecture or law authority. No alias, upcaster, or compatibility
+  branch remains after #196.
 - **Bucket call:** Refactor/Extend — preserve the initiative-framing outcome,
   discard predecessor hierarchy as architecture, and rebuild entries over
   Domain-bound work (see §3.1, §3.4, §3.20, §3.21).
@@ -303,7 +301,7 @@ descriptions because they are referenced from elsewhere in the docset.
   [`product-data-model.md`](./product-data-model.md).
 - Product knowledge is navigated **Product → Domain**, with current law and
   architecture-bound work together.
-- **Why new:** predecessor Epics group initiatives; `scope_repos` is
+- **Why new:** predecessor grouping containers group initiatives; `scope_repos` is
   per-*change*; nothing today is a durable cross-repo+external-system *product*
   identity that records ownership and that a dashboard pivots on.
 - **Builds on:** Product/Project scope evidence, not predecessor hierarchy or
@@ -387,7 +385,7 @@ workflow-evolution, agent-buildable UI) live in
 
 | Capability | Call | Why it's not the other bucket |
 |---|---|---|
-| Initiative context under Product (§2.3) | Refactor/Extend | Preserves narrative/order/requiredness while CD-0041 removes Epic hierarchy from architecture and binds entries to Domains. |
+| Initiative context under Product (§2.3) | Refactor/Extend | Preserves narrative/order/requiredness while CD-0041 removes legacy hierarchy from architecture and binds entries to Domains. |
 | Product aggregation extension in §2.1 | Refactor (shades New) | Reuses the aggregator; the Product pivot is the New-flavored part. Kept in Refactor to avoid double-counting with §3.1. |
 | Ops runbook shape vs host (§2.4 / §3.5) | Split | Shape = Refactor (reuse primitives); host = New (no precedent). Deliberate split. |
 | Research trackable (§2.5 / §3.6) | Refactor | CD-0009 accepts Option A: ordinary work item plus active pack output; no peer entity. |

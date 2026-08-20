@@ -1601,7 +1601,7 @@ func workflowEdgeWouldCycle(ctx context.Context, tx *sql.Tx, source, target, kin
 
 func insertWorkflowForwardRelation(ctx context.Context, tx *sql.Tx, event Event, successor string) error {
 	var relationID int64
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE seq <= ? AND kind IN ('relation.added','work.superseded','work.reopened_from_superseded','epic_entry.added','workflow.successor_linked')`, event.Seq).Scan(&relationID); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE seq <= ? AND kind IN ('relation.added','work.superseded','work.reopened_from_superseded','initiative_entry.added','workflow.successor_linked')`, event.Seq).Scan(&relationID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic forward-link identity", true, "retry once the event log is readable", err)
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at) VALUES(?,?,?,?,?)`, relationID, event.SubjectID, successor, "forward_link", event.OccurredAt.UTC().Format(time.RFC3339Nano))

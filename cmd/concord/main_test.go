@@ -202,7 +202,7 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"stage_maturity: prototype | alpha | beta | production | deprecated",
 		"stage_audience_commitment: operator_only | limited | public",
 		"kind: canonical_path | git_remote",
-		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_epic | cross_scope",
+		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help output missing %q", want)

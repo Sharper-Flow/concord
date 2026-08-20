@@ -31,7 +31,7 @@ const (
 	// processes.
 	pragmaBusyTimeout = "5000"
 	pragmaJournalMode = "WAL"
-	pragmaSynchronous = "NORMAL"
+	pragmaSynchronous = "FULL"
 	pragmaForeignKeys = "ON"
 )
 
@@ -193,7 +193,7 @@ func (s *Store) verifyPragmas(ctx context.Context) error {
 		expect string
 	}{
 		{"journal_mode", strings.ToLower(pragmaJournalMode)},
-		{"synchronous", "1"}, // NORMAL
+		{"synchronous", "2"}, // FULL
 		{"busy_timeout", pragmaBusyTimeout},
 		{"foreign_keys", "1"}, // ON
 	} {

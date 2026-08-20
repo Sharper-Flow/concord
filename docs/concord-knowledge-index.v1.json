@@ -1067,6 +1067,34 @@
       "home_domain_id": "product-root:concord"
     },
     {
+      "id": "CD-0044",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0044-worker-evidence-caller-authentication.md",
+      "status": "accepted",
+      "date": "2026-08-20T00:00:00Z",
+      "title": "Worker evidence writes authenticate their caller",
+      "summary": "Worker-evidence CLI writes carry a signed worker-evidence-v1 assertion bound to the exact attempt, lane, routing, and provenance identity; the nonce is consumed in the appending transaction, worker_evidence is client-policy authority no grant can carry, terminal attempts refuse further evidence, and the recorded actor is a verified client.",
+      "tags": [
+        "typed-workers",
+        "authority",
+        "evidence"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c82a74a0f95b3bf33ef1ef8f366c01a98262574dd3ba1b5fc4777cf57a31b8d0",
+      "evidence": [
+        "internal/agent/worker_evidence.go",
+        "cmd/concord/worker_evidence_test.go",
+        "adapter/opencode/credentials.ts"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",

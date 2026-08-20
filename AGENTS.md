@@ -41,7 +41,10 @@ Small but no longer `--version`-only:
 
 The `worker-*` verbs record CD-0017 worker attempt evidence and are not agent
 callable. The OpenCode adapter appends them through `adapter/opencode/dispatch.ts`
-after a lane spawn; nothing else should call them.
+after a lane spawn; nothing else should call them. Under CD-0044 each write
+carries a signed `worker-evidence-v1` assertion bound to the exact attempt, and
+the signing client must hold the `worker_evidence` capability, so a direct
+invocation without that credential fails before any event is appended.
 
 JSON command rules (see `commandSpecs` in `cmd/concord/main.go`):
 

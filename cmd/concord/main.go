@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -262,7 +263,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	case "grant":
 		return runGrant(raw, service, out, errOut)
 	case "worker-dispatch", "worker-complete", "worker-fail":
-		return runWorkerCommand(command, raw, s, out, errOut)
+		return runWorkerCommand(command, raw, s, service, out, errOut)
 	default:
 		return runInternal(command, raw, service, s, out, errOut)
 	}
@@ -285,26 +286,39 @@ type workerDispatchRequest struct {
 	// HostProvenance is the declared record of host prompt-injection
 	// surfaces (CD-0034 / issue #103); required for v3 evidence.
 	HostProvenance *store.WorkerHostProvenance `json:"host_provenance"`
+	// Assertion authenticates the caller and binds this exact attempt
+	// identity (CD-0044 / issue #185).
+	Assertion agent.WorkerEvidenceAssertion `json:"assertion"`
 }
 
 type workerCompleteRequest struct {
-	EventID             string `json:"event_id"`
-	WorkID              string `json:"work_id"`
-	AttemptID           string `json:"attempt_id"`
-	ReadbackModel       string `json:"readback_model"`
-	ReportSchemaVersion string `json:"report_schema_version"`
+	EventID             string                        `json:"event_id"`
+	WorkID              string                        `json:"work_id"`
+	AttemptID           string                        `json:"attempt_id"`
+	ReadbackModel       string                        `json:"readback_model"`
+	ReportSchemaVersion string                        `json:"report_schema_version"`
+	Assertion           agent.WorkerEvidenceAssertion `json:"assertion"`
 }
 
 type workerFailRequest struct {
-	EventID       string `json:"event_id"`
-	WorkID        string `json:"work_id"`
-	AttemptID     string `json:"attempt_id"`
-	ReadbackModel string `json:"readback_model"`
-	FailureKind   string `json:"failure_kind"`
-	Detail        string `json:"detail"`
+	EventID       string                        `json:"event_id"`
+	WorkID        string                        `json:"work_id"`
+	AttemptID     string                        `json:"attempt_id"`
+	ReadbackModel string                        `json:"readback_model"`
+	FailureKind   string                        `json:"failure_kind"`
+	Detail        string                        `json:"detail"`
+	Assertion     agent.WorkerEvidenceAssertion `json:"assertion"`
 }
 
-func runWorkerCommand(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
+// runWorkerCommand records worker attempt evidence. Every verb authenticates
+// its caller with a signed assertion bound to the exact attempt identity, and
+// consumes the assertion nonce in the same transaction as the appended event,
+// so authentication and evidence share one commit (CD-0044 / issue #185).
+//
+// The verified client identity becomes the event actor. Recording evidence
+// grants no workflow authority: CD-0017 D4 still forbids a worker run from
+// transitioning a step, recording a verdict, or completing work.
+func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent.Service, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
 	case "worker-dispatch":
@@ -335,60 +349,117 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, out, errOut io
 			writeOperatorDiagnostic(errOut, command, "worker-dispatch v3 evidence requires host_provenance (CD-0034: host injection is permitted only when recorded)")
 			return 1
 		}
+		binding := agent.WorkerEvidenceBinding{
+			Verb:                 agent.WorkerEvidenceVerbDispatch,
+			WorkID:               request.WorkID,
+			AttemptID:            request.AttemptID,
+			LaneID:               request.LaneID,
+			LaneVersion:          request.LaneVersion,
+			LaneDigest:           request.LaneDigest,
+			RoutingPolicyVersion: request.RoutingPolicyVersion,
+			RoutingPolicyDigest:  request.RoutingPolicyDigest,
+			ResolvedModel:        request.ResolvedModel,
+			HostProvenanceDigest: request.HostProvenance.Digest,
+		}
 		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: request.RoutingPolicyVersion, RoutingPolicyDigest: request.RoutingPolicyDigest, ResolvedModel: request.ResolvedModel, ResolutionRole: request.ResolutionRole, FallbackReason: request.FallbackReason, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance}
-		return applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-complete":
 		var request workerCompleteRequest
 		if err := decodeObject(raw, &request); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
-		attempt, err := s.WorkerAttemptByID(ctx, request.AttemptID)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		if attempt.WorkID != request.WorkID {
-			writeOperatorDiagnostic(errOut, command, "worker attempt belongs to a different work item")
-			return 1
-		}
-		if err := store.ValidateWorkerCompletion(attempt.ResolvedModel, request.ReadbackModel); err != nil {
-			failurePayload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: store.WorkerFailureModelIdentity, Detail: "resolved model differs from host readback model"}
-			if appendErr := applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(failurePayload)}, io.Discard, errOut); appendErr != 0 {
-				return appendErr
-			}
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
+		binding := agent.WorkerEvidenceBinding{
+			Verb:          agent.WorkerEvidenceVerbComplete,
+			WorkID:        request.WorkID,
+			AttemptID:     request.AttemptID,
+			ReadbackModel: request.ReadbackModel,
 		}
 		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion}
-		return applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}
+		mismatch := func(attempt store.WorkerAttempt) (store.Event, error) {
+			mismatchErr := store.ValidateWorkerCompletion(attempt.ResolvedModel, request.ReadbackModel)
+			if mismatchErr == nil {
+				return event, nil
+			}
+			// A model-identity mismatch is still authenticated evidence: it is
+			// recorded as a typed failure rather than discarded, and the caller
+			// still learns the completion was refused.
+			failure := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: store.WorkerFailureModelIdentity, Detail: "resolved model differs from host readback model"}
+			return store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(failure)}, mismatchErr
+		}
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, mismatch, event, out, errOut)
 	case "worker-fail":
 		var request workerFailRequest
 		if err := decodeObject(raw, &request); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
-		if attempt, err := s.WorkerAttemptByID(ctx, request.AttemptID); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		} else if attempt.WorkID != request.WorkID {
-			writeOperatorDiagnostic(errOut, command, "worker attempt belongs to a different work item")
-			return 1
+		binding := agent.WorkerEvidenceBinding{
+			Verb:          agent.WorkerEvidenceVerbFail,
+			WorkID:        request.WorkID,
+			AttemptID:     request.AttemptID,
+			ReadbackModel: request.ReadbackModel,
+			FailureKind:   request.FailureKind,
 		}
 		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail}
-		return applyWorkerEvent(command, s, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: "worker:cli", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	}
 	writeOperatorDiagnostic(errOut, command, "unsupported command")
 	return 2
 }
 
-func applyWorkerEvent(command string, s *store.Store, event store.Event, out, errOut io.Writer) int {
-	result, err := store.ApplyOperationWithResult(context.Background(), s, store.Operation{Events: []store.Event{event}})
+// applyWorkerEvidence authenticates the assertion, resolves the stored attempt
+// for the two result verbs, and appends the evidence — all inside one
+// transaction. Authorization that committed without its evidence, or evidence
+// that committed without its authorization, would both be defects.
+func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, resolve func(store.WorkerAttempt) (store.Event, error), event store.Event, out, errOut io.Writer) int {
+	var eventIDs []string
+	var recorded error
+	err := s.Transact(ctx, func(tx *store.Transaction) error {
+		if binding.Verb != agent.WorkerEvidenceVerbDispatch {
+			attempt, err := store.WorkerAttemptByIDTx(ctx, tx, binding.AttemptID)
+			if err != nil {
+				return err
+			}
+			if attempt.WorkID != binding.WorkID {
+				return errors.New("worker attempt belongs to a different work item")
+			}
+			if store.WorkerAttemptIsTerminal(attempt) {
+				return errors.New("worker attempt already reached a terminal outcome")
+			}
+			binding.LaneID = attempt.LaneID
+			binding.LaneVersion = attempt.LaneVersion
+			binding.LaneDigest = attempt.LaneDigest
+			binding.RoutingPolicyVersion = attempt.RoutingPolicyVersion
+			binding.RoutingPolicyDigest = attempt.RoutingPolicyDigest
+			if resolve != nil {
+				resolved, resolveErr := resolve(attempt)
+				event = resolved
+				recorded = resolveErr
+			}
+		}
+		principal, err := service.ValidateWorkerEvidenceAssertionTx(ctx, tx, assertion, binding)
+		if err != nil {
+			return err
+		}
+		event.Actor = "client:" + assertion.ClientRef + ":" + principal
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}})
+		if err != nil {
+			return err
+		}
+		eventIDs = result.EventIDs
+		return nil
+	})
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	return writeOperatorResult(command, s, result.EventIDs, nil, out, errOut)
+	if recorded != nil {
+		writeOperatorDiagnostic(errOut, command, recorded.Error())
+		return 1
+	}
+	return writeOperatorResult(command, s, eventIDs, nil, out, errOut)
 }
 
 func mustMarshalWorkerPayload(value any) []byte {

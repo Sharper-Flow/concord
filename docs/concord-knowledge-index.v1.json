@@ -233,7 +233,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5a5ee33a9440ce8f57768d17a0ed5acb1b9b398f8ea66fe40658e70815552bc4",
+      "sha256": "sha256:2c5f620cfd97f7c872aa9233101ba9ca7f0dc18cb00a37212dea012ae43c4aab",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1119,6 +1119,34 @@
         "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
         "docs/core-architecture.md",
         "docs/floor-readiness.v1.json"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0046",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0046-conformance-population-provenance.md",
+      "status": "accepted",
+      "date": "2026-08-20T00:00:00Z",
+      "title": "Conformance population authority is invocation provenance, not measured host isolation",
+      "summary": "An accepted conformance falsifier verdict is reachable only from the acceptance entry point run with the required-check signal the workflow sets; every other invocation stays inconclusive regardless of the threshold, a CI run missing the signal fails visibly, and CD-0011 structural wording is amended to the narrower enforceable claim of invocation provenance.",
+      "tags": [
+        "conformance",
+        "population-authority",
+        "sqlite"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c29afba78f7a825afc4fc938d68db7bcdcc3703e0dec0ae273def1864eea613b",
+      "evidence": [
+        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+        "internal/store/conformance_test.go",
+        ".github/workflows/ci.yml"
       ],
       "home_domain_id": "product-root:concord"
     },

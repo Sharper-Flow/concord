@@ -69,11 +69,17 @@ Max-rate spin remains available as diagnostic-only stress evidence through
 `CONCORD_CONFORMANCE_UNPACED=1`. The isolated acceptance profile refuses unpaced
 runs; an unpaced run can never produce an accepted falsifier verdict.
 
-Population authority is structural: only the isolated acceptance test entry point,
-run in the required `verify` check, may report falsifier `passed` or `fired`. Local
-and development runs are diagnostic and remain `inconclusive` even when the
-threshold is exceeded. Correctness precedes every latency verdict: any failed
-correctness population forces the falsifier verdict to `inconclusive` and fails the
+Population authority is invocation provenance, not measured host
+isolation: only the isolated acceptance test entry point, run in the
+required `verify` check with `CONCORD_ACCEPTANCE_RUNNER=1` set by the
+workflow, may report falsifier `passed` or `fired`. Local and development
+runs are diagnostic and remain `inconclusive` even when the threshold is
+exceeded; a CI run missing the required-check signal fails visibly rather
+than silently downgrading the required check. CD-0046 amends this wording
+from "structural" to "invocation provenance" because the enforceable claim
+is provenance of the invocation, not a measurement of how isolated the host
+was. Correctness precedes every latency verdict: any failed correctness
+population forces the falsifier verdict to `inconclusive` and fails the
 run independently.
 
 ### Calibration record

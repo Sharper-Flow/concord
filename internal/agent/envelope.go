@@ -149,24 +149,40 @@ type DomainOverlap struct {
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
 
+// ConsequenceSummary is the CD-0037 typed approval affordance. It is derived
+// only from the exact facts bound to a core-minted approval challenge — never
+// from caller prose — and exists exactly when the error carries a minted
+// challenge reference. Scope and version entries use the canonical sorted
+// renderers; agents branch on these fields instead of parsing a sentence.
+type ConsequenceSummary struct {
+	Tool            string   `json:"tool"`
+	Operation       string   `json:"operation"`
+	Consequence     string   `json:"consequence"`
+	OperationDigest string   `json:"operation_digest"`
+	Scope           []string `json:"scope"`
+	Versions        []string `json:"versions"`
+	ExpiresAt       string   `json:"expires_at"`
+}
+
 type TypedError struct {
-	Kind             string            `json:"kind"`
-	RetrySafe        bool              `json:"retry_safe"`
-	RecoveryAction   RecoveryAction    `json:"recovery_action"`
-	EffectState      EffectState       `json:"effect_state"`
-	AdapterReason    string            `json:"adapter_reason,omitempty"`
-	Message          string            `json:"message,omitempty"`
-	CurrentVersions  []ChangedRef      `json:"current_versions,omitempty"`
-	Candidates       []string          `json:"candidates,omitempty"`
-	Violations       []string          `json:"violations,omitempty"`
-	Options          []string          `json:"options,omitempty"`
-	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
-	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
+	Kind               string               `json:"kind"`
+	RetrySafe          bool                 `json:"retry_safe"`
+	RecoveryAction     RecoveryAction       `json:"recovery_action"`
+	EffectState        EffectState          `json:"effect_state"`
+	AdapterReason      string               `json:"adapter_reason,omitempty"`
+	Message            string               `json:"message,omitempty"`
+	CurrentVersions    []ChangedRef         `json:"current_versions,omitempty"`
+	Candidates         []string             `json:"candidates,omitempty"`
+	Violations         []string             `json:"violations,omitempty"`
+	Options            []string             `json:"options,omitempty"`
+	StaleLawRevision   *StaleLawRevision    `json:"stale_law_revision,omitempty"`
+	DomainOverlap      *DomainOverlap       `json:"domain_overlap,omitempty"`
+	ConsequenceSummary *ConsequenceSummary  `json:"consequence_summary,omitempty"`
 	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
 	// budget_refused error — seconds refusal, result-size overrun, and the
 	// legacy millisecond bound alike — so the value a caller needs to recover
 	// is a field, never a details entry an implementation may forget to mint.
-	SupportedBudgetSeconds int            `json:"supported_budget_seconds,omitempty"`
+	SupportedBudgetSeconds int           `json:"supported_budget_seconds,omitempty"`
 	Details                map[string]any `json:"details,omitempty"`
 }
 
@@ -652,6 +668,25 @@ func validateError(err TypedError) error {
 	}
 	if len(err.Details) > 20 || !scalarDetails(err.Details) {
 		return errors.New("invalid error details")
+	}
+	// CD-0037 D2/D4: the consequence summary couples to challenge presence,
+	// not error kind alone. A minted challenge (details approval_ref) must
+	// carry the typed summary; a summary without a challenge is fabricated
+	// authority; a challenge-less approval refusal must not grow one.
+	challengeRef, hasChallenge := err.Details["approval_ref"].(string)
+	if err.ConsequenceSummary != nil {
+		if !hasChallenge || !bounded(challengeRef, 16, 128) {
+			return errors.New("consequence summary without a core-minted approval challenge")
+		}
+		summary := err.ConsequenceSummary
+		if !bounded(summary.Tool, 1, 128) || !bounded(summary.Operation, 1, 128) || !bounded(summary.Consequence, 1, 128) || !bounded(summary.OperationDigest, 16, 128) || len(summary.Scope) == 0 || len(summary.Scope) > 32 || len(summary.Versions) > 32 || !boundedStrings(summary.Scope, 2, 128) || !boundedStrings(summary.Versions, 2, 128) {
+			return errors.New("invalid consequence summary contents")
+		}
+		if _, parseErr := time.Parse(time.RFC3339, summary.ExpiresAt); parseErr != nil {
+			return errors.New("consequence summary expiry is not RFC3339")
+		}
+	} else if hasChallenge {
+		return errors.New("core-minted approval challenge must carry a consequence summary")
 	}
 	if err.Kind == "stale_law_revision" {
 		if err.RecoveryAction.Kind != "request_approval" || err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {

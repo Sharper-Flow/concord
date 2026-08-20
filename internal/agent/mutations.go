@@ -705,6 +705,9 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			premiseSummary = "Workflow action " + in.ActionID
 		}
 		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(scope), "versions": approvalVersionBindings(versions), "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
+		// CD-0037 D2: every core-minted challenge carries the typed summary
+		// derived from the exact facts bound to the challenge.
+		response.Error.ConsequenceSummary = &ConsequenceSummary{Tool: "concord_work_transition", Operation: "workflow_action", Consequence: approvalConsequence, OperationDigest: digest, Scope: approvalScopeBindings(boundedApprovalScope(scope)), Versions: approvalVersionBindings(versions), ExpiresAt: r.Authority.now().Add(10 * time.Minute).UTC().Format(time.RFC3339)}
 		return response, nil
 	}
 
@@ -2074,6 +2077,10 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				return err
 			}
 			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+			// CD-0037 D2: the summary rides the governing-conflict refusal
+			// too, because the challenge for the approved scope cut was
+			// minted in this same transaction.
+			consequenceSummary := &ConsequenceSummary{Tool: r.Tool, Operation: r.Operation, Consequence: consequence, OperationDigest: digest, Scope: approvalScopeBindings(challengeScope), Versions: approvalVersionBindings(versions), ExpiresAt: r.Authority.now().Add(10 * time.Minute).UTC().Format(time.RFC3339)}
 			if len(governingConflict) > 0 {
 				response = governingConflictEnvelope(base, governingConflict)
 				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
@@ -2086,6 +2093,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				}
 			}
 			response.Error.Details = details
+			response.Error.ConsequenceSummary = consequenceSummary
 			return nil
 		}
 		if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {

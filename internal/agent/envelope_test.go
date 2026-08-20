@@ -127,11 +127,12 @@ func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 		RecoveryAction: RecoveryAction{Kind: "request_approval"},
 		EffectState:    EffectNone,
 		Details: map[string]any{
-			"approval_ref":     "apr-1",
+			"approval_ref":     "apr-0000000000000000000000000000000000000001",
 			"scope":            []string{"product:PM1", "project:PM1.Q1"},
 			"versions":         []string{"work:3"},
 			"operation_digest": "sha256:abc",
 		},
+		ConsequenceSummary: &ConsequenceSummary{Tool: "concord_work_define", Operation: "capture", Consequence: "product_write", OperationDigest: "0123456789abcdef0123456789abcdef", Scope: []string{"product_id:PM1"}, Versions: []string{"work:3"}, ExpiresAt: "2026-08-20T00:00:00Z"},
 	})
 	if _, err := envelope.Encode(); err != nil {
 		t.Fatalf("bounded approval details rejected: %v", err)

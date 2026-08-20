@@ -288,8 +288,12 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	// the binding's: no durable state changed and the idempotency key stayed
 	// reusable, which together rule out the silent clamp.
 	refused, refusedOK := obs.Effects["refused_before_effect"].(bool)
-	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK && !refusedOK {
-		t.Error("evidence_authority: binding did not record supplied, refused, withheld, or consumed authority evidence")
+	// A fifth shape (CD-0037): operator authority was simply absent, so the
+	// core minted a challenge and refused before any effect. The refusal must
+	// point at the approval path and carry the typed consequence summary.
+	minted, mintedOK := obs.Effects["approval_challenge_minted"].(bool)
+	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK && !refusedOK && !mintedOK {
+		t.Error("evidence_authority: binding did not record supplied, refused, withheld, consumed, budget-refused, or challenge-minted authority evidence")
 		return
 	}
 	if consumedOK && !consumed {
@@ -300,6 +304,22 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 		// typed refusal, never as a fabricated success carrying a clamp.
 		if kind, _ := obs.Communication["error"].(map[string]any)["kind"].(string); kind != "budget_refused" {
 			t.Error("evidence_authority: refused_before_effect recorded without a budget_refused error on the wire")
+		}
+	}
+	if minted {
+		commErr, ok := obs.Communication["error"].(map[string]any)
+		if !ok {
+			t.Error("evidence_authority: approval_challenge_minted but no error map in communication")
+			return
+		}
+		if kind, _ := commErr["kind"].(string); kind != "approval_required" {
+			t.Errorf("evidence_authority: approval_challenge_minted but error.kind=%q, want approval_required", kind)
+		}
+		if recovery, _ := commErr["recovery_action"].(string); recovery != "request_approval" {
+			t.Errorf("evidence_authority: approval_challenge_minted but recovery_action=%q, want request_approval", recovery)
+		}
+		if summary, ok := obs.Communication["consequence_summary"].(map[string]any); !ok || len(summary) == 0 {
+			t.Error("evidence_authority: approval_challenge_minted but the CD-0037 typed consequence summary is absent from communication")
 		}
 	}
 	if withheld {
@@ -1105,6 +1125,23 @@ func envelopeToObservation(resp Envelope) jobObservation {
 			}
 			obs.Communication["options"] = options
 		}
+		// CD-0037 D1: the consequence summary is a typed envelope affordance
+		// derived from the minted challenge facts, not binding prose.
+		if resp.Error.ConsequenceSummary != nil {
+			summary := resp.Error.ConsequenceSummary
+			scope := make([]any, len(summary.Scope))
+			for i, binding := range summary.Scope {
+				scope[i] = binding
+			}
+			versions := make([]any, len(summary.Versions))
+			for i, binding := range summary.Versions {
+				versions[i] = binding
+			}
+			obs.Communication["consequence_summary"] = map[string]any{
+				"tool": summary.Tool, "operation": summary.Operation, "consequence": summary.Consequence,
+				"operation_digest": summary.OperationDigest, "scope": scope, "versions": versions, "expires_at": summary.ExpiresAt,
+			}
+		}
 	}
 	if len(resp.Result) > 0 {
 		var result map[string]any
@@ -1280,10 +1317,9 @@ func init() {
 	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
-	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
+	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
 
 	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"
 	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
 }
 

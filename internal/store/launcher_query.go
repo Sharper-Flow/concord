@@ -470,6 +470,12 @@ type LauncherDomainRow struct {
 	Purpose        string
 	ParentDomainID string
 	HomeDomain     bool
+	// CurrentLawCount is the number of accepted law records homed on this
+	// Domain (superseded law excluded).
+	CurrentLawCount int
+	// ActiveWorkCount is the number of nonterminal work items whose current
+	// contract is bound to this Domain (home or affected footprint).
+	ActiveWorkCount int
 }
 
 // LauncherDomainRelation is one typed architecture relation edge.
@@ -504,6 +510,59 @@ func (s *Store) QueryLauncherDomains(ctx context.Context, req LauncherProductReq
 	}
 	for _, domain := range list.Domains {
 		out.Domains = append(out.Domains, LauncherDomainRow{DomainID: domain.DomainID, Name: domain.Name, Purpose: domain.Purpose, ParentDomainID: domain.ParentID, HomeDomain: domain.HomeDomain})
+	}
+	// Current law and active Domain-bound work render per Domain row without
+	// fan-out: two grouped bounded queries, matched in Go.
+	lawCounts := map[string]int{}
+	lawRows, err := s.db.QueryContext(ctx, `
+		SELECT h.domain_id, count(*) FROM law_domain_homes h
+		JOIN law_subjects s ON s.home_project_id=h.home_project_id AND s.home_locator_id=h.home_locator_id AND s.law_id=h.law_id
+		WHERE h.product_id=? AND s.status='accepted'
+		GROUP BY h.domain_id`, req.Product)
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot read current law", true, "retry once the knowledge projection is readable", err)
+	}
+	for lawRows.Next() {
+		var domainID string
+		var count int
+		if err := lawRows.Scan(&domainID, &count); err != nil {
+			lawRows.Close()
+			return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot decode current law", true, "retry once the knowledge projection is readable", err)
+		}
+		lawCounts[domainID] = count
+	}
+	if err := lawRows.Err(); err != nil {
+		lawRows.Close()
+		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot enumerate current law", true, "retry once the knowledge projection is readable", err)
+	}
+	lawRows.Close()
+	workCounts := map[string]int{}
+	workRows, err := s.db.QueryContext(ctx, `
+		SELECT b.home_domain_id, count(*) FROM workflow_contracts c
+		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
+		JOIN work_items w ON w.id=c.work_id
+		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=?
+		GROUP BY b.home_domain_id`, req.Product)
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot read Domain-bound work", true, "retry once the workflow projection is readable", err)
+	}
+	for workRows.Next() {
+		var domainID string
+		var count int
+		if err := workRows.Scan(&domainID, &count); err != nil {
+			workRows.Close()
+			return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot decode Domain-bound work", true, "retry once the workflow projection is readable", err)
+		}
+		workCounts[domainID] = count
+	}
+	if err := workRows.Err(); err != nil {
+		workRows.Close()
+		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot enumerate Domain-bound work", true, "retry once the workflow projection is readable", err)
+	}
+	workRows.Close()
+	for i := range out.Domains {
+		out.Domains[i].CurrentLawCount = lawCounts[out.Domains[i].DomainID]
+		out.Domains[i].ActiveWorkCount = workCounts[out.Domains[i].DomainID]
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT kind,source_domain_id,target_domain_id,state FROM domain_architecture_relations WHERE product_id=? ORDER BY kind,source_domain_id,target_domain_id LIMIT ?`, req.Product, domainListMaxLimit+1)
 	if err != nil {

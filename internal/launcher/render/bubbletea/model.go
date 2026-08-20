@@ -711,7 +711,7 @@ func domainLines(section launcher.DomainSection) []string {
 		if domain.ParentID != "" {
 			parent = " parent=" + domain.ParentID
 		}
-		lines = append(lines, marker+" "+domain.ID+" "+domain.Name+parent)
+		lines = append(lines, marker+" "+domain.ID+" "+domain.Name+parent+" law="+fmtInt(domain.CurrentLawCount)+" active="+fmtInt(domain.ActiveWorkCount))
 	}
 	for _, relation := range section.Relations {
 		lines = append(lines, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)

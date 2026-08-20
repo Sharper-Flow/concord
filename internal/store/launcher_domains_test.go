@@ -27,6 +27,18 @@ func TestQueryLauncherDomainsAggregatesHierarchyRelationsAndOverlaps(t *testing.
 	if !homeFound {
 		t.Fatalf("home Domain not marked: %#v", result.Domains)
 	}
+	var childRow *LauncherDomainRow
+	for i := range result.Domains {
+		if result.Domains[i].DomainID == "child" {
+			childRow = &result.Domains[i]
+		}
+	}
+	if childRow == nil {
+		t.Fatalf("fixture child Domain missing: %#v", result.Domains)
+	}
+	if childRow.ActiveWorkCount != 2 {
+		t.Fatalf("child active work count = %d, want 2 (both fixture contracts home there)", childRow.ActiveWorkCount)
+	}
 	if len(result.Overlaps) != 1 || result.Overlaps[0].FromWorkID != "nav-left" || result.Overlaps[0].ToWorkID != "nav-right" || result.Overlaps[0].ResolutionState != "absent" {
 		t.Fatalf("unresolved overlap not surfaced: %#v", result.Overlaps)
 	}

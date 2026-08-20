@@ -8,7 +8,7 @@
     {
       "id": "fc1",
       "ordinal": 1,
-      "title": "The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context."
+      "title": "The operator can see, plan, and act across the full Product scope from the launcher through Product \u2192 Domain context."
     },
     {
       "id": "fc2",
@@ -98,8 +98,13 @@
       "condition": "fc1",
       "title": "Product detail is navigated through canonical Domains",
       "requirement": "The launcher opens Product detail through a bounded Domain hierarchy and shows current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap before subordinate work or Initiative views.",
-      "state": "outstanding",
-      "issue": 197
+      "state": "satisfied",
+      "evidence": [
+        "internal/launcher/storeport/port.go",
+        "internal/launcher/render/bubbletea/model.go",
+        "internal/store/launcher_query.go",
+        "docs/terminal-launcher-contract.md"
+      ]
     },
     {
       "id": "fc2-read-tools",
@@ -198,8 +203,13 @@
       "condition": "fc2",
       "title": "Agents can read complete bounded Domain context",
       "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
-      "state": "outstanding",
-      "issue": 197
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/domain_reads.go",
+        "internal/agent/runtime.go",
+        "contracts/agent-tool-surface.v1.json",
+        "docs/agent-read-tool-contract.md"
+      ]
     },
     {
       "id": "fc3-workflow-types",
@@ -293,8 +303,12 @@
       "condition": "fc3",
       "title": "Initiative owns grouping without gaining architecture authority",
       "requirement": "The current pre-go-live path uses Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
-      "state": "outstanding",
-      "issue": 196
+      "state": "satisfied",
+      "evidence": [
+        "internal/store/initiative.go",
+        "internal/store/lifecycle.go",
+        "docs/workflows.md"
+      ]
     },
     {
       "id": "fc3-external-systems-retain-authority",

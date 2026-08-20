@@ -87,7 +87,7 @@ func snapshotFromDomains(result store.LauncherDomainsResult, product store.Launc
 		s.Domains.Registry = result.Registry.ContentHash
 	}
 	for _, domain := range result.Domains {
-		s.Domains.Domains = append(s.Domains.Domains, launcher.DomainRow{ID: domain.DomainID, Name: domain.Name, Purpose: domain.Purpose, ParentID: domain.ParentDomainID, Home: domain.HomeDomain})
+		s.Domains.Domains = append(s.Domains.Domains, launcher.DomainRow{ID: domain.DomainID, Name: domain.Name, Purpose: domain.Purpose, ParentID: domain.ParentDomainID, Home: domain.HomeDomain, CurrentLawCount: domain.CurrentLawCount, ActiveWorkCount: domain.ActiveWorkCount})
 	}
 	for _, relation := range result.Relations {
 		s.Domains.Relations = append(s.Domains.Relations, launcher.DomainRelationEdge{Kind: relation.Kind, Source: relation.SourceDomainID, Target: relation.TargetDomainID, State: relation.State})

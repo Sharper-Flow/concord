@@ -191,6 +191,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.resource_claimed":                   registerEventKind[resourceClaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimed, nil),
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageSent, nil),
 	"work.observation_recorded":               registerEventKind[workObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
+	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
+	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),
 	"work.resource_claim_released":            registerEventKind[resourceClaimReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimReleased, nil),
 	"work.worktree_reclaimed":                 registerEventKind[worktreeReclaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeReclaimed, nil),
@@ -237,6 +239,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowImpactNoticeRecorded:              workflowRegistration[workflowImpactNoticeRecordedPayload](2, map[int]Upcaster{1: upcastWorkflowImpactNoticeRecordedV1}, foldWorkflowImpactNoticeRecorded),
 	WorkflowConditionAdded:                    workflowRegistration[workflowConditionAddedPayload](1, nil, foldWorkflowConditionAdded),
 	WorkflowConditionResolved:                 workflowRegistration[workflowConditionResolvedPayload](1, nil, foldWorkflowConditionResolved),
+	EventWorkflowNativeRunRecorded:            workflowRegistration[workflowNativeRunRecordedPayload](1, nil, foldWorkflowNativeRunRecorded),
 	WorkflowConditionCancelled:                workflowRegistration[workflowConditionCancelledPayload](1, nil, foldWorkflowConditionCancelled),
 	WorkflowContextCheckpointed:               workflowRegistration[workflowContextCheckpointedPayload](1, nil, foldWorkflowContextCheckpointed),
 	WorkflowContextBoundaryCrossed:            workflowRegistration[workflowContextBoundaryCrossedPayload](1, nil, foldWorkflowContextBoundaryCrossed),
@@ -640,8 +643,10 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		"domain_resource_attachment_sets", "domain_project_attachment_sets",
 		"resource_products", "managed_resources",
 		// work-referencing RESTRICT-FK tables clear before work_items:
-		// observations (CD-0030), messages (CD-0029), claims (CD-0028).
+		// observations (CD-0030), messages (CD-0029), claims (CD-0028),
+		// external observations (CD-0040), native runs (CD-0039).
 		"work_observations", "work_messages", "resource_claims",
+		"external_observations", "workflow_native_runs",
 		"worker_attempts",
 		"workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_overlap_resolutions",
 		"workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings",

@@ -2175,6 +2175,65 @@ CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BE
 CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
         `,
 	},
+	{
+		Version: 41,
+		Name:    "external_observations_and_native_runs",
+		SQL: `
+-- CD-0040 D3/D6: the generic external-observation projection. Capture rows are
+-- append-only; verification columns hold the derived fold state, never an
+-- edited claim.
+CREATE TABLE external_observations (
+    observation_id TEXT PRIMARY KEY CHECK(observation_id LIKE 'xobs:%'),
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    subject_kind TEXT NOT NULL CHECK(length(subject_kind) BETWEEN 1 AND 64),
+    subject_ref TEXT NOT NULL CHECK(length(subject_ref) BETWEEN 1 AND 2048),
+    capture_method TEXT NOT NULL CHECK(capture_method IN ('trusted_client_report','git_probe')),
+    captured_at TEXT NOT NULL,
+    reporting_authority_ref TEXT NOT NULL CHECK(length(reporting_authority_ref) BETWEEN 1 AND 256),
+    subject_digest TEXT CHECK(subject_digest IS NULL OR subject_digest LIKE 'sha256:%'),
+    observed_universe TEXT NOT NULL,
+    freshness_policy_ref TEXT NOT NULL,
+    divergence_policy_ref TEXT NOT NULL,
+    verification_state TEXT NOT NULL DEFAULT 'unverified' CHECK(verification_state IN ('unverified','verified','diverged_expected','diverged_unexpected','unverifiable')),
+    verification_method TEXT,
+    verified_at TEXT,
+    verifying_authority_ref TEXT,
+    verification_result TEXT,
+    verification_omissions TEXT,
+    created_event_seq INTEGER NOT NULL REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    verified_event_seq INTEGER REFERENCES domain_events(seq) ON DELETE RESTRICT
+);
+CREATE INDEX external_observations_work ON external_observations(work_id, created_event_seq);
+CREATE TRIGGER external_observations_guard_insert BEFORE INSERT ON external_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'external_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER external_observations_guard_update BEFORE UPDATE ON external_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'external_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER external_observations_guard_delete BEFORE DELETE ON external_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'external_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+-- CD-0039 D4: fold-only attributed native-run projection, latest phase/status
+-- per (work, run). Every row keeps reporter, subject, evidence, and both
+-- times; reads never present a status without its attribution.
+CREATE TABLE workflow_native_runs (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    run_id TEXT NOT NULL CHECK(length(run_id) BETWEEN 1 AND 128),
+    phase TEXT NOT NULL CHECK(phase IN ('start','health','rollback','cleanup')),
+    status TEXT NOT NULL CHECK(status IN ('started','failed_to_start','healthy','degraded','failed','rolled_back','partially_rolled_back','rollback_failed','cleaned','cleanup_failed')),
+    subject_ref TEXT NOT NULL CHECK(length(subject_ref) BETWEEN 1 AND 2048),
+    subject_digest TEXT NOT NULL CHECK(subject_digest LIKE 'sha256:%'),
+    evidence_ref TEXT NOT NULL CHECK(length(evidence_ref) BETWEEN 1 AND 2048),
+    evidence_digest TEXT NOT NULL CHECK(evidence_digest LIKE 'sha256:%'),
+    asserted_at TEXT NOT NULL,
+    reporting_authority_ref TEXT NOT NULL CHECK(length(reporting_authority_ref) BETWEEN 1 AND 256),
+    actor_ref TEXT NOT NULL,
+    observation_id TEXT NOT NULL,
+    verification_state TEXT NOT NULL DEFAULT 'unverified' CHECK(verification_state IN ('unverified','verified','diverged_expected','diverged_unexpected','unverifiable')),
+    recorded_seq INTEGER NOT NULL REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    PRIMARY KEY(work_id, run_id, phase)
+);
+CREATE INDEX workflow_native_runs_work ON workflow_native_runs(work_id, recorded_seq);
+CREATE TRIGGER workflow_native_runs_guard_insert BEFORE INSERT ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_native_runs_guard_update BEFORE UPDATE ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_native_runs_guard_delete BEFORE DELETE ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+        `,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

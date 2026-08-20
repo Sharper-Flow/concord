@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:bf98ed94f7f5cfe7df851e96c7ac51b4bfa4e16289a56c9462a1f20082599f39"
+const ManifestDigest = "sha256:79c06ff8eab7c060a844af0b1561038cfc4bde3aa0b63ebf2aed7a77f45ff13f"
 
 type OperationKind string
 
@@ -157,6 +157,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"knowledge_scopes_input":                     {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "tag_ids"}},
 	"knowledge_search_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "allow_degraded", "page", "budget", "domain_id", "requested_budget_seconds"}},
 	"mutation_result":                            {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id"}},
+	"observed_universe":                          {Required: []string{"shape", "applied_scope", "coverage", "total_kind", "canonical_identity_key"}, Properties: []string{"shape", "applied_scope", "anchor_token", "structure_digest", "coverage", "observed_count", "observed_refs", "total_kind", "total_value", "completion_evidence", "canonical_identity_key", "omissions"}},
 	"operator_choice":                            {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
 	"operator_question":                          {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
 	"page":                                       {Required: []string{"cursor", "limit"}, Properties: []string{"cursor", "limit"}},
@@ -197,7 +198,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_compact_publish_input":                 {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
 	"work_compact_reconcile_input":               {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
 	"work_define_capture_input":                  {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "idempotency_key", "governing_requirements", "approval", "requested_budget_seconds"}},
-	"work_define_observation_record_input":       {Required: []string{"work_id", "statement", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "statement", "refs", "tags", "idempotency_key", "requested_budget_seconds"}},
+	"work_define_observation_record_input":       {Required: []string{"work_id", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "external", "statement", "refs", "tags", "idempotency_key", "requested_budget_seconds"}},
 	"work_define_research_finding_record_input":  {Required: []string{"pack_id", "expected_version", "finding", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "finding", "source_ids", "idempotency_key", "requested_budget_seconds"}},
 	"work_define_research_freshness_set_input":   {Required: []string{"pack_id", "expected_version", "freshness", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "freshness", "idempotency_key", "revision", "requested_budget_seconds"}},
 	"work_define_research_pack_create_input":     {Required: []string{"owner_work_id", "revision", "idempotency_key"}, Properties: []string{"owner_work_id", "revision", "freshness", "idempotency_key", "requested_budget_seconds"}},

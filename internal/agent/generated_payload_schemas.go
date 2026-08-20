@@ -1922,6 +1922,93 @@ const GeneratedPayloadSchemaDocument = `{
       "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
       "type": "string"
     },
+    "observed_universe": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_token": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "applied_scope": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "canonical_identity_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "completion_evidence": {
+          "enum": [
+            "authoritative_item_read",
+            "end_signal",
+            "closed_structure_digest",
+            "exhaustive_local"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "observed_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_refs": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "omissions": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "shape": {
+          "enum": [
+            "item",
+            "collection",
+            "stream"
+          ]
+        },
+        "structure_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "total_kind": {
+          "enum": [
+            "eq",
+            "gte",
+            "unknown"
+          ]
+        },
+        "total_value": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shape",
+        "applied_scope",
+        "coverage",
+        "total_kind",
+        "canonical_identity_key"
+      ],
+      "type": "object"
+    },
     "operator_choice": {
       "additionalProperties": false,
       "properties": {
@@ -3725,7 +3812,168 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_define_observation_record_input": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "external"
+            ]
+          },
+          "required": [
+            "statement"
+          ]
+        },
+        {
+          "not": {
+            "required": [
+              "statement"
+            ]
+          },
+          "required": [
+            "external"
+          ]
+        }
+      ],
       "properties": {
+        "external": {
+          "additionalProperties": false,
+          "oneOf": [
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "verification_method"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "verified_at"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "result"
+                    ]
+                  }
+                ]
+              },
+              "required": [
+                "subject_kind",
+                "subject_ref",
+                "captured_at",
+                "observed_universe"
+              ]
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "subject_kind"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "subject_ref"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "captured_at"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "observed_universe"
+                    ]
+                  }
+                ]
+              },
+              "required": [
+                "verification_method",
+                "verified_at",
+                "result"
+              ]
+            }
+          ],
+          "properties": {
+            "captured_at": {
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 20,
+              "type": "string"
+            },
+            "current_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "capture",
+                "verification"
+              ]
+            },
+            "observation_id": {
+              "pattern": "^xobs:[0-9a-f]{16}$",
+              "type": "string"
+            },
+            "observed_universe": {
+              "$ref": "#/$defs/observed_universe"
+            },
+            "omissions": {
+              "items": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
+            "result": {
+              "enum": [
+                "matched",
+                "diverged",
+                "unreachable",
+                "unavailable"
+              ]
+            },
+            "subject_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "subject_kind": {
+              "enum": [
+                "native_run",
+                "git_position",
+                "recovery_artifact",
+                "environment"
+              ]
+            },
+            "subject_ref": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            "verification_method": {
+              "enum": [
+                "trusted_client_report",
+                "git_probe"
+              ]
+            },
+            "verified_at": {
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 20,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "observation_id"
+          ],
+          "type": "object"
+        },
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
@@ -3767,7 +4015,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "work_id",
-        "statement",
         "idempotency_key"
       ],
       "type": "object"
@@ -5019,6 +5266,12 @@ const GeneratedPayloadSchemaDocument = `{
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding"
                 },
+                "asserted_at": {
+                  "format": "date-time",
+                  "maxLength": 64,
+                  "minLength": 20,
+                  "type": "string"
+                },
                 "attempt_epoch": {
                   "maximum": 2147483647,
                   "minimum": 1,
@@ -5028,10 +5281,29 @@ const GeneratedPayloadSchemaDocument = `{
                   "$ref": "#/$defs/id"
                 },
                 "audit_evidence": {},
+                "await_ref": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "await_type": {
+                  "enum": [
+                    "pr_merge",
+                    "ci_result",
+                    "timer",
+                    "human_approval",
+                    "remote_work_state"
+                  ]
+                },
                 "boundary_kind": {},
                 "boundary_sequence": {},
                 "candidate_kind": {},
                 "candidate_refs": {},
+                "capture_method": {
+                  "enum": [
+                    "trusted_client_report"
+                  ]
+                },
                 "checkpoint_id": {},
                 "checkpoint_sequence": {},
                 "complete_gate_prerequisites": {},
@@ -5045,6 +5317,15 @@ const GeneratedPayloadSchemaDocument = `{
                 "edge_kind": {},
                 "entity_kind": {},
                 "entity_ref": {},
+                "evidence_digest": {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "evidence_ref": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                },
                 "evidence_refs": {},
                 "expected_within_seconds": {
                   "maximum": 31536000,
@@ -5067,9 +5348,23 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "array"
                 },
                 "mode": {},
+                "native_subject_ref": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                },
                 "new_contract_version": {},
                 "next_read_expectations": {},
                 "notice_id": {},
+                "observation_digest": {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "observation_ref": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                },
                 "observed_drift": {},
                 "operation_id": {},
                 "outcome": {},
@@ -5083,11 +5378,27 @@ const GeneratedPayloadSchemaDocument = `{
                 "relation_data": {},
                 "removed": {},
                 "required_route_conventions": {},
-                "resolution_evidence": {},
+                "resolution_authority": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "resolution_evidence": {
+                  "items": {
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 32,
+                  "type": "array"
+                },
                 "resolver_authority": {},
                 "resolver_result": {},
                 "restart": {},
                 "route_conventions": {},
+                "run_id": {
+                  "$ref": "#/$defs/id"
+                },
                 "severity": {},
                 "source_contract_version": {},
                 "source_work_id": {},
@@ -5099,7 +5410,25 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "array"
                 },
                 "staleness_rule_id": {},
+                "status": {
+                  "enum": [
+                    "started",
+                    "failed_to_start",
+                    "healthy",
+                    "degraded",
+                    "failed",
+                    "rolled_back",
+                    "partially_rolled_back",
+                    "rollback_failed",
+                    "cleaned",
+                    "cleanup_failed"
+                  ]
+                },
                 "strategy": {},
+                "subject_digest": {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
                 "successor_work_id": {},
                 "summary": {},
                 "supersede_reason": {},

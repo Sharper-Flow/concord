@@ -210,6 +210,7 @@ states.
 | `workflow.condition_added` | `work_id`, `condition_id`, `await_type` (`pr_merge`, `ci_result`, `timer`, `human_approval`, `remote_work_state`), `await_ref`, `resolution_authority` |
 | `workflow.condition_resolved` | `work_id`, `condition_id`, `resolution_evidence` (1–32 evidence refs), `resolved_by_event`; the stored `resolution_authority` is exactly `durable_operation:<op_id>`, and every evidence ref must be present in that completed operation's authoritative `evidence_refs` for this work item |
 | `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event`; the event-envelope actor must resolve to an `operator` actor tuple, and every cancellation evidence ref must be present in the stored durable authority operation |
+| `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest`, `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary: start `started`/`failed_to_start`, health `healthy`/`degraded`/`failed`, rollback `rolled_back`/`partially_rolled_back`/`rollback_failed`, cleanup `cleaned`/`cleanup_failed`), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, at most two minutes after the recorded event time), `reporting_authority_ref` (derived from the validated grant's trusted client, never accepted from input), `actor_ref`, and the embedded CD-0040 capture component (`observation_id`, `subject_kind=native_run`, capture method, captured time, observed universe, freshness/divergence policy refs) agreeing exactly with the attributed fields it mirrors. A reused run id bound to a different subject or reporting authority fails structurally. |
 | `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (0–32), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
 Upcasters are registered by `(kind, payload_version)`, ordered, deterministic,
@@ -462,6 +463,15 @@ when an active hard dependent consumed the superseded contract. It emits
 
 The engine exposes no wait daemon and performs no polling. Resolution is explicit
 on request or at a consequential boundary:
+
+A health report is itself the event an open `remote_work_state` await names:
+dispatching `record_health` resolves every open remote-state await in the same
+transaction, with resolution evidence drawn from each await's stored
+`resolution_authority` operation, and the consequential gates admit
+`record_health` past exactly those awaits. Any other open condition still blocks
+consequential actions. The attributed record stays readable while unverified; a
+later completion that consumes it as `native_run` evidence requires the record
+verified (CD-0040 D9 via CD-0039 D4/D11), enforced at `workflow.evidence_bound`.
 
 ```go
 type ConditionResolver interface {

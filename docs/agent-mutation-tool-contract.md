@@ -184,6 +184,35 @@ AJ8 native execution/rollback/reclamation is deliberately not claimed as a Conco
 mutation. Its Concord-visible intent/evidence/lifecycle uses define/transition;
 the accepted native authority performs and proves the real operation.
 
+### 5.1 Native-run reports (CD-0039)
+
+The ops-runbook reporting actions — `start_run`, `record_health`, `rollback_run`,
+`cleanup_run` — accept exactly one typed attributed report and nothing else:
+`run_id`, `native_subject_ref`, `subject_digest`, `status` (the closed
+per-phase vocabulary), `asserted_at` (at most two minutes after the recorded
+event time), `evidence_ref` plus `evidence_digest`, and for health reports the
+`observation_ref`/`observation_digest` the authority measured. The reporting
+authority is derived from the validated grant's trusted client; a caller cannot
+name it. Each report appends one `workflow.native_run_recorded` event embedding
+the CD-0040 capture component, and the fold derives the attributed
+`workflow_native_runs` projection: every read carries reporter, subject,
+evidence, and both times, and a status never renders as an unqualified fact.
+
+When a report shows the approved logical operation did not complete
+successfully, the action's durable classification becomes `partial` or `failed`
+in the same transaction and the caller receives the TS7 `partial` outcome with
+the same operation ID, the native steps that actually completed, and the
+failure and rollback results. `ok` is reserved for successful native
+predicates; the adapter cannot synthesize `partial` from provider output.
+
+A native-run record may back completion evidence only through the explicit
+evidence-binding action, and only while its attributed record is verified — an
+unverified report is readable but cannot satisfy completion (CD-0040 D9).
+The generic external-observation variant of `concord_work_define.observation_record`
+(CD-0040 D10) records captures of, and verifications against, state outside
+Concord; it is non-authoritative and can never positively satisfy evidence,
+approval, transition, verdict, or completion.
+
 ## 6. Rejected shapes
 
 - Generic `create_entity`, `update`, patch, field mask, JSON merge-patch, SQL, or

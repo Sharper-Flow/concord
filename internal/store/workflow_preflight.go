@@ -194,10 +194,12 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	}
 	if consequence == ActionCrossAuthority || consequence == ActionExternalEffect {
 		var openConditions int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&openConditions); err != nil {
+		var blocking string
+		query := `SELECT count(*), COALESCE(MAX(CASE WHEN await_type<>'remote_work_state' OR ? THEN 1 ELSE 0 END),0) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`
+		if err := s.db.QueryRowContext(ctx, query, request.ActionID != "record_health", request.WorkID).Scan(&openConditions, &blocking); err != nil {
 			return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect consequential workflow conditions", true, "retry once the database is readable", err)
 		}
-		if openConditions != 0 {
+		if openConditions != 0 && blocking != "0" {
 			return newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
 		}
 	}
@@ -288,10 +290,15 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 	}
 	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite {
 		var open int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
+		var blocking string
+		if err := tx.QueryRowContext(ctx, `SELECT count(*), COALESCE(MAX(CASE WHEN await_type<>'remote_work_state' OR ? THEN 1 ELSE 0 END),0) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.ActionID != "record_health", request.WorkID).Scan(&open, &blocking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot inspect consequential conditions", true, "retry once the database is readable", err))
 		}
-		if open != 0 {
+		// A health report is the event an open remote-state await names; the
+		// record_health action resolves those awaits in its own transaction,
+		// so it needs no separate resolver here. Every other open condition
+		// still requires one.
+		if open != 0 && (blocking != "0" || request.ActionID != "record_health") {
 			if resolver == nil || now.IsZero() {
 				return rollback(newFailure(KindNotTerminal, "workflow_action_boundary", "consequential action requires an explicit condition resolver", false, "reread_entities"))
 			}
@@ -379,10 +386,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite && requireTerminalConditions {
 		var open int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
+		var blocking string
+		query := `SELECT count(*), COALESCE(MAX(CASE WHEN await_type<>'remote_work_state' OR ? THEN 1 ELSE 0 END),0) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`
+		if err := tx.QueryRowContext(ctx, query, request.ActionID != "record_health", request.WorkID).Scan(&open, &blocking); err != nil {
 			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect consequential workflow conditions", true, "retry once the database is readable", err)
 		}
-		if open != 0 {
+		if open != 0 && blocking != "0" {
 			return RegisteredDefinition{}, newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
 		}
 	}

@@ -828,8 +828,17 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 		}
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 40 {
-		t.Fatalf("schema version=%d err=%v, want 40", version, err)
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
+		t.Fatalf("schema version=%d err=%v, want the current schema version", version, err)
+	}
+	for _, table := range []string{"external_observations", "workflow_native_runs"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("table %s count=%d err=%v", table, count, err)
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO "+table+" DEFAULT VALUES"); err == nil {
+			t.Fatalf("direct write to %s bypassed fold guard", table)
+		}
 	}
 	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
 		var err error

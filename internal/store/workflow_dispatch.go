@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -50,6 +51,14 @@ type WorkflowActionExecutionResult struct {
 	ChangedRefs      []string
 	ResultingVersion int64
 	Result           json.RawMessage
+	// ResultKind is the durable classification of the logical operation:
+	// "completed" by default, "partial" or "failed" when a native report
+	// shows the approved operation did not complete successfully (CD-0039
+	// D7). NativeRuns carries the attributed reports for the run the
+	// classification was derived from, so the caller can present the
+	// failure and recovery without inferring anything.
+	ResultKind string
+	NativeRuns []NativeRunRow
 }
 
 // WorkflowActionDefinitionFor returns the registered action policy after the
@@ -401,8 +410,24 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	result.ResultingVersion = resultVersion
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
 	result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID})
+	// CD-0039 D7: when the native report shows the approved logical operation
+	// did not complete successfully, the durable classification becomes
+	// partial or failed in this same transaction — never a silent success.
+	classificationFields, classFieldsErr := workflowActionObject(payload)
+	if classFieldsErr != nil {
+		return result, classFieldsErr
+	}
+	result.ResultKind = classifyNativeReport(request.ActionID, classificationFields)
+	if result.ResultKind != "" {
+		result.NativeRuns = nativeRunsForActionTx(ctx, tx, request.WorkID, workflowFieldStringDefault(classificationFields, "run_id", ""))
+		if runs, runsErr := json.Marshal(result.NativeRuns); runsErr == nil {
+			result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID, "durable_result_kind": result.ResultKind, "native_runs": json.RawMessage(runs)})
+		}
+	} else {
+		result.ResultKind = "completed"
+	}
 	durableChangedRef, _ := json.Marshal(changedRef)
-	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind=?,result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, result.ResultKind, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
 	}
 	return result, nil
@@ -664,6 +689,73 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			delete(successor, "law_modifies")
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}, nil
+	case "start_run", "record_health", "rollback_run", "cleanup_run":
+		// CD-0039 D5: the native reporting actions accept exactly the typed
+		// report — no arbitrary field bag — and the action ID fixes the phase.
+		phase, _ := nativeRunPhaseForAction(request.ActionID)
+		var report NativeReport
+		if len(fields) == 0 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "native report requires its typed fields", false, "supply the strict native-run report")
+		}
+		if err := decodeStrictWorkflowFields(fields, &report); err != nil {
+			return nil, err
+		}
+		if err := ValidateNativeReport(phase, report, request.Now); err != nil {
+			return nil, err
+		}
+		// CD-0039 D2: the reporting authority is derived from the validated
+		// grant's trusted client, never accepted from the report itself.
+		reportingAuthority := request.Actor.ClientRef
+		capture, captureErr := deriveNativeRunCapture(report, reportingAuthority)
+		if captureErr != nil {
+			return nil, captureErr
+		}
+		typed := []Event{}
+		// A health report is the event an open remote-state await names: its
+		// arrival resolves those awaits in this same transaction. The
+		// resolution evidence is the await's stored authority's own evidence
+		// reference, so the fold's authority check holds; a condition whose
+		// authority cannot verify refuses the whole action atomically.
+		if request.ActionID == "record_health" {
+			rows, conditionErr := tx.QueryContext(ctx, `SELECT condition_id,resolution_authority FROM workflow_external_conditions WHERE work_id=? AND condition_state='open' AND await_type='remote_work_state'`, request.WorkID)
+			if conditionErr != nil {
+				return nil, workflowProjectionError(conditionErr, "cannot read the awaited remote-state conditions")
+			}
+			type await struct{ id, authority string }
+			var awaits []await
+			for rows.Next() {
+				var next await
+				if err := rows.Scan(&next.id, &next.authority); err != nil {
+					rows.Close()
+					return nil, workflowProjectionError(err, "cannot decode the awaited remote-state conditions")
+				}
+				awaits = append(awaits, next)
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return nil, workflowProjectionError(err, "cannot read the awaited remote-state conditions")
+			}
+			rows.Close()
+			for _, waited := range awaits {
+				authorityOp, authorityErr := conditionAuthorityOperation(ctx, tx, waited.authority, request.WorkID)
+				if authorityErr != nil {
+					return nil, authorityErr
+				}
+				resolvedID := request.OperationID + ":resolve:" + waited.id
+				typed = append(typed, workflowTypedEvent(resolvedID, WorkflowConditionResolved, request.WorkID, actor, request.Now, expected, map[string]any{
+					"condition_id": waited.id, "resolution_evidence": []string{"evidence:" + authorityOp}, "resolved_by_event": resolvedID,
+				}))
+				expected++
+			}
+		}
+		typed = append(typed, workflowTypedEvent(eventID, EventWorkflowNativeRunRecorded, request.WorkID, actor, request.Now, expected, map[string]any{
+			"run_id": report.RunID, "native_subject_ref": report.NativeSubjectRef, "subject_digest": report.SubjectDigest,
+			"phase": string(phase), "status": report.Status,
+			"evidence_ref": report.EvidenceRef, "evidence_digest": report.EvidenceDigest,
+			"asserted_at": report.AssertedAt, "reporting_authority_ref": reportingAuthority, "actor_ref": actor,
+			"capture": capture,
+		}))
+		return typed, nil
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		evidenceRef := "evidence:" + request.OperationID
 		if len(request.EvidenceRefs) != 0 {
@@ -836,6 +928,83 @@ func workflowTypedEvent(id, kind, workID, actor string, now time.Time, expected 
 		payloadVersion = registration.CurrentVersion
 	}
 	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now.UTC(), PayloadVersion: payloadVersion, Payload: raw}
+}
+
+// decodeStrictWorkflowFields decodes the action field bag into one typed
+// struct, rejecting unknown fields so a reporting action cannot smuggle extra
+// meaning past its strict payload contract (CD-0039 D5).
+func decodeStrictWorkflowFields(fields map[string]json.RawMessage, target any) error {
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action", "cannot re-encode action fields", false, "supply the typed report fields")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action", "action fields do not match the strict native report shape: "+err.Error(), false, "supply exactly the declared report fields")
+	}
+	return nil
+}
+
+// classifyNativeReport maps a native report to the durable classification of
+// the approved logical operation (CD-0039 D7). Empty means completed: the
+// report either confirmed progress or was not a native report at all.
+//
+//   - start.failed_to_start → failed: nothing happened.
+//   - health.degraded/failed → partial: the run continued into recovery.
+//   - rollback.rolled_back/partially_rolled_back → partial: the run's steps
+//     completed but the approved change did not succeed; partial describes
+//     that logical result and does not claim the rollback was incomplete.
+//   - rollback.rollback_failed, cleanup.cleanup_failed → failed: recovery
+//     itself did not hold.
+func classifyNativeReport(actionID string, fields map[string]json.RawMessage) string {
+	switch actionID {
+	case "start_run":
+		if workflowFieldStringDefault(fields, "status", "") == "failed_to_start" {
+			return "failed"
+		}
+	case "record_health":
+		switch workflowFieldStringDefault(fields, "status", "") {
+		case "degraded", "failed":
+			return "partial"
+		}
+	case "rollback_run":
+		switch workflowFieldStringDefault(fields, "status", "") {
+		case "rolled_back", "partially_rolled_back":
+			return "partial"
+		case "rollback_failed":
+			return "failed"
+		}
+	case "cleanup_run":
+		if workflowFieldStringDefault(fields, "status", "") == "cleanup_failed" {
+			return "partial"
+		}
+	}
+	return ""
+}
+
+// nativeRunsForActionTx reads the attributed rows for one run so a partial or
+// failed classification can carry what the authority reported, not what the
+// caller asserts.
+func nativeRunsForActionTx(ctx context.Context, tx *sql.Tx, workID, runID string) []NativeRunRow {
+	if runID == "" {
+		return []NativeRunRow{}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT run_id,phase,status,subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,reporting_authority_ref,actor_ref,observation_id,verification_state FROM workflow_native_runs WHERE work_id=? AND run_id=? ORDER BY recorded_seq`, workID, runID)
+	if err != nil {
+		return []NativeRunRow{}
+	}
+	defer rows.Close()
+	out := []NativeRunRow{}
+	for rows.Next() {
+		var row NativeRunRow
+		if err := rows.Scan(&row.RunID, &row.Phase, &row.Status, &row.SubjectRef, &row.SubjectDigest, &row.EvidenceRef, &row.EvidenceDigest, &row.AssertedAt, &row.ReportingAuthorityRef, &row.ActorRef, &row.ObservationID, &row.VerificationState); err != nil {
+			return out
+		}
+		row.WorkID = workID
+		out = append(out, row)
+	}
+	return out
 }
 
 func workflowActionObject(raw json.RawMessage) (map[string]json.RawMessage, error) {

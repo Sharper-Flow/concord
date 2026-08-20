@@ -1425,6 +1425,30 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	if authoritative != 1 {
 		return newFailure(KindInvariantViolation, "fold_event", "evidence binding is not backed by the existing durable-operation evidence authority", false, "complete the producer operation with the immutable evidence reference first")
 	}
+	// CD-0040 D9 via CD-0039 D4/D11: a native-run report may back completion
+	// evidence only through this explicit binding, and a record whose subject
+	// lives outside Concord must be verified before a completion consumes it.
+	// The attributed report stays readable while unverified; the gate is on
+	// consumption, not on existence.
+	if p.EvidenceKind == "native_run" {
+		observationID := p.ImmutableSubjectRef
+		if !strings.HasPrefix(observationID, "xobs:") {
+			return newFailure(KindInvalidPayload, "fold_event", "native_run evidence must name its xobs: observation", false, "bind the attributed record's observation id")
+		}
+		var state string
+		err := tx.QueryRowContext(ctx, `SELECT verification_state FROM workflow_native_runs WHERE work_id=? AND observation_id=?`, event.SubjectID, observationID).Scan(&state)
+		if err == sql.ErrNoRows {
+			err = tx.QueryRowContext(ctx, `SELECT verification_state FROM external_observations WHERE work_id=? AND observation_id=?`, event.SubjectID, observationID).Scan(&state)
+		}
+		if err == sql.ErrNoRows {
+			return newFailure(KindMissingEvidence, "fold_event", "native_run evidence names no captured attributed record on this work", false, "verify the attributed record before binding it as completion evidence")
+		} else if err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot read the attributed record's verification state", true, "retry once the projection is readable", err)
+		}
+		if state != string(VerificationVerified) {
+			return newFailure(KindStaleRequiresReview, "fold_event", "native_run evidence is unverified: an attributed report may be read but cannot satisfy completion while unverified", false, "append a verification of the attributed record first")
+		}
+	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 

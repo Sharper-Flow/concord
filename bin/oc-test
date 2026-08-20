@@ -109,8 +109,8 @@ ${check_gofmt}
 go mod tidy
 git diff --exit-code -- go.mod go.sum
 go vet ./...
-go test -race -p \"\$1\" ./...
-" bash "$full_workers"
+go test -race -p \"\$1\" -timeout \"\$2\" ./...
+" bash "$full_workers" "$full_timeout"
     ;;
   conformance)
     [[ $# -eq 0 ]] || usage

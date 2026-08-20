@@ -46,11 +46,11 @@ or terminal-note changes.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `capture` | title, value statement, work kind, at least one Project membership, the governing requirements the work carries when its target scope declares any, optional workflow type/priority/tags/component/external reference | Create one `work_item` plus complete initial membership set and creation event in one SQLite transaction. |
+| `capture` | title, value statement, work kind, at least one Project membership, the governing requirements the work carries when its target scope declares any, optional workflow type/priority/tags/external reference | Create one `work_item` plus complete initial membership set and creation event in one SQLite transaction. |
 | `revise_intent` | work ID, expected version, complete replacement intent block, reason | Replace only the closed mutable intent block and append one event. Omitted fields are intentionally absent because the block is complete—not patch semantics. |
 
 The mutable intent block is closed: title, value statement, work kind, priority,
-tags, component, and accepted workflow-type reference. Identity, lifecycle,
+tags, and accepted workflow-type reference. Identity, lifecycle,
 memberships, relations, evidence, versions, authority, and compaction locator cannot
 appear in it. A governing-law conflict returns a typed conflict and no mutation;
 the agent cannot silently shrink the accepted scope.

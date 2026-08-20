@@ -58,7 +58,7 @@ rather than historical explanation.
 
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
-| `list` | Q3 | Product scope; closed lifecycle/Project/kind/component/tag/priority/terminal-window filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records |
+| `list` | Q3 | Product scope; closed lifecycle/Project/kind/tag/priority/terminal-window filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records |
 | `ready` | Q5 | Product scope; optional Project/kind; cursor/limit | `work_page` with readiness evidence |
 | `blocked` | Q4 | Product scope; optional Project/work/kind; relation depth 1–3; cursor/limit | `blocked_work_page`: work summaries plus unresolved blocker nodes/edges and recovery condition |
 | `scope` | Q6 | resolved Product plus exactly one work or Project reference; cursor/limit when Project-scoped | `work_scope`: one canonical work with memberships, or a unique bounded page of applicable work |
@@ -90,7 +90,7 @@ the one canonical locator for a known terminal work/knowledge item.
 
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
-| `search` | Q9 | Product scope; optional Project/component; closed knowledge kinds; tags; bounded text; time window; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, and index watermark |
+| `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds; tags; bounded text; time window; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, and index watermark |
 | `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome |
 
 Search never returns an unbounded artifact body. A canonical locator identifies the

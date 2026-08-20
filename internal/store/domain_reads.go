@@ -192,6 +192,7 @@ func (s *Store) QueryDomainList(ctx context.Context, req DomainListRequest) (Dom
 		return out, wrapFailure(KindUnavailable, "C22.DomainList", "cannot read Domains", true, "retry once the knowledge projection is readable", err)
 	}
 	defer rows.Close()
+	out.Domains = []DomainSummary{}
 	for rows.Next() {
 		var d DomainSummary
 		var parent sql.NullString
@@ -251,8 +252,11 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 	if err != nil {
 		return out, err
 	}
+	summary.HomeDomain = summary.DomainID == registry.RootDomainID
 	out.Domain = summary
 	out.Registry = registry
+	out.CurrentLaw = []DomainLawRecord{}
+	out.Relations = []DomainRelationView{}
 
 	lawRows, err := s.db.QueryContext(ctx, `
 		SELECT s.law_id,s.kind,s.title,s.path,s.content_hash,s.scanned_commit_oid
@@ -360,6 +364,7 @@ func (s *Store) QueryDomainActiveWork(ctx context.Context, req DomainActiveWorkR
 		}
 		cursorPriorityInt = parsed
 	}
+	out.Work = []DomainActiveWorkItem{}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,c.contract_version,
 			(b.home_domain_id=? AND c.contract_version=(SELECT MAX(c2.contract_version) FROM workflow_contracts c2 WHERE c2.work_id=c.work_id AND c2.superseded_by IS NULL)) AS is_home
@@ -413,6 +418,7 @@ func (s *Store) QueryDomainAttachments(ctx context.Context, req DomainAttachment
 	if err != nil {
 		return out, err
 	}
+	summary.HomeDomain = summary.DomainID == registry.RootDomainID
 	out.Domain = summary
 	out.Registry = registry
 	if err := s.db.QueryRowContext(ctx, `SELECT version FROM domain_project_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ProjectVersion); err != nil && err != sql.ErrNoRows {
@@ -473,6 +479,7 @@ func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsReque
 	if err != nil {
 		return out, err
 	}
+	out.Pairs = []DomainOverlapPair{}
 	if req.Domain != "" {
 		if _, err := s.domainExistsCurrent(ctx, req.Product, req.Domain); err != nil {
 			return out, err

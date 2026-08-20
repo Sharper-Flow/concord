@@ -27,72 +27,959 @@
       "omissions",
       "warnings"
     ],
-    "freshness_required_fields": ["observed_at", "age", "stale"],
-    "successful_result_payload_one_of": ["items", "result"],
-    "typed_error_required_fields": ["kind", "retry_safe", "recovery_action"],
+    "freshness_required_fields": [
+      "observed_at",
+      "age",
+      "stale"
+    ],
+    "successful_result_payload_one_of": [
+      "items",
+      "result"
+    ],
+    "typed_error_required_fields": [
+      "kind",
+      "retry_safe",
+      "recovery_action"
+    ],
     "evaluation_order": "validate the applicable universal envelope or typed error before scenario expected authority and assertions"
   },
   "fixtures": {
     "products": [
-      { "id": "prod-alpha", "name": "Alpha", "stage": "production" },
-      { "id": "prod-beta", "name": "Beta", "stage": "prototype" }
+      {
+        "id": "prod-alpha",
+        "name": "Alpha",
+        "stage": "production"
+      },
+      {
+        "id": "prod-beta",
+        "name": "Beta",
+        "stage": "prototype"
+      }
     ],
     "projects": [
-      { "id": "proj-web", "name": "alpha-web", "products": ["prod-alpha"] },
-      { "id": "proj-api", "name": "alpha-api", "products": ["prod-alpha"] },
-      { "id": "proj-shared", "name": "shared-kit", "products": ["prod-alpha", "prod-beta"] }
+      {
+        "id": "proj-web",
+        "name": "alpha-web",
+        "products": [
+          "prod-alpha"
+        ]
+      },
+      {
+        "id": "proj-api",
+        "name": "alpha-api",
+        "products": [
+          "prod-alpha"
+        ]
+      },
+      {
+        "id": "proj-shared",
+        "name": "shared-kit",
+        "products": [
+          "prod-alpha",
+          "prod-beta"
+        ]
+      }
     ],
     "work": [
-      { "id": "work-ready-high", "product": "prod-alpha", "projects": [{ "id": "proj-web", "role": "primary" }], "lifecycle": "needed", "priority": 1, "created_at": "2026-08-01T09:00:00Z" },
-      { "id": "work-ready-low", "product": "prod-alpha", "projects": [{ "id": "proj-api", "role": "primary" }], "lifecycle": "needed", "priority": 3, "created_at": "2026-07-30T09:00:00Z" },
-      { "id": "work-blocked", "product": "prod-alpha", "projects": [{ "id": "proj-web", "role": "primary" }], "lifecycle": "needed", "priority": 0, "created_at": "2026-07-29T09:00:00Z" },
-      { "id": "work-prereq", "product": "prod-alpha", "projects": [{ "id": "proj-api", "role": "primary" }], "lifecycle": "in_progress", "priority": 1, "created_at": "2026-07-28T09:00:00Z" },
-      { "id": "work-cross", "product": "prod-alpha", "projects": [{ "id": "proj-web", "role": "primary" }, { "id": "proj-api", "role": "secondary" }], "lifecycle": "in_progress", "priority": 2, "created_at": "2026-07-27T09:00:00Z" },
-      { "id": "work-done", "product": "prod-alpha", "projects": [{ "id": "proj-web", "role": "primary" }], "lifecycle": "completed", "priority": 2, "terminal_at": "2026-08-03T12:00:00Z", "knowledge_ref": "knowledge-work-done" },
-      { "id": "work-cancelled", "product": "prod-alpha", "projects": [{ "id": "proj-api", "role": "primary" }], "lifecycle": "cancelled", "priority": 4, "terminal_at": "2026-08-02T12:00:00Z" },
-      { "id": "work-old", "product": "prod-alpha", "projects": [{ "id": "proj-api", "role": "primary" }], "lifecycle": "superseded", "priority": 2, "terminal_at": "2026-08-01T12:00:00Z" },
-      { "id": "work-new", "product": "prod-alpha", "projects": [{ "id": "proj-api", "role": "primary" }], "lifecycle": "needed", "priority": 2, "created_at": "2026-08-01T12:00:00Z" }
+      {
+        "id": "work-ready-high",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-web",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "needed",
+        "priority": 1,
+        "created_at": "2026-08-01T09:00:00Z"
+      },
+      {
+        "id": "work-ready-low",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-api",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "needed",
+        "priority": 3,
+        "created_at": "2026-07-30T09:00:00Z"
+      },
+      {
+        "id": "work-blocked",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-web",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "needed",
+        "priority": 0,
+        "created_at": "2026-07-29T09:00:00Z"
+      },
+      {
+        "id": "work-prereq",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-api",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "in_progress",
+        "priority": 1,
+        "created_at": "2026-07-28T09:00:00Z"
+      },
+      {
+        "id": "work-cross",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-web",
+            "role": "primary"
+          },
+          {
+            "id": "proj-api",
+            "role": "secondary"
+          }
+        ],
+        "lifecycle": "in_progress",
+        "priority": 2,
+        "created_at": "2026-07-27T09:00:00Z"
+      },
+      {
+        "id": "work-done",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-web",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "completed",
+        "priority": 2,
+        "terminal_at": "2026-08-03T12:00:00Z",
+        "knowledge_ref": "knowledge-work-done"
+      },
+      {
+        "id": "work-cancelled",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-api",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "cancelled",
+        "priority": 4,
+        "terminal_at": "2026-08-02T12:00:00Z"
+      },
+      {
+        "id": "work-old",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-api",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "superseded",
+        "priority": 2,
+        "terminal_at": "2026-08-01T12:00:00Z"
+      },
+      {
+        "id": "work-new",
+        "product": "prod-alpha",
+        "projects": [
+          {
+            "id": "proj-api",
+            "role": "primary"
+          }
+        ],
+        "lifecycle": "needed",
+        "priority": 2,
+        "created_at": "2026-08-01T12:00:00Z"
+      }
     ],
     "relations": [
-      { "kind": "depends_on", "source": "work-blocked", "target": "work-prereq", "resolved": false },
-      { "kind": "supersedes", "source": "work-new", "target": "work-old", "resolved": true }
+      {
+        "kind": "depends_on",
+        "source": "work-blocked",
+        "target": "work-prereq",
+        "resolved": false
+      },
+      {
+        "kind": "supersedes",
+        "source": "work-new",
+        "target": "work-old",
+        "resolved": true
+      }
     ],
     "events": [
-      { "work": "work-cross", "seq": 1, "from": null, "to": "needed", "kind": "created", "actor": "operator" },
-      { "work": "work-cross", "seq": 2, "from": "needed", "to": "in_progress", "kind": "started", "actor": "agent" },
-      { "work": "work-done", "seq": 1, "from": null, "to": "needed", "kind": "created", "actor": "operator" },
-      { "work": "work-done", "seq": 2, "from": "needed", "to": "in_progress", "kind": "started", "actor": "agent" },
-      { "work": "work-done", "seq": 3, "from": "in_progress", "to": "completed", "kind": "completed", "actor": "operator", "evidence_refs": ["evidence-done"] }
+      {
+        "work": "work-cross",
+        "seq": 1,
+        "from": null,
+        "to": "needed",
+        "kind": "created",
+        "actor": "operator"
+      },
+      {
+        "work": "work-cross",
+        "seq": 2,
+        "from": "needed",
+        "to": "in_progress",
+        "kind": "started",
+        "actor": "agent"
+      },
+      {
+        "work": "work-done",
+        "seq": 1,
+        "from": null,
+        "to": "needed",
+        "kind": "created",
+        "actor": "operator"
+      },
+      {
+        "work": "work-done",
+        "seq": 2,
+        "from": "needed",
+        "to": "in_progress",
+        "kind": "started",
+        "actor": "agent"
+      },
+      {
+        "work": "work-done",
+        "seq": 3,
+        "from": "in_progress",
+        "to": "completed",
+        "kind": "completed",
+        "actor": "operator",
+        "evidence_refs": [
+          "evidence-done"
+        ]
+      }
     ],
     "knowledge": [
-      { "id": "knowledge-work-done", "kind": "work_note", "product": "prod-alpha", "project": "proj-web", "domain": "auth", "tags": ["auth", "release"], "completed_at": "2026-08-03T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/work/2026-08-03-auth-release.md", "commit": "abc123", "content_hash": "sha256:note1" },
-      { "id": "knowledge-lesson", "kind": "lesson", "product": "prod-alpha", "domain": "state", "tags": ["state-authority", "sqlite"], "completed_at": "2026-08-05T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/lessons/2026-08-04-state-authority.md", "commit": "def456", "content_hash": "sha256:note2" },
-      { "id": "knowledge-decision", "kind": "decision", "product": "prod-alpha", "domain": "state", "tags": ["sqlite", "governance"], "completed_at": "2026-08-04T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/decisions/CD-0002-state-authority.md", "commit": "ghi789", "content_hash": "sha256:note3" }
+      {
+        "id": "knowledge-work-done",
+        "kind": "work_note",
+        "product": "prod-alpha",
+        "project": "proj-web",
+        "domain": "auth",
+        "tags": [
+          "auth",
+          "release"
+        ],
+        "completed_at": "2026-08-03T12:00:00Z",
+        "repo": "repo-alpha-web",
+        "path": "docs/work/2026-08-03-auth-release.md",
+        "commit": "abc123",
+        "content_hash": "sha256:note1"
+      },
+      {
+        "id": "knowledge-lesson",
+        "kind": "lesson",
+        "product": "prod-alpha",
+        "domain": "state",
+        "tags": [
+          "state-authority",
+          "sqlite"
+        ],
+        "completed_at": "2026-08-05T12:00:00Z",
+        "repo": "repo-alpha-web",
+        "path": "docs/lessons/2026-08-04-state-authority.md",
+        "commit": "def456",
+        "content_hash": "sha256:note2"
+      },
+      {
+        "id": "knowledge-decision",
+        "kind": "decision",
+        "product": "prod-alpha",
+        "domain": "state",
+        "tags": [
+          "sqlite",
+          "governance"
+        ],
+        "completed_at": "2026-08-04T12:00:00Z",
+        "repo": "repo-alpha-web",
+        "path": "docs/decisions/CD-0002-state-authority.md",
+        "commit": "ghi789",
+        "content_hash": "sha256:note3"
+      }
     ]
   },
   "scenarios": [
-    { "id": "Q1-list-products", "query_id": "PM1.Q1", "input": { "limit": 20 }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.products[*].id", "op": "eq", "value": ["prod-alpha", "prod-beta"] }, { "path": "$.next_cursor", "op": "eq", "value": null }] } },
-    { "id": "Q1-project-to-product", "query_id": "PM1.Q1", "input": { "project": "proj-web" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.product.id", "op": "eq", "value": "prod-alpha" }, { "path": "$.projects[*].id", "op": "set_eq", "value": ["proj-api", "proj-shared", "proj-web"] }] } },
-    { "id": "Q1-ambiguous-project", "query_id": "PM1.Q1", "input": { "project": "proj-shared" }, "expected_error": { "kind": "ambiguous_scope", "candidate_ids": ["prod-alpha", "prod-beta"] } },
-    { "id": "Q1-unknown-project", "query_id": "PM1.Q1", "input": { "project": "proj-missing" }, "expected_error": { "kind": "unknown_scope" } },
-    { "id": "Q2-product-snapshot", "query_id": "PM1.Q2", "input": { "product": "prod-alpha", "preview_limit": 3 }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.lifecycle_counts.in_progress", "op": "eq", "value": 2 }, { "path": "$.lifecycle_counts.needed", "op": "eq", "value": 4 }, { "path": "$.lifecycle_counts.completed", "op": "eq", "value": 1 }, { "path": "$.derived_counts.blocked", "op": "eq", "value": 1 }, { "path": "$.items[*].id", "op": "unique" }] } },
-    { "id": "Q2-stale-requires-review", "query_id": "PM1.Q2", "input": { "product": "prod-alpha" }, "fixture_override": { "source_stale": true, "staleness_policy": "review_required" }, "expected_error": { "kind": "stale_requires_review" } },
-    { "id": "Q3-needed-work", "query_id": "PM1.Q3", "input": { "product": "prod-alpha", "lifecycle_states": ["needed"], "limit": 20 }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[*].id", "op": "set_eq", "value": ["work-blocked", "work-new", "work-ready-high", "work-ready-low"] }, { "path": "$.next_cursor", "op": "eq", "value": null }] } },
-    { "id": "Q3-pagination-page1", "query_id": "PM1.Q3", "input": { "product": "prod-alpha", "lifecycle_states": ["needed"], "limit": 2 }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[*].id", "op": "eq", "value": ["work-blocked", "work-ready-high"] }, { "path": "$.next_cursor", "op": "nonempty" }] } },
-    { "id": "Q3-pagination-page2", "query_id": "PM1.Q3", "depends_on": ["Q3-pagination-page1"], "input": { "product": "prod-alpha", "lifecycle_states": ["needed"], "limit": 2, "cursor": { "$from": "Q3-pagination-page1.$.next_cursor" } }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[*].id", "op": "eq", "value": ["work-new", "work-ready-low"] }, { "path": "$.next_cursor", "op": "eq", "value": null }] } },
-    { "id": "Q3-invalid-cursor", "query_id": "PM1.Q3", "input": { "product": "prod-alpha", "cursor": "opaque-invalid" }, "expected_error": { "kind": "invalid_cursor" } },
-    { "id": "Q3-authoritative-empty", "query_id": "PM1.Q3", "input": { "product": "prod-beta", "lifecycle_states": ["completed"] }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items", "op": "eq", "value": [] }] } },
-    { "id": "Q4-blocked-reason", "query_id": "PM1.Q4", "input": { "product": "prod-alpha" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[0].id", "op": "eq", "value": "work-blocked" }, { "path": "$.items[0].blockers[0].id", "op": "eq", "value": "work-prereq" }] } },
-    { "id": "Q5-ready-ranking", "query_id": "PM1.Q5", "input": { "product": "prod-alpha", "limit": 2 }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[0].id", "op": "eq", "value": "work-ready-high" }, { "path": "$.items[*].id", "op": "not_contains", "value": "work-blocked" }] } },
-    { "id": "Q6-cross-project", "query_id": "PM1.Q6", "input": { "work": "work-cross" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.work.id", "op": "eq", "value": "work-cross" }, { "path": "$.work.projects[*].id", "op": "set_eq", "value": ["proj-api", "proj-web"] }, { "path": "$.work", "op": "single_canonical_record" }] } },
-    { "id": "Q6-project-to-work", "query_id": "PM1.Q6", "input": { "product": "prod-alpha", "project": "proj-web" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[*].id", "op": "set_eq", "value": ["work-blocked", "work-cross", "work-done", "work-ready-high"] }, { "path": "$.items[*].id", "op": "unique" }] } },
-    { "id": "Q7-state-history", "query_id": "PM1.Q7", "input": { "work": "work-done", "direction": "oldest_first" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.events[*].seq", "op": "eq", "value": [1, 2, 3] }, { "path": "$.events[2].to", "op": "eq", "value": "completed" }, { "path": "$.events[2].evidence_refs", "op": "contains", "value": "evidence-done" }] } },
-    { "id": "Q8-relations", "query_id": "PM1.Q8", "input": { "work": "work-old", "relation_kinds": ["supersedes"], "direction": "incoming" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.edges[0].source", "op": "eq", "value": "work-new" }, { "path": "$.edges[0].target", "op": "eq", "value": "work-old" }] } },
-    { "id": "Q9-knowledge-search", "query_id": "PM1.Q9", "input": { "product": "prod-alpha", "tags": ["sqlite"] }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[*].id", "op": "set_eq", "value": ["knowledge-decision", "knowledge-lesson"] }, { "path": "$.items[*].commit", "op": "all_nonempty" }] } },
-    { "id": "Q9-structured-before-text", "query_id": "PM1.Q9", "input": { "product": "prod-alpha", "text": "governance" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.items[*].id", "op": "eq", "value": ["knowledge-decision", "knowledge-lesson"] }] } },
-    { "id": "Q9-degraded-index", "query_id": "PM1.Q9", "input": { "product": "prod-alpha", "tags": ["sqlite"], "allow_degraded": true }, "fixture_override": { "knowledge_index_lagging": true, "omitted_ids": ["knowledge-decision"] }, "expected": { "authority": "degraded", "assertions": [{ "path": "$.omissions[*]", "op": "contains", "value": "knowledge-decision" }, { "path": "$.index_watermark", "op": "nonempty" }] } },
-    { "id": "Q10-canonical-note", "query_id": "PM1.Q10", "input": { "work": "work-done" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.note.path", "op": "eq", "value": "docs/work/2026-08-03-auth-release.md" }, { "path": "$.note.commit", "op": "eq", "value": "abc123" }, { "path": "$.note.content_hash", "op": "eq", "value": "sha256:note1" }] } },
-    { "id": "Q10-not-compacted", "query_id": "PM1.Q10", "input": { "work": "work-cancelled" }, "expected": { "authority": "authoritative", "assertions": [{ "path": "$.status", "op": "eq", "value": "not_compacted" }] } },
-    { "id": "all-unreachable-no-fallback", "query_id": "PM1.Q2", "input": { "product": "prod-alpha" }, "fixture_override": { "live_authority_unreachable": true, "stale_snapshot_available": true }, "expected_error": { "kind": "unreachable", "must_not_return": "stale_snapshot" } }
+    {
+      "id": "Q1-list-products",
+      "query_id": "PM1.Q1",
+      "input": {
+        "limit": 20
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.products[*].id",
+            "op": "eq",
+            "value": [
+              "prod-alpha",
+              "prod-beta"
+            ]
+          },
+          {
+            "path": "$.next_cursor",
+            "op": "eq",
+            "value": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q1-project-to-product",
+      "query_id": "PM1.Q1",
+      "input": {
+        "project": "proj-web"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.product.id",
+            "op": "eq",
+            "value": "prod-alpha"
+          },
+          {
+            "path": "$.projects[*].id",
+            "op": "set_eq",
+            "value": [
+              "proj-api",
+              "proj-shared",
+              "proj-web"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q1-ambiguous-project",
+      "query_id": "PM1.Q1",
+      "input": {
+        "project": "proj-shared"
+      },
+      "expected_error": {
+        "kind": "ambiguous_scope",
+        "candidate_ids": [
+          "prod-alpha",
+          "prod-beta"
+        ]
+      }
+    },
+    {
+      "id": "Q1-unknown-project",
+      "query_id": "PM1.Q1",
+      "input": {
+        "project": "proj-missing"
+      },
+      "expected_error": {
+        "kind": "unknown_scope"
+      }
+    },
+    {
+      "id": "Q2-product-snapshot",
+      "query_id": "PM1.Q2",
+      "input": {
+        "product": "prod-alpha",
+        "preview_limit": 3
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.lifecycle_counts.in_progress",
+            "op": "eq",
+            "value": 2
+          },
+          {
+            "path": "$.lifecycle_counts.needed",
+            "op": "eq",
+            "value": 4
+          },
+          {
+            "path": "$.lifecycle_counts.completed",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "path": "$.derived_counts.blocked",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "path": "$.items[*].id",
+            "op": "unique"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q2-stale-requires-review",
+      "query_id": "PM1.Q2",
+      "input": {
+        "product": "prod-alpha"
+      },
+      "fixture_override": {
+        "source_stale": true,
+        "staleness_policy": "review_required"
+      },
+      "expected_error": {
+        "kind": "stale_requires_review"
+      }
+    },
+    {
+      "id": "Q3-needed-work",
+      "query_id": "PM1.Q3",
+      "input": {
+        "product": "prod-alpha",
+        "lifecycle_states": [
+          "needed"
+        ],
+        "limit": 20
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[*].id",
+            "op": "set_eq",
+            "value": [
+              "work-blocked",
+              "work-new",
+              "work-ready-high",
+              "work-ready-low"
+            ]
+          },
+          {
+            "path": "$.next_cursor",
+            "op": "eq",
+            "value": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q3-pagination-page1",
+      "query_id": "PM1.Q3",
+      "input": {
+        "product": "prod-alpha",
+        "lifecycle_states": [
+          "needed"
+        ],
+        "limit": 2
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[*].id",
+            "op": "eq",
+            "value": [
+              "work-blocked",
+              "work-ready-high"
+            ]
+          },
+          {
+            "path": "$.next_cursor",
+            "op": "nonempty"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q3-pagination-page2",
+      "query_id": "PM1.Q3",
+      "depends_on": [
+        "Q3-pagination-page1"
+      ],
+      "input": {
+        "product": "prod-alpha",
+        "lifecycle_states": [
+          "needed"
+        ],
+        "limit": 2,
+        "cursor": {
+          "$from": "Q3-pagination-page1.$.next_cursor"
+        }
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[*].id",
+            "op": "eq",
+            "value": [
+              "work-new",
+              "work-ready-low"
+            ]
+          },
+          {
+            "path": "$.next_cursor",
+            "op": "eq",
+            "value": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q3-invalid-cursor",
+      "query_id": "PM1.Q3",
+      "input": {
+        "product": "prod-alpha",
+        "cursor": "opaque-invalid"
+      },
+      "expected_error": {
+        "kind": "invalid_cursor"
+      }
+    },
+    {
+      "id": "Q3-authoritative-empty",
+      "query_id": "PM1.Q3",
+      "input": {
+        "product": "prod-beta",
+        "lifecycle_states": [
+          "completed"
+        ]
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items",
+            "op": "eq",
+            "value": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q4-blocked-reason",
+      "query_id": "PM1.Q4",
+      "input": {
+        "product": "prod-alpha"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[0].id",
+            "op": "eq",
+            "value": "work-blocked"
+          },
+          {
+            "path": "$.items[0].blockers[0].id",
+            "op": "eq",
+            "value": "work-prereq"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q5-ready-ranking",
+      "query_id": "PM1.Q5",
+      "input": {
+        "product": "prod-alpha",
+        "limit": 2
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[0].id",
+            "op": "eq",
+            "value": "work-ready-high"
+          },
+          {
+            "path": "$.items[*].id",
+            "op": "not_contains",
+            "value": "work-blocked"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q6-cross-project",
+      "query_id": "PM1.Q6",
+      "input": {
+        "work": "work-cross"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.work.id",
+            "op": "eq",
+            "value": "work-cross"
+          },
+          {
+            "path": "$.work.projects[*].id",
+            "op": "set_eq",
+            "value": [
+              "proj-api",
+              "proj-web"
+            ]
+          },
+          {
+            "path": "$.work",
+            "op": "single_canonical_record"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q6-project-to-work",
+      "query_id": "PM1.Q6",
+      "input": {
+        "product": "prod-alpha",
+        "project": "proj-web"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[*].id",
+            "op": "set_eq",
+            "value": [
+              "work-blocked",
+              "work-cross",
+              "work-done",
+              "work-ready-high"
+            ]
+          },
+          {
+            "path": "$.items[*].id",
+            "op": "unique"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q7-state-history",
+      "query_id": "PM1.Q7",
+      "input": {
+        "work": "work-done",
+        "direction": "oldest_first"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.events[*].seq",
+            "op": "eq",
+            "value": [
+              1,
+              2,
+              3
+            ]
+          },
+          {
+            "path": "$.events[2].to",
+            "op": "eq",
+            "value": "completed"
+          },
+          {
+            "path": "$.events[2].evidence_refs",
+            "op": "contains",
+            "value": "evidence-done"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q8-relations",
+      "query_id": "PM1.Q8",
+      "input": {
+        "work": "work-old",
+        "relation_kinds": [
+          "supersedes"
+        ],
+        "direction": "incoming"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.edges[0].source",
+            "op": "eq",
+            "value": "work-new"
+          },
+          {
+            "path": "$.edges[0].target",
+            "op": "eq",
+            "value": "work-old"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q9-knowledge-search",
+      "query_id": "PM1.Q9",
+      "input": {
+        "product": "prod-alpha",
+        "tags": [
+          "sqlite"
+        ]
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[*].id",
+            "op": "set_eq",
+            "value": [
+              "knowledge-decision",
+              "knowledge-lesson"
+            ]
+          },
+          {
+            "path": "$.items[*].commit",
+            "op": "all_nonempty"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q9-structured-before-text",
+      "query_id": "PM1.Q9",
+      "input": {
+        "product": "prod-alpha",
+        "text": "governance"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[*].id",
+            "op": "eq",
+            "value": [
+              "knowledge-decision",
+              "knowledge-lesson"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q9-degraded-index",
+      "query_id": "PM1.Q9",
+      "input": {
+        "product": "prod-alpha",
+        "tags": [
+          "sqlite"
+        ],
+        "allow_degraded": true
+      },
+      "fixture_override": {
+        "knowledge_index_lagging": true,
+        "omitted_ids": [
+          "knowledge-decision"
+        ]
+      },
+      "expected": {
+        "authority": "degraded",
+        "assertions": [
+          {
+            "path": "$.omissions[*]",
+            "op": "contains",
+            "value": "knowledge-decision"
+          },
+          {
+            "path": "$.index_watermark",
+            "op": "nonempty"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q10-canonical-note",
+      "query_id": "PM1.Q10",
+      "input": {
+        "work": "work-done"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.note.path",
+            "op": "eq",
+            "value": "docs/work/2026-08-03-auth-release.md"
+          },
+          {
+            "path": "$.note.commit",
+            "op": "eq",
+            "value": "abc123"
+          },
+          {
+            "path": "$.note.content_hash",
+            "op": "eq",
+            "value": "sha256:note1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q10-not-compacted",
+      "query_id": "PM1.Q10",
+      "input": {
+        "work": "work-cancelled"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.status",
+            "op": "eq",
+            "value": "not_compacted"
+          }
+        ]
+      }
+    },
+    {
+      "id": "all-unreachable-no-fallback",
+      "query_id": "PM1.Q2",
+      "input": {
+        "product": "prod-alpha"
+      },
+      "fixture_override": {
+        "live_authority_unreachable": true,
+        "stale_snapshot_available": true
+      },
+      "expected_error": {
+        "kind": "unreachable",
+        "must_not_return": "stale_snapshot"
+      }
+    },
+    {
+      "id": "C22-list-domains",
+      "query_id": "C22.DomainList",
+      "input": {
+        "product": "prod-alpha"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items[*].domain_id",
+            "op": "set_eq",
+            "value": [
+              "root"
+            ]
+          },
+          {
+            "path": "$.items[*].home_domain",
+            "op": "set_eq",
+            "value": [
+              true
+            ]
+          },
+          {
+            "path": "$.registry.root_domain_id",
+            "op": "eq",
+            "value": "root"
+          }
+        ]
+      }
+    },
+    {
+      "id": "C22-domain-detail-current-law-empty",
+      "query_id": "C22.DomainDetail",
+      "input": {
+        "product": "prod-alpha",
+        "domain": "root"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.result.domain.domain_id",
+            "op": "eq",
+            "value": "root"
+          },
+          {
+            "path": "$.result.domain.home_domain",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "path": "$.result.current_law",
+            "op": "eq",
+            "value": []
+          },
+          {
+            "path": "$.result.relations",
+            "op": "eq",
+            "value": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C22-domain-active-work-authoritative-empty",
+      "query_id": "C22.DomainActiveWork",
+      "input": {
+        "product": "prod-alpha",
+        "domain": "root"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items",
+            "op": "eq",
+            "value": []
+          },
+          {
+            "path": "$.registry.root_domain_id",
+            "op": "eq",
+            "value": "root"
+          }
+        ]
+      }
+    },
+    {
+      "id": "C22-domain-overlaps-authoritative-empty",
+      "query_id": "C22.DomainOverlaps",
+      "input": {
+        "product": "prod-alpha"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.items",
+            "op": "eq",
+            "value": []
+          },
+          {
+            "path": "$.truncated",
+            "op": "eq",
+            "value": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "C22-unknown-domain-refuses",
+      "query_id": "C22.DomainDetail",
+      "input": {
+        "product": "prod-alpha",
+        "domain": "no-such-domain"
+      },
+      "expected_error": {
+        "kind": "unknown_domain"
+      }
+    }
   ]
 }

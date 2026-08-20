@@ -1347,3 +1347,71 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	obs.Authority["budget_refusal_typed"] = true
 	return obs
 }
+
+// ---------------------------------------------------------------------------
+// AJ8 — approval consequence summary (CD-0037)
+// ---------------------------------------------------------------------------
+
+// bindAJ8ApprovalRequired proves the consent prompt is typed and core-derived:
+// a consequential transition the operator has not approved mints a challenge
+// and returns the summary derived from that challenge's own facts. The
+// credential rotation never starts, and its absence is probed, not assumed —
+// no effect ran, no transition event exists, and the work version did not
+// move.
+func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
+	t.Helper()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+
+	workID := "work-ready-high"
+	_, version := readWorkFromStore(t, s, workID)
+	key := "aj8-approval-1"
+	if seed, ok := sc.InitialState["idempotency_seed"].(string); ok && seed != "" {
+		key = seed
+	}
+
+	input := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"target":"completed","reason":"credential rotation delivered","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, workID, version, key))
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
+	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
+		t.Fatalf("unapproved consequential transition was not an approval refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
+	}
+	summary := resp.Error.ConsequenceSummary
+	if summary == nil {
+		t.Fatal("minted challenge refusal carries no typed consequence summary")
+	}
+	if summary.Tool != "concord_work_transition" || summary.Operation != "lifecycle" || summary.Consequence == "" {
+		t.Fatalf("summary is not derived from the validated invocation: %#v", summary)
+	}
+	if summary.OperationDigest == "" || len(summary.Scope) == 0 || len(summary.Versions) == 0 || summary.ExpiresAt == "" {
+		t.Fatalf("summary lacks the challenge-bound facts: %#v", summary)
+	}
+	approvalRef, ok := resp.Error.Details["approval_ref"].(string)
+	if !ok || len(approvalRef) != 64 {
+		t.Fatalf("refusal did not mint a challenge: %v", resp.Error.Details["approval_ref"])
+	}
+
+	// The operation never started: version unchanged and no terminal event.
+	_, versionAfter := readWorkFromStore(t, s, workID)
+	if versionAfter != version {
+		t.Fatalf("refused transition moved the work version %d -> %d", version, versionAfter)
+	}
+	if lifecycle, _ := readWorkFromStore(t, s, workID); lifecycle != "needed" && lifecycle != "in_progress" {
+		t.Fatalf("refused transition changed lifecycle to %q", lifecycle)
+	}
+
+	obs := envelopeToObservation(resp)
+	obs.State = map[string]any{
+		"operation": map[string]any{"started": false},
+	}
+	obs.Effects = map[string]any{
+		"approval_challenge_minted": true,
+		"atomic_core_effect_zero":   true,
+		// Actively probed absence: no effect ran (version unchanged, no
+		// terminal transition event), so nothing was rotated and nothing was
+		// clamped into a fabricated completion.
+		"credential_rotated": probedAbsent{Evidence: "refusal before effect; work version unchanged and lifecycle non-terminal"},
+	}
+	obs.Authority["approval_ref"] = approvalRef
+	obs.Authority["challenge_digest"] = summary.OperationDigest
+	return obs
+}

@@ -682,16 +682,20 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		inv.HostAssertionDigest = digest
 	}
 	if requiresApproval && approval == "" {
+		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		var challengeRef string
 		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
 			return err
 		})
 		if txErr != nil {
 			return failureEnvelope(base, txErr), nil
 		}
 		response := coreError(base, "approval_required", "core approval is required for this workflow action", "request_approval", false)
+		// CD-0037 D2: a challenge was minted, so the refusal carries the typed
+		// summary derived from the same spec the challenge binds.
+		response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
 		premiseSummary := ""
 		if in.ActionID == "confirm_premise" {
 			if contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID); err == nil {
@@ -705,9 +709,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			premiseSummary = "Workflow action " + in.ActionID
 		}
 		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(scope), "versions": approvalVersionBindings(versions), "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
-		// CD-0037 D2: every core-minted challenge carries the typed summary
-		// derived from the exact facts bound to the challenge.
-		response.Error.ConsequenceSummary = &ConsequenceSummary{Tool: "concord_work_transition", Operation: "workflow_action", Consequence: approvalConsequence, OperationDigest: digest, Scope: approvalScopeBindings(boundedApprovalScope(scope)), Versions: approvalVersionBindings(versions), ExpiresAt: r.Authority.now().Add(10 * time.Minute).UTC().Format(time.RFC3339)}
 		return response, nil
 	}
 
@@ -2092,28 +2093,29 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		if requiresApproval && approval == "" {
 			challengeScope := boundedApprovalScope(scope)
-			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
 			if err != nil {
 				return err
 			}
 			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
-			// CD-0037 D2: the summary rides the governing-conflict refusal
-			// too, because the challenge for the approved scope cut was
-			// minted in this same transaction.
-			consequenceSummary := &ConsequenceSummary{Tool: r.Tool, Operation: r.Operation, Consequence: consequence, OperationDigest: digest, Scope: approvalScopeBindings(challengeScope), Versions: approvalVersionBindings(versions), ExpiresAt: r.Authority.now().Add(10 * time.Minute).UTC().Format(time.RFC3339)}
+			// CD-0037 D2: the coupling is challenge presence. Both branches
+			// below minted this challenge, so both carry the summary — the
+			// governing-conflict envelope as much as the plain refusal.
+			summary := consequenceSummaryFor(r.Tool, r.Operation, spec)
 			if len(governingConflict) > 0 {
 				response = governingConflictEnvelope(base, governingConflict)
 				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
 			} else {
 				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
 			}
+			response.Error.ConsequenceSummary = summary
 			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id"} {
 				if value, ok := scope[key]; ok {
 					details[key] = value
 				}
 			}
 			response.Error.Details = details
-			response.Error.ConsequenceSummary = consequenceSummary
 			return nil
 		}
 		if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {

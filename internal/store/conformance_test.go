@@ -14,16 +14,29 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
 const (
-	conformanceWorkerEnv   = "CONCORD_CONFORMANCE_WORKER"
-	conformanceLongEnv     = "CONCORD_CONFORMANCE_LONG"
-	conformanceAttemptsEnv = "CONCORD_CONFORMANCE_ATTEMPTS"
-	conformanceUnpacedEnv  = "CONCORD_CONFORMANCE_UNPACED"
+	conformanceWorkerEnv           = "CONCORD_CONFORMANCE_WORKER"
+	conformanceLongEnv             = "CONCORD_CONFORMANCE_LONG"
+	conformanceAttemptsEnv         = "CONCORD_CONFORMANCE_ATTEMPTS"
+	conformanceUnpacedEnv          = "CONCORD_CONFORMANCE_UNPACED"
+	conformanceAcceptanceRunnerEnv = "CONCORD_ACCEPTANCE_RUNNER"
+	githubActionsEnv               = "GITHUB_ACTIONS"
+	acceptanceRunnerSignalExpected = "1"
+)
+
+// populationAuthorityReason names the closed set of reasons a population
+// authority may resolve to. Reasons are stable strings: tests and downstream
+// readers match on them.
+const (
+	populationAuthorityReasonDiagnosticEntryPoint      = "diagnostic_entry_point"
+	populationAuthorityReasonRequiredCheckSignalAbsent = "required_check_signal_absent"
+	populationAuthorityReasonRequiredCheck             = "required_check"
 )
 
 // productionLikePaceInterval paces each long-profile worker at a constant rate
@@ -41,6 +54,98 @@ const (
 	runnerProfileDiagnostic         conformanceRunnerProfile = "diagnostic"
 	runnerProfileIsolatedAcceptance conformanceRunnerProfile = "isolated_acceptance"
 )
+
+// populationAuthority classifies a run as eligible to emit an accepted
+// falsifier verdict (`accepted`) or as bound to remain diagnostic
+// (`diagnostic`). Only `accepted` runs may report `passed` or `fired`; every
+// other run, including ones that exceed the threshold, must remain
+// `inconclusive`.
+type populationAuthority string
+
+const (
+	populationAuthorityDiagnostic populationAuthority = "diagnostic"
+	populationAuthorityAccepted   populationAuthority = "accepted"
+)
+
+// resolvePopulationAuthority decides whether a run is allowed to emit an
+// accepted verdict.
+//
+// The mechanism here establishes the *provenance of the invocation*: a CI
+// workflow that sets the required-check signal. It does not measure host
+// isolation. A busy CI runner still passes the check; a quiet laptop with the
+// signal exported would too. Nothing in this package may describe the signal
+// as establishing isolation. See CD-0046.
+//
+// Rules, in order:
+//   - profile is not the acceptance entry point → diagnostic, reason
+//     `diagnostic_entry_point`.
+//   - the acceptance-runner signal is not `"1"` → diagnostic, reason
+//     `required_check_signal_absent`.
+//   - otherwise → accepted, reason `required_check`.
+//
+// The signal is passed in rather than read from the environment so tests can
+// drive the function without spawning child processes or mutating the global
+// environment.
+func resolvePopulationAuthority(profile conformanceRunnerProfile, acceptanceRunnerSignal string) (populationAuthority, string) {
+	if profile != runnerProfileIsolatedAcceptance {
+		return populationAuthorityDiagnostic, populationAuthorityReasonDiagnosticEntryPoint
+	}
+	if acceptanceRunnerSignal != acceptanceRunnerSignalExpected {
+		return populationAuthorityDiagnostic, populationAuthorityReasonRequiredCheckSignalAbsent
+	}
+	return populationAuthorityAccepted, populationAuthorityReasonRequiredCheck
+}
+
+// resolveCIRunnerTripwire reports whether a run missing the acceptance-runner
+// signal must fail visibly because it is operating under GitHub Actions.
+// Local invocations (no `GITHUB_ACTIONS`) report `inconclusive` and continue.
+//
+// A run is tripwired only when all three are true:
+//   - the profile is the acceptance entry point;
+//   - `GITHUB_ACTIONS == "true"`;
+//   - the acceptance-runner signal is absent.
+//
+// The function is pure and takes all signals in so tests can drive every
+// combination.
+func resolveCIRunnerTripwire(profile conformanceRunnerProfile, githubActionsSignal, acceptanceRunnerSignal string) bool {
+	return profile == runnerProfileIsolatedAcceptance &&
+		githubActionsSignal == "true" &&
+		acceptanceRunnerSignal != acceptanceRunnerSignalExpected
+}
+
+// readLoadAverageOneMinute returns the host's 1-minute load average on Linux,
+// read from /proc/loadavg. It returns ok=false silently if the file is
+// unreadable or malformed (e.g. macOS, Windows, or restricted CI sandboxes).
+// The value is recorded as provenance only — it must never gate, classify, or
+// influence any verdict. A later reader must not wire it into the threshold.
+func readLoadAverageOneMinute() (load float64, ok bool) {
+	data, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		return 0, false
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 1 {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+// acceptanceRunnerSignal reads the acceptance-runner environment variable at
+// the harness boundary. Only an exact "1" grants accepted authority, so unset,
+// empty, and any other value all resolve to diagnostic.
+func acceptanceRunnerSignal() string {
+	return os.Getenv(conformanceAcceptanceRunnerEnv)
+}
+
+// githubActionsSignal reads the GITHUB_ACTIONS environment variable at the
+// harness boundary, keeping environment access out of the pure predicates.
+func githubActionsSignal() string {
+	return os.Getenv(githubActionsEnv)
+}
 
 type sustainedThresholdStatus string
 
@@ -139,15 +244,25 @@ type ConformanceReport struct {
 	PaceIntervalMS         int64                    `json:"pace_interval_ms"`
 	RunnerProfile          conformanceRunnerProfile `json:"runner_profile"`
 	AcceptancePopulation   bool                     `json:"acceptance_population"`
-	ThresholdStatus        sustainedThresholdStatus `json:"threshold_status"`
-	FalsifierStatus        falsifierStatus          `json:"falsifier_status"`
-	Populations            conformancePopulations   `json:"populations"`
-	WallLatency            latencySummary           `json:"wall_latency"`
-	BeginWaitLatency       latencySummary           `json:"begin_wait_latency"`
-	CommitLatency          latencySummary           `json:"commit_latency"`
-	AcceptedWallLatency    latencySummary           `json:"accepted_wall_latency"`
-	AcceptedBeginLatency   latencySummary           `json:"accepted_begin_latency"`
-	AcceptedCommitLatency  latencySummary           `json:"accepted_commit_latency"`
+	// PopulationAuthority and PopulationAuthorityReason describe who may take
+	// the falsifier verdict seriously. They are derived from the resolved
+	// authority, not the profile literal, so a reader of any report can tell
+	// why a verdict was or was not accepted. See CD-0046.
+	PopulationAuthority       populationAuthority      `json:"population_authority"`
+	PopulationAuthorityReason string                   `json:"population_authority_reason"`
+	ThresholdStatus           sustainedThresholdStatus `json:"threshold_status"`
+	FalsifierStatus           falsifierStatus          `json:"falsifier_status"`
+	Populations               conformancePopulations   `json:"populations"`
+	WallLatency               latencySummary           `json:"wall_latency"`
+	BeginWaitLatency          latencySummary           `json:"begin_wait_latency"`
+	CommitLatency             latencySummary           `json:"commit_latency"`
+	AcceptedWallLatency       latencySummary           `json:"accepted_wall_latency"`
+	AcceptedBeginLatency      latencySummary           `json:"accepted_begin_latency"`
+	AcceptedCommitLatency     latencySummary           `json:"accepted_commit_latency"`
+	// LoadAverageOneMinute records the host's 1-minute load average as
+	// provenance. It is read best-effort from /proc/loadavg and omitted when
+	// unreadable. It is never a gate, threshold, or verdict ingredient.
+	LoadAverageOneMinute *float64 `json:"load_average_one_minute,omitempty"`
 	// Latency fields are retained as a concise compatibility view of wall time.
 	Latency         latencySummary                   `json:"latency"`
 	AcceptedLatency latencySummary                   `json:"accepted_latency"`
@@ -195,6 +310,14 @@ func TestTenProcessAcceptanceConformance(t *testing.T) {
 	}
 	if os.Getenv(conformanceLongEnv) != "1" {
 		t.Skip("acceptance conformance runs only in long mode")
+	}
+	// CI tripwire: a CI run missing the required-check signal must fail
+	// visibly. Without this, a workflow that drops the env var would silently
+	// downgrade the required check to advisory and could still emit `passed`
+	// or `fired`. Local runs (no GITHUB_ACTIONS) are allowed to remain
+	// `inconclusive` and continue.
+	if resolveCIRunnerTripwire(runnerProfileIsolatedAcceptance, githubActionsSignal(), acceptanceRunnerSignal()) {
+		t.Fatalf("acceptance entry point ran under GitHub Actions without %s=1; required check signal is absent", conformanceAcceptanceRunnerEnv)
 	}
 	runTenProcessConformance(t, runnerProfileIsolatedAcceptance, true)
 }
@@ -372,17 +495,24 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 }
 
 func newConformanceReport(profile conformanceRunnerProfile) ConformanceReport {
-	return ConformanceReport{
-		Workers:              10,
-		Counts:               map[WorkerOutcome]int{},
-		Scenarios:            map[string]map[WorkerOutcome]int{},
-		P99TargetMS:          100,
-		RunnerProfile:        profile,
-		AcceptancePopulation: profile == runnerProfileIsolatedAcceptance,
-		ThresholdStatus:      thresholdInconclusive,
-		FalsifierStatus:      falsifierInconclusive,
-		Populations:          conformancePopulations{RaceInstrumented: conformanceRaceInstrumented},
+	authority, reason := resolvePopulationAuthority(profile, acceptanceRunnerSignal())
+	report := ConformanceReport{
+		Workers:                   10,
+		Counts:                    map[WorkerOutcome]int{},
+		Scenarios:                 map[string]map[WorkerOutcome]int{},
+		P99TargetMS:               100,
+		RunnerProfile:             profile,
+		AcceptancePopulation:      authority == populationAuthorityAccepted,
+		PopulationAuthority:       authority,
+		PopulationAuthorityReason: reason,
+		ThresholdStatus:           thresholdInconclusive,
+		FalsifierStatus:           falsifierInconclusive,
+		Populations:               conformancePopulations{RaceInstrumented: conformanceRaceInstrumented},
 	}
+	if load, ok := readLoadAverageOneMinute(); ok {
+		report.LoadAverageOneMinute = &load
+	}
+	return report
 }
 
 func validateLoadPacing(profile conformanceRunnerProfile, unpaced bool) error {
@@ -399,7 +529,12 @@ func loadPaceInterval() time.Duration {
 	return productionLikePaceInterval
 }
 
-func classifySustainedFalsifier(profile conformanceRunnerProfile, aboveTarget, rounds int, correctnessPassed bool) (sustainedThresholdStatus, falsifierStatus) {
+// classifySustainedFalsifier decides what verdict the rounds produced. An
+// accepted verdict is reachable only when the resolved authority is accepted:
+// a diagnostic authority, even with the threshold exceeded, returns
+// `inconclusive`. Correctness precedence is preserved: a failed correctness
+// population still forces `inconclusive` and fails the run independently.
+func classifySustainedFalsifier(authority populationAuthority, aboveTarget, rounds int, correctnessPassed bool) (sustainedThresholdStatus, falsifierStatus) {
 	if rounds < 1 || aboveTarget < 0 || aboveTarget > rounds {
 		return thresholdInconclusive, falsifierInconclusive
 	}
@@ -410,7 +545,7 @@ func classifySustainedFalsifier(profile conformanceRunnerProfile, aboveTarget, r
 	} else if rounds-aboveTarget >= required {
 		threshold = thresholdMet
 	}
-	if !correctnessPassed || profile != runnerProfileIsolatedAcceptance {
+	if !correctnessPassed || authority != populationAuthorityAccepted {
 		return threshold, falsifierInconclusive
 	}
 	switch threshold {
@@ -472,7 +607,8 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 			correctnessPassed = false
 		}
 	}
-	threshold, status := classifySustainedFalsifier(runnerProfile, above, len(reports), correctnessPassed)
+	authority, _ := resolvePopulationAuthority(runnerProfile, acceptanceRunnerSignal())
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), correctnessPassed)
 	for round, report := range reports {
 		report.ThresholdStatus = threshold
 		report.FalsifierStatus = status

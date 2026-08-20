@@ -51,6 +51,7 @@ jobs:
       - name: Run production-like ten-process acceptance conformance
         env:
           CONCORD_CONFORMANCE_LONG: "1"
+          CONCORD_ACCEPTANCE_RUNNER: "1"
         run: go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

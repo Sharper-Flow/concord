@@ -317,8 +317,21 @@
     },
     {
       "id": "CD-0038",
-      "state": "outstanding",
-      "issue": 173
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "scenario",
+          "value": "AJ8-budget-refused"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestApplyBudgetParsesRequestedSecondsAndCeiling"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestBudgetRefusalCarriesTheTypedCeiling"
+        }
+      ]
     },
     {
       "id": "CD-0039",

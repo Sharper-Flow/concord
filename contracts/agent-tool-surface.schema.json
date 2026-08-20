@@ -128,7 +128,8 @@
           "capability",
           "consequence",
           "approval",
-          "metadata"
+          "metadata",
+          "supported_budget_seconds"
         ],
         "properties": {
           "id": {
@@ -201,6 +202,12 @@
           },
           "metadata": {
             "$ref": "#/$defs/metadata"
+          },
+          "supported_budget_seconds": {
+            "description": "CD-0038 D2: the seconds-denominated budget ceiling this operation supports. Uniform across the surface except where accepted scenario evidence fixes a different value; the manifest digest covers it. Values change only with accepted scenario or TS9 measurement evidence.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300
           }
         }
       }

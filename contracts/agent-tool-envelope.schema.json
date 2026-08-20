@@ -3,94 +3,585 @@
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/agent-tool-envelope.schema.json",
   "title": "Concord agent tool envelope v1",
   "oneOf": [
-    { "$ref": "#/$defs/ok" },
-    { "$ref": "#/$defs/pending" },
-    { "$ref": "#/$defs/partial" },
-    { "$ref": "#/$defs/errorOutcome" }
+    {
+      "$ref": "#/$defs/ok"
+    },
+    {
+      "$ref": "#/$defs/pending"
+    },
+    {
+      "$ref": "#/$defs/partial"
+    },
+    {
+      "$ref": "#/$defs/errorOutcome"
+    }
   ],
   "$defs": {
     "toolOperation": {
       "oneOf": [
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_product_view" }, "operation": { "const": "resolve" }, "query_id": { "const": "PM1.Q1" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_product_view" }, "operation": { "const": "snapshot" }, "query_id": { "const": "PM1.Q2" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_browse" }, "operation": { "const": "list" }, "query_id": { "const": "PM1.Q3" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_browse" }, "operation": { "const": "blocked" }, "query_id": { "const": "PM1.Q4" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_browse" }, "operation": { "const": "ready" }, "query_id": { "const": "PM1.Q5" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_browse" }, "operation": { "const": "scope" }, "query_id": { "const": "PM1.Q6" } } },
-         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_trace" }, "operation": { "const": "history" }, "query_id": { "const": "PM1.Q7" } } },
-         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_trace" }, "operation": { "const": "continuity" }, "query_id": { "const": "C19.Continuity" } } },
-         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_trace" }, "operation": { "const": "relations" }, "query_id": { "const": "PM1.Q8" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_trace" }, "operation": { "const": "research" }, "query_id": { "const": "PM1.Q11" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_browse" }, "operation": { "const": "resource_claims" }, "query_id": { "const": "PM1.Q13" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_browse" }, "operation": { "const": "messages" }, "query_id": { "const": "PM1.Q14" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_knowledge" }, "operation": { "const": "search" }, "query_id": { "const": "PM1.Q9" } } },
-        { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_knowledge" }, "operation": { "const": "resolve_note" }, "query_id": { "const": "PM1.Q10" } } },
-         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_define" }, "operation": { "enum": ["capture", "revise_intent"] } } },
-         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_initiative" }, "operation": { "enum": ["create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative"] } } },
-         { "required": ["tool", "operation", "query_id"], "properties": { "tool": { "const": "concord_work_initiative" }, "operation": { "const": "entries" }, "query_id": { "const": "C21.InitiativeEntries" } } },
-        { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_transition" }, "operation": { "enum": ["lifecycle", "workflow_action"] } } },
-         { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_relate" }, "operation": { "enum": ["set_memberships", "link", "unlink", "supersede", "restore_superseded", "resolve_overlap"] } } },
-        { "required": ["tool", "operation"], "not": { "required": ["query_id"] }, "properties": { "tool": { "const": "concord_work_compact" }, "operation": { "enum": ["publish", "reconcile"] } } }
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_product_view"
+            },
+            "operation": {
+              "const": "resolve"
+            },
+            "query_id": {
+              "const": "PM1.Q1"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_product_view"
+            },
+            "operation": {
+              "const": "snapshot"
+            },
+            "query_id": {
+              "const": "PM1.Q2"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "list"
+            },
+            "query_id": {
+              "const": "PM1.Q3"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "blocked"
+            },
+            "query_id": {
+              "const": "PM1.Q4"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "ready"
+            },
+            "query_id": {
+              "const": "PM1.Q5"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "scope"
+            },
+            "query_id": {
+              "const": "PM1.Q6"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "history"
+            },
+            "query_id": {
+              "const": "PM1.Q7"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "continuity"
+            },
+            "query_id": {
+              "const": "C19.Continuity"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "relations"
+            },
+            "query_id": {
+              "const": "PM1.Q8"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "research"
+            },
+            "query_id": {
+              "const": "PM1.Q11"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "resource_claims"
+            },
+            "query_id": {
+              "const": "PM1.Q13"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "messages"
+            },
+            "query_id": {
+              "const": "PM1.Q14"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_knowledge"
+            },
+            "operation": {
+              "const": "search"
+            },
+            "query_id": {
+              "const": "PM1.Q9"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_knowledge"
+            },
+            "operation": {
+              "const": "resolve_note"
+            },
+            "query_id": {
+              "const": "PM1.Q10"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation"
+          ],
+          "not": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "properties": {
+            "tool": {
+              "const": "concord_work_define"
+            },
+            "operation": {
+              "enum": [
+                "capture",
+                "revise_intent"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation"
+          ],
+          "not": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "properties": {
+            "tool": {
+              "const": "concord_work_initiative"
+            },
+            "operation": {
+              "enum": [
+                "create",
+                "add_entry",
+                "remove_entry",
+                "reorder_entry",
+                "change_requiredness",
+                "revise_narrative"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_initiative"
+            },
+            "operation": {
+              "const": "entries"
+            },
+            "query_id": {
+              "const": "C21.InitiativeEntries"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation"
+          ],
+          "not": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "properties": {
+            "tool": {
+              "const": "concord_work_transition"
+            },
+            "operation": {
+              "enum": [
+                "lifecycle",
+                "workflow_action"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation"
+          ],
+          "not": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "properties": {
+            "tool": {
+              "const": "concord_work_relate"
+            },
+            "operation": {
+              "enum": [
+                "set_memberships",
+                "link",
+                "unlink",
+                "supersede",
+                "restore_superseded",
+                "resolve_overlap"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation"
+          ],
+          "not": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "properties": {
+            "tool": {
+              "const": "concord_work_compact"
+            },
+            "operation": {
+              "enum": [
+                "publish",
+                "reconcile"
+              ]
+            }
+          }
+        }
       ]
     },
     "base": {
       "type": "object",
       "required": [
-        "schema_version", "request_id", "origin", "tool", "operation",
-        "outcome", "resolved_scope", "authority", "freshness", "manifest_digest",
-        "source_version_watermark", "ordering_keys", "next_cursor", "omissions",
-        "warnings", "evidence_refs", "replayed"
+        "schema_version",
+        "request_id",
+        "origin",
+        "tool",
+        "operation",
+        "outcome",
+        "resolved_scope",
+        "authority",
+        "freshness",
+        "manifest_digest",
+        "source_version_watermark",
+        "ordering_keys",
+        "next_cursor",
+        "omissions",
+        "warnings",
+        "evidence_refs",
+        "replayed"
       ],
       "properties": {
-        "schema_version": { "const": "1.0" },
-        "manifest_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "origin": { "enum": ["core", "adapter"] },
+        "schema_version": {
+          "const": "1.0"
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "origin": {
+          "enum": [
+            "core",
+            "adapter"
+          ]
+        },
         "tool": {
           "enum": [
-            "concord_product_view", "concord_work_browse", "concord_work_trace",
-             "concord_knowledge", "concord_work_define", "concord_work_initiative", "concord_work_transition",
-            "concord_work_relate", "concord_work_compact"
+            "concord_product_view",
+            "concord_work_browse",
+            "concord_work_trace",
+            "concord_knowledge",
+            "concord_work_define",
+            "concord_work_initiative",
+            "concord_work_transition",
+            "concord_work_relate",
+            "concord_work_compact"
           ]
         },
         "operation": {
           "enum": [
-            "resolve", "snapshot", "list", "ready", "blocked", "scope",
-            "history", "relations", "search", "resolve_note", "capture",
-            "revise_intent", "lifecycle", "workflow_action", "set_memberships",
-            "link", "unlink", "supersede", "restore_superseded", "resolve_overlap", "publish",
-             "reconcile", "create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative", "entries"
+            "resolve",
+            "snapshot",
+            "list",
+            "ready",
+            "blocked",
+            "scope",
+            "history",
+            "relations",
+            "search",
+            "resolve_note",
+            "capture",
+            "revise_intent",
+            "lifecycle",
+            "workflow_action",
+            "set_memberships",
+            "link",
+            "unlink",
+            "supersede",
+            "restore_superseded",
+            "resolve_overlap",
+            "publish",
+            "reconcile",
+            "create",
+            "add_entry",
+            "remove_entry",
+            "reorder_entry",
+            "change_requiredness",
+            "revise_narrative",
+            "entries"
           ]
         },
-         "query_id": { "type": "string", "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$" },
-        "outcome": { "enum": ["ok", "pending", "partial", "error"] },
+        "query_id": {
+          "type": "string",
+          "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$"
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "pending",
+            "partial",
+            "error"
+          ]
+        },
         "resolved_scope": {
           "oneOf": [
-            { "type": "null" },
+            {
+              "type": "null"
+            },
             {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "product_id": { "type": "string", "minLength": 1, "maxLength": 128 },
-                "project_ids": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
-                "work_ids": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
-                "scope_version": { "type": "string", "minLength": 1, "maxLength": 128 }
+                "product_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "project_ids": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "work_ids": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "scope_version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
               }
             }
           ]
         },
-        "authority": { "enum": ["authoritative", "degraded", "unreachable"] },
+        "authority": {
+          "enum": [
+            "authoritative",
+            "degraded",
+            "unreachable"
+          ]
+        },
         "freshness": {
           "oneOf": [
-            { "type": "null" },
+            {
+              "type": "null"
+            },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["observed_at", "age", "stale"],
+              "required": [
+                "observed_at",
+                "age",
+                "stale"
+              ],
               "properties": {
-                "observed_at": { "type": "string", "format": "date-time" },
-                "age": { "type": "integer", "minimum": 0 },
-                "stale": { "type": "boolean" }
+                "observed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "age": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "stale": {
+                  "type": "boolean"
+                }
               }
             }
           ]
@@ -101,176 +592,587 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["source_kind", "source_id", "version"],
+            "required": [
+              "source_kind",
+              "source_id",
+              "version"
+            ],
             "properties": {
-              "source_kind": { "enum": ["product_memory", "git_knowledge", "native_authority", "adapter"] },
-              "source_id": { "type": "string", "minLength": 1, "maxLength": 256 },
-              "version": { "type": "string", "minLength": 1, "maxLength": 256 }
+              "source_kind": {
+                "enum": [
+                  "product_memory",
+                  "git_knowledge",
+                  "native_authority",
+                  "adapter"
+                ]
+              },
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
             }
           }
         },
-        "ordering_keys": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
-        "next_cursor": { "type": ["string", "null"], "maxLength": 4096 },
-        "omissions": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/notice" } },
-        "warnings": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/notice" } },
-        "evidence_refs": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/evidenceRef" } },
-        "replayed": { "type": "boolean" }
+        "ordering_keys": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "omissions": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/notice"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/notice"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidenceRef"
+          }
+        },
+        "replayed": {
+          "type": "boolean"
+        }
       },
       "allOf": [
-        { "$ref": "#/$defs/toolOperation" },
         {
-          "if": { "properties": { "authority": { "const": "degraded" } }, "required": ["authority"] },
-          "then": { "properties": { "omissions": { "minItems": 1 } } }
+          "$ref": "#/$defs/toolOperation"
         },
         {
-          "if": { "properties": { "authority": { "const": "unreachable" } }, "required": ["authority"] },
-          "then": { "properties": { "outcome": { "const": "error" }, "freshness": { "type": "null" }, "source_version_watermark": { "maxItems": 0 } } }
+          "if": {
+            "properties": {
+              "authority": {
+                "const": "degraded"
+              }
+            },
+            "required": [
+              "authority"
+            ]
+          },
+          "then": {
+            "properties": {
+              "omissions": {
+                "minItems": 1
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "origin": { "const": "adapter" } }, "required": ["origin"] },
-          "then": { "properties": { "outcome": { "const": "error" }, "authority": { "const": "unreachable" }, "freshness": { "type": "null" }, "source_version_watermark": { "maxItems": 0 } } }
+          "if": {
+            "properties": {
+              "authority": {
+                "const": "unreachable"
+              }
+            },
+            "required": [
+              "authority"
+            ]
+          },
+          "then": {
+            "properties": {
+              "outcome": {
+                "const": "error"
+              },
+              "freshness": {
+                "type": "null"
+              },
+              "source_version_watermark": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "adapter"
+              }
+            },
+            "required": [
+              "origin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "outcome": {
+                "const": "error"
+              },
+              "authority": {
+                "const": "unreachable"
+              },
+              "freshness": {
+                "type": "null"
+              },
+              "source_version_watermark": {
+                "maxItems": 0
+              }
+            }
+          }
         }
       ]
     },
     "notice": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
-        "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "source_id": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "count": { "type": "integer", "minimum": 0 },
-        "details": { "type": "object", "additionalProperties": { "type": ["string", "number", "integer", "boolean", "null"] }, "maxProperties": 16 }
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          },
+          "maxProperties": 16
+        }
       }
     },
     "evidenceRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "authority", "locator_kind", "locator"],
+      "required": [
+        "kind",
+        "authority",
+        "locator_kind",
+        "locator"
+      ],
       "properties": {
-        "kind": { "enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"] },
-        "authority": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "locator_kind": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "locator": { "type": "string", "minLength": 1, "maxLength": 2048 },
-        "version": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "digest": { "type": "string", "minLength": 1, "maxLength": 256 }
+        "kind": {
+          "enum": [
+            "verification",
+            "review",
+            "approval",
+            "commit",
+            "durable_note",
+            "native_run",
+            "artifact"
+          ]
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "locator_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
       }
     },
     "changedRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["entity_kind", "id", "version"],
+      "required": [
+        "entity_kind",
+        "id",
+        "version"
+      ],
       "properties": {
-        "entity_kind": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+        "entity_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
       }
     },
     "nextIntent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["tool", "operation", "reason_code"],
+      "required": [
+        "tool",
+        "operation",
+        "reason_code"
+      ],
       "properties": {
         "tool": {
           "enum": [
-            "concord_product_view", "concord_work_browse", "concord_work_trace",
-             "concord_knowledge", "concord_work_define", "concord_work_initiative", "concord_work_transition",
-            "concord_work_relate", "concord_work_compact"
+            "concord_product_view",
+            "concord_work_browse",
+            "concord_work_trace",
+            "concord_knowledge",
+            "concord_work_define",
+            "concord_work_initiative",
+            "concord_work_transition",
+            "concord_work_relate",
+            "concord_work_compact"
           ]
         },
         "operation": {
           "enum": [
-            "resolve", "snapshot", "list", "ready", "blocked", "scope",
-            "history", "relations", "search", "resolve_note", "capture",
-            "revise_intent", "lifecycle", "workflow_action", "set_memberships",
-            "link", "unlink", "supersede", "restore_superseded", "resolve_overlap", "publish",
-             "reconcile", "create", "add_entry", "remove_entry", "reorder_entry", "change_requiredness", "revise_narrative", "entries"
+            "resolve",
+            "snapshot",
+            "list",
+            "ready",
+            "blocked",
+            "scope",
+            "history",
+            "relations",
+            "search",
+            "resolve_note",
+            "capture",
+            "revise_intent",
+            "lifecycle",
+            "workflow_action",
+            "set_memberships",
+            "link",
+            "unlink",
+            "supersede",
+            "restore_superseded",
+            "resolve_overlap",
+            "publish",
+            "reconcile",
+            "create",
+            "add_entry",
+            "remove_entry",
+            "reorder_entry",
+            "change_requiredness",
+            "revise_narrative",
+            "entries"
           ]
         },
-         "query_id": { "type": "string", "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$" },
-        "reason_code": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "required_fields": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 64 } }
+        "query_id": {
+          "type": "string",
+          "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "required_fields": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
       },
-      "allOf": [{ "$ref": "#/$defs/toolOperation" }]
+      "allOf": [
+        {
+          "$ref": "#/$defs/toolOperation"
+        }
+      ]
     },
     "operationRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "version", "state", "current_step", "updated_at"],
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "state",
+        "current_step",
+        "updated_at"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "state": { "enum": ["pending", "partial", "failed", "completed"] },
-        "current_step": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "updated_at": { "type": "string", "format": "date-time" }
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "partial",
+            "failed",
+            "completed"
+          ]
+        },
+        "current_step": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "recoveryAction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "kind": {
           "enum": [
-            "none", "retry_same_request", "refresh_context", "reread_entities",
-            "request_approval", "provide_evidence", "reduce_limit",
-            "use_next_cursor", "restart_query", "adjust_budget",
-            "reconcile_operation", "resolve_ambiguity", "contact_operator"
+            "none",
+            "retry_same_request",
+            "refresh_context",
+            "reread_entities",
+            "request_approval",
+            "provide_evidence",
+            "reduce_limit",
+            "use_next_cursor",
+            "restart_query",
+            "adjust_budget",
+            "reconcile_operation",
+            "resolve_ambiguity",
+            "contact_operator"
           ]
         },
-        "required_refs": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } }
+        "required_refs": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
       }
     },
     "typedError": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "retry_safe", "recovery_action", "effect_state"],
+      "required": [
+        "kind",
+        "retry_safe",
+        "recovery_action",
+        "effect_state"
+      ],
       "properties": {
         "kind": {
           "enum": [
-            "unknown_scope", "ambiguous_scope", "stale_context", "unauthorized",
-            "approval_required", "approval_invalid", "version_conflict",
-            "idempotency_conflict", "operation_conflict", "invalid_transition",
-            "invalid_relation", "invariant_violation", "missing_evidence",
-             "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed",
-            "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused",
-            "invalid_input", "cancelled", "timeout", "transport_failure",
-            "malformed_response", "internal_error"
+            "unknown_scope",
+            "ambiguous_scope",
+            "stale_context",
+            "unauthorized",
+            "approval_required",
+            "approval_invalid",
+            "version_conflict",
+            "idempotency_conflict",
+            "operation_conflict",
+            "invalid_transition",
+            "invalid_relation",
+            "invariant_violation",
+            "missing_evidence",
+            "not_terminal",
+            "outcome_mismatch",
+            "stale_requires_review",
+            "stale_law_revision",
+            "domain_overlap",
+            "degraded_not_allowed",
+            "unreachable",
+            "invalid_cursor",
+            "limit_exceeded",
+            "budget_refused",
+            "invalid_input",
+            "cancelled",
+            "timeout",
+            "transport_failure",
+            "malformed_response",
+            "internal_error"
           ]
         },
-        "retry_safe": { "type": "boolean" },
-        "recovery_action": { "$ref": "#/$defs/recoveryAction" },
-        "effect_state": { "enum": ["none", "possible", "partial"] },
+        "retry_safe": {
+          "type": "boolean"
+        },
+        "recovery_action": {
+          "$ref": "#/$defs/recoveryAction"
+        },
+        "effect_state": {
+          "enum": [
+            "none",
+            "possible",
+            "partial"
+          ]
+        },
         "adapter_reason": {
           "enum": [
-            "missing_binary", "spawn_failure", "io_failure",
-            "malformed_core_response", "timeout_no_effect", "cancelled_no_effect",
-            "manifest_mismatch", "grant_bootstrap_failed",
+            "missing_binary",
+            "spawn_failure",
+            "io_failure",
+            "malformed_core_response",
+            "timeout_no_effect",
+            "cancelled_no_effect",
+            "manifest_mismatch",
+            "grant_bootstrap_failed",
             "unknown_effect"
           ]
         },
-        "message": { "type": "string", "maxLength": 1000 },
-        "current_versions": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/changedRef" } },
-        "candidates": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
-        "violations": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
-        "options": { "type": "array", "maxItems": 3, "uniqueItems": true, "items": { "enum": ["clarify", "amend_contract", "accept_scope_cut"] } },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "current_versions": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/changedRef"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "violations": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "options": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "clarify",
+              "amend_contract",
+              "accept_scope_cut"
+            ]
+          }
+        },
         "stale_law_revision": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["old_law_id", "old_content_hash", "accepted_successor_law_id", "accepted_successor_content_hash", "recovery_actions"],
+          "required": [
+            "old_law_id",
+            "old_content_hash",
+            "accepted_successor_law_id",
+            "accepted_successor_content_hash",
+            "recovery_actions"
+          ],
           "properties": {
-            "old_law_id": {"type": "string", "minLength": 2, "maxLength": 256},
-            "old_content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-            "accepted_successor_law_id": {"type": "string", "minLength": 2, "maxLength": 256},
-            "accepted_successor_content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-            "recovery_actions": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "string", "minLength": 1, "maxLength": 128}}
+            "old_law_id": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 256
+            },
+            "old_content_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "accepted_successor_law_id": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 256
+            },
+            "accepted_successor_content_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "recovery_actions": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            }
           }
         },
         "domain_overlap": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["overlaps", "total_overlaps", "returned_overlaps", "truncated"],
+          "required": [
+            "overlaps",
+            "total_overlaps",
+            "returned_overlaps",
+            "truncated"
+          ],
           "properties": {
             "overlaps": {
               "type": "array",
@@ -279,55 +1181,266 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"],
+                "required": [
+                  "product_id",
+                  "from_work_id",
+                  "to_work_id",
+                  "from_contract_version",
+                  "to_contract_version",
+                  "shared_affected_domain_ids",
+                  "shared_law_ids",
+                  "shared_domain_modifications",
+                  "shared_relation_tuples",
+                  "overlap_classes",
+                  "resolution_state",
+                  "recovery_actions",
+                  "shared_affected_domain_count",
+                  "shared_law_count",
+                  "shared_domain_modification_count",
+                  "shared_relation_tuple_count",
+                  "detail_truncated"
+                ],
                 "properties": {
-                  "product_id": {"type": "string", "minLength": 1, "maxLength": 128},
-                  "from_work_id": {"type": "string", "minLength": 1, "maxLength": 128},
-                  "to_work_id": {"type": "string", "minLength": 1, "maxLength": 128},
-                  "from_contract_version": {"type": "integer", "minimum": 1},
-                  "to_contract_version": {"type": "integer", "minimum": 1},
-                  "shared_affected_domain_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
-                  "shared_law_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 256}},
-                  "shared_domain_modifications": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
-                  "shared_relation_tuples": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": false, "required": ["source_domain_id", "kind", "target_domain_id"], "properties": {"source_domain_id": {"type": "string", "minLength": 1, "maxLength": 256}, "kind": {"type": "string", "enum": ["depends_on", "shares_contract_with", "replaces"]}, "target_domain_id": {"type": "string", "minLength": 1, "maxLength": 256}}}},
-                  "overlap_classes": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "enum": ["architecture", "law_write", "domain_write", "domain_relation_write"]}},
-                  "resolution_state": {"type": "string", "enum": ["unresolved", "stale", "sequenced"]},
-                  "resolution_kind": {"type": "string", "enum": ["compatible_with", "depends_on", "blocks", "merged_into", "supersedes"]},
-                  "recovery_actions": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "enum": ["wait", "resolve_overlap", "terminal_work", "supersede_contract"]}},
-                  "shared_affected_domain_count": {"type": "integer", "minimum": 0},
-                  "shared_law_count": {"type": "integer", "minimum": 0},
-                  "shared_domain_modification_count": {"type": "integer", "minimum": 0},
-                  "shared_relation_tuple_count": {"type": "integer", "minimum": 0},
-                  "detail_truncated": {"type": "boolean"}
+                  "product_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "from_work_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "to_work_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "from_contract_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "to_contract_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "shared_affected_domain_ids": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  },
+                  "shared_law_ids": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 256
+                    }
+                  },
+                  "shared_domain_modifications": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  },
+                  "shared_relation_tuples": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "source_domain_id",
+                        "kind",
+                        "target_domain_id"
+                      ],
+                      "properties": {
+                        "source_domain_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "depends_on",
+                            "shares_contract_with",
+                            "replaces"
+                          ]
+                        },
+                        "target_domain_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      }
+                    }
+                  },
+                  "overlap_classes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "architecture",
+                        "law_write",
+                        "domain_write",
+                        "domain_relation_write"
+                      ]
+                    }
+                  },
+                  "resolution_state": {
+                    "type": "string",
+                    "enum": [
+                      "unresolved",
+                      "stale",
+                      "sequenced"
+                    ]
+                  },
+                  "resolution_kind": {
+                    "type": "string",
+                    "enum": [
+                      "compatible_with",
+                      "depends_on",
+                      "blocks",
+                      "merged_into",
+                      "supersedes"
+                    ]
+                  },
+                  "recovery_actions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "wait",
+                        "resolve_overlap",
+                        "terminal_work",
+                        "supersede_contract"
+                      ]
+                    }
+                  },
+                  "shared_affected_domain_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "shared_law_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "shared_domain_modification_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "shared_relation_tuple_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "detail_truncated": {
+                    "type": "boolean"
+                  }
                 }
               }
             },
-            "total_overlaps": {"type": "integer", "minimum": 1},
-            "returned_overlaps": {"type": "integer", "minimum": 1},
-            "truncated": {"type": "boolean"}
+            "total_overlaps": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "returned_overlaps": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "truncated": {
+              "type": "boolean"
+            }
           }
+        },
+        "supported_budget_seconds": {
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
         },
         "details": {
           "type": "object",
           "maxProperties": 20,
           "additionalProperties": {
             "oneOf": [
-              { "type": ["string", "number", "integer", "boolean", "null"] },
+              {
+                "type": [
+                  "string",
+                  "number",
+                  "integer",
+                  "boolean",
+                  "null"
+                ]
+              },
               {
                 "type": "array",
                 "maxItems": 20,
-                "items": { "type": ["string", "number", "integer", "boolean", "null"] }
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "integer",
+                    "boolean",
+                    "null"
+                  ]
+                }
               },
               {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["old_law_id", "old_content_hash", "accepted_successor_law_id", "accepted_successor_content_hash", "recovery_actions"],
+                "required": [
+                  "old_law_id",
+                  "old_content_hash",
+                  "accepted_successor_law_id",
+                  "accepted_successor_content_hash",
+                  "recovery_actions"
+                ],
                 "properties": {
-                  "old_law_id": {"type": "string", "minLength": 2, "maxLength": 256},
-                  "old_content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-                  "accepted_successor_law_id": {"type": "string", "minLength": 2, "maxLength": 256},
-                  "accepted_successor_content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-                  "recovery_actions": {"type": "array", "maxItems": 4, "items": {"type": "string", "minLength": 1, "maxLength": 128}}
+                  "old_law_id": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 256
+                  },
+                  "old_content_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "accepted_successor_law_id": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 256
+                  },
+                  "accepted_successor_content_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "recovery_actions": {
+                    "type": "array",
+                    "maxItems": 4,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  }
                 }
               }
             ]
@@ -336,101 +1449,486 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "kind": { "const": "ambiguous_scope" } }, "required": ["kind"] },
-          "then": { "required": ["candidates"], "properties": { "candidates": { "minItems": 1 }, "recovery_action": { "properties": { "kind": { "const": "resolve_ambiguity" } } } } }
-        },
-        {
-          "if": { "properties": { "kind": { "const": "stale_context" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "refresh_context" } } } } }
-        },
-        {
-          "if": { "properties": { "kind": { "const": "version_conflict" } }, "required": ["kind"] },
-          "then": {
-            "required": ["current_versions"],
+          "if": {
             "properties": {
-              "current_versions": { "minItems": 1 },
-              "recovery_action": { "properties": { "kind": { "const": "reread_entities" } } }
+              "kind": {
+                "const": "ambiguous_scope"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "candidates"
+            ],
+            "properties": {
+              "candidates": {
+                "minItems": 1
+              },
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "resolve_ambiguity"
+                  }
+                }
+              }
             }
           }
         },
         {
-          "if": { "properties": { "kind": { "enum": ["invalid_transition", "invalid_relation", "invariant_violation", "not_terminal"] } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "reread_entities" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "stale_context"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "refresh_context"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "outcome_mismatch" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "contact_operator" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "version_conflict"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "current_versions"
+            ],
+            "properties": {
+              "current_versions": {
+                "minItems": 1
+              },
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "reread_entities"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "enum": ["approval_required", "approval_invalid"] } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "request_approval" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "invalid_transition",
+                  "invalid_relation",
+                  "invariant_violation",
+                  "not_terminal"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "reread_entities"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "stale_law_revision" } }, "required": ["kind"] },
-          "then": { "required": ["stale_law_revision"], "properties": { "recovery_action": { "properties": { "kind": { "const": "request_approval" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "outcome_mismatch"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "contact_operator"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "domain_overlap" } }, "required": ["kind"] },
-          "then": { "required": ["domain_overlap"], "properties": { "recovery_action": { "properties": { "kind": { "const": "request_approval" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "approval_required",
+                  "approval_invalid"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "request_approval"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "missing_evidence" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "provide_evidence" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "stale_law_revision"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "stale_law_revision"
+            ],
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "request_approval"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "limit_exceeded" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "reduce_limit" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "domain_overlap"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "domain_overlap"
+            ],
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "request_approval"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "budget_refused" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "adjust_budget" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "missing_evidence"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "provide_evidence"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "invalid_cursor" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "restart_query" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "limit_exceeded"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "reduce_limit"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "const": "operation_conflict" } }, "required": ["kind"] },
-          "then": { "properties": { "recovery_action": { "properties": { "kind": { "const": "reconcile_operation" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "budget_refused"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "adjust_budget"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "kind": { "enum": ["cancelled", "timeout"] } }, "required": ["kind"] },
-          "then": { "properties": { "effect_state": { "const": "none" }, "recovery_action": { "properties": { "kind": { "const": "retry_same_request" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "invalid_cursor"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "restart_query"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "required": ["options"] },
-          "then": { "properties": { "kind": { "const": "invariant_violation" }, "recovery_action": { "properties": { "kind": { "const": "contact_operator" } } } } }
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "operation_conflict"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "reconcile_operation"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "cancelled",
+                  "timeout"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "effect_state": {
+                "const": "none"
+              },
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "retry_same_request"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "options"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "invariant_violation"
+              },
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "contact_operator"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "budget_refused"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "supported_budget_seconds"
+            ]
+          }
         }
       ]
     },
     "ok": {
       "allOf": [
-        { "$ref": "#/$defs/base" },
+        {
+          "$ref": "#/$defs/base"
+        },
         {
           "type": "object",
-          "required": ["outcome"],
+          "required": [
+            "outcome"
+          ],
           "properties": {
-            "outcome": { "const": "ok" },
-            "items": { "type": "array", "maxItems": 100, "items": { "type": "object" } },
-            "result": { "type": "object" },
-            "changed_refs": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/changedRef" } },
-            "next_valid_intents": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/nextIntent" } }
+            "outcome": {
+              "const": "ok"
+            },
+            "items": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "result": {
+              "type": "object"
+            },
+            "changed_refs": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/changedRef"
+              }
+            },
+            "next_valid_intents": {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/nextIntent"
+              }
+            }
           },
           "oneOf": [
-            { "required": ["items"], "not": { "required": ["result"] } },
-            { "required": ["result"], "not": { "required": ["items"] } }
+            {
+              "required": [
+                "items"
+              ],
+              "not": {
+                "required": [
+                  "result"
+                ]
+              }
+            },
+            {
+              "required": [
+                "result"
+              ],
+              "not": {
+                "required": [
+                  "items"
+                ]
+              }
+            }
           ],
           "allOf": [
             {
               "if": {
                 "properties": {
-                   "tool": { "enum": ["concord_work_define", "concord_work_initiative", "concord_work_transition", "concord_work_relate", "concord_work_compact"] }
+                  "tool": {
+                    "enum": [
+                      "concord_work_define",
+                      "concord_work_initiative",
+                      "concord_work_transition",
+                      "concord_work_relate",
+                      "concord_work_compact"
+                    ]
+                  }
                 },
-                "required": ["tool"]
+                "required": [
+                  "tool"
+                ]
               },
               "then": {
-                "required": ["result", "changed_refs", "next_valid_intents"],
-                "not": { "required": ["items"] }
+                "required": [
+                  "result",
+                  "changed_refs",
+                  "next_valid_intents"
+                ],
+                "not": {
+                  "required": [
+                    "items"
+                  ]
+                }
               }
             }
           ]
@@ -440,20 +1938,40 @@
     },
     "pending": {
       "allOf": [
-        { "$ref": "#/$defs/base" },
+        {
+          "$ref": "#/$defs/base"
+        },
         {
           "type": "object",
-          "required": ["outcome", "operation_ref", "next_action"],
+          "required": [
+            "outcome",
+            "operation_ref",
+            "next_action"
+          ],
           "properties": {
-            "outcome": { "const": "pending" },
-            "tool": { "const": "concord_work_compact" },
+            "outcome": {
+              "const": "pending"
+            },
+            "tool": {
+              "const": "concord_work_compact"
+            },
             "operation_ref": {
               "allOf": [
-                { "$ref": "#/$defs/operationRef" },
-                { "properties": { "state": { "const": "pending" } } }
+                {
+                  "$ref": "#/$defs/operationRef"
+                },
+                {
+                  "properties": {
+                    "state": {
+                      "const": "pending"
+                    }
+                  }
+                }
               ]
             },
-            "next_action": { "$ref": "#/$defs/recoveryAction" }
+            "next_action": {
+              "$ref": "#/$defs/recoveryAction"
+            }
           }
         }
       ],
@@ -461,25 +1979,73 @@
     },
     "partial": {
       "allOf": [
-        { "$ref": "#/$defs/base" },
+        {
+          "$ref": "#/$defs/base"
+        },
         {
           "type": "object",
-          "required": ["outcome", "operation_ref", "completed_steps", "error"],
+          "required": [
+            "outcome",
+            "operation_ref",
+            "completed_steps",
+            "error"
+          ],
           "properties": {
-            "outcome": { "const": "partial" },
-            "tool": { "const": "concord_work_compact" },
+            "outcome": {
+              "const": "partial"
+            },
+            "tool": {
+              "const": "concord_work_compact"
+            },
             "operation_ref": {
               "allOf": [
-                { "$ref": "#/$defs/operationRef" },
-                { "properties": { "state": { "enum": ["partial", "failed"] } } }
+                {
+                  "$ref": "#/$defs/operationRef"
+                },
+                {
+                  "properties": {
+                    "state": {
+                      "enum": [
+                        "partial",
+                        "failed"
+                      ]
+                    }
+                  }
+                }
               ]
             },
-            "completed_steps": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
-            "failed_step": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "completed_steps": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "failed_step": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
             "error": {
               "allOf": [
-                { "$ref": "#/$defs/typedError" },
-                { "properties": { "effect_state": { "const": "partial" } }, "not": { "required": ["adapter_reason"] } }
+                {
+                  "$ref": "#/$defs/typedError"
+                },
+                {
+                  "properties": {
+                    "effect_state": {
+                      "const": "partial"
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "adapter_reason"
+                    ]
+                  }
+                }
               ]
             }
           }
@@ -489,67 +2055,194 @@
     },
     "errorOutcome": {
       "allOf": [
-        { "$ref": "#/$defs/base" },
+        {
+          "$ref": "#/$defs/base"
+        },
         {
           "type": "object",
-          "required": ["outcome", "error"],
+          "required": [
+            "outcome",
+            "error"
+          ],
           "properties": {
-            "outcome": { "const": "error" },
+            "outcome": {
+              "const": "error"
+            },
             "error": {
               "allOf": [
-                { "$ref": "#/$defs/typedError" },
-                { "properties": { "effect_state": { "enum": ["none", "possible"] } } }
+                {
+                  "$ref": "#/$defs/typedError"
+                },
+                {
+                  "properties": {
+                    "effect_state": {
+                      "enum": [
+                        "none",
+                        "possible"
+                      ]
+                    }
+                  }
+                }
               ]
             }
           }
         },
         {
-          "if": { "properties": { "origin": { "const": "adapter" } }, "required": ["origin"] },
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "adapter"
+              }
+            },
+            "required": [
+              "origin"
+            ]
+          },
           "then": {
-            "required": ["error"],
+            "required": [
+              "error"
+            ],
             "properties": {
               "error": {
-                "required": ["adapter_reason"],
+                "required": [
+                  "adapter_reason"
+                ],
                 "properties": {
-                  "kind": { "enum": ["transport_failure", "malformed_response", "timeout", "cancelled", "operation_conflict"] }
+                  "kind": {
+                    "enum": [
+                      "transport_failure",
+                      "malformed_response",
+                      "timeout",
+                      "cancelled",
+                      "operation_conflict"
+                    ]
+                  }
                 }
               }
             }
           }
         },
         {
-          "if": { "properties": { "origin": { "const": "core" } }, "required": ["origin"] },
-          "then": { "properties": { "error": { "not": { "required": ["adapter_reason"] } } } }
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "core"
+              }
+            },
+            "required": [
+              "origin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "not": {
+                  "required": [
+                    "adapter_reason"
+                  ]
+                }
+              }
+            }
+          }
         },
         {
           "if": {
             "properties": {
               "error": {
-                "properties": { "adapter_reason": { "enum": ["manifest_mismatch", "grant_bootstrap_failed"] } },
-                "required": ["adapter_reason"]
+                "properties": {
+                  "adapter_reason": {
+                    "enum": [
+                      "manifest_mismatch",
+                      "grant_bootstrap_failed"
+                    ]
+                  }
+                },
+                "required": [
+                  "adapter_reason"
+                ]
               }
             },
-            "required": ["error"]
+            "required": [
+              "error"
+            ]
           },
           "then": {
             "properties": {
               "error": {
                 "properties": {
-                  "kind": { "const": "transport_failure" },
-                  "effect_state": { "const": "none" },
-                  "recovery_action": { "properties": { "kind": { "const": "contact_operator" } } }
+                  "kind": {
+                    "const": "transport_failure"
+                  },
+                  "effect_state": {
+                    "const": "none"
+                  },
+                  "recovery_action": {
+                    "properties": {
+                      "kind": {
+                        "const": "contact_operator"
+                      }
+                    }
+                  }
                 }
               }
             }
           }
         },
         {
-          "if": { "properties": { "origin": { "const": "core" }, "authority": { "const": "unreachable" } }, "required": ["origin", "authority"] },
-          "then": { "properties": { "error": { "properties": { "kind": { "const": "unreachable" } } } } }
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "core"
+              },
+              "authority": {
+                "const": "unreachable"
+              }
+            },
+            "required": [
+              "origin",
+              "authority"
+            ]
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "kind": {
+                    "const": "unreachable"
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "error": { "properties": { "kind": { "const": "unreachable" } }, "required": ["kind"] } }, "required": ["error"] },
-          "then": { "properties": { "origin": { "const": "core" }, "authority": { "const": "unreachable" } } }
+          "if": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "kind": {
+                    "const": "unreachable"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          "then": {
+            "properties": {
+              "origin": {
+                "const": "core"
+              },
+              "authority": {
+                "const": "unreachable"
+              }
+            }
+          }
         }
       ],
       "unevaluatedProperties": false

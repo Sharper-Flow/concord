@@ -773,6 +773,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -846,6 +849,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -939,6 +945,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -1039,6 +1048,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -1119,6 +1131,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -1358,6 +1373,9 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 0,
           "type": "integer"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "required": {
           "default": true,
           "type": "boolean"
@@ -1386,6 +1404,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "initiative_work_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "required": {
           "type": "boolean"
@@ -1423,6 +1444,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "tags": {
           "items": {
             "$ref": "#/$defs/id"
@@ -1457,6 +1481,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "initiative_work_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -1521,6 +1548,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "initiative_work_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -1550,6 +1580,9 @@ const GeneratedPayloadSchemaDocument = `{
           "maximum": 1000,
           "minimum": 0,
           "type": "integer"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -1580,6 +1613,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "reason": {
           "$ref": "#/$defs/short"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -1674,6 +1710,9 @@ const GeneratedPayloadSchemaDocument = `{
         "knowledge_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -1752,6 +1791,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "project_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "since": {
           "maxLength": 64,
@@ -2229,6 +2271,9 @@ const GeneratedPayloadSchemaDocument = `{
         "product_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "source": {
           "$ref": "#/$defs/product_row_source"
         }
@@ -2446,6 +2491,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -2505,6 +2553,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "project_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "type": "object"
@@ -2530,6 +2581,9 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 100,
           "type": "array",
           "uniqueItems": true
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "type": "object"
@@ -2549,6 +2603,11 @@ const GeneratedPayloadSchemaDocument = `{
         "merged_into"
       ],
       "type": "string"
+    },
+    "requested_budget_seconds": {
+      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; never part of the hidden call envelope or the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
+      "minimum": 1,
+      "type": "integer"
     },
     "research_finding": {
       "additionalProperties": false,
@@ -3199,6 +3258,9 @@ const GeneratedPayloadSchemaDocument = `{
         "project_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -3247,6 +3309,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "tag_ids": {
           "items": {
             "$ref": "#/$defs/id"
@@ -3288,6 +3353,9 @@ const GeneratedPayloadSchemaDocument = `{
         "product_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -3315,6 +3383,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "project_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -3333,6 +3404,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "resource_key": {
           "maxLength": 160,
@@ -3390,6 +3464,9 @@ const GeneratedPayloadSchemaDocument = `{
         "project_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -3424,6 +3501,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "lesson_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "scopes": {
           "$ref": "#/$defs/knowledge_scopes_input"
@@ -3493,6 +3573,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -3566,6 +3649,9 @@ const GeneratedPayloadSchemaDocument = `{
         "operation_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -3608,6 +3694,9 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array",
           "uniqueItems": true
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "tags": {
           "items": {
@@ -3660,6 +3749,9 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "type": "array"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "statement": {
           "maxLength": 512,
           "minLength": 1,
@@ -3700,6 +3792,9 @@ const GeneratedPayloadSchemaDocument = `{
         "pack_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "source_ids": {
           "items": {
             "$ref": "#/$defs/id"
@@ -3736,6 +3831,9 @@ const GeneratedPayloadSchemaDocument = `{
         "pack_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "revision": {
           "maximum": 2147483647,
           "minimum": 0,
@@ -3767,6 +3865,9 @@ const GeneratedPayloadSchemaDocument = `{
         "owner_work_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "revision": {
           "$ref": "#/$defs/research_revision_input"
         }
@@ -3789,6 +3890,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pack_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "revision": {
           "$ref": "#/$defs/research_revision_input"
@@ -3813,6 +3917,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pack_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "source": {
           "$ref": "#/$defs/research_source_input"
@@ -3852,6 +3959,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "reason": {
           "$ref": "#/$defs/short"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "tags": {
           "items": {
@@ -4063,6 +4173,9 @@ const GeneratedPayloadSchemaDocument = `{
         "reason": {
           "$ref": "#/$defs/short"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "to_expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -4118,6 +4231,9 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -4150,6 +4266,9 @@ const GeneratedPayloadSchemaDocument = `{
         "recipient_work_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -4176,6 +4295,9 @@ const GeneratedPayloadSchemaDocument = `{
           "minLength": 36,
           "pattern": "^msg:[0-9a-f]{32}$",
           "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -4209,6 +4331,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "reason": {
           "$ref": "#/$defs/short"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "resolution_kind": {
           "enum": [
@@ -4257,6 +4382,9 @@ const GeneratedPayloadSchemaDocument = `{
           "minLength": 1,
           "type": "string"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "resource_key": {
           "maxLength": 160,
           "minLength": 3,
@@ -4284,6 +4412,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "resource_key": {
           "maxLength": 160,
@@ -4337,6 +4468,9 @@ const GeneratedPayloadSchemaDocument = `{
         "replacement_successor_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "successor_expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -4379,6 +4513,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "reason": {
           "$ref": "#/$defs/short"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "successor_expected_version": {
           "$ref": "#/$defs/version"
@@ -4433,6 +4570,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "relation_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "required": [
@@ -4667,6 +4807,9 @@ const GeneratedPayloadSchemaDocument = `{
         "page": {
           "$ref": "#/$defs/page"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -4696,6 +4839,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -4729,6 +4875,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -4752,6 +4901,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -4969,6 +5121,9 @@ const GeneratedPayloadSchemaDocument = `{
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "research_bindings": {
           "items": {
             "additionalProperties": false,
@@ -5074,6 +5229,9 @@ const GeneratedPayloadSchemaDocument = `{
         "reason": {
           "$ref": "#/$defs/short"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "target": {
           "$ref": "#/$defs/lifecycle_transition_target"
         },
@@ -5119,6 +5277,9 @@ const GeneratedPayloadSchemaDocument = `{
         "project_id": {
           "$ref": "#/$defs/id"
         },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -5148,6 +5309,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "project_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         },
         "work_id": {
           "$ref": "#/$defs/id"

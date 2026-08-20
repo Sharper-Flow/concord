@@ -154,7 +154,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_product_view.snapshot",
@@ -174,7 +175,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_product_view.portfolio",
@@ -194,7 +196,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_product_view.blocked_sessions",
@@ -214,7 +217,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_browse.list",
@@ -234,7 +238,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_browse.blocked",
@@ -254,7 +259,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_browse.ready",
@@ -274,7 +280,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_browse.scope",
@@ -294,7 +301,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_browse.resource_claims",
@@ -314,7 +322,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_browse.messages",
@@ -334,7 +343,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_trace.history",
@@ -354,7 +364,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_trace.relations",
@@ -374,7 +385,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_trace.continuity",
@@ -394,7 +406,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_trace.research",
@@ -414,7 +427,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_knowledge.search",
@@ -434,7 +448,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_knowledge.resolve_note",
@@ -454,7 +469,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.capture",
@@ -474,7 +490,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.revise_intent",
@@ -494,7 +511,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.research_pack_create",
@@ -514,7 +532,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.research_revision_append",
@@ -534,7 +553,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.research_finding_record",
@@ -554,7 +574,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.research_source_record",
@@ -574,7 +595,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.research_freshness_set",
@@ -594,7 +616,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_define.observation_record",
@@ -614,7 +637,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_initiative.create",
@@ -634,7 +658,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_initiative.add_entry",
@@ -654,7 +679,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_initiative.remove_entry",
@@ -674,7 +700,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_initiative.reorder_entry",
@@ -694,7 +721,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_initiative.change_requiredness",
@@ -714,7 +742,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_initiative.revise_narrative",
@@ -734,7 +763,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_initiative.entries",
@@ -754,7 +784,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_transition.lifecycle",
@@ -774,7 +805,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_transition.workflow_action",
@@ -795,7 +827,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 30
     },
     {
       "id": "concord_work_transition.worktree_claim",
@@ -815,7 +848,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_transition.worktree_reclaim",
@@ -835,7 +869,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.set_memberships",
@@ -855,7 +890,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.link",
@@ -875,7 +911,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.unlink",
@@ -895,7 +932,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.supersede",
@@ -915,7 +953,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.restore_superseded",
@@ -935,7 +974,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.resolve_overlap",
@@ -955,7 +995,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.resource_claim",
@@ -975,7 +1016,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.resource_release",
@@ -995,7 +1037,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.message_send",
@@ -1015,7 +1058,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_relate.message_withdraw",
@@ -1035,7 +1079,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_compact.publish",
@@ -1055,7 +1100,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_compact.reconcile",
@@ -1075,7 +1121,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_compact.lesson_publish",
@@ -1095,7 +1142,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_domain.list",
@@ -1115,7 +1163,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_domain.detail",
@@ -1135,7 +1184,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_domain.active_work",
@@ -1155,7 +1205,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_domain.attachments",
@@ -1175,7 +1226,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_domain.overlaps",
@@ -1195,7 +1247,8 @@
         "versions": [
           "1.0"
         ]
-      }
+      },
+      "supported_budget_seconds": 300
     }
   ],
   "schemas": {
@@ -1556,6 +1609,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:9f3bb36bd60fcad1e50b1239ce78d1f085a79f5b6337cb96fbe193ad1be0c198",
-  "digest": "sha256:0e158cbf49df229878f178a0c9dbb645cecacfa0194e291720836c25ae58ec1c"
+  "payload_digest": "sha256:aa999d8445e27bbdf0ff66c52484439af0abe723da3382ae102ea184bfe4866a",
+  "digest": "sha256:6194898da0c65eb778dbb1e14172ca5cdce26dec50a2bc5d70e31bb6987c9ad4"
 }

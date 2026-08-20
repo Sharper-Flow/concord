@@ -29,7 +29,6 @@ type captureMutationInput struct {
 	Priority        int64    `json:"priority"`
 	Urgency         string   `json:"urgency"`
 	Tags            []string `json:"tags"`
-	ComponentID     string   `json:"component_id"`
 	WorkflowTypeRef string   `json:"workflow_type_ref"`
 	ExternalRef     string   `json:"external_ref"`
 	IdempotencyKey  string   `json:"idempotency_key"`
@@ -49,7 +48,6 @@ type reviseMutationInput struct {
 	Priority        int64    `json:"priority"`
 	Urgency         string   `json:"urgency"`
 	Tags            []string `json:"tags"`
-	ComponentID     string   `json:"component_id"`
 	WorkflowTypeRef string   `json:"workflow_type_ref"`
 	Reason          string   `json:"reason"`
 	IdempotencyKey  string   `json:"idempotency_key"`
@@ -61,7 +59,6 @@ type initiativeCreateMutationInput struct {
 	Priority       int64    `json:"priority"`
 	Urgency        string   `json:"urgency"`
 	Tags           []string `json:"tags"`
-	ComponentID    string   `json:"component_id"`
 	ExternalRef    string   `json:"external_ref"`
 	IdempotencyKey string   `json:"idempotency_key"`
 }
@@ -119,11 +116,10 @@ type researchRevisionInput struct {
 	Method   string `json:"method"`
 }
 type researchScopesInput struct {
-	Mode         string   `json:"mode"`
-	ProductIDs   []string `json:"product_ids"`
-	ProjectIDs   []string `json:"project_ids"`
-	ComponentIDs []string `json:"component_ids"`
-	TagIDs       []string `json:"tag_ids"`
+	Mode       string   `json:"mode"`
+	ProductIDs []string `json:"product_ids"`
+	ProjectIDs []string `json:"project_ids"`
+	TagIDs     []string `json:"tag_ids"`
 }
 type researchFindingInput struct {
 	FindingID  string               `json:"finding_id"`
@@ -156,11 +152,10 @@ type lessonPublishInput struct {
 	Approval       *approvalInput     `json:"approval"`
 }
 type lessonScopesInput struct {
-	Mode         string   `json:"mode"`
-	ProductIDs   []string `json:"product_ids"`
-	ProjectIDs   []string `json:"project_ids"`
-	ComponentIDs []string `json:"component_ids"`
-	TagIDs       []string `json:"tag_ids"`
+	Mode       string   `json:"mode"`
+	ProductIDs []string `json:"product_ids"`
+	ProjectIDs []string `json:"project_ids"`
+	TagIDs     []string `json:"tag_ids"`
 }
 type resourceClaimInput struct {
 	WorkID          string `json:"work_id"`
@@ -838,7 +833,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			if urgency == "" {
 				urgency = "standard"
 			}
-			payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "component_id": in.ComponentID, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
+			payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
 			memberships := make([]storeMembership, len(in.ProjectIDs))
 			for i, project := range in.ProjectIDs {
 				role := "secondary"
@@ -900,7 +895,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			if urgency == "" {
 				urgency = "standard"
 			}
-			payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "component_id": in.ComponentID, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+			payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 			if err != nil {
 				return nil, nil, nil, err
@@ -946,7 +941,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			if urgency == "" {
 				urgency = "standard"
 			}
-			payload, _ := json.Marshal(map[string]any{"work_kind": "initiative", "title": in.Title, "value_statement": in.ValueStatement, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "component_id": in.ComponentID, "external_ref": in.ExternalRef})
+			payload, _ := json.Marshal(map[string]any{"work_kind": "initiative", "title": in.Title, "value_statement": in.ValueStatement, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "external_ref": in.ExternalRef})
 			memberships := make([]storeMembership, len(in.ProjectIDs))
 			for i, project := range in.ProjectIDs {
 				role := "secondary"
@@ -1125,7 +1120,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 			scopes := store.ResearchScopes{Mode: "home"}
 			if in.Finding.Scopes != nil {
-				scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, ComponentIDs: in.Finding.Scopes.ComponentIDs, TagIDs: in.Finding.Scopes.TagIDs}
+				scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, TagIDs: in.Finding.Scopes.TagIDs}
 			}
 			finding, err := store.RecordResearchFindingWithinTxUpsert(ctx, tx, store.ResearchFindingRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Finding: store.ResearchFinding{FindingID: in.Finding.FindingID, Kind: store.ResearchFindingKind(in.Finding.Kind), Statement: in.Finding.Statement, Confidence: store.ResearchConfidence(in.Finding.Confidence), Freshness: store.ResearchFreshness(freshness), Status: store.ResearchFindingStatus(status), Scopes: scopes}})
 			if err != nil {
@@ -1185,7 +1180,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 			scopes := store.KnowledgeRecordScopes{Mode: "home"}
 			if in.Scopes != nil {
-				scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, ComponentIDs: in.Scopes.ComponentIDs, TagIDs: in.Scopes.TagIDs}
+				scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, TagIDs: in.Scopes.TagIDs}
 			}
 			published, pubErr := store.PublishLessonRecord(ctx, lessonHome, store.LessonPublication{
 				LessonID: in.LessonID, Title: in.Title, Summary: in.Summary, Content: in.Content,

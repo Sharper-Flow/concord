@@ -140,7 +140,7 @@ func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input ma
 	case "PM1.Q8":
 		return s.QueryQ8(ctx, store.Q8Request{Work: stringInput(input, "work"), RelationKinds: stringSliceInput(input, "relation_kinds"), Direction: stringInput(input, "direction")})
 	case "PM1.Q9":
-		result, err := s.QueryQ9(ctx, store.Q9Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Component: stringInput(input, "component"), Kinds: stringSliceInput(input, "kinds"), Tags: stringSliceInput(input, "tags"), Text: stringInput(input, "text"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
+		result, err := s.QueryQ9(ctx, store.Q9Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Domain: stringInput(input, "domain"), Kinds: stringSliceInput(input, "kinds"), Tags: stringSliceInput(input, "tags"), Text: stringInput(input, "text"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
 		if err != nil {
 			return nil, err
 		}

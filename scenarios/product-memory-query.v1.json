@@ -65,9 +65,9 @@
       { "work": "work-done", "seq": 3, "from": "in_progress", "to": "completed", "kind": "completed", "actor": "operator", "evidence_refs": ["evidence-done"] }
     ],
     "knowledge": [
-      { "id": "knowledge-work-done", "kind": "work_note", "product": "prod-alpha", "project": "proj-web", "component": "auth", "tags": ["auth", "release"], "completed_at": "2026-08-03T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/work/2026-08-03-auth-release.md", "commit": "abc123", "content_hash": "sha256:note1" },
-      { "id": "knowledge-lesson", "kind": "lesson", "product": "prod-alpha", "component": "state", "tags": ["state-authority", "sqlite"], "completed_at": "2026-08-05T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/lessons/2026-08-04-state-authority.md", "commit": "def456", "content_hash": "sha256:note2" },
-      { "id": "knowledge-decision", "kind": "decision", "product": "prod-alpha", "component": "state", "tags": ["sqlite", "governance"], "completed_at": "2026-08-04T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/decisions/CD-0002-state-authority.md", "commit": "ghi789", "content_hash": "sha256:note3" }
+      { "id": "knowledge-work-done", "kind": "work_note", "product": "prod-alpha", "project": "proj-web", "domain": "auth", "tags": ["auth", "release"], "completed_at": "2026-08-03T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/work/2026-08-03-auth-release.md", "commit": "abc123", "content_hash": "sha256:note1" },
+      { "id": "knowledge-lesson", "kind": "lesson", "product": "prod-alpha", "domain": "state", "tags": ["state-authority", "sqlite"], "completed_at": "2026-08-05T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/lessons/2026-08-04-state-authority.md", "commit": "def456", "content_hash": "sha256:note2" },
+      { "id": "knowledge-decision", "kind": "decision", "product": "prod-alpha", "domain": "state", "tags": ["sqlite", "governance"], "completed_at": "2026-08-04T12:00:00Z", "repo": "repo-alpha-web", "path": "docs/decisions/CD-0002-state-authority.md", "commit": "ghi789", "content_hash": "sha256:note3" }
     ]
   },
   "scenarios": [

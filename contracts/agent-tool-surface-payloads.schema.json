@@ -1661,6 +1661,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
         }
       }
     },

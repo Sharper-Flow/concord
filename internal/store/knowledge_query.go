@@ -18,7 +18,7 @@ func tableExists(ctx context.Context, db *sql.DB, table string) bool {
 type Q9Request struct {
 	Product       string
 	Project       string
-	Component     string
+	Domain        string
 	Kinds         []string
 	Tags          []string
 	Text          string
@@ -41,7 +41,6 @@ type KnowledgeItem struct {
 	ProductIDs    []string `json:"product_ids,omitempty"`
 	ProjectIDs    []string `json:"project_ids,omitempty"`
 	DomainIDs     []string `json:"domain_ids,omitempty"`
-	ComponentIDs  []string `json:"component_ids,omitempty"`
 	TagIDs        []string `json:"tag_ids,omitempty"`
 	HomeProjectID string   `json:"home_project_id"`
 	HomeLocatorID string   `json:"home_locator_id"`
@@ -139,8 +138,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 			return out, err
 		}
 	}
-	domainScope := tableExists(ctx, s.db, "archived_work_domains")
-	query, args := buildKnowledgeQueryForScope(req, kinds, tags, limit, domainScope)
+	query, args := buildKnowledgeQueryForScope(req, kinds, tags, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q9", "cannot search the git knowledge index", true, "retry once the database is readable", err)
@@ -148,7 +146,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	defer rows.Close()
 	items := make([]KnowledgeItem, 0, limit)
 	for rows.Next() {
-		item, err := scanKnowledgeItemForScope(rows, domainScope)
+		item, err := scanKnowledgeItemForScope(rows)
 		if err != nil {
 			return out, err
 		}
@@ -160,7 +158,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	var cursor *string
 	if len(items) == limit {
 		last := items[len(items)-1]
-		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 2, Product: req.Product, Project: req.Project, Component: req.Component, Kinds: kinds, Tags: tags, Text: req.Text, Since: req.Since, Until: req.Until, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, MatchClass: last.MatchClass, CompletedAt: last.CompletedAt, ID: last.ID})
+		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 2, Product: req.Product, Project: req.Project, Kinds: kinds, Tags: tags, Text: req.Text, Since: req.Since, Until: req.Until, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, MatchClass: last.MatchClass, CompletedAt: last.CompletedAt, ID: last.ID})
 		if err != nil {
 			return out, err
 		}
@@ -180,18 +178,13 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 }
 
 func scanKnowledgeItem(rows *sql.Rows) (KnowledgeItem, error) {
-	return scanKnowledgeItemForScope(rows, false)
+	return scanKnowledgeItemForScope(rows)
 }
 
-func scanKnowledgeItemForScope(rows *sql.Rows, domainScope bool) (KnowledgeItem, error) {
+func scanKnowledgeItemForScope(rows *sql.Rows) (KnowledgeItem, error) {
 	var item KnowledgeItem
-	var lessonTags, productIDs, projectIDs, domainIDs, componentIDs, tagIDs string
-	args := []any{&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs}
-	if domainScope {
-		args = append(args, &domainIDs, &componentIDs, &tagIDs)
-	} else {
-		args = append(args, &componentIDs, &tagIDs)
-	}
+	var lessonTags, productIDs, projectIDs, domainIDs, tagIDs string
+	args := []any{&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &domainIDs, &tagIDs}
 	args = append(args, &item.MatchClass)
 	if err := rows.Scan(args...); err != nil {
 		return item, wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode a knowledge index row", true, "retry once the database is readable", err)
@@ -202,7 +195,7 @@ func scanKnowledgeItemForScope(rows *sql.Rows, domainScope bool) (KnowledgeItem,
 	for _, scope := range []struct {
 		raw    string
 		target *[]string
-	}{{productIDs, &item.ProductIDs}, {projectIDs, &item.ProjectIDs}, {domainIDs, &item.DomainIDs}, {componentIDs, &item.ComponentIDs}, {tagIDs, &item.TagIDs}} {
+	}{{productIDs, &item.ProductIDs}, {projectIDs, &item.ProjectIDs}, {domainIDs, &item.DomainIDs}, {tagIDs, &item.TagIDs}} {
 		if scope.raw == "" {
 			continue
 		}
@@ -212,11 +205,6 @@ func scanKnowledgeItemForScope(rows *sql.Rows, domainScope bool) (KnowledgeItem,
 	}
 	item.CommitOID = item.Commit
 	item.NotePathRef = item.NotePath
-	if domainScope {
-		if len(item.ComponentIDs) == 0 {
-			item.ComponentIDs = append([]string(nil), item.DomainIDs...)
-		}
-	}
 	return item, nil
 }
 
@@ -460,7 +448,7 @@ func knowledgeKinds(values []string) ([]string, error) {
 
 type knowledgeCursor struct {
 	Version                               int `json:"version"`
-	Product, Project, Component, Text     string
+	Product, Project, Text                string
 	Since, Until                          string
 	Kinds, Tags                           []string
 	HomeProjectID, HomeLocatorID, HeadRef string
@@ -479,21 +467,17 @@ func encodeKnowledgeCursor(cursor knowledgeCursor) (string, error) {
 func decodeKnowledgeCursor(raw string, req Q9Request, kinds, tags []string) (knowledgeCursor, error) {
 	b, err := base64.RawURLEncoding.DecodeString(raw)
 	var cursor knowledgeCursor
-	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 2 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Component != req.Component || cursor.Text != req.Text || cursor.Since != req.Since || cursor.Until != req.Until || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 1 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" {
+	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 2 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Text != req.Text || cursor.Since != req.Since || cursor.Until != req.Until || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 1 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" {
 		return knowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query", false, "use a cursor returned for the same query and filters")
 	}
 	return cursor, nil
 }
 
 func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string, []any) {
-	return buildKnowledgeQueryForScope(req, kinds, tags, limit, false)
+	return buildKnowledgeQueryForScope(req, kinds, tags, limit)
 }
 
-func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int, domainScope bool) (string, []any) {
-	scopeTable, scopeColumn := "archived_work_components", "component_id"
-	if domainScope {
-		scopeTable, scopeColumn = "archived_work_domains", "domain_id"
-	}
+func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int) (string, []any) {
 	where := []string{"aw.home_project_id = ?", "aw.home_locator_id = ?"}
 	args := []any{req.Text, req.Home.HomeProjectID, req.Home.HomeLocatorID}
 	if req.Product != "" {
@@ -504,15 +488,9 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_projects p WHERE p.work_id = aw.id AND p.project_id = ?))")
 		args = append(args, req.Project)
 	}
-	if req.Component != "" {
-		componentFilter := "EXISTS (SELECT 1 FROM archived_work_components c WHERE c.work_id = aw.id AND c.component_id = ? )"
-		if domainScope {
-			componentFilter += " OR EXISTS (SELECT 1 FROM archived_work_domains d WHERE d.work_id = aw.id AND d.domain_id = ? )"
-			args = append(args, req.Component, req.Component)
-		} else {
-			args = append(args, req.Component)
-		}
-		where = append(where, "("+componentFilter+")")
+	if req.Domain != "" {
+		where = append(where, "EXISTS (SELECT 1 FROM archived_work_domains d WHERE d.work_id = aw.id AND d.domain_id = ?)")
+		args = append(args, req.Domain)
 	}
 	if len(kinds) > 0 {
 		placeholders := make([]string, len(kinds))
@@ -525,10 +503,7 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 		where = append(where, "(EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.tag_id = ?) OR (aw.type <> 'work_note' AND EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) WHERE value = ?)))")
 		args = append(args, tag, tag)
 	}
-	exactScopeMatch := `EXISTS (SELECT 1 FROM archived_work_components exact_component WHERE exact_component.work_id = aw.id AND lower(exact_component.component_id) = lower(input.text))`
-	if domainScope {
-		exactScopeMatch += ` OR EXISTS (SELECT 1 FROM archived_work_domains exact_domain WHERE exact_domain.work_id = aw.id AND lower(exact_domain.domain_id) = lower(input.text))`
-	}
+	exactScopeMatch := `EXISTS (SELECT 1 FROM archived_work_domains exact_domain WHERE exact_domain.work_id = aw.id AND lower(exact_domain.domain_id) = lower(input.text))`
 	exactMatch := `(lower(aw.id) = lower(input.text)
 		OR lower(aw.title) = lower(input.text)
 		OR EXISTS (SELECT 1 FROM archived_work_tags exact_tag WHERE exact_tag.work_id = aw.id AND lower(exact_tag.tag_id) = lower(input.text))
@@ -551,11 +526,7 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 		args = append(args, cursor.MatchClass, cursor.MatchClass, cursor.CompletedAt, cursor.CompletedAt, cursor.ID)
 	}
 	args = append(args, limit)
-	scopeSelect := `COALESCE((SELECT json_group_array(` + scopeColumn + `) FROM (SELECT ` + scopeColumn + ` FROM ` + scopeTable + ` WHERE work_id=aw.id ORDER BY ` + scopeColumn + `)), '[]'),`
-	if domainScope {
-		scopeSelect = `COALESCE((SELECT json_group_array(domain_id) FROM (SELECT domain_id FROM archived_work_domains WHERE work_id=aw.id ORDER BY domain_id)), '[]'),` +
-			`COALESCE((SELECT json_group_array(component_id) FROM (SELECT component_id FROM archived_work_components WHERE work_id=aw.id ORDER BY component_id)), '[]'),`
-	}
+	scopeSelect := `COALESCE((SELECT json_group_array(domain_id) FROM (SELECT domain_id FROM archived_work_domains WHERE work_id=aw.id ORDER BY domain_id)), '[]'),`
 	return `WITH input(text) AS (VALUES (?)), ranked AS (` +
 		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 ELSE 1 END AS match_class ` +
 		`FROM archived_work aw CROSS JOIN input WHERE ` + strings.Join(where, " AND ") + `) ` +
@@ -568,18 +539,10 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 }
 
 func enrichKnowledgeScopes(ctx context.Context, db *sql.DB, item *KnowledgeItem) error {
-	scopeTable, scopeColumn := "archived_work_components", "component_id"
-	if tableExists(ctx, db, "archived_work_domains") {
-		scopeTable, scopeColumn = "archived_work_domains", "domain_id"
-	}
-	scopeTarget := &item.ComponentIDs
-	if scopeTable == "archived_work_domains" {
-		scopeTarget = &item.DomainIDs
-	}
 	for _, scope := range []struct {
 		table, column string
 		target        *[]string
-	}{{"archived_work_products", "product_id", &item.ProductIDs}, {"archived_work_projects", "project_id", &item.ProjectIDs}, {scopeTable, scopeColumn, scopeTarget}, {"archived_work_tags", "tag_id", &item.TagIDs}} {
+	}{{"archived_work_products", "product_id", &item.ProductIDs}, {"archived_work_projects", "project_id", &item.ProjectIDs}, {"archived_work_domains", "domain_id", &item.DomainIDs}, {"archived_work_tags", "tag_id", &item.TagIDs}} {
 		rows, err := db.QueryContext(ctx, "SELECT "+scope.column+" FROM "+scope.table+" WHERE work_id = ? ORDER BY "+scope.column, item.ID)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "PM1.Q9", "cannot read indexed knowledge scope", true, "retry once the database is readable", err)
@@ -595,9 +558,6 @@ func enrichKnowledgeScopes(ctx context.Context, db *sql.DB, item *KnowledgeItem)
 		if err := rows.Close(); err != nil {
 			return err
 		}
-	}
-	if scopeTable == "archived_work_domains" {
-		item.ComponentIDs = append([]string(nil), item.DomainIDs...)
 	}
 	return nil
 }

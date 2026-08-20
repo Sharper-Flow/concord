@@ -1726,6 +1726,9 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
         "kinds": {
           "items": {
             "enum": [

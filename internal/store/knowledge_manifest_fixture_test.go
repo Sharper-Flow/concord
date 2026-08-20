@@ -25,6 +25,9 @@ type manifestFixture struct {
 
 func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture) {
 	t.Helper()
+	digestRoot := sha256.Sum256([]byte(repo))
+	fixtureProductKey := "fixture-" + hex.EncodeToString(digestRoot[:6])[:12]
+	fixtureRootDomain := "product-root:" + fixtureProductKey
 	records := make([]KnowledgeRecord, 0, len(fixtures))
 	for _, fixture := range fixtures {
 		content := fixture.Content
@@ -36,15 +39,34 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 		scopes := fixture.Scopes
 		scopes.ProductIDs = append([]string{}, scopes.ProductIDs...)
 		scopes.ProjectIDs = append([]string{}, scopes.ProjectIDs...)
-		scopes.ComponentIDs = append([]string{}, scopes.ComponentIDs...)
+		scopes.DomainIDs = append([]string{}, scopes.DomainIDs...)
+		scopes.ComponentIDs = nil
 		scopes.TagIDs = append([]string{}, scopes.TagIDs...)
-		records = append(records, KnowledgeRecord{
+		record := KnowledgeRecord{
 			ID: fixture.ID, Kind: fixture.Kind, Path: fixture.Path, Status: fixture.Status,
 			Date: fixture.Date, Title: fixture.Title, Summary: fixture.Summary, Tags: append([]string{}, fixture.Tags...),
 			Scopes: scopes, Successor: fixture.Successor, SHA256: "sha256:" + hex.EncodeToString(sum[:]),
-		})
+		}
+		if (record.Kind == "decision" || record.Kind == "spec") && record.Status == "accepted" && record.HomeDomainID == "" {
+			record.HomeDomainID = fixtureRootDomain
+		}
+		records = append(records, record)
 	}
-	manifest := KnowledgeManifest{SchemaVersion: "1.0", SupportedKinds: []string{"work_note", "decision", "spec", "lesson", "research"}, IndexedKinds: []string{"work_note", "decision", "spec", "lesson"}, Records: records}
+	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"work_note", "decision", "spec", "lesson", "research"}, IndexedKinds: []string{"work_note", "decision", "spec", "lesson"}, Records: records}
+	registryDomains := []KnowledgeDomain{{DomainID: fixtureRootDomain, Name: fixtureProductKey, Purpose: "fixture registry", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}}
+	declared := map[string]bool{fixtureRootDomain: true}
+	for _, record := range records {
+		for _, domainID := range record.Scopes.DomainIDs {
+			if !declared[domainID] {
+				declared[domainID] = true
+				registryDomains = append(registryDomains, KnowledgeDomain{DomainID: domainID, Name: domainID, Purpose: "fixture scope domain", ParentDomainID: fixtureRootDomain, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}})
+			}
+		}
+	}
+	manifest.DomainRegistry = KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: fixtureProductKey, RootDomainID: fixtureRootDomain,
+		Domains: registryDomains,
+	}
 	content, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		t.Fatal(err)

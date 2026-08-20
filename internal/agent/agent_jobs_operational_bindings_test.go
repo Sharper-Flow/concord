@@ -373,10 +373,11 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 
 	// The durable projection: every phase is an attributed report with the
 	// reporter, subject, and evidence riding alongside the status (CD-0039 D4).
-	reports, err := store.ReadWorkflowNativeRuns(context.Background(), s, "work-1")
+	snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
+	reports := snapshot.NativeRuns
 	phases := map[string]store.NativeRunReport{}
 	for _, report := range reports {
 		if report.RunID == runID {

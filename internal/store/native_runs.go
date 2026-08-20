@@ -185,15 +185,14 @@ type NativeRunReport struct {
 	Unverified            bool   `json:"unverified"`
 }
 
-// ReadWorkflowNativeRuns returns the attributed native-run reports for one
-// work item, newest phase report per run. Reports read unverified carry that
-// state explicitly (CD-0040 D9): they remain readable while consequential
-// consumers fail closed elsewhere.
-func ReadWorkflowNativeRuns(ctx context.Context, s *Store, workID string) ([]NativeRunReport, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "native_runs", "store is not open", false, "open the authority database")
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at FROM workflow_native_runs WHERE work_id=? ORDER BY run_id,phase`, workID)
+// readWorkflowNativeRunsTx returns the attributed native-run reports for one
+// work item, newest phase report per run, on the caller's transaction. The
+// store pools a single SQLite connection, so this read must share the
+// continuity snapshot's transaction rather than open a second connection.
+// Reports read unverified carry that state explicitly (CD-0040 D9): they
+// remain readable while consequential consumers fail closed elsewhere.
+func readWorkflowNativeRunsTx(ctx context.Context, tx *sql.Tx, workID string) ([]NativeRunReport, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at FROM workflow_native_runs WHERE work_id=? ORDER BY run_id,phase`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "native_runs", "cannot read native run reports", true, "retry once the database is readable", err)
 	}
@@ -208,20 +207,4 @@ func ReadWorkflowNativeRuns(ctx context.Context, s *Store, workID string) ([]Nat
 		out = append(out, report)
 	}
 	return out, rows.Err()
-}
-
-// NativeRunPhaseStatus summarizes the durable native change state for a run:
-// the TS1 native_change projection (CD-0039 D4).
-func NativeRunPhaseStatus(ctx context.Context, s *Store, workID, runID string) (map[string]string, error) {
-	reports, err := ReadWorkflowNativeRuns(ctx, s, workID)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]string{}
-	for _, report := range reports {
-		if report.RunID == runID {
-			out[report.Phase] = report.Status
-		}
-	}
-	return out, nil
 }

@@ -61,7 +61,7 @@ class InstallerTests(unittest.TestCase):
         (source / "skills" / "concord-demo.md").write_text(f"skill:{marker or version}\n", encoding="utf-8")
         binary = (source / "bin" / "concord")
         binary.write_bytes((marker or version).encode("utf-8"))
-        for name in ("concord.ts", "generated-contracts.ts", "generated-contract-tests.ts"):
+        for name in installer.ADAPTER_FILES:
             (source / "adapter" / "opencode" / name).write_text(f"{name}:{marker or version}\n", encoding="utf-8")
         archive = self.artifacts / f"{prefix}.tar.gz"
         with tarfile.open(archive, "w:gz") as bundle:
@@ -148,6 +148,34 @@ class InstallerTests(unittest.TestCase):
         config = self.config.read_text(encoding="utf-8")
         self.assertIn("v1.1.0/skills", config)
         self.assertNotIn("v1.0.0/skills", config)
+
+    def test_upgrade_from_a_manifest_recording_fewer_adapter_files(self) -> None:
+        """An installation predating an added adapter file upgrades cleanly.
+
+        The manifest of an existing installation records the adapter files that
+        shipped at the time. Adding one must not turn a broken adapter into a
+        broken upgrade, so the new file is placed rather than refused as
+        user-authored.
+        """
+        added = "credentials.ts"
+        self.assertIn(added, installer.ADAPTER_FILES)
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        del manifest["adapter_files"][added]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        (self.root / "config" / "opencode" / "tools" / added).unlink()
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        for name in installer.ADAPTER_FILES:
+            placed = self.root / "config" / "opencode" / "tools" / name
+            self.assertTrue(placed.is_file(), f"{name} was not placed by the upgrade")
+            self.assertIn("new", placed.read_text(encoding="utf-8"))
 
     def test_uninstall_removes_managed_residue_and_keeps_user_config(self) -> None:
         self.make_release("v1.0.0")

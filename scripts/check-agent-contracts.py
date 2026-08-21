@@ -15,6 +15,19 @@ _generator = importlib.util.module_from_spec(_generator_spec)
 _generator_spec.loader.exec_module(_generator)
 schema_validate = _generator.schema_validate
 
+# The installer owns which adapter files ship. Import that list rather than
+# restating it: a restated copy drifts, which is how an adapter shipped an
+# import to a module the installer never placed.
+_installer_spec = importlib.util.spec_from_file_location("concord_installer", ROOT / "scripts/install.py")
+if _installer_spec is None or _installer_spec.loader is None:
+    raise RuntimeError("unable to load the installer adapter file list")
+_installer = importlib.util.module_from_spec(_installer_spec)
+# Registered before execution because the installer defines dataclasses, whose
+# field resolution looks the defining module up in sys.modules.
+sys.modules[_installer_spec.name] = _installer
+_installer_spec.loader.exec_module(_installer)
+ADAPTER_FILES = _installer.ADAPTER_FILES
+
 def _check_closed_schema(path: Path, required: set[str]) -> list[str]:
     findings: list[str] = []
     try:
@@ -495,8 +508,18 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
 ''')
             checked = subprocess.run([bun, "run", str(probe)], cwd=ROOT)
             if checked.returncode: return checked.returncode
-            adapter = subprocess.run([bun, "build", "adapter/opencode/concord.ts", "--outdir", out, "--external", "@opencode-ai/plugin", "--target", "bun"], cwd=ROOT)
-            if adapter.returncode: return adapter.returncode
+            # Build the file set the installer places, not the repository tree.
+            # Building in ROOT resolves every sibling module whether or not it
+            # ships, so it proves the adapter compiles here and says nothing
+            # about what an operator receives.
+            staged = Path(out) / "shipped-adapter"
+            staged.mkdir()
+            for name in ADAPTER_FILES:
+                shutil.copy2(ROOT / "adapter/opencode" / name, staged / name)
+            adapter = subprocess.run([bun, "build", "concord.ts", "--outdir", str(staged / "out"), "--external", "@opencode-ai/plugin", "--target", "bun"], cwd=staged)
+            if adapter.returncode:
+                print("shipped adapter file set is not import-closed; see scripts/install.py ADAPTER_FILES", file=sys.stderr)
+                return adapter.returncode
             # The whole adapter suite, not one file: dispatch.test.ts and
             # dispatch_identity.test.ts cover the CD-0017 worker-evidence
             # append path, which no Go test reaches.

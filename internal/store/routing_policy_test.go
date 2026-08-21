@@ -82,7 +82,7 @@ func TestRoutingPolicyRejectsSilentSubstitutionAndInvalidResolutionEvidence(t *t
 		reason string
 	}{
 		{name: "undeclared model", model: "openai/not-declared", role: WorkerResolutionFallback, reason: "other"},
-		{name: "fallback without reason", model: "zai-coding-plan/glm-5.2", role: WorkerResolutionFallback, reason: ""},
+		{name: "fallback without reason", model: "zai-coding-plan/glm-5.3", role: WorkerResolutionFallback, reason: ""},
 		{name: "preferred marked fallback", model: lane.PinnedModel, role: WorkerResolutionFallback, reason: "rate_limit"},
 	}
 	for _, testCase := range cases {
@@ -96,7 +96,7 @@ func TestRoutingPolicyRejectsSilentSubstitutionAndInvalidResolutionEvidence(t *t
 			}
 		})
 	}
-	if err := ValidateWorkerCompletion(lane.PinnedModel, "zai-coding-plan/glm-5.2"); !hasFailureKind(err, KindModelIdentityMismatch) {
+	if err := ValidateWorkerCompletion(lane.PinnedModel, "zai-coding-plan/glm-5.3"); !hasFailureKind(err, KindModelIdentityMismatch) {
 		t.Fatalf("readback mismatch = %v, want %s", err, KindModelIdentityMismatch)
 	}
 }

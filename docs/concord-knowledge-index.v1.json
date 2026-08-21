@@ -1544,6 +1544,35 @@
         "internal/store/lifecycle_relations_test.go"
       ],
       "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0053",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0053-predecessor-strength-answers.md",
+      "status": "accepted",
+      "date": "2026-08-21T00:00:00Z",
+      "title": "The three un-mandated predecessor strengths are answered",
+      "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. Each answer cites its mechanism and executable evidence and is cutover-blocking per issue #295.",
+      "tags": [
+        "predecessor",
+        "migration",
+        "workflow",
+        "knowledge"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:08fcb70a99840239423eb29c47766b831f2c4d1ca179c2a0e116f4aede2ff200",
+      "evidence": [
+        "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
+        "docs/decisions/CD-0026-learning-capture.md",
+        "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md"
+      ],
+      "home_domain_id": "product-root:concord"
     }
   ]
 }

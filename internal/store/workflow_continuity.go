@@ -44,20 +44,24 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	WorkID                   string                    `json:"work_id"`
-	ProductIdentity          []string                  `json:"product_identity"`
-	WorkflowStep             string                    `json:"workflow_step"`
-	Contract                 *WorkflowReadContract     `json:"contract"`
-	SpecMandate              []string                  `json:"spec_mandate"`
-	PendingOperatorDecision  *WorkflowOperatorQuestion `json:"pending_operator_decision"`
-	LatestCheckpoint         *ContextCheckpoint        `json:"latest_checkpoint"`
-	UnresolvedFailure        *ContextFailure           `json:"unresolved_failure"`
-	Boundaries               []ContextBoundary         `json:"boundaries"`
-	BoundaryCount            int64                     `json:"boundary_count"`
-	NextCursor               *string                   `json:"next_cursor"`
-	Watermark                string                    `json:"watermark"`
-	RestartAvailable         bool                      `json:"restart_available"`
-	RestartUnavailableReason string                    `json:"restart_unavailable_reason"`
+	WorkID                  string                    `json:"work_id"`
+	ProductIdentity         []string                  `json:"product_identity"`
+	WorkflowStep            string                    `json:"workflow_step"`
+	Contract                *WorkflowReadContract     `json:"contract"`
+	SpecMandate             []string                  `json:"spec_mandate"`
+	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
+	LatestCheckpoint        *ContextCheckpoint        `json:"latest_checkpoint"`
+	UnresolvedFailure       *ContextFailure           `json:"unresolved_failure"`
+	Boundaries              []ContextBoundary         `json:"boundaries"`
+	BoundaryCount           int64                     `json:"boundary_count"`
+	NextCursor              *string                   `json:"next_cursor"`
+	Watermark               string                    `json:"watermark"`
+	// NativeRuns carries the attributed native-run reports for this work
+	// item, newest phase per run, with reporter, subject, evidence, and both
+	// times alongside the status (CD-0039 D1/D4).
+	NativeRuns               []NativeRunReport `json:"native_runs"`
+	RestartAvailable         bool              `json:"restart_available"`
+	RestartUnavailableReason string            `json:"restart_unavailable_reason"`
 	// PendingMessages counts sent peer messages awaiting this work's next
 	// session (CD-0029). The pointer survives restarts because the snapshot
 	// itself is re-derived per call.
@@ -259,6 +263,11 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read observations", true, "retry once the database is readable", obsErr)
 	}
 	out.Observations = []WorkObservation{}
+	if nativeRuns, nativeErr := readWorkflowNativeRunsTx(ctx, tx, req.Work); nativeErr != nil {
+		return out, nativeErr
+	} else {
+		out.NativeRuns = nativeRuns
+	}
 	for obsRows.Next() {
 		var o WorkObservation
 		var obsRefs, obsTags string

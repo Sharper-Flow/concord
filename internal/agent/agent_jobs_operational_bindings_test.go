@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -175,4 +176,193 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 		Evidence: "projection read active immediately before the call while git had merged the branch; the reclamation returned ok and the entry moved active -> reclaimed",
 	}
 	return obs
+}
+
+// approvedOpsAction dispatches one ops workflow action, cycling the core
+// approval challenge through a signed host approval when the action requires
+// operator authority. It returns the final envelope and the work version the
+// action produced.
+func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Grant, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string) (Envelope, int64) {
+	t.Helper()
+	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "idempotency_key": key}
+	if fields != nil {
+		input["fields"] = fields
+	} else {
+		input["fields"] = []any{}
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if resp.Error != nil && resp.Error.Kind == "approval_required" {
+		challengeRef, _ := resp.Error.Details["approval_ref"].(string)
+		if challengeRef == "" {
+			t.Fatalf("%s minted no challenge: %+v", action, resp.Error.Details)
+		}
+		withApproval := map[string]any(input)
+		withApproval["approval"] = map[string]any{"approval_ref": challengeRef}
+		approvedRaw, _ := json.Marshal(withApproval)
+		scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": env.ScopeVersion}
+		versions := map[string]any{"work": version}
+		approvalEnv := env
+		approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+		resp = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, approvalEnv)
+	}
+	var newVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&newVersion); err != nil {
+		t.Fatal(err)
+	}
+	return resp, newVersion
+}
+
+// AJ8-health-failure-rollback: an approved production routing change is
+// applied, its health check fails, and the declared rollback runs. Concord
+// never calls the provider (CD-0039 D9): the native authority reports each
+// phase through typed workflow-action fields, Concord folds one attributed
+// native-run event per phase, and the logical operation completes partial —
+// the native steps succeeded, the approved change did not.
+func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
+	t.Helper()
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	seedCurrentWorkflowDomainFixture(t, s)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+
+	registered := mustOpsRunbookDefinition(t)
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+	}); err != nil {
+		t.Fatalf("initialize ops runbook: %v", err)
+	}
+	version := int64(0)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+
+	const runID = "run-routing-1"
+	const subject = "routing-provider:prod-edge"
+	evidenceFor := func(phase string) (string, string) {
+		digit := map[string]string{"start": "1", "health": "2", "rollback": "3"}[phase]
+		return "https://evidence.invalid/runs/" + runID + "/" + phase, "sha256:" + strings.Repeat(digit, 64)
+	}
+	nativeFields := func(phase, status string) map[string]any {
+		evidenceRef, evidenceDigest := evidenceFor(phase)
+		return map[string]any{"run_id": runID, "native_subject_ref": subject, "status": status, "evidence_ref": evidenceRef, "evidence_digest": evidenceDigest, "asserted_at": fixedTime().Format("2006-01-02T15:04:05Z")}
+	}
+
+	// plan → approval → execute: the operator approves the contract and the
+	// operation through real challenge/approval cycles.
+	contractResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", workflowContractFieldsFixture(), "aj8-rollback-contract")
+	if contractResp.Outcome != OutcomeOK {
+		t.Fatalf("approve_contract=%+v", contractResp.Error)
+	}
+	operationResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_operation", nil, "aj8-rollback-operation")
+	if operationResp.Outcome != OutcomeOK {
+		t.Fatalf("approve_operation=%+v", operationResp.Error)
+	}
+	startResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "start_run", nativeFields("start", "started"), "aj8-rollback-start")
+	if startResp.Outcome != OutcomeOK {
+		t.Fatalf("start_run=%+v", startResp.Error)
+	}
+	// Fixture placement to the health step: the execute step's only
+	// advance-mode actions are condition actions, and an open condition
+	// blocks the cross-authority health report by design. The scenario's
+	// initial_state already declares the approval valid and the change
+	// applied, so the runbook position at the health check is fixture
+	// context (mirroring seedOverlapProjection's fold-guarded seeding), not
+	// behavior under test. Every reported action below is a real dispatch.
+	placeOpsRunbookAtStep(t, s, "health")
+	healthResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "record_health", nativeFields("health", "failed"), "aj8-rollback-health")
+	if healthResp.Outcome != OutcomePartial {
+		t.Fatalf("failed health must classify partial, got %s: %+v", healthResp.Outcome, healthResp.Error)
+	}
+	rollbackResp, _ := approvedOpsAction(t, s, service, grant, privateKey, env, version, "rollback_run", nativeFields("rollback", "rolled_back"), "aj8-rollback-run")
+	if rollbackResp.Outcome != OutcomePartial {
+		t.Fatalf("successful rollback after failed health must classify partial (logical operation unsuccessful), got %s: %+v", rollbackResp.Outcome, rollbackResp.Error)
+	}
+	if rollbackResp.Error == nil || rollbackResp.Error.Kind != "operation_conflict" || rollbackResp.Error.RecoveryAction.Kind != "reconcile_operation" || rollbackResp.Error.EffectState != EffectPartial {
+		t.Fatalf("rollback partial shape wrong: %+v", rollbackResp.Error)
+	}
+	healthFailure, _ := rollbackResp.Error.Details["health_failure"].(string)
+	rollbackResult, _ := rollbackResp.Error.Details["rollback_result"].(string)
+	if healthFailure == "" || rollbackResult == "" {
+		t.Fatalf("partial outcome missing native failure/rollback results: %+v", rollbackResp.Error.Details)
+	}
+
+	// The durable projection: every phase is an attributed report with the
+	// reporter, subject, and evidence riding alongside the status (CD-0039 D4).
+	snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports := snapshot.NativeRuns
+	phases := map[string]store.NativeRunReport{}
+	for _, report := range reports {
+		if report.RunID == runID {
+			phases[report.Phase] = report
+		}
+	}
+	if len(phases) != 3 || phases["start"].Status != "started" || phases["health"].Status != "failed" || phases["rollback"].Status != "rolled_back" {
+		t.Fatalf("native run phases=%+v", phases)
+	}
+	for phase, report := range phases {
+		if report.ReportingAuthorityRef != grant.ClientRef || report.NativeSubjectRef != subject || report.EvidenceRef == "" || report.EvidenceDigest == "" || report.AssertedAt == "" {
+			t.Fatalf("%s report lost attribution: %+v", phase, report)
+		}
+	}
+
+	obs := envelopeToObservation(rollbackResp)
+	obs.State = map[string]any{"native_change": map[string]any{"status": phases["rollback"].Status}}
+	obs.Communication["health_failure"] = healthFailure
+	obs.Communication["rollback_result"] = rollbackResult
+	obs.Effects["evidence_authority_supplied"] = true
+	// The prohibited effect is adapter domain logic: the adapter inferring a
+	// provider outcome or synthesizing partial from prose. Probing it means
+	// proving the typed core path owns the classification: the partial status
+	// equals the folded attributed report, and the inputs carried only the
+	// closed typed fields — no summary, no authority strings, no prose.
+	obs.Effects["adapter_domain_logic"] = probedAbsent{
+		Evidence: "outcome partial is derived core-side from the folded workflow.native_run_recorded event and matches the durable projection (rolled_back by " + phases["rollback"].ReportingAuthorityRef + "); the adapter input surface carried only the closed typed fields with no caller authority or prose summary",
+	}
+	return obs
+}
+
+// mustOpsRunbookDefinition returns the registered ops-runbook definition the
+// instance pins.
+func mustOpsRunbookDefinition(t *testing.T) store.RegisteredDefinition {
+	t.Helper()
+	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.ops_runbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registered
+}
+
+// placeOpsRunbookAtStep fixture-places the runbook instance at one step via
+// the fold guard, the same seeding seam seedOverlapProjection uses.
+func placeOpsRunbookAtStep(t *testing.T, s *store.Store, stepID string) {
+	t.Helper()
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `UPDATE workflow_instances SET current_step=? WHERE work_id='work-1'`, stepID); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 }

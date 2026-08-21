@@ -282,12 +282,44 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	// a missing-evidence refusal, and CD-0035's governing-law conflict is the
 	// first scenario to exercise it.
 	withheld, withheldOK := obs.Effects["approval_authority_withheld"].(bool)
-	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK {
-		t.Error("evidence_authority: binding did not record supplied, refused, withheld, or consumed authority evidence")
+	// A fifth shape: the core minted an approval challenge and returned the
+	// consent prompt (CD-0037). The authority evidence is the challenge itself.
+	minted, mintedOK := obs.Effects["approval_challenge_minted"].(bool)
+	if mintedOK {
+		_ = minted // recorded; the cross-checks below are the substance
+	}
+	// A fourth refusal shape: the request itself was inadmissible against the
+	// declared contract — a budget above the operation ceiling — and was
+	// refused before any effect rather than clamped (CD-0038 D3). The probe is
+	// the binding's: no durable state changed and the idempotency key stayed
+	// reusable, which together rule out the silent clamp.
+	refused, refusedOK := obs.Effects["refused_before_effect"].(bool)
+	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK && !refusedOK && !mintedOK {
+		t.Error("evidence_authority: binding did not record supplied, refused, withheld, consumed, budget-refused, or challenge-minted authority evidence")
 		return
 	}
 	if consumedOK && !consumed {
 		t.Error("evidence_authority: approval_authority_consumed is false")
+	}
+	if minted {
+		commErrMinted, ok := obs.Communication["error"].(map[string]any)
+		if !ok {
+			t.Error("evidence_authority: approval_challenge_minted but no error map in communication")
+			return
+		}
+		if kind, _ := commErrMinted["kind"].(string); kind != "approval_required" {
+			t.Errorf("evidence_authority: approval_challenge_minted but error.kind=%q, want approval_required", kind)
+		}
+		if summary, _ := obs.Communication["consequence_summary"].(map[string]any); len(summary) == 0 {
+			t.Error("evidence_authority: minted challenge without the typed consequence_summary the operator prompt renders from")
+		}
+	}
+	if refused {
+		// Cross-check the wire: an inadmissible request must surface as the
+		// typed refusal, never as a fabricated success carrying a clamp.
+		if kind, _ := obs.Communication["error"].(map[string]any)["kind"].(string); kind != "budget_refused" {
+			t.Error("evidence_authority: refused_before_effect recorded without a budget_refused error on the wire")
+		}
 	}
 	if withheld {
 		// Cross-check the wire: withholding authority must return the choice to
@@ -421,6 +453,21 @@ func invariantHonestRecovery(t *testing.T, obs jobObservation) {
 			if ar, _ := obs.Authority["approval_ref"].(string); ar == "" {
 				t.Error("honest_recovery: approval_required without an approval_ref the agent can sign against")
 			}
+		}
+		// CD-0037 D2: whenever the core minted a challenge, the prompt is the
+		// typed summary derived from the challenge's own facts. A minted
+		// challenge without one is the unsafe approval prompt this law closed.
+		if ar, _ := obs.Authority["approval_ref"].(string); ar != "" {
+			if summary, _ := obs.Communication["consequence_summary"].(map[string]any); len(summary) == 0 {
+				t.Error("honest_recovery: minted approval challenge without a typed consequence_summary")
+			}
+		}
+	case "budget_refused":
+		// CD-0038 D3: the recovery value a caller needs is a typed field.
+		// A budget refusal whose ceiling lives only in prose or details is
+		// not a recovery path the agent can act on.
+		if supported, _ := commErr["supported_budget_seconds"].(float64); supported < 1 {
+			t.Error("honest_recovery: budget_refused without a structural supported_budget_seconds")
 		}
 	}
 }
@@ -1063,12 +1110,32 @@ func envelopeToObservation(resp Envelope) jobObservation {
 		Authority:     map[string]any{},
 	}
 	if resp.Error != nil {
-		obs.Communication["error"] = map[string]any{
+		errMap := map[string]any{
 			"kind":            resp.Error.Kind,
 			"candidate_ids":   resp.Error.Candidates,
 			"violations":      resp.Error.Violations,
 			"message":         resp.Error.Message,
 			"recovery_action": resp.Error.RecoveryAction.Kind,
+		}
+		// CD-0038 D3: the ceiling is a typed envelope affordance, so the corpus
+		// reads it from the envelope the same way it reads operator options.
+		if resp.Error.SupportedBudgetSeconds > 0 {
+			errMap["supported_budget_seconds"] = float64(resp.Error.SupportedBudgetSeconds)
+		}
+		obs.Communication["error"] = errMap
+		// CD-0037 D1: the typed approval prompt is an envelope affordance, so
+		// the corpus reads it from the envelope rather than from a binding's
+		// prose. It rides communication directly, the way options do.
+		if resp.Error.ConsequenceSummary != nil {
+			obs.Communication["consequence_summary"] = map[string]any{
+				"tool":             resp.Error.ConsequenceSummary.Tool,
+				"operation":        resp.Error.ConsequenceSummary.Operation,
+				"consequence":      resp.Error.ConsequenceSummary.Consequence,
+				"operation_digest": resp.Error.ConsequenceSummary.OperationDigest,
+				"scope":            resp.Error.ConsequenceSummary.Scope,
+				"versions":         resp.Error.ConsequenceSummary.Versions,
+				"expires_at":       resp.Error.ConsequenceSummary.ExpiresAt,
+			}
 		}
 		// CD-0035 D1: the operator-choice list is a typed envelope affordance, so
 		// the corpus reads it from the envelope rather than from a binding's prose.
@@ -1079,6 +1146,23 @@ func envelopeToObservation(resp Envelope) jobObservation {
 			}
 			obs.Communication["options"] = options
 		}
+		// CD-0037 D1: the consequence summary is a typed envelope affordance
+		// derived from the minted challenge facts, not binding prose.
+		if resp.Error.ConsequenceSummary != nil {
+			summary := resp.Error.ConsequenceSummary
+			scope := make([]any, len(summary.Scope))
+			for i, binding := range summary.Scope {
+				scope[i] = binding
+			}
+			versions := make([]any, len(summary.Versions))
+			for i, binding := range summary.Versions {
+				versions[i] = binding
+			}
+			obs.Communication["consequence_summary"] = map[string]any{
+				"tool": summary.Tool, "operation": summary.Operation, "consequence": summary.Consequence,
+				"operation_digest": summary.OperationDigest, "scope": scope, "versions": versions, "expires_at": summary.ExpiresAt,
+			}
+		}
 	}
 	if len(resp.Result) > 0 {
 		var result map[string]any
@@ -1088,6 +1172,19 @@ func envelopeToObservation(resp Envelope) jobObservation {
 	}
 	if resp.Outcome != "" {
 		obs.Communication["outcome"] = string(resp.Outcome)
+	}
+	// CD-0039 D7: a partial cross-authority outcome reports the steps that
+	// finished and its recovery route; the ordered-cross-authority invariant
+	// reads both from the envelope.
+	if len(resp.CompletedSteps) > 0 {
+		steps := make([]any, len(resp.CompletedSteps))
+		for i, step := range resp.CompletedSteps {
+			steps[i] = step
+		}
+		obs.Communication["completed_steps"] = steps
+	}
+	if resp.Error != nil && resp.Error.RecoveryAction.Kind != "" {
+		obs.Communication["recovery_action"] = resp.Error.RecoveryAction.Kind
 	}
 	obs.Authority["tool"] = resp.Tool
 	obs.Authority["operation"] = resp.Operation
@@ -1254,11 +1351,9 @@ func init() {
 	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
-
-	// Deferred scenarios with precise reasons.
-	jobDeferrals["AJ8-approval-required"] = "#172 governance tranche: needs a consequence summary on the approval refusal; the human_checkpoint driver landed with CD-0035"
-	jobDeferrals["AJ8-health-failure-rollback"] = "#174 native-evidence tranche: needs recordable native-run outcomes for health and rollback"
-	jobDeferrals["AJ8-budget-refused"] = "#173 budget tranche: needs a declared seconds-denominated operation budget with a supported ceiling"
+	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
+	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
+	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback
 }
 
 // AJ1-ambient-ready-work: resolve product, list ready work.

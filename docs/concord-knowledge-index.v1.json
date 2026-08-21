@@ -494,7 +494,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -1283,7 +1283,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1b6546008b06db57a181a3abd511cfb190ab0b2396174647246e47e1b6998ddc",
+      "sha256": "sha256:f9d3d48f5dcf5d2bee3d77d00bdf833fc58a78addfaeb5fcc1c1347811b1faed",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1327,7 +1327,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:6b89edd732d1655dbfdd4186fdb00a37fbcd5eca999812ca44ad056975a7ec72",
+      "sha256": "sha256:1962bf57ebfabeffa60c5f4c409f7fa565a7149438fb576598241dcfe6fdc29d",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1351,7 +1351,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e0cf80d25e1d384d5267b7e0de6c4fda83b17acdfe8afbbed4a23a30317e45cd",
+      "sha256": "sha256:4a069f599146bfa1b30f2e808c58fe3a0ca8a64c53be2ad0b26d44ddfb6eee3d",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1402,6 +1402,35 @@
         "scripts/check-reachability.py",
         "docs/law-coverage.v1.json",
         "docs/reachability-exceptions.v1.json"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0048",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0048-s2-answer-stack-composition.md",
+      "status": "accepted",
+      "date": "2026-08-20T00:00:00Z",
+      "title": "S2 composes the answers the store already materialized",
+      "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order — governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
+      "tags": [
+        "launcher",
+        "terminal-contract"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:13bf61d184703b1e3380955b009dcea910c9c429e86ab640668e46dd1cb8144e",
+      "evidence": [
+        "docs/terminal-launcher-contract.md",
+        "internal/store/product_row.go",
+        "internal/store/domain_reads.go",
+        "internal/store/launcher_query.go",
+        "cmd/concord/session.go"
       ],
       "home_domain_id": "product-root:concord"
     }

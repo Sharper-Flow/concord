@@ -477,7 +477,7 @@ func scopeFromMap(scope map[string]any) *Scope {
 
 func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant Grant) error {
 	var in actionMutationInput
-	if err := decodeStrict(raw, &in); err != nil {
+	if err := decodeOperationInput(raw, &in); err != nil {
 		return err
 	}
 	payload, err := workflowActionFields(in.Fields)
@@ -503,7 +503,7 @@ func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant 
 
 func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant Grant, authorize func() error) error {
 	var in actionMutationInput
-	if err := decodeStrict(raw, &in); err != nil {
+	if err := decodeOperationInput(raw, &in); err != nil {
 		return err
 	}
 	payload, err := workflowActionFields(in.Fields)
@@ -533,7 +533,7 @@ func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []b
 
 func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, registry store.DefinitionRegistry) error {
 	var in actionMutationInput
-	if err := decodeStrict(raw, &in); err != nil {
+	if err := decodeOperationInput(raw, &in); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
 	}
 	payload, err := workflowActionFields(in.Fields)
@@ -576,14 +576,14 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, err
 	}
 	var object map[string]json.RawMessage
-	if err := decodeStrict(raw, &object); err == nil && object != nil {
+	if err := decodeOperationInput(raw, &object); err == nil && object != nil {
 		return raw, nil
 	}
 	var fields []struct {
 		Name  string          `json:"name"`
 		Value json.RawMessage `json:"value"`
 	}
-	if err := decodeStrict(raw, &fields); err != nil {
+	if err := decodeOperationInput(raw, &fields); err != nil {
 		return nil, fmt.Errorf("workflow action fields must be a strict object or field list: %w", err)
 	}
 	object = make(map[string]json.RawMessage, len(fields))
@@ -615,7 +615,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
 	}
 	var in actionMutationInput
-	if err := decodeStrict(raw, &in); err != nil {
+	if err := decodeOperationInput(raw, &in); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 	}
 	payload, err := workflowActionFields(in.Fields)
@@ -666,6 +666,13 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		return replay, nil
 	}
+	// CD-0038 D3: budget admission for a mutation follows its idempotency
+	// lookup. A replay that matches the recorded digest returns the original
+	// result regardless of the ceiling, so a lowered ceiling can never strand
+	// an already-committed request behind a refusal.
+	if r.Budget.CeilingRefused {
+		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
+	}
 	if err := store.ValidateWorkflowOperatorSelection(ctx, r.Store, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -675,16 +682,20 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		inv.HostAssertionDigest = digest
 	}
 	if requiresApproval && approval == "" {
+		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		var challengeRef string
 		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
 			return err
 		})
 		if txErr != nil {
 			return failureEnvelope(base, txErr), nil
 		}
 		response := coreError(base, "approval_required", "core approval is required for this workflow action", "request_approval", false)
+		// CD-0037 D2: a challenge was minted, so the refusal carries the typed
+		// summary derived from the same spec the challenge binds.
+		response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
 		premiseSummary := ""
 		if in.ActionID == "confirm_premise" {
 			if contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID); err == nil {
@@ -734,6 +745,26 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 		base.ResolvedScope = scopeFromMap(scope)
+		// CD-0039 D7/D8: a native report that the approved logical operation
+		// did not complete successfully classifies the action partial. The
+		// native steps are durable attributed facts; ok is reserved for
+		// successful native predicates.
+		if execution.NativeRun != nil && store.NativeRunStatusIsFailure(execution.NativeRun.Phase, execution.NativeRun.Status) {
+			report := execution.NativeRun
+			ref := OperationRef{ID: operationID, Kind: "workflow_action", Version: "1", State: OperationPartial, CurrentStep: report.Phase, UpdatedAt: r.Authority.now()}
+			partialErr := TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial, Message: "native authority reported the operation did not complete successfully"}
+			partialErr.Details = map[string]any{
+				"health_failure":   report.Phase + ":" + report.Status + " by " + report.ReportingAuthorityRef + " at " + report.AssertedAt,
+				"rollback_result":  report.EvidenceRef,
+				"native_run_id":    report.RunID,
+				"native_phase":     report.Phase,
+				"native_status":    report.Status,
+				"reporting_client": report.ReportingAuthorityRef,
+			}
+			result = NewPartial(base, ref, []string{report.Phase}, partialErr)
+			changedJSON, _ := json.Marshal(changed)
+			return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: "{}", ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
+		}
 		result = r.mutationResult(base, execution.Result, changed, nil)
 		if result.Outcome == OutcomeError {
 			resultRejected = true
@@ -774,7 +805,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 	switch op.ID {
 	case "concord_work_define.capture":
 		var in captureMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Kind == "epic" || in.Kind == "initiative" {
@@ -866,7 +897,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_define.revise_intent":
 		var in reviseMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Kind == "epic" || in.Kind == "initiative" {
@@ -915,7 +946,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_initiative.create":
 		var in initiativeCreateMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if len(in.ProjectIDs) == 0 {
@@ -964,7 +995,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_initiative.add_entry", "concord_work_initiative.reorder_entry", "concord_work_initiative.change_requiredness":
 		var in initiativeEntryMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["initiative"] = in.ExpectedVersion
@@ -997,7 +1028,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_initiative.remove_entry":
 		var in initiativeRemoveEntryMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["initiative"] = in.ExpectedVersion
@@ -1017,7 +1048,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_initiative.revise_narrative":
 		var in initiativeNarrativeMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["initiative"] = in.ExpectedVersion
@@ -1037,7 +1068,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_transition.lifecycle":
 		var in lifecycleMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Target == "superseded" {
@@ -1079,7 +1110,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_define.research_pack_create":
 		var in researchPackCreateMutation
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		scope["work_ids"] = []string{in.OwnerWorkID}
@@ -1094,7 +1125,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_define.research_revision_append":
 		var in researchRevisionMutation
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
@@ -1106,7 +1137,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_define.research_finding_record":
 		var in researchFindingMutation
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
@@ -1131,7 +1162,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_define.research_source_record":
 		var in researchSourceMutation
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
@@ -1144,7 +1175,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_define.research_freshness_set":
 		var in researchFreshnessMutation
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
@@ -1156,7 +1187,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_compact.lesson_publish":
 		var in lessonPublishInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Approval != nil {
@@ -1194,7 +1225,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.resource_claim":
 		var in resourceClaimInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["work"] = in.ExpectedVersion
@@ -1210,7 +1241,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.resource_release":
 		var in resourceReleaseInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["work"] = in.ExpectedVersion
@@ -1226,7 +1257,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.message_send":
 		var in messageSendInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.RecipientWorkID == "" && !in.Broadcast {
@@ -1281,7 +1312,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.message_withdraw":
 		var in messageWithdrawInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["work"] = in.ExpectedVersion
@@ -1297,7 +1328,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_define.observation_record":
 		var in observationRecordInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		scope["work_ids"] = []string{in.WorkID}
@@ -1317,7 +1348,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["work"] = in.ExpectedVersion
@@ -1338,7 +1369,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_transition.worktree_reclaim":
 		var in worktreeReclaimInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		versions["work"] = in.ExpectedVersion
@@ -1357,7 +1388,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.set_memberships":
 		var in membershipsMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if len(in.Memberships) == 0 {
@@ -1382,7 +1413,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.resolve_overlap":
 		var in resolveOverlapMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Approval != nil {
@@ -1410,7 +1441,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.link":
 		var in linkMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Kind == "supersedes" || in.Kind == "compatible_with" || in.Kind == "merged_into" {
@@ -1434,7 +1465,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.unlink":
 		var in unlinkMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if len(in.ExpectedVersions) == 0 {
@@ -1460,7 +1491,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		effect = r.unlinkEffect(digest, in, endpoints, intents)
 	case "concord_work_relate.supersede":
 		var in supersedeMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Approval != nil {
@@ -1481,7 +1512,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 	case "concord_work_relate.restore_superseded":
 		var in restoreMutationInput
-		if err := decodeStrict(raw, &in); err != nil {
+		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
 		if in.Approval != nil {
@@ -1605,7 +1636,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	var publish compactPublishInput
 	var reconcile compactReconcileInput
 	if op.ID == "concord_work_compact.publish" {
-		if err := decodeStrict(raw, &publish); err != nil {
+		if err := decodeOperationInput(raw, &publish); err != nil {
 			return base, err
 		}
 		if publish.Approval == nil || publish.Approval.ApprovalRef == "" {
@@ -1613,7 +1644,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		}
 	}
 	if op.ID == "concord_work_compact.reconcile" {
-		if err := decodeStrict(raw, &reconcile); err != nil {
+		if err := decodeOperationInput(raw, &reconcile); err != nil {
 			return base, err
 		}
 	}
@@ -1969,10 +2000,10 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 		return coreError(base, "malformed_response", fmt.Sprintf("mutation result failed closed-schema validation: %v", err), "contact_operator", false)
 	}
 	if r.Budget.MaxBytes > 0 && len(payload) > r.Budget.MaxBytes {
-		return coreError(base, "budget_refused", "mutation result exceeds requested max_bytes budget", "adjust_budget", false)
+		return r.budgetRefusal(base, "mutation result exceeds requested max_bytes budget")
 	}
 	if r.Budget.MaxItems > 0 && maxArrayLength(payload) > r.Budget.MaxItems {
-		return coreError(base, "budget_refused", "mutation result exceeds requested max_items budget", "adjust_budget", false)
+		return r.budgetRefusal(base, "mutation result exceeds requested max_items budget")
 	}
 	response := NewOKMutation(base, payload, changed, intents)
 	if err := response.Validate(); err != nil {
@@ -1993,7 +2024,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	var response Envelope
 	var resultRejected bool
 	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
-		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: capabilityForMutation(r.Tool), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+		if !registered {
+			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
+		}
+		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
@@ -2051,19 +2086,34 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				}
 			}
 		}
+		// CD-0038 D3: the seconds ceiling is admitted after the idempotency
+		// lookup above, for the same reason the workflow-action path states.
+		// A refused request records no idempotency effect, so the same key may
+		// be reused with a lower budget.
+		if r.Budget.CeilingRefused {
+			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+			resultRejected = true
+			return errors.New("budget admission refused")
+		}
 		if requiresApproval && approval == "" {
 			challengeScope := boundedApprovalScope(scope)
-			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
 			if err != nil {
 				return err
 			}
 			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+			// CD-0037 D2: the coupling is challenge presence. Both branches
+			// below minted this challenge, so both carry the summary — the
+			// governing-conflict envelope as much as the plain refusal.
+			summary := consequenceSummaryFor(r.Tool, r.Operation, spec)
 			if len(governingConflict) > 0 {
 				response = governingConflictEnvelope(base, governingConflict)
 				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
 			} else {
 				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
 			}
+			response.Error.ConsequenceSummary = summary
 			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id"} {
 				if value, ok := scope[key]; ok {
 					details[key] = value
@@ -2204,20 +2254,6 @@ func idempotencyKey(raw []byte) string {
 func marshalEventIDs(ids []string) string { b, _ := json.Marshal(ids); return string(b) }
 func storeIdempotencyConflict(operation, key string) error {
 	return store.IdempotencyConflict(operation, key)
-}
-func capabilityForMutation(tool string) Capability {
-	switch tool {
-	case "concord_work_define":
-		return "work_define"
-	case "concord_work_transition":
-		return "work_transition"
-	case "concord_work_relate":
-		return "work_relate"
-	case "concord_work_initiative":
-		return "work_initiative"
-	default:
-		return "work_compact"
-	}
 }
 
 func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEndpoints []string, intents []NextIntent) mutationEffect {

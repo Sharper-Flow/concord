@@ -312,18 +312,53 @@
     },
     {
       "id": "CD-0037",
-      "state": "outstanding",
-      "issue": 172
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "scenario",
+          "value": "AJ8-approval-required"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestMintedChallengeRefusalCarriesTheTypedSummary"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestConsequenceSummaryDerivesFromTheChallengeSpec"
+        }
+      ]
     },
     {
       "id": "CD-0038",
-      "state": "outstanding",
-      "issue": 173
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "scenario",
+          "value": "AJ8-budget-refused"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestApplyBudgetParsesRequestedSecondsAndCeiling"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestBudgetRefusalCarriesTheTypedCeiling"
+        }
+      ]
     },
     {
       "id": "CD-0039",
-      "state": "outstanding",
-      "issue": 174
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "scenario",
+          "value": "AJ8-health-failure-rollback"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentJobsCorpus"
+        }
+      ]
     },
     {
       "id": "CD-0040",
@@ -496,6 +531,11 @@
           "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
         }
       ]
+    },
+    {
+      "id": "CD-0048",
+      "state": "outstanding",
+      "issue": 239
     }
   ]
 }

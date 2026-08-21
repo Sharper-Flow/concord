@@ -290,6 +290,42 @@ func TestS1NavigationFilterHelpRefreshAndS2BackAreReadBounded(t *testing.T) {
 	}
 }
 
+func TestS2BackRestoresPortfolioRowsCursorAndScroll(t *testing.T) {
+	portfolio := launcher.Snapshot{
+		Screen:   launcher.ScreenPortfolio,
+		Coverage: "authoritative",
+		Rows: []launcher.ProductRow{
+			{ID: "p-1", Name: "Alpha"},
+			{ID: "p-2", Name: "Beta"},
+		},
+	}
+	p := &port{state: portfolio}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("j")
+	m.scroll = 1
+	p.state = launcher.Snapshot{
+		Screen:         launcher.ScreenProduct,
+		AmbientProduct: "p-2",
+		Section:        launcher.SectionRanked,
+		Coverage:       "authoritative",
+		Rows:           []launcher.ProductRow{{ID: "work-1", Name: "S2 row"}},
+		Ranked:         []launcher.RankedWork{{ID: "work-1", Title: "Only work"}},
+	}
+	m.UpdateKey("enter")
+	m.UpdateKey("esc")
+	got := core.Snapshot()
+	if got.Screen != launcher.ScreenPortfolio || len(got.Rows) != 2 || got.Rows[1].ID != "p-2" {
+		t.Fatalf("restored portfolio snapshot = %#v", got)
+	}
+	if m.Cursor() != 1 || m.scroll != 1 {
+		t.Fatalf("restored portfolio position cursor=%d scroll=%d", m.Cursor(), m.scroll)
+	}
+}
+
 func TestS1HelpHasNoSemanticQueryBinding(t *testing.T) {
 	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
@@ -360,6 +396,37 @@ func TestS2S3NavigationRestoresProductSelectionAndScroll(t *testing.T) {
 	m.UpdateKey("esc")
 	if core.Snapshot().Screen != launcher.ScreenProduct || m.Cursor() != 1 || core.Section() != launcher.SectionRanked {
 		t.Fatalf("restored product=%#v cursor=%d", core.Snapshot(), m.Cursor())
+	}
+}
+
+func TestS3BackRestoresProductSnapshotCursorAndScrollForEveryBackKey(t *testing.T) {
+	for _, backKey := range []string{"esc", "h", "left", "q"} {
+		t.Run(backKey, func(t *testing.T) {
+			p := &coordinationPort{}
+			core := launcher.New(p)
+			if err := core.Enter(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			m := New(core, context.Background(), Profile{})
+			m.UpdateKey("enter")
+			m.UpdateKey("tab")
+			m.UpdateKey("tab")
+			m.UpdateKey("j")
+			m.scroll = 1
+			product := core.Snapshot()
+			m.UpdateKey("enter")
+			if core.Snapshot().Screen != launcher.ScreenWork {
+				t.Fatalf("work snapshot = %#v", core.Snapshot())
+			}
+			m.UpdateKey(backKey)
+			got := core.Snapshot()
+			if got.Screen != launcher.ScreenProduct || got.Section != product.Section || len(got.Ranked) != len(product.Ranked) {
+				t.Fatalf("restored product snapshot = %#v, want %#v", got, product)
+			}
+			if m.Cursor() != 1 || m.scroll != 1 {
+				t.Fatalf("restored product position cursor=%d scroll=%d", m.Cursor(), m.scroll)
+			}
+		})
 	}
 }
 

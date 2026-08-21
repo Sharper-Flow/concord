@@ -204,15 +204,14 @@ type Snapshot struct {
 }
 
 type Model struct {
-	port         ReadPort
-	snapshot     Snapshot
-	width        int
-	height       int
-	section      Section
-	cursor       int
-	scroll       int
-	productState Snapshot
-	workState    Snapshot
+	port       ReadPort
+	snapshot   Snapshot
+	width      int
+	height     int
+	section    Section
+	cursor     int
+	scroll     int
+	navigation []Snapshot
 }
 
 func New(port ReadPort) *Model {
@@ -226,8 +225,10 @@ func (m *Model) Enter(ctx context.Context) error {
 func (m *Model) SelectProduct(ctx context.Context, product string) error {
 	for _, row := range m.snapshot.Rows {
 		if row.ID == product {
+			m.navigation = append(m.navigation, m.Snapshot())
 			err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 20, Section: SectionDomains})
 			if err != nil {
+				m.navigation = m.navigation[:len(m.navigation)-1]
 				m.snapshot = Snapshot{Screen: ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 				return err
 			}
@@ -242,10 +243,12 @@ func (m *Model) SelectWork(ctx context.Context, work string) error {
 	if m.snapshot.Screen != ScreenProduct || m.snapshot.AmbientProduct == "" {
 		return nil
 	}
-	m.productState = m.snapshot
+	previous := m.Snapshot()
+	m.navigation = append(m.navigation, previous)
 	err := m.read(ctx, ReadRequest{Kind: ReadWork, Product: m.snapshot.AmbientProduct, Work: work, Limit: 20, Section: SectionRelations})
 	if err != nil {
-		m.snapshot = m.productState
+		m.navigation = m.navigation[:len(m.navigation)-1]
+		m.snapshot = previous
 		m.snapshot.Coverage, m.snapshot.Reliance = "unreachable", "unreachable"
 		m.snapshot.StatusMessage = err.Error()
 		m.snapshot.Ranked, m.snapshot.Relations = nil, RelationTree{}
@@ -290,15 +293,13 @@ func (m *Model) Refresh(ctx context.Context) error {
 
 // Back changes the in-memory navigation stack without performing a read.
 func (m *Model) Back() error {
-	switch m.snapshot.Screen {
-	case ScreenWork:
-		m.snapshot = m.productState
-		m.section = m.snapshot.Section
-	case ScreenProduct:
-		m.snapshot.Screen = ScreenPortfolio
-		m.snapshot.AmbientProduct = ""
-		m.snapshot.StatusMessage = ""
+	if len(m.navigation) == 0 {
+		return nil
 	}
+	last := len(m.navigation) - 1
+	m.snapshot = m.navigation[last]
+	m.navigation = m.navigation[:last]
+	m.section = m.snapshot.Section
 	return nil
 }
 
@@ -341,47 +342,50 @@ func (m *Model) Resize(width, height int) {
 }
 
 func (m *Model) Snapshot() Snapshot {
-	snapshot := m.snapshot
-	snapshot.Rows = make([]ProductRow, len(m.snapshot.Rows))
-	copy(snapshot.Rows, m.snapshot.Rows)
-	for i := range snapshot.Rows {
-		snapshot.Rows[i].UnavailableOmissions = cloneStrings(m.snapshot.Rows[i].UnavailableOmissions)
-		snapshot.Rows[i].RelianceOmissions = cloneStrings(m.snapshot.Rows[i].RelianceOmissions)
+	return cloneSnapshot(m.snapshot)
+}
+
+func cloneSnapshot(snapshot Snapshot) Snapshot {
+	cloned := snapshot
+	cloned.Rows = make([]ProductRow, len(snapshot.Rows))
+	copy(cloned.Rows, snapshot.Rows)
+	for i := range cloned.Rows {
+		cloned.Rows[i].UnavailableOmissions = cloneStrings(snapshot.Rows[i].UnavailableOmissions)
+		cloned.Rows[i].RelianceOmissions = cloneStrings(snapshot.Rows[i].RelianceOmissions)
 	}
-	snapshot.OrderingKeys = cloneStrings(m.snapshot.OrderingKeys)
-	snapshot.Ranked = cloneRanked(m.snapshot.Ranked)
-	snapshot.Relations.Edges = append([]RelationEdge(nil), m.snapshot.Relations.Edges...)
-	snapshot.Relations.Clusters = cloneStringGroups(m.snapshot.Relations.Clusters)
-	snapshot.Domains.Read = m.snapshot.Domains.Read
-	snapshot.Domains.Registry = m.snapshot.Domains.Registry
-	snapshot.Domains.State, snapshot.Domains.Reason = m.snapshot.Domains.State, m.snapshot.Domains.Reason
-	snapshot.Domains.Truncated = m.snapshot.Domains.Truncated
-	snapshot.Domains.Domains = nil
-	for _, domain := range m.snapshot.Domains.Domains {
-		snapshot.Domains.Domains = append(snapshot.Domains.Domains, domain)
+	cloned.OrderingKeys = cloneStrings(snapshot.OrderingKeys)
+	cloned.Ranked = cloneRanked(snapshot.Ranked)
+	cloned.Relations.Edges = append([]RelationEdge(nil), snapshot.Relations.Edges...)
+	cloned.Relations.Clusters = cloneStringGroups(snapshot.Relations.Clusters)
+	cloned.Domains.Read = snapshot.Domains.Read
+	cloned.Domains.Registry = snapshot.Domains.Registry
+	cloned.Domains.State, cloned.Domains.Reason = snapshot.Domains.State, snapshot.Domains.Reason
+	cloned.Domains.Truncated = snapshot.Domains.Truncated
+	cloned.Domains.Domains = nil
+	for _, domain := range snapshot.Domains.Domains {
+		cloned.Domains.Domains = append(cloned.Domains.Domains, domain)
 	}
-	snapshot.Domains.Relations = nil
-	for _, relation := range m.snapshot.Domains.Relations {
-		snapshot.Domains.Relations = append(snapshot.Domains.Relations, relation)
+	cloned.Domains.Relations = nil
+	for _, relation := range snapshot.Domains.Relations {
+		cloned.Domains.Relations = append(cloned.Domains.Relations, relation)
 	}
-	snapshot.Domains.Overlaps = nil
-	for _, pair := range m.snapshot.Domains.Overlaps {
+	cloned.Domains.Overlaps = nil
+	for _, pair := range snapshot.Domains.Overlaps {
 		pair.SharedDomains = cloneStrings(pair.SharedDomains)
-		snapshot.Domains.Overlaps = append(snapshot.Domains.Overlaps, pair)
+		cloned.Domains.Overlaps = append(cloned.Domains.Overlaps, pair)
 	}
-	_ = snapshot
-	snapshot.Relations.Roots = cloneStrings(m.snapshot.Relations.Roots)
-	snapshot.Knowledge.Items = append([]KnowledgeItem(nil), m.snapshot.Knowledge.Items...)
-	snapshot.Detail = m.snapshot.Detail
-	snapshot.Detail.Item.Blockers = cloneBlockers(m.snapshot.Detail.Item.Blockers)
-	snapshot.Detail.Projects = append([]string(nil), m.snapshot.Detail.Projects...)
-	snapshot.Detail.History = append([]string(nil), m.snapshot.Detail.History...)
-	snapshot.Detail.Edges = append([]RelationEdge(nil), m.snapshot.Detail.Edges...)
-	if m.snapshot.NextCursor != nil {
-		cursor := *m.snapshot.NextCursor
-		snapshot.NextCursor = &cursor
+	cloned.Relations.Roots = cloneStrings(snapshot.Relations.Roots)
+	cloned.Knowledge.Items = append([]KnowledgeItem(nil), snapshot.Knowledge.Items...)
+	cloned.Detail = snapshot.Detail
+	cloned.Detail.Item.Blockers = cloneBlockers(snapshot.Detail.Item.Blockers)
+	cloned.Detail.Projects = append([]string(nil), snapshot.Detail.Projects...)
+	cloned.Detail.History = append([]string(nil), snapshot.Detail.History...)
+	cloned.Detail.Edges = append([]RelationEdge(nil), snapshot.Detail.Edges...)
+	if snapshot.NextCursor != nil {
+		cursor := *snapshot.NextCursor
+		cloned.NextCursor = &cursor
 	}
-	return snapshot
+	return cloned
 }
 
 func (m *Model) Size() (width, height int) { return m.width, m.height }

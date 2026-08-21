@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -9,10 +10,14 @@ import (
 type countingPort struct {
 	requests []ReadRequest
 	snapshot Snapshot
+	err      error
 }
 
 func (p *countingPort) Read(_ context.Context, request ReadRequest) (Snapshot, error) {
 	p.requests = append(p.requests, request)
+	if p.err != nil {
+		return Snapshot{}, p.err
+	}
 	return p.snapshot, nil
 }
 
@@ -58,6 +63,80 @@ func TestSelectingProductReadsS2OnceAndBackDoesNotRead(t *testing.T) {
 	}
 	if len(port.requests) != 2 {
 		t.Fatalf("selection/back read count = %d, want 2", len(port.requests))
+	}
+}
+
+func TestBackRestoresPortfolioSnapshotRowsAndSection(t *testing.T) {
+	portfolio := Snapshot{
+		Screen:   ScreenPortfolio,
+		Coverage: "authoritative",
+		Section:  SectionRanked,
+		Rows:     []ProductRow{{ID: "p-1", Name: "One"}, {ID: "p-2", Name: "Two"}},
+	}
+	port := &countingPort{snapshot: portfolio}
+	model := New(port)
+	if err := model.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	port.snapshot = Snapshot{
+		Screen:         ScreenProduct,
+		AmbientProduct: "p-1",
+		Coverage:       "authoritative",
+		Section:        SectionRanked,
+		Rows:           []ProductRow{{ID: "work-1", Name: "S2 row"}},
+	}
+	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Back(); err != nil {
+		t.Fatal(err)
+	}
+	got := model.Snapshot()
+	if got.Screen != ScreenPortfolio || got.AmbientProduct != "" || got.Section != portfolio.Section {
+		t.Fatalf("restored portfolio state = %#v", got)
+	}
+	if len(got.Rows) != len(portfolio.Rows) || got.Rows[0].ID != "p-1" || got.Rows[1].ID != "p-2" {
+		t.Fatalf("restored portfolio rows = %#v", got.Rows)
+	}
+}
+
+func TestBackAtPortfolioIsNoOp(t *testing.T) {
+	model := New(&countingPort{})
+	before := model.Snapshot()
+	if err := model.Back(); err != nil {
+		t.Fatal(err)
+	}
+	if got := model.Snapshot(); got.Screen != before.Screen || got.AmbientProduct != before.AmbientProduct || len(got.Rows) != len(before.Rows) {
+		t.Fatalf("first S1 back changed state = %#v", got)
+	}
+	if err := model.Back(); err != nil {
+		t.Fatal(err)
+	}
+	if got := model.Snapshot(); got.Screen != ScreenPortfolio {
+		t.Fatalf("second S1 back underflowed to %#v", got)
+	}
+}
+
+func TestFailedWorkSelectionRollsBackNavigationDepth(t *testing.T) {
+	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1"}}, Coverage: "authoritative"}}
+	model := New(port)
+	if err := model.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	port.snapshot = Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Section: SectionRanked, Coverage: "authoritative"}
+	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
+		t.Fatal(err)
+	}
+	port.err = errors.New("work unavailable")
+	if err := model.SelectWork(context.Background(), "work-1"); err == nil {
+		t.Fatal("failed work selection returned nil")
+	}
+	port.err = nil
+	if err := model.Back(); err != nil {
+		t.Fatal(err)
+	}
+	if got := model.Snapshot(); got.Screen != ScreenPortfolio || len(got.Rows) != 1 || got.Rows[0].ID != "p-1" {
+		t.Fatalf("back after failed work selection = %#v", got)
 	}
 }
 

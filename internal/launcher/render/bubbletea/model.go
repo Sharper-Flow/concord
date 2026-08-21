@@ -20,6 +20,11 @@ import (
 
 type Profile struct{ Color bool }
 
+type navigationPosition struct {
+	cursor int
+	scroll int
+}
+
 type keyMap struct {
 	Move    key.Binding
 	Filter  key.Binding
@@ -44,27 +49,27 @@ func (k keyMap) FullHelp() [][]key.Binding {
 }
 
 type Model struct {
-	core                         *launcher.Model
-	ctx                          context.Context
-	input                        textinput.Model
-	table                        table.Model
-	help                         help.Model
-	profile                      Profile
-	projection                   launcher.Projection
-	filterMode                   bool
-	queryMode                    bool
-	queryDisplayed               bool
-	filterValue, queryValue      string
-	queryBase                    launcher.Snapshot
-	showHelp                     bool
-	keys                         keyMap
-	cursor                       int
-	scroll                       int
-	width                        int
-	height                       int
-	launch                       func(launcher.SessionHandoff) tea.Cmd
-	productCursor, productScroll int
-	queryCursor, queryScroll     int
+	core                     *launcher.Model
+	ctx                      context.Context
+	input                    textinput.Model
+	table                    table.Model
+	help                     help.Model
+	profile                  Profile
+	projection               launcher.Projection
+	filterMode               bool
+	queryMode                bool
+	queryDisplayed           bool
+	filterValue, queryValue  string
+	queryBase                launcher.Snapshot
+	showHelp                 bool
+	keys                     keyMap
+	cursor                   int
+	scroll                   int
+	width                    int
+	height                   int
+	launch                   func(launcher.SessionHandoff) tea.Cmd
+	navigation               []navigationPosition
+	queryCursor, queryScroll int
 }
 
 func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
@@ -324,8 +329,11 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.core.Snapshot().Screen == launcher.ScreenPortfolio {
 			rows := m.filteredRows()
 			if len(rows) > 0 {
+				previousScreen := m.core.Snapshot().Screen
 				if err := m.core.SelectProduct(m.ctx, rows[m.cursor].ID); err != nil {
 					m.setError(err)
+				} else if m.core.Snapshot().Screen != previousScreen {
+					m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
 				}
 				m.filterValue = ""
 				m.input.Reset()
@@ -334,9 +342,11 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		} else if m.core.Snapshot().Screen == launcher.ScreenProduct && m.core.Section() == launcher.SectionRanked {
 			rows := m.filteredRanked()
 			if len(rows) > 0 && m.cursor < len(rows) {
-				m.productCursor, m.productScroll = m.cursor, m.scroll
+				previousScreen := m.core.Snapshot().Screen
 				if err := m.core.SelectWork(m.ctx, rows[m.cursor].ID); err != nil {
 					m.setError(err)
+				} else if m.core.Snapshot().Screen != previousScreen {
+					m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
 				}
 				m.filterValue = ""
 				m.input.Reset()
@@ -353,24 +363,32 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.Sync()
 			return m, nil
 		}
-		wasWork := m.core.Snapshot().Screen == launcher.ScreenWork
-		if err := m.core.Back(); err != nil {
-			m.setError(err)
-		}
-		m.Sync()
-		if wasWork {
-			m.cursor, m.scroll = m.productCursor, m.productScroll
-			m.clampCursor()
-		}
+		m.back()
 	case "q", "ctrl+c":
 		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
-			_ = m.core.Back()
-			m.Sync()
+			m.back()
 			return m, nil
 		}
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m *Model) back() {
+	before := m.core.Snapshot().Screen
+	if err := m.core.Back(); err != nil {
+		m.setError(err)
+	}
+	after := m.core.Snapshot().Screen
+	m.Sync()
+	if before == after || len(m.navigation) == 0 {
+		return
+	}
+	last := len(m.navigation) - 1
+	position := m.navigation[last]
+	m.navigation = m.navigation[:last]
+	m.cursor, m.scroll = position.cursor, position.scroll
+	m.clampCursor()
 }
 
 func (m *Model) storeInputValue() {

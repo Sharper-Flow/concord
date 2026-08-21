@@ -17,15 +17,26 @@ jobs:
     name: Update branches behind main
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: write
-      pull-requests: write
+    # Nothing here uses GITHUB_TOKEN. Updating a branch with it produces a
+    # pull_request run in an approval-required state that never executes, so
+    # `verify` cannot report and a strict-mode branch can never leave BLOCKED.
+    # AUTO_UPDATE_TOKEN carries contents:write and pull-requests:write on this
+    # repository only.
+    permissions: {}
     steps:
       - name: Update open pull requests
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.AUTO_UPDATE_TOKEN }}
         run: |
           set -u
+
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "AUTO_UPDATE_TOKEN is unset. Falling back to GITHUB_TOKEN would update" >&2
+            echo "branches into a state where the required checks never run, which is worse" >&2
+            echo "than leaving them behind. Refusing to continue." >&2
+            exit 1
+          fi
+
           updated=0
           skipped=0
           failed=0

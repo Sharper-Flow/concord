@@ -213,7 +213,7 @@ closing the session.
 | `n` / `p` | Next / previous page | S1, S2 |
 | `/` | Filter the current screen's already-fetched result set | S1, S2 |
 | `s` | Query — submit a bounded semantic search and render its results | S2, S3 only; requires ambient Product |
-| `Tab` | Cycle sections within a screen — C17 relation tree, ranked table, knowledge | S2, S3 |
+| `Tab` | Cycle panel focus within S2's answer stack (CD-0048); on S3 cycle sections — knowledge | S2, S3 |
 | `l` | Launch a session for the current scope (§6) | S2, S3 |
 | `r` | Explicit refresh (§7) | All |
 | `?` | Help overlay listing the active keymap | All |

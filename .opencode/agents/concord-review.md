@@ -1,7 +1,7 @@
 ---
 description: Concord review lane — Review a bounded change against its contract and acceptance evidence.
 mode: subagent
-model: zai-coding-plan/glm-5.2
+model: zai-coding-plan/glm-5.3
 tools:
   task: false
 permission:

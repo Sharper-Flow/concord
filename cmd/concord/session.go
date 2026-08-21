@@ -21,6 +21,17 @@ var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
 
 type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
 type sessionRunnerFunc func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
+type sessionAgentIdentityFunc func() error
+
+// hostLaneAgentIdentity asserts the registered lanes against the host the
+// session will start on.
+func hostLaneAgentIdentity() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	}
+	return verifyLaneAgentIdentity(os.Getenv("HOME"), cwd, store.BuiltinLaneDefinitions())
+}
 
 func deriveSessionBoot(ctx context.Context, database, productID, workID string) ([]byte, error) {
 	s, err := store.Open(ctx, database)
@@ -42,7 +53,7 @@ func runOpenCode(ctx context.Context, argv, env []string, in io.Reader, out, err
 	return cmd.Run()
 }
 
-func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool, bootstrap sessionBootstrapFunc, runner sessionRunnerFunc) int {
+func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool, bootstrap sessionBootstrapFunc, runner sessionRunnerFunc, identity sessionAgentIdentityFunc) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, "concord session: unsupported arguments")
 		return 2
@@ -54,6 +65,10 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
 	if !sessionIdentity.MatchString(productID) || (workID != "" && !sessionIdentity.MatchString(workID)) {
 		writeDiagnostic(errOut, "concord session: launcher identity is missing or invalid")
+		return 2
+	}
+	if err := identity(); err != nil {
+		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
 	prompt := "Concord identity: product_id=" + productID

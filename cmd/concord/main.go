@@ -51,7 +51,7 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	// Session boot is a TTY command invoked by the identity-only launcher.
 	// It derives continuity in the core before OpenCode receives any prompt.
 	if len(args) > 0 && args[0] == "session" {
-		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), deriveSessionBoot, runOpenCode)
+		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), deriveSessionBoot, runOpenCode, hostLaneAgentIdentity)
 	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {

@@ -47,7 +47,7 @@ func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActo
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 1,
 		"accepted_inputs_digest": "sha256:continuity-start", "idempotency_identity": "continuity-start:" + workID,
-		"actor_ref": actorRef, "execution_model": BuiltinLaneDefinitions()[0].PinnedModel,
+		"actor_ref": actorRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0]),
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)

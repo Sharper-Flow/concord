@@ -224,14 +224,14 @@ func upcastWorkerDispatchedV1(event Event) (Event, error) {
 	if err != nil {
 		return Event{}, err
 	}
-	policy, err := LookupRoutingPolicy(payload.CapabilityClass, payload.RoutingPolicyVersion, RoutingPolicyManifestDigest)
+	policy, err := LookupRoutingPolicy(payload.CapabilityClass, payload.RoutingPolicyVersion, LoadedRoutingPolicyManifestDigest())
 	if err != nil {
 		return Event{}, err
 	}
 	if payload.CapabilityClass != lane.CapabilityClass || payload.ResolvedModel != policy.PreferredModel {
 		return Event{}, newFailure(KindRoutingPolicyInvalid, "worker_event_upcast", "legacy worker dispatch is not a preferred routing-policy resolution", false, "repair the worker event evidence")
 	}
-	payload.RoutingPolicyDigest = RoutingPolicyManifestDigest
+	payload.RoutingPolicyDigest = LoadedRoutingPolicyManifestDigest()
 	payload.ResolutionRole = WorkerResolutionPreferred
 	payload.FallbackReason = ""
 	encoded, err := json.Marshal(payload)
@@ -410,13 +410,13 @@ func ValidateWorkerDispatchIdentity(lane LaneDefinition, policy RoutingPolicyDef
 		}
 		return nil
 	}
-	if policy.PreferredModel != lane.PinnedModel || !containsModel(policy.ResolutionSet, resolvedModel) {
+	if policy.ResolutionSet[0] != policy.PreferredModel || !containsModel(policy.ResolutionSet, resolvedModel) {
 		return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "resolved model is not a declared routing-policy member", false, "use a model from the registered resolution set")
 	}
 	switch role {
 	case WorkerResolutionPreferred:
 		if resolvedModel != policy.PreferredModel || fallbackReason != "" {
-			return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "preferred resolution must equal the lane pinned model and have no fallback reason", false, "record the preferred resolution identity")
+			return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "preferred resolution must equal the policy preferred model and have no fallback reason", false, "record the preferred resolution identity")
 		}
 	case WorkerResolutionFallback:
 		if resolvedModel == policy.PreferredModel || !validWorkerFallbackReason(fallbackReason) {

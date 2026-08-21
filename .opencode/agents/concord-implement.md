@@ -1,7 +1,6 @@
 ---
 description: Concord implement lane — Implement one approved bounded engineering task and report verification.
 mode: subagent
-model: openai/gpt-5.6-luna
 tools:
   task: false
 permission:

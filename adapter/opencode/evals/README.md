@@ -33,11 +33,11 @@ Refusing the second kind is the passing behaviour.
 Providers wrap the same argv shape that
 [`dispatch.ts`](../dispatch.ts) uses, so a run exercises the real lane through
 the real host path rather than a paraphrase of it. Each lane is evaluated
-through the model the registry pins for it.
+through the default routing-policy preferred model for its capability class.
 
 ## Running
 
-Requires a host `opencode` on `PATH` and credentials for the pinned models. No
+Requires a host `opencode` on `PATH` and credentials for the configured models. No
 `package.json` is added to this repository; promptfoo runs standalone.
 
 ```sh
@@ -60,7 +60,7 @@ fails when the harness stops describing the lanes the registry declares:
 - a registered lane with no eval packet
 - a packet whose `lane_version` or `lane_digest` has drifted from the registry
 - a packet the configuration never references
-- a lane whose provider is not pinned to its registered model
+- a lane whose eval command does not use the routing-policy preferred model
 - a packet for a lane that is not registered
 - a registered lane with no prose file
 

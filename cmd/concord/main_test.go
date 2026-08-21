@@ -23,6 +23,15 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func preferredLaneModel(lane store.LaneDefinition) string {
+	for _, policy := range store.BuiltinRoutingPolicies() {
+		if policy.CapabilityClass == lane.CapabilityClass {
+			return policy.PreferredModel
+		}
+	}
+	panic("missing lane routing policy")
+}
+
 func TestRunVersion(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"--version"}, &out, &errOut); code != 0 {
@@ -407,28 +416,28 @@ func TestWorkerCLIRecordsLifecycleAndTypedModelMismatch(t *testing.T) {
 	t.Setenv(dbOverrideEnv, dbPath)
 	workerKey := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
-	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch1")
+	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch1")
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
 		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
-	complete := workerCompleteJSON(t, workerKey, "complete-1", "work-1", "attempt-1", lane.PinnedModel, "nonce-lifecycle-complete1", &lane)
+	complete := workerCompleteJSON(t, workerKey, "complete-1", "work-1", "attempt-1", preferredLaneModel(lane), "nonce-lifecycle-complete1", &lane)
 	out.Reset()
 	errOut.Reset()
 	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(complete), &out, &errOut); code != 0 {
 		t.Fatalf("worker-complete exit=%d stderr=%q", code, errOut.String())
 	}
 
-	failedDispatch := workerDispatchJSON(t, workerKey, "dispatch-2", "work-1", "attempt-2", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch2")
+	failedDispatch := workerDispatchJSON(t, workerKey, "dispatch-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch2")
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(failedDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("failed worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
-	fail := workerFailJSON(t, workerKey, "fail-2", "work-1", "attempt-2", lane, lane.PinnedModel, string(store.WorkerFailureFallbackBlocked), "provider unavailable", "nonce-lifecycle-fail000002")
+	fail := workerFailJSON(t, workerKey, "fail-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), string(store.WorkerFailureFallbackBlocked), "provider unavailable", "nonce-lifecycle-fail000002")
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(fail), &out, &errOut); code != 0 {
 		t.Fatalf("worker-fail exit=%d stderr=%q", code, errOut.String())
 	}
 
-	mismatchDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch3")
+	mismatchDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch3")
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(mismatchDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("mismatch worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
@@ -479,7 +488,7 @@ func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))
 			value := map[string]any{}
-			if err := json.Unmarshal([]byte(workerDispatchJSON(t, seedWorkerEvidenceClient(t), "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-identity-dispatch01")), &value); err != nil {
+			if err := json.Unmarshal([]byte(workerDispatchJSON(t, seedWorkerEvidenceClient(t), "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-identity-dispatch01")), &value); err != nil {
 				t.Fatal(err)
 			}
 			testCase.mutate(value)
@@ -554,7 +563,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 	}
 	provenanceDigest := "sha256:" + strings.Repeat("a", 64)
 	role := store.WorkerResolutionPreferred
-	if resolvedModel != lane.PinnedModel {
+	if resolvedModel != preferredLaneModel(lane) {
 		role = store.WorkerResolutionFallback
 	}
 	assertion := agent.WorkerEvidenceAssertion{

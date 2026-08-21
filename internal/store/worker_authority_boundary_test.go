@@ -45,7 +45,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 		Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
 			AttemptID: "dispatch-1", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
 			CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest,
-			ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred,
+			ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred,
 			PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		}),
 	}
@@ -69,7 +69,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 	// The allowed half of D4: the worker IS the bounded execution attempt of
 	// the external-effect step, so starting it and checkpointing within it
 	// succeed. Neither advances the step.
-	start := workflowEventWithActor("authority-start", WorkflowActionStarted, "authority-work", workerRef, map[string]any{"work_id": "authority-work", "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "authority:start", "actor_ref": workerRef, "execution_model": lane.PinnedModel})
+	start := workflowEventWithActor("authority-start", WorkflowActionStarted, "authority-work", workerRef, map[string]any{"work_id": "authority-work", "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "authority:start", "actor_ref": workerRef, "execution_model": preferredModelForLane(lane)})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-work"): 8}}); err != nil {
 		t.Fatalf("the worker could not start the step it owns: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 		assertRejectedActionStart(t, s, "authority-start-guards", start, currentVersion, KindIllegalLifecycleTransition, wantCurrentStep, currentVersion, beforeStarts)
 	})
 
-	exact := workflowEventWithActor("exact-retry-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("g", 64), "idempotency_identity": "exact-retry-start", "actor_ref": workerRef, "execution_model": BuiltinLaneDefinitions()[0].PinnedModel})
+	exact := workflowEventWithActor("exact-retry-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("g", 64), "idempotency_identity": "exact-retry-start", "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{exact}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-start-guards"): currentVersion}}); err != nil {
 		t.Fatalf("exact next retry epoch rejected: %v", err)
 	}
@@ -576,7 +576,7 @@ func seedV2CompletionReady(t *testing.T, workID string) (*Store, Event) {
 		workflowActionCompletedFixture("v2-design-"+workID, workID, executorRef, 8, "design", "record_design"),
 		workflowActionCompletedFixture("v2-planning-"+workID, workID, executorRef, 9, "planning", "approve_contract"),
 		workflowEventWithActor("v2-contract-"+workID, WorkflowContractApproved, workID, executorRef, map[string]any{"work_id": workID, "expected_version": 10, "resulting_version": 11, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"}),
-		workflowEventWithActor("v2-start-"+workID, WorkflowActionStarted, workID, executorRef, map[string]any{"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("l", 64), "idempotency_identity": "v2-start:" + workID, "actor_ref": executorRef, "execution_model": BuiltinLaneDefinitions()[0].PinnedModel}),
+		workflowEventWithActor("v2-start-"+workID, WorkflowActionStarted, workID, executorRef, map[string]any{"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("l", 64), "idempotency_identity": "v2-start:" + workID, "actor_ref": executorRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])}),
 		workflowEventWithActor("v2-impact-"+workID, WorkflowImpactDeclared, workID, executorRef, map[string]any{"work_id": workID, "expected_version": 12, "resulting_version": 13, "edge_id": "edge:" + workID, "edge_kind": "modifies", "edge_class": "none", "target_work_id": workID, "target_kind": "work_item", "severity": "breaking"}),
 	}
 	seedWorkflowAuthority(t, s, "v2-verification-"+workID, workID, "principal/verify", "request/verify", []string{"evidence:verification"})
@@ -698,7 +698,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 	})
 	t.Run("failed attempt", func(t *testing.T) {
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-failed-attempt")
-		fail := Event{EventID: "failed-authority-failed-attempt", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "authority-failed-attempt", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: BuiltinLaneDefinitions()[0].PinnedModel, FailureKind: WorkerFailureWorkerError, Detail: "worker failed"})}
+		fail := Event{EventID: "failed-authority-failed-attempt", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "authority-failed-attempt", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureWorkerError, Detail: "worker failed"})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
 			t.Fatal(err)
 		}
@@ -716,11 +716,11 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		seedWork(t, s, "authority-foreign-work")
 		attemptID := "attempt:authority-foreign-work"
 		lane := BuiltinLaneDefinitions()[0]
-		dispatch := Event{EventID: "dispatch-authority-foreign-work", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest, ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+		dispatch := Event{EventID: "dispatch-authority-foreign-work", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest, ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatal(err)
 		}
-		completed := Event{EventID: "completed-authority-foreign-work", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: lane.PinnedModel, ReportSchemaVersion: WorkerReportSchemaVersion})}
+		completed := Event{EventID: "completed-authority-foreign-work", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 			t.Fatal(err)
 		}
@@ -728,7 +728,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 	})
 	t.Run("stale dispatch before newer retry start", func(t *testing.T) {
 		s, workerRef, owner, attemptID := seedWorkerAtExecution(t, "authority-stale-dispatch")
-		retryStart := workflowEventWithActor("retry-start-authority-stale-dispatch", WorkflowActionStarted, "authority-stale-dispatch", workerRef, map[string]any{"work_id": "authority-stale-dispatch", "expected_version": 10, "resulting_version": 11, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "retry:authority-stale-dispatch", "actor_ref": workerRef, "execution_model": BuiltinLaneDefinitions()[0].PinnedModel})
+		retryStart := workflowEventWithActor("retry-start-authority-stale-dispatch", WorkflowActionStarted, "authority-stale-dispatch", workerRef, map[string]any{"work_id": "authority-stale-dispatch", "expected_version": 10, "resulting_version": 11, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "retry:authority-stale-dispatch", "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{retryStart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-stale-dispatch"): 10}}); err != nil {
 			t.Fatal(err)
 		}
@@ -810,7 +810,7 @@ func seedCompletedWorkerAtExecution(t *testing.T, workID string) (*Store, string
 	t.Helper()
 	s, workerRef, owner, attemptID := seedWorkerAtExecution(t, workID)
 	lane := BuiltinLaneDefinitions()[0]
-	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: lane.PinnedModel, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}
@@ -843,13 +843,13 @@ func seedWorkerAtExecution(t *testing.T, workID string) (*Store, string, Workflo
 		workflowActionCompletedFixture("discovery-"+workID, workID, workerRef, 6, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, workerRef, 7, "design", "record_design"),
 		workflowActionCompletedFixture("planning-"+workID, workID, workerRef, 8, "planning", "approve_contract"),
-		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": workerRef, "execution_model": lane.PinnedModel}),
+		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": workerRef, "execution_model": preferredModelForLane(lane)}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
 	attemptID := "attempt:" + workID
-	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest, ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest, ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
@@ -881,7 +881,7 @@ func seedDispatchedWorkerAtExecution(t *testing.T, workID string) (*Store, strin
 		workflowActionCompletedFixture("discovery-"+workID, workID, workerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, workerRef, 6, "design", "record_design"),
 		workflowActionCompletedFixture("planning-"+workID, workID, workerRef, 7, "planning", "approve_contract"),
-		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": workerRef, "execution_model": lane.PinnedModel}),
+		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": workerRef, "execution_model": preferredModelForLane(lane)}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -891,7 +891,7 @@ func seedDispatchedWorkerAtExecution(t *testing.T, workID string) (*Store, strin
 		Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
 			AttemptID: "dispatch-" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
 			CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest,
-			ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred,
+			ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred,
 			PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		}),
 	}

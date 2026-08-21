@@ -1,7 +1,6 @@
 ---
 description: Concord research lane — Investigate bounded questions and return source-backed findings.
 mode: subagent
-model: openai/gpt-5.6-luna
 tools:
   task: false
 permission:

@@ -49,7 +49,7 @@ export interface AgentResultEnvelope {
   session_id: string | null
   output?: string
   error?: {
-    kind: "invalid_input" | "blocked" | "fallback" | "error" | "model_identity_mismatch"
+    kind: "invalid_input" | "blocked" | "fallback" | "error" | "model_identity_mismatch" | "routing_policy_invalid" | "routing_policy_model_unavailable"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
     message: string
@@ -74,10 +74,111 @@ let runner: DispatchRunner = defaultRunner
 let evidenceRunner: DispatchRunner = defaultRunner
 let defaultCredentials: CredentialStore = new SecretToolCredentialStore()
 
+type RoutingPolicy = { capability_class: string; preferred_model: string; resolution_set: string[] }
+type LoadedRoutingPolicy = { version: string; digest: string; source: string; policies: RoutingPolicy[] }
+
+class RoutingPolicyLoadError extends Error {
+  constructor(readonly kind: "routing_policy_invalid" | "routing_policy_model_unavailable", message: string) {
+    super(message)
+  }
+}
+
+let routingPolicyPromise: Promise<LoadedRoutingPolicy> | null = null
+let modelsChecked = new WeakMap<object, Promise<void>>()
+
+export function resetRoutingPolicyForTesting(): void {
+  routingPolicyPromise = null
+  modelsChecked = new WeakMap<object, Promise<void>>()
+}
+
 export function configureWorkerDispatch(overrides: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; credentials?: CredentialStore } = {}): void {
   runner = overrides.runner ?? defaultRunner
   evidenceRunner = overrides.evidenceRunner ?? defaultRunner
   defaultCredentials = overrides.credentials ?? new SecretToolCredentialStore()
+}
+
+function sortedJSON(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedJSON)
+  if (isRecord(value)) return Object.fromEntries(Object.keys(value).sort().map(key => [key, sortedJSON(value[key])]))
+  return value
+}
+
+function policyJSON(policy: { schema_version: string; registry: string; version: string; policies: RoutingPolicy[] }): string {
+  return JSON.stringify(sortedJSON(policy))
+}
+
+function policyDigest(policy: { schema_version: string; registry: string; version: string; policies: RoutingPolicy[] }): string {
+  return `sha256:${Bun.SHA256.hash(new TextEncoder().encode(policyJSON(policy)), "hex")}`
+}
+
+function policyFailure(error: unknown): RoutingPolicyLoadError {
+  if (error instanceof RoutingPolicyLoadError) return error
+  return new RoutingPolicyLoadError("routing_policy_invalid", String(error))
+}
+
+function validateRoutingPolicyDocument(value: unknown, source: string): LoadedRoutingPolicy {
+  if (!isRecord(value)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: policy must be an object`)
+  for (const field of ["schema_version", "registry", "version", "policies"]) if (!(field in value)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: missing field ${field}`)
+  if (value.schema_version !== "1.0" || value.registry !== "routing_policy" || typeof value.version !== "string" || !Array.isArray(value.policies)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid document shape`)
+  const policies: RoutingPolicy[] = []
+  for (let index = 0; index < value.policies.length; index++) {
+    const entry = value.policies[index]
+    if (!isRecord(entry)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: policies[${index}] must be an object`)
+    for (const field of ["capability_class", "preferred_model", "resolution_set"]) if (!(field in entry)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: missing field policies[${index}].${field}`)
+    if (typeof entry.capability_class !== "string" || typeof entry.preferred_model !== "string" || !Array.isArray(entry.resolution_set)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid field policies[${index}]`)
+    const resolutionSet = entry.resolution_set
+    if (resolutionSet.length === 0 || resolutionSet.some(model => typeof model !== "string" || !MODEL_PATTERN.test(model)) || new Set(resolutionSet).size !== resolutionSet.length) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid or duplicate resolution_set for ${entry.capability_class}`)
+    if (resolutionSet[0] !== entry.preferred_model || !MODEL_PATTERN.test(entry.preferred_model)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: preferred_model must be the first resolution_set member for ${entry.capability_class}`)
+    if (policies.some(policy => policy.capability_class === entry.capability_class)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: capability class ${entry.capability_class} appears more than once`)
+    policies.push({ capability_class: entry.capability_class, preferred_model: entry.preferred_model, resolution_set: [...resolutionSet] })
+  }
+  const laneClasses = new Set(agentLanes.map(lane => lane.capability_class))
+  for (const policy of policies) if (!laneClasses.has(policy.capability_class)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: unknown capability class ${policy.capability_class}`)
+  for (const capabilityClass of laneClasses) if (policies.filter(policy => policy.capability_class === capabilityClass).length !== 1) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: missing capability class ${capabilityClass}`)
+  const document = { schema_version: "1.0", registry: "routing_policy", version: value.version, policies }
+  return { version: value.version, digest: policyDigest(document), source, policies }
+}
+
+async function loadRoutingPolicy(): Promise<LoadedRoutingPolicy> {
+  const configuredPath = process.env.CONCORD_ROUTING_POLICY
+  const source = configuredPath || "default routing-policy template"
+  let document: unknown = { schema_version: "1.0", registry: "routing_policy", version: routingPolicyVersion, policies: routingPolicies.map(policy => ({ ...policy, resolution_set: [...policy.resolution_set] })) }
+  if (configuredPath) {
+    if (!configuredPath.startsWith("/")) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: CONCORD_ROUTING_POLICY must be an absolute path`)
+    const file = Bun.file(configuredPath)
+    if (!(await file.exists())) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: routing policy path is unreadable`)
+    try { document = JSON.parse(await file.text()) } catch (error) { throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid JSON: ${String(error)}`) }
+  }
+  const loaded = validateRoutingPolicyDocument(document, source)
+  if (!configuredPath && loaded.digest !== routingPolicyManifestDigest) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: embedded policy digest does not match generated default`)
+  return loaded
+}
+
+function resolvedRoutingPolicy(): Promise<LoadedRoutingPolicy> {
+  routingPolicyPromise ??= loadRoutingPolicy()
+  return routingPolicyPromise
+}
+
+function availableModelIdentifiers(stdout: string): Set<string> {
+  const models = new Set<string>()
+  for (const token of stdout.split(/\s+/)) if (MODEL_PATTERN.test(token)) models.add(token)
+  return models
+}
+
+async function ensurePolicyModels(policy: LoadedRoutingPolicy, childRunner: DispatchRunner, binary: string, signal: AbortSignal): Promise<void> {
+  const key = childRunner as object
+  const existing = modelsChecked.get(key)
+  if (existing) return existing
+  const check = (async () => {
+    let result: { exitCode: number; stdout: string; stderr: string }
+    try { result = await childRunner.run([binary, "models"], "", signal) } catch (error) { throw new RoutingPolicyLoadError("routing_policy_model_unavailable", `${policy.source}: opencode models failed: ${String(error)}`) }
+    if (result.exitCode !== 0) throw new RoutingPolicyLoadError("routing_policy_model_unavailable", `${policy.source}: opencode models failed: ${(result.stderr || result.stdout).slice(0, MAX_ERROR_BYTES)}`)
+    const available = availableModelIdentifiers(result.stdout)
+    const missing = [...new Set(policy.policies.flatMap(entry => entry.resolution_set))].filter(model => !available.has(model))
+    if (missing.length > 0) throw new RoutingPolicyLoadError("routing_policy_model_unavailable", `${policy.source}: opencode models is missing ${missing.join(", ")}`)
+  })()
+  modelsChecked.set(key, check)
+  return check
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -189,17 +290,17 @@ function laneForPacket(packet: AgentLanePacket): AgentLane | null {
   return agentLanes.find((lane) => lane.id === packet.lane_id && lane.version === packet.lane_version && lane.digest === packet.lane_digest) ?? null
 }
 
-function policyForLane(lane: AgentLane): (typeof routingPolicies)[number] | null {
-  return routingPolicies.find((policy) => policy.capability_class === lane.capability_class) ?? null
+export function preferredModelForLane(lane: AgentLane): string {
+  return routingPolicies.find((policy) => policy.capability_class === lane.capability_class)?.preferred_model ?? ""
 }
 
-function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"]): AgentResultEnvelope {
+function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"], routing = { version: routingPolicyVersion, digest: routingPolicyManifestDigest }): AgentResultEnvelope {
   const id = lane?.id ?? String(packet.lane_id ?? "")
-  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, routing_policy_version: routingPolicyVersion, routing_policy_digest: routingPolicyManifestDigest, resolved_model: lane?.pinned_model ?? "", resolution_role: "preferred", fallback_reason: "", readback_model: null, session_id: null }
+  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, routing_policy_version: routing.version, routing_policy_digest: routing.digest, resolved_model: "", resolution_role: "preferred", fallback_reason: "", readback_model: null, session_id: null }
 }
 
-function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "fallback" | "error", kind: AgentResultEnvelope["error"]["kind"], message: string, recovery_action: AgentResultEnvelope["error"]["recovery_action"] = "contact_operator"): AgentResultEnvelope {
-  return { ...baseEnvelope(lane, packet, outcome), error: { kind, retry_safe: outcome !== "fallback", recovery_action, message: message.slice(0, MAX_ERROR_BYTES) } }
+function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "fallback" | "error", kind: AgentResultEnvelope["error"]["kind"], message: string, recovery_action: AgentResultEnvelope["error"]["recovery_action"] = "contact_operator", routing?: { version: string; digest: string }): AgentResultEnvelope {
+  return { ...baseEnvelope(lane, packet, outcome, routing), error: { kind, retry_safe: outcome !== "fallback", recovery_action, message: message.slice(0, MAX_ERROR_BYTES) } }
 }
 
 function hostReportedFallbackExhausted(result: { stdout: string; fallbackExhausted?: boolean }): boolean {
@@ -322,20 +423,29 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
-  const policy = policyForLane(lane)
-  if (!policy || policy.preferred_model !== lane.pinned_model || policy.resolution_set[0] !== lane.pinned_model) return errorEnvelope(lane, packet, "error", "invalid_input", "lane capability class has no matching routing policy", "contact_operator")
-  if (!lane.pinned_model || !MODEL_PATTERN.test(lane.pinned_model)) return errorEnvelope(lane, packet, "error", "invalid_input", "registered lane has no valid pinned model", "contact_operator")
   const signal = options.signal ?? new AbortController().signal
   const childRunner = options.runner ?? runner
   const binary = options.binary ?? "opencode"
-  const argv = [binary, "run", "--agent", `concord-${lane.id}`, "--model", lane.pinned_model, "--format", "json", JSON.stringify(packet)]
+  let loaded: LoadedRoutingPolicy
+  try { loaded = await resolvedRoutingPolicy() } catch (error) {
+    const failure = policyFailure(error)
+    return errorEnvelope(lane, packet, "error", failure.kind, failure.message, "contact_operator")
+  }
+  try { await ensurePolicyModels(loaded, childRunner, binary, signal) } catch (error) {
+    const failure = policyFailure(error)
+    return errorEnvelope(lane, packet, "error", failure.kind, failure.message, "contact_operator", loaded)
+  }
+  const policy = loaded.policies.find((entry) => entry.capability_class === lane.capability_class)
+  if (!policy || policy.resolution_set[0] !== policy.preferred_model) return errorEnvelope(lane, packet, "error", "routing_policy_invalid", "policy preferred model is not the first resolution-set member", "contact_operator", loaded)
+  if (!policy.preferred_model || !MODEL_PATTERN.test(policy.preferred_model)) return errorEnvelope(lane, packet, "error", "routing_policy_invalid", "policy preferred model is invalid", "contact_operator", loaded)
+  const argv = [binary, "run", "--agent", `concord-${lane.id}`, "--model", policy.preferred_model, "--format", "json", JSON.stringify(packet)]
   let result: { exitCode: number; stdout: string; stderr: string; fallbackExhausted?: boolean }
   try { result = await childRunner.run(argv, "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "blocked", "blocked", String(error), "retry_same_request")
   }
   if (Buffer.byteLength(result.stdout) > MAX_OUTPUT_BYTES) return errorEnvelope(lane, packet, "error", "error", "worker output exceeded the bounded adapter limit", "adjust_budget")
   if (result.exitCode !== 0) {
-    if (hostReportedFallbackExhausted(result)) return errorEnvelope(lane, packet, "blocked", "blocked", result.stderr.slice(0, MAX_ERROR_BYTES) || "declared routing-policy resolution set was exhausted", "retry_same_request")
+    if (hostReportedFallbackExhausted(result)) return errorEnvelope(lane, packet, "blocked", "blocked", result.stderr.slice(0, MAX_ERROR_BYTES) || "declared routing-policy resolution set was exhausted", "retry_same_request", loaded)
     return errorEnvelope(lane, packet, "error", "error", result.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode worker spawn failed without fallback exhaustion evidence", "reconcile_operation")
   }
   const runMetadata = readRunSessionMetadata(result.stdout)
@@ -352,7 +462,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const resolutionIndex = policy.resolution_set.indexOf(metadata.readback_model)
   if (resolutionIndex < 0) return errorEnvelope(lane, packet, "error", "model_identity_mismatch", "host readback model is outside the declared routing-policy resolution set", "reconcile_operation")
   const isFallback = resolutionIndex > 0
-  const envelope = baseEnvelope(lane, packet, isFallback ? "fallback" : "ok")
+  const envelope = baseEnvelope(lane, packet, isFallback ? "fallback" : "ok", loaded)
   envelope.readback_model = metadata.readback_model
   envelope.session_id = metadata.session_id
   envelope.output = result.stdout

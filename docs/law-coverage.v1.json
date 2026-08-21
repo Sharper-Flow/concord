@@ -655,6 +655,24 @@
           "value": "internal/store.TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof"
         }
       ]
+    },
+    {
+      "id": "CD-0054",
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestRoutingPolicyHostOverrideBindsDigestAndDispatchValidation"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestRoutingPolicySetButMissingPathFailsTyped"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestRoutingPolicyMalformedAndIncompleteHostPoliciesNameFailures"
+        }
+      ]
     }
   ]
 }

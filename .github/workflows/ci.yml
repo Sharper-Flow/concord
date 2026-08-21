@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+  # A merge queue validates each pull request against the latest main plus the
+  # entries ahead of it, on a temporary `gh-readonly-queue/**` ref. `verify` is
+  # a required check, and a merge group that never reports one cannot merge, so
+  # this trigger is what lets the queue replace the up-to-date requirement.
+  merge_group:
   push:
     branches:
       - main

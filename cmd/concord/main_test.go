@@ -372,6 +372,7 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"product-create"}, {"product", "create"},
 		{"project-create"}, {"project", "create"},
 		{"product-project-add"}, {"product", "project-add"},
+		{"predecessor-import"}, {"predecessor", "import"},
 	}
 	for _, args := range forms {
 		name := strings.Join(args, " ")
@@ -1073,4 +1074,381 @@ func TestPredecessorInventoryRejectsMissingSnapshotFile(t *testing.T) {
 	if !strings.Contains(errOut.String(), "does not exist") {
 		t.Fatalf("predecessor-inventory missing-file diagnostic = %q, want does-not-exist wording", errOut.String())
 	}
+}
+
+// predecessorImportRequest builds a complete, valid `predecessor import`
+// payload from the shared synthetic fixture. Tests can mutate the returned
+// map before marshalling to exercise specific refusal paths.
+func predecessorImportRequest(t *testing.T, snapshotPath string) map[string]any {
+	t.Helper()
+	return map[string]any{
+		"snapshot_path": snapshotPath,
+		"product": map[string]any{
+			"product_id":                "synth-product",
+			"display_name":              "Synthetic Product",
+			"stage_maturity":            "prototype",
+			"stage_audience_commitment": "operator_only",
+		},
+		"projects": []map[string]any{
+			{"snapshot_project_id": "synth-proj-alpha", "project_id": "synth-project-alpha", "display_name": "Synthetic Alpha", "role": "primary"},
+			{"snapshot_project_id": "synth-proj-beta", "project_id": "synth-project-beta", "display_name": "Synthetic Beta", "role": "secondary"},
+		},
+		"select_change_ids": []string{"synth-change-alpha-1", "synth-change-alpha-2"},
+	}
+}
+
+func runPredecessorImportRequest(t *testing.T, dbPath string, payload map[string]any) (int, []byte, string) {
+	t.Helper()
+	t.Setenv(dbOverrideEnv, dbPath)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := runWithInput([]string{"predecessor-import"}, bytes.NewReader(raw), &out, &errOut)
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	var firstLine []byte
+	if len(lines) >= 1 && lines[0] != "" {
+		firstLine = []byte(lines[0])
+	}
+	return code, firstLine, errOut.String()
+}
+
+func openFreshImportStore(t *testing.T, dbPath string) *store.Store {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestPredecessorImportHappyPath(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	snapshotPath := writeSyntheticSnapshot(t)
+	payload := predecessorImportRequest(t, snapshotPath)
+
+	code, raw, diag := runPredecessorImportRequest(t, dbPath, payload)
+	if code != 0 {
+		t.Fatalf("predecessor-import happy exit=%d, want 0; stderr=%q", code, diag)
+	}
+	if len(raw) == 0 {
+		t.Fatalf("predecessor-import stdout = empty; stderr=%q", diag)
+	}
+	var report struct {
+		DryRun           bool     `json:"dry_run"`
+		ProductsCreated  int      `json:"products_created"`
+		ProjectsCreated  int      `json:"projects_created"`
+		WorkImported     int      `json:"work_imported"`
+		AlreadyImported  int      `json:"already_imported"`
+		ImportedProducts []string `json:"imported_products"`
+		ImportedProjects []string `json:"imported_projects"`
+		Work             []struct {
+			ChangeID         string   `json:"change_id"`
+			WorkID           string   `json:"work_id"`
+			ExternalRef      string   `json:"external_ref"`
+			PredecessorPhase string   `json:"predecessor_phase"`
+			CompletedGates   []string `json:"predecessor_completed_gates"`
+		} `json:"work"`
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("report is not parseable JSON: %v; raw=%s", err, raw)
+	}
+	if report.ProductsCreated != 1 || report.ProjectsCreated != 2 || report.WorkImported != 2 || report.AlreadyImported != 0 {
+		t.Fatalf("happy report counts = products:%d projects:%d work:%d already:%d, want 1/2/2/0", report.ProductsCreated, report.ProjectsCreated, report.WorkImported, report.AlreadyImported)
+	}
+	if !containsString(report.ImportedProducts, "synth-product") {
+		t.Fatalf("imported_products = %v, want synth-product present", report.ImportedProducts)
+	}
+	if !containsString(report.ImportedProjects, "synth-project-alpha") || !containsString(report.ImportedProjects, "synth-project-beta") {
+		t.Fatalf("imported_projects = %v, want both concord project ids present", report.ImportedProjects)
+	}
+	if len(report.Work) != 2 {
+		t.Fatalf("work list = %d entries, want 2", len(report.Work))
+	}
+
+	s := openFreshImportStore(t, dbPath)
+	defer s.Close()
+
+	var productExists, projectAlphaExists int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM products WHERE id=?`, "synth-product").Scan(&productExists); err != nil {
+		t.Fatal(err)
+	}
+	if productExists != 1 {
+		t.Fatalf("products row count = %d, want 1", productExists)
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM projects WHERE id IN (?, ?)`, "synth-project-alpha", "synth-project-beta").Scan(&projectAlphaExists); err != nil {
+		t.Fatal(err)
+	}
+	if projectAlphaExists != 2 {
+		t.Fatalf("projects row count = %d, want 2", projectAlphaExists)
+	}
+
+	var workCount int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM work_items WHERE id LIKE 'import-advance-work-%'`).Scan(&workCount); err != nil {
+		t.Fatal(err)
+	}
+	if workCount != 2 {
+		t.Fatalf("work_items row count = %d, want 2", workCount)
+	}
+
+	var actor string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT actor FROM domain_events WHERE event_id=?`, "import-advance-work-synth-change-alpha-1").Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	if actor != "operator:predecessor-import" {
+		t.Fatalf("actor on work event = %q, want operator:predecessor-import", actor)
+	}
+
+	var intentJSON string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT intent_json FROM work_items WHERE id=?`, "import-advance-work-synth-change-alpha-1").Scan(&intentJSON); err != nil {
+		t.Fatal(err)
+	}
+	var intent map[string]any
+	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(intent, "external_ref") || intent["external_ref"] != "advance:synth-change-alpha-1" {
+		t.Fatalf("intent.external_ref = %v, want advance:synth-change-alpha-1", intent["external_ref"])
+	}
+	tags, ok := intent["tags"].([]any)
+	if !ok || len(tags) != 1 || tags[0] != "predecessor-migrated" {
+		t.Fatalf("intent.tags = %v, want [predecessor-migrated]", intent["tags"])
+	}
+	if intent["priority"] != float64(3) {
+		t.Fatalf("intent.priority = %v, want 3", intent["priority"])
+	}
+}
+
+func TestPredecessorImportIdempotentRerun(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	snapshotPath := writeSyntheticSnapshot(t)
+	payload := predecessorImportRequest(t, snapshotPath)
+
+	firstCode, _, firstDiag := runPredecessorImportRequest(t, dbPath, payload)
+	if firstCode != 0 {
+		t.Fatalf("first predecessor-import exit=%d, want 0; stderr=%q", firstCode, firstDiag)
+	}
+
+	secondCode, secondRaw, secondDiag := runPredecessorImportRequest(t, dbPath, payload)
+	if secondCode != 0 {
+		t.Fatalf("second predecessor-import exit=%d, want 0; stderr=%q", secondCode, secondDiag)
+	}
+	var report struct {
+		ProductsCreated int `json:"products_created"`
+		ProjectsCreated int `json:"projects_created"`
+		WorkImported    int `json:"work_imported"`
+		AlreadyImported int `json:"already_imported"`
+	}
+	if err := json.Unmarshal(secondRaw, &report); err != nil {
+		t.Fatalf("second report is not parseable JSON: %v; raw=%s", err, secondRaw)
+	}
+	// The first re-run counts the Product bootstrap (counts as 2: Product +
+	// primary project), the secondary project, and both work events as
+	// already_imported (5 total). The counts of new writes must all be zero.
+	if report.ProductsCreated != 0 || report.ProjectsCreated != 0 || report.WorkImported != 0 || report.AlreadyImported != 5 {
+		t.Fatalf("idempotent re-run counts = products:%d projects:%d work:%d already:%d, want 0/0/0/5", report.ProductsCreated, report.ProjectsCreated, report.WorkImported, report.AlreadyImported)
+	}
+
+	s := openFreshImportStore(t, dbPath)
+	defer s.Close()
+
+	var workCount int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM work_items WHERE id LIKE 'import-advance-work-%'`).Scan(&workCount); err != nil {
+		t.Fatal(err)
+	}
+	if workCount != 2 {
+		t.Fatalf("work_items row count = %d, want 2 (no duplicates)", workCount)
+	}
+
+	var membershipCount int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM product_projects WHERE product_id=?`, "synth-product").Scan(&membershipCount); err != nil {
+		t.Fatal(err)
+	}
+	if membershipCount != 2 {
+		t.Fatalf("product_projects membership count = %d, want 2 (no duplicates)", membershipCount)
+	}
+}
+
+func TestPredecessorImportRefusesPartialProductOnMembershipDivergence(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	snapshotPath := writeSyntheticSnapshot(t)
+
+	firstPayload := predecessorImportRequest(t, snapshotPath)
+	firstCode, _, firstDiag := runPredecessorImportRequest(t, dbPath, firstPayload)
+	if firstCode != 0 {
+		t.Fatalf("baseline import exit=%d, want 0; stderr=%q", firstCode, firstDiag)
+	}
+
+	// Second run declares an extra project. The existing Product membership
+	// will not match, so the import must refuse.
+	divergentPayload := map[string]any{
+		"snapshot_path": snapshotPath,
+		"product": map[string]any{
+			"product_id":                "synth-product",
+			"display_name":              "Synthetic Product",
+			"stage_maturity":            "prototype",
+			"stage_audience_commitment": "operator_only",
+		},
+		"projects": []map[string]any{
+			{"snapshot_project_id": "synth-proj-alpha", "project_id": "synth-project-alpha", "display_name": "Synthetic Alpha", "role": "primary"},
+			{"snapshot_project_id": "synth-proj-beta", "project_id": "synth-project-beta", "display_name": "Synthetic Beta", "role": "secondary"},
+			{"snapshot_project_id": "synth-proj-alpha", "project_id": "synth-project-newcomer", "display_name": "Synthetic Newcomer", "role": "secondary"},
+		},
+		"select_change_ids": []string{"synth-change-alpha-1"},
+	}
+
+	code, _, diag := runPredecessorImportRequest(t, dbPath, divergentPayload)
+	if code != 1 {
+		t.Fatalf("partial-Product divergent import exit=%d, want 1; stderr=%q", code, diag)
+	}
+	if !strings.Contains(diag, "partial-Product import is refused") {
+		t.Fatalf("partial-Product diagnostic = %q, want partial-Product wording", diag)
+	}
+
+	s := openFreshImportStore(t, dbPath)
+	defer s.Close()
+
+	var newcomer int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM projects WHERE id=?`, "synth-project-newcomer").Scan(&newcomer); err != nil {
+		t.Fatal(err)
+	}
+	if newcomer != 0 {
+		t.Fatalf("divergent newcomer project was created: count = %d, want 0", newcomer)
+	}
+}
+
+func TestPredecessorImportSelectionRefusals(t *testing.T) {
+	cases := []struct {
+		name       string
+		mutate     func(map[string]any)
+		wantSubstr string
+	}{
+		{
+			name: "unknown_change_id",
+			mutate: func(payload map[string]any) {
+				payload["select_change_ids"] = []string{"synth-does-not-exist"}
+			},
+			wantSubstr: "is not an active change",
+		},
+		{
+			name: "undeclared_project_change",
+			mutate: func(payload map[string]any) {
+				// The beta project's active change is synth-change-beta-1.
+				// Declaring it without declaring synth-proj-beta is the
+				// undeclared-project refusal.
+				payload["projects"] = []map[string]any{
+					{"snapshot_project_id": "synth-proj-alpha", "project_id": "synth-project-alpha", "display_name": "Synthetic Alpha", "role": "primary"},
+				}
+				payload["select_change_ids"] = []string{"synth-change-beta-1"}
+			},
+			wantSubstr: "is not declared in projects",
+		},
+		{
+			name: "terminal_phase_change",
+			mutate: func(payload map[string]any) {
+				// Hand-craft a snapshot whose change is in a terminal phase.
+				terminalSnapshot := strings.Replace(predecessorSyntheticFixture, `"status": "draft"`, `"status": "released"`, 1)
+				path := filepath.Join(t.TempDir(), "terminal-snapshot.json")
+				if err := os.WriteFile(path, []byte(terminalSnapshot), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				payload["snapshot_path"] = path
+			},
+			wantSubstr: "terminal phase",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "concord.db")
+			snapshotPath := writeSyntheticSnapshot(t)
+			payload := predecessorImportRequest(t, snapshotPath)
+			tc.mutate(payload)
+			code, _, diag := runPredecessorImportRequest(t, dbPath, payload)
+			if code != 1 {
+				t.Fatalf("selection refusal exit=%d, want 1; stderr=%q", code, diag)
+			}
+			if !strings.Contains(diag, tc.wantSubstr) {
+				t.Fatalf("selection refusal diagnostic = %q, want substring %q", diag, tc.wantSubstr)
+			}
+		})
+	}
+}
+
+func TestPredecessorImportDryRunDoesNotWrite(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	snapshotPath := writeSyntheticSnapshot(t)
+	payload := predecessorImportRequest(t, snapshotPath)
+	payload["dry_run"] = true
+
+	code, raw, diag := runPredecessorImportRequest(t, dbPath, payload)
+	if code != 0 {
+		t.Fatalf("dry-run exit=%d, want 0; stderr=%q", code, diag)
+	}
+	var report struct {
+		DryRun          bool `json:"dry_run"`
+		ProductsCreated int  `json:"products_created"`
+		ProjectsCreated int  `json:"projects_created"`
+		WorkImported    int  `json:"work_imported"`
+		AlreadyImported int  `json:"already_imported"`
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("dry-run report is not parseable JSON: %v; raw=%s", err, raw)
+	}
+	if !report.DryRun {
+		t.Fatalf("dry_run flag = false, want true")
+	}
+	if report.ProductsCreated != 0 || report.ProjectsCreated != 0 || report.WorkImported != 0 {
+		t.Fatalf("dry-run write counts = products:%d projects:%d work:%d, want 0/0/0", report.ProductsCreated, report.ProjectsCreated, report.WorkImported)
+	}
+
+	s := openFreshImportStore(t, dbPath)
+	defer s.Close()
+	var productCount, projectCount, workCount int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM products`).Scan(&productCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM projects`).Scan(&projectCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM work_items`).Scan(&workCount); err != nil {
+		t.Fatal(err)
+	}
+	if productCount != 0 || projectCount != 0 || workCount != 0 {
+		t.Fatalf("dry_run wrote: products=%d projects=%d work=%d, want 0/0/0", productCount, projectCount, workCount)
+	}
+}
+
+func TestPredecessorImportTruncatesWALAfterSyncDurable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	snapshotPath := writeSyntheticSnapshot(t)
+	payload := predecessorImportRequest(t, snapshotPath)
+	code, _, diag := runPredecessorImportRequest(t, dbPath, payload)
+	if code != 0 {
+		t.Fatalf("import exit=%d, want 0; stderr=%q", code, diag)
+	}
+	// SQLite deletes the WAL sidecar entirely when the last connection
+	// closes after a TRUNCATE checkpoint left it at zero length. Either
+	// observation proves the durability barrier ran: an absent file means
+	// the barrier reset and the file was unlinked; a present zero-byte
+	// file means the barrier truncated but kept the sidecar.
+	walPath := dbPath + "-wal"
+	info, err := os.Stat(walPath)
+	if err == nil && info.Size() != 0 {
+		t.Fatalf("WAL file %s size = %d after import, want 0 (TRUNCATE did not reset)", walPath, info.Size())
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(m map[string]any, key string) bool {
+	_, ok := m[key]
+	return ok
 }

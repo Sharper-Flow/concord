@@ -6,6 +6,7 @@ on:
       - main
   schedule:
     - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 concurrency:
   group: auto-update-prs
@@ -14,12 +15,13 @@ concurrency:
 jobs:
   update:
     if: github.repository == 'Sharper-Flow/concord'
-    name: Update branches behind main
+    name: Update branches behind main and re-run skipped checks
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     steps:
       - name: Update open pull requests
         env:
@@ -54,3 +56,35 @@ jobs:
           done < <(jq -c '.[]' <<<"$prs")
 
           printf 'Auto-update summary: updated %d, skipped %d, failed %d\n' "$updated" "$skipped" "$failed"
+
+      # A push made with GITHUB_TOKEN never triggers workflow runs (the
+      # recursion guard): the runs are created and concluded action_required
+      # without executing, which blocks the required checks on the new head.
+      # Re-running those runs executes them. This heals both the merge
+      # commits this workflow just created and any left stuck by earlier
+      # sweeps (#289).
+      - name: Re-run checks skipped by the GITHUB_TOKEN recursion guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          reran=0
+
+          while IFS= read -r number; do
+            head_sha="$(gh pr view "$number" --repo Sharper-Flow/concord --json headRefOid --jq '.headRefOid')"
+            [[ -n "$head_sha" ]] || continue
+
+            while IFS= read -r run_id; do
+              [[ -n "$run_id" ]] || continue
+              if gh api --method POST "repos/Sharper-Flow/concord/actions/runs/$run_id/rerun" >/dev/null 2>&1; then
+                printf 'Re-run scheduled for PR #%s run %s\n' "$number" "$run_id"
+                reran=$((reran + 1))
+              else
+                printf 'Re-run failed for PR #%s run %s\n' "$number" "$run_id" >&2
+              fi
+            done < <(gh api "repos/Sharper-Flow/concord/actions/runs?head_sha=$head_sha&per_page=50" \
+              | jq -r '.workflow_runs[] | select(.conclusion == "action_required") | .id')
+
+          done < <(gh pr list --repo Sharper-Flow/concord --state open --base main --limit 1000 --json number --jq '.[].number')
+
+          printf 'Rerun summary: %d run(s) scheduled\n' "$reran"

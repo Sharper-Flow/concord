@@ -21,6 +21,7 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
+	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
 )
@@ -118,6 +119,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
+	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a harvest-produced predecessor snapshot file; must exist and be a regular file"},
 }
 
 func routeCommand(args []string) (string, []string, bool) {
@@ -243,6 +245,12 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	if err := validateRequiredCommandFields(command, raw); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
+	}
+	// Predecessor inventory reads only the operator-supplied snapshot file and
+	// writes nothing to the Concord store, so it routes around the database
+	// open before any authority is touched.
+	if command == "predecessor-inventory" {
+		return runPredecessorInventory(raw, out, errOut)
 	}
 	path, err := databasePath()
 	if err != nil {
@@ -838,6 +846,43 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2
 	}
+}
+
+// runPredecessorInventory validates a harvest snapshot and emits the bounded
+// enumeration report. It runs before any store open because the inventory
+// never touches Concord authority — it is read-only against the snapshot file.
+func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
+	var request struct {
+		SnapshotPath string `json:"snapshot_path"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", err.Error())
+		return 1
+	}
+	if request.SnapshotPath == "" {
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", "snapshot_path must be a non-empty path")
+		return 1
+	}
+	info, statErr := os.Stat(request.SnapshotPath)
+	if statErr != nil {
+		if errors.Is(statErr, os.ErrNotExist) {
+			writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot file does not exist: %s", request.SnapshotPath))
+			return 1
+		}
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot path is unavailable: %s", statErr.Error()))
+		return 1
+	}
+	if info.IsDir() {
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot path is a directory: %s", request.SnapshotPath))
+		return 1
+	}
+	snapshot, err := predecessor.Load(request.SnapshotPath)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", err.Error())
+		return 1
+	}
+	report := predecessor.Inventory(snapshot)
+	return writeJSON(out, report, errOut)
 }
 
 type operatorRef struct {

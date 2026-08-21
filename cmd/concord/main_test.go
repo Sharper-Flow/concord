@@ -896,3 +896,172 @@ func grantJSON(t *testing.T, assertion map[string]any) string {
 	}
 	return string(raw)
 }
+
+// predecessorSyntheticFixture is a deliberately fictional two-project snapshot.
+// All identifiers are obviously synthetic so the public-content validator
+// cannot mistake any token for a real predecessor state name. The shape
+// matches contracts/predecessor-snapshot.schema.json verbatim.
+const predecessorSyntheticFixture = `{
+  "schema_version": 1,
+  "captured_at": "2026-08-21T14:00:00Z",
+  "producer": "synthetic-harvest-v1",
+  "source_system": "advance",
+  "projects": [
+    {
+      "project_id": "synth-proj-alpha",
+      "locator": "synth://alpha",
+      "archived_changes": 2,
+      "closed_changes": 1,
+      "active_changes": [
+        {
+          "change_id": "synth-change-alpha-1",
+          "summary": "synthetic active change alpha one",
+          "status": "draft",
+          "completed_gates": ["proposal"],
+          "tasks_total": 4,
+          "tasks_done": 1,
+          "updated_at": "2026-08-21T13:00:00Z"
+        },
+        {
+          "change_id": "synth-change-alpha-2",
+          "summary": "synthetic active change alpha two",
+          "status": "discovery",
+          "completed_gates": [],
+          "tasks_total": 0,
+          "tasks_done": 0,
+          "updated_at": "2026-08-21T13:30:00Z"
+        }
+      ],
+      "wisdom_entries": [
+        {
+          "id": "synth-wisdom-alpha-1",
+          "type": "lesson",
+          "content": "synthetic alpha lesson",
+          "change_id": "synth-change-alpha-1",
+          "promoted": true,
+          "recorded_at": "2026-08-21T13:00:00Z"
+        }
+      ],
+      "reflections": [
+        {
+          "id": "synth-reflection-alpha-1",
+          "change_id": "synth-change-alpha-1",
+          "recorded_at": "2026-08-21T13:00:00Z",
+          "friction_count": 1,
+          "suggestion_count": 0
+        }
+      ]
+    },
+    {
+      "project_id": "synth-proj-beta",
+      "locator": "synth://beta",
+      "archived_changes": 1,
+      "closed_changes": 0,
+      "active_changes": [
+        {
+          "change_id": "synth-change-beta-1",
+          "summary": "synthetic active change beta one",
+          "status": "draft",
+          "completed_gates": [],
+          "tasks_total": 2,
+          "tasks_done": 0,
+          "updated_at": "2026-08-21T13:45:00Z"
+        }
+      ],
+      "wisdom_entries": [
+        {
+          "id": "synth-wisdom-beta-project",
+          "type": "rule",
+          "content": "synthetic project-level wisdom",
+          "change_id": "",
+          "promoted": false,
+          "recorded_at": "2026-08-21T13:00:00Z"
+        }
+      ],
+      "reflections": []
+    }
+  ]
+}`
+
+func writeSyntheticSnapshot(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "synthetic-snapshot.json")
+	if err := os.WriteFile(path, []byte(predecessorSyntheticFixture), 0o600); err != nil {
+		t.Fatalf("write synthetic snapshot: %v", err)
+	}
+	return path
+}
+
+func TestPredecessorInventoryHappyPath(t *testing.T) {
+	snapshotPath := writeSyntheticSnapshot(t)
+	request, err := json.Marshal(map[string]any{"snapshot_path": snapshotPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"predecessor-inventory"}, bytes.NewReader(request), &out, &errOut); code != 0 {
+		t.Fatalf("predecessor-inventory exit=%d stderr=%q", code, errOut.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("predecessor-inventory stderr=%q, want empty", errOut.String())
+	}
+	var report struct {
+		SchemaVersion int    `json:"schema_version"`
+		Producer      string `json:"producer"`
+		SourceSystem  string `json:"source_system"`
+		CapturedAt    string `json:"captured_at"`
+		Totals        struct {
+			Projects        int `json:"projects"`
+			ActiveChanges   int `json:"active_changes"`
+			ArchivedChanges int `json:"archived_changes"`
+			ClosedChanges   int `json:"closed_changes"`
+			WisdomEntries   int `json:"wisdom_entries"`
+			Reflections     int `json:"reflections"`
+		} `json:"totals"`
+		Projects []struct {
+			ProjectID            string   `json:"project_id"`
+			Locator              string   `json:"locator"`
+			ActiveChangesCount   int      `json:"active_changes_count"`
+			ArchivedChanges      int      `json:"archived_changes"`
+			ClosedChanges        int      `json:"closed_changes"`
+			WisdomEntriesCount   int      `json:"wisdom_entries_count"`
+			ReflectionsCount     int      `json:"reflections_count"`
+			ActiveChangeIDs      []string `json:"active_change_ids"`
+			ActiveChangesListed  int      `json:"active_changes_listed"`
+			ActiveChangesOmitted int      `json:"active_changes_omitted"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("report is not parseable JSON: %v\nraw=%s", err, out.String())
+	}
+	if report.SchemaVersion != 1 || report.Producer != "synthetic-harvest-v1" || report.SourceSystem != "advance" {
+		t.Fatalf("provenance = %+v, want schema_version=1 producer=synthetic-harvest-v1 source_system=advance", report)
+	}
+	if report.Totals.Projects != 2 || report.Totals.ActiveChanges != 3 || report.Totals.WisdomEntries != 2 || report.Totals.Reflections != 1 {
+		t.Fatalf("totals = %+v, want projects=2 active=3 wisdom=2 reflections=1", report.Totals)
+	}
+	if len(report.Projects) != 2 {
+		t.Fatalf("len(projects) = %d, want 2", len(report.Projects))
+	}
+	// The second project carries only one active change so the cap is not
+	// exercised; we still verify listed/omitted bookkeeping is exact.
+	beta := report.Projects[1]
+	if beta.ActiveChangesCount != 1 || beta.ActiveChangesListed != 1 || beta.ActiveChangesOmitted != 0 {
+		t.Fatalf("beta bookkeeping = %+v, want listed=1 omitted=0", beta)
+	}
+}
+
+func TestPredecessorInventoryRejectsMissingSnapshotFile(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "no-such-snapshot.json")
+	request, err := json.Marshal(map[string]any{"snapshot_path": missing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"predecessor-inventory"}, bytes.NewReader(request), &out, &errOut); code != 1 {
+		t.Fatalf("predecessor-inventory missing-file exit=%d, want 1; stderr=%q", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "does not exist") {
+		t.Fatalf("predecessor-inventory missing-file diagnostic = %q, want does-not-exist wording", errOut.String())
+	}
+}

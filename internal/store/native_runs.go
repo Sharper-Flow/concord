@@ -18,11 +18,24 @@ import (
 const (
 	WorkflowNativeRunRecorded = "workflow.native_run_recorded"
 
-	NativeRunCaptureMethod       = "trusted_client_report"
-	NativeRunFreshnessPolicyRef  = "policy/native-run-report/freshness@cd-0040"
-	NativeRunDivergencePolicyRef = "policy/native-run-report/divergence@cd-0040"
-	nativeRunAssertedSkewBound   = 2 * time.Minute
+	nativeRunAssertedSkewBound = 2 * time.Minute
 )
+
+// nativeRunObservationID derives the shared-component observation identity
+// from the subject digest the core already computed. The same run's reports
+// share one observation, so one verification answers every phase row.
+func nativeRunObservationID(subjectDigest string) string {
+	return "xobs:" + subjectDigest[len("sha256:"):len("sha256:")+16]
+}
+
+// nativeRunPolicyRefs returns the derived freshness/divergence references for
+// the native-run kind. CD-0040 D7: a same-ID policy edit changes the hash and
+// so produces a new reference instead of silently rebinding existing records.
+func nativeRunPolicyRefs() (string, string) {
+	policy, _ := ExternalSubjectPolicyFor("native_run")
+	ref := PolicyRef(policy)
+	return ref, ref
+}
 
 var nativeRunStatusVocab = map[string]map[string]bool{
 	"start":    {"started": true, "failed_to_start": true},
@@ -66,15 +79,15 @@ type nativeRunPayload struct {
 	AssertedAt            string `json:"asserted_at"`
 	ReportingAuthorityRef string `json:"reporting_authority_ref"`
 	ActorRef              string `json:"actor_ref"`
-	// CD-0040 D11 capture component. Capture method, observed universe, and
-	// the pinned per-kind policy references are core-derived; callers cannot
-	// author them.
-	CaptureMethod       string         `json:"capture_method"`
-	ObservedUniverse    map[string]any `json:"observed_universe"`
-	FreshnessPolicyRef  string         `json:"freshness_policy_ref"`
-	DivergencePolicyRef string         `json:"divergence_policy_ref"`
-	ExpectedVersion     int64          `json:"expected_version"`
-	ResultingVersion    int64          `json:"resulting_version"`
+	// CD-0040 D11 capture component: the shared closed structure, not a free
+	// map. Core-derived; callers cannot author it.
+	CaptureMethod       CaptureMethodKind `json:"capture_method"`
+	ObservedUniverse    ObservedUniverse  `json:"observed_universe"`
+	FreshnessPolicyRef  string            `json:"freshness_policy_ref"`
+	DivergencePolicyRef string            `json:"divergence_policy_ref"`
+	ObservationID       string            `json:"observation_id"`
+	ExpectedVersion     int64             `json:"expected_version"`
+	ResultingVersion    int64             `json:"resulting_version"`
 }
 
 func validateNativeRunPayload(event Event, payload nativeRunPayload) error {
@@ -100,6 +113,19 @@ func validateNativeRunShape(payload *nativeRunPayload) error {
 	if _, err := time.Parse(time.RFC3339Nano, payload.AssertedAt); err != nil {
 		return newFailure(KindInvalidPayload, "validate_event", "native run asserted_at is not RFC3339", false, "supply the reporting authority's own observation time")
 	}
+	if err := ValidateObservedUniverse(payload.ObservedUniverse); err != nil {
+		return newFailure(KindInvalidPayload, "validate_event", "native run observed universe is not a closed structure: "+err.Error(), false, "the universe is core-derived; this is an encoding defect")
+	}
+	if payload.FreshnessPolicyRef == "" || payload.FreshnessPolicyRef != payload.DivergencePolicyRef {
+		return newFailure(KindInvalidPayload, "validate_event", "native run policy references are not bound", false, "the policy references are core-derived; this is an encoding defect")
+	}
+	freshness, divergence := nativeRunPolicyRefs()
+	if payload.FreshnessPolicyRef != freshness || payload.DivergencePolicyRef != divergence {
+		return newFailure(KindInvalidPayload, "validate_event", "native run policy references do not match the reviewed register", false, "the policy references are core-derived; this is an encoding defect")
+	}
+	if payload.ObservationID == "" {
+		return newFailure(KindInvalidPayload, "validate_event", "native run observation identity is missing", false, "the observation identity is core-derived; this is an encoding defect")
+	}
 	return nil
 }
 
@@ -109,21 +135,33 @@ func validateNativeRunShape(payload *nativeRunPayload) error {
 // string.
 func buildNativeRunEvent(eventID, workID string, actor WorkflowActor, now time.Time, expected int64, phase, runID, subjectRef, status, evidenceRef, evidenceDigest, assertedAt string) (Event, error) {
 	digest := sha256.Sum256([]byte(subjectRef))
+	subjectDigest := "sha256:" + hex.EncodeToString(digest[:])
+	freshness, divergence := nativeRunPolicyRefs()
 	payload := nativeRunPayload{
 		WorkID: workID, RunID: runID, NativeSubjectRef: subjectRef, Phase: phase,
-		SubjectDigest: "sha256:" + hex.EncodeToString(digest[:]),
+		SubjectDigest: subjectDigest,
 		Status:        status, EvidenceRef: evidenceRef, EvidenceDigest: evidenceDigest,
 		AssertedAt: assertedAt, ReportingAuthorityRef: actor.ClientRef,
 		ActorRef:      DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef),
-		CaptureMethod: NativeRunCaptureMethod,
-		ObservedUniverse: map[string]any{
-			"shape": "item", "applied_scope": subjectRef, "anchor": "sha256:" + hex.EncodeToString(digest[:]),
-			"coverage": "complete", "observed_count": 1, "observed_refs": []string{runID},
-			"total": "eq(1)", "completion_evidence": "closed_structure_digest",
-			"canonical_identity_key": workID + "/" + runID, "omissions": []string{},
+		CaptureMethod: CaptureTrustedClientReport,
+		// The universe is structural: one item, exactly scoped to the reported
+		// subject, complete by authoritative item read, one identity. No
+		// caller hand-builds a universe for a native report (CD-0040 D4).
+		ObservedUniverse: ObservedUniverse{
+			Shape:                UniverseItem,
+			AppliedScope:         subjectRef,
+			AnchorToken:          subjectDigest,
+			StructureDigest:      subjectDigest,
+			Coverage:             CoverageComplete,
+			ObservedCount:        1,
+			TotalKind:            TotalEq,
+			TotalValue:           1,
+			CompletionEvidence:   CompletionClosedStructureDigest,
+			CanonicalIdentityKey: workID + "/" + runID,
 		},
-		FreshnessPolicyRef:  NativeRunFreshnessPolicyRef,
-		DivergencePolicyRef: NativeRunDivergencePolicyRef,
+		FreshnessPolicyRef:  freshness,
+		DivergencePolicyRef: divergence,
+		ObservationID:       nativeRunObservationID(subjectDigest),
 		ExpectedVersion:     expected, ResultingVersion: expected + 1,
 	}
 	if err := validateNativeRunShape(&payload); err != nil {
@@ -156,10 +194,17 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode native run observed universe", false, "repair the stored native run report", err)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(work_id,run_id,phase) DO UPDATE SET status=excluded.status,event_id=excluded.event_id,reporting_authority_ref=excluded.reporting_authority_ref,actor_ref=excluded.actor_ref,native_subject_ref=excluded.native_subject_ref,subject_digest=excluded.subject_digest,evidence_ref=excluded.evidence_ref,evidence_digest=excluded.evidence_digest,asserted_at=excluded.asserted_at,recorded_at=excluded.recorded_at,capture_method=excluded.capture_method,observed_universe=excluded.observed_universe,freshness_policy_ref=excluded.freshness_policy_ref,divergence_policy_ref=excluded.divergence_policy_ref`,
-		event.SubjectID, payload.RunID, payload.Phase, payload.Status, event.EventID, payload.ReportingAuthorityRef, payload.ActorRef, payload.NativeSubjectRef, payload.SubjectDigest, payload.EvidenceRef, payload.EvidenceDigest, payload.AssertedAt, event.OccurredAt.UTC().Format(time.RFC3339Nano), payload.CaptureMethod, string(universe), payload.FreshnessPolicyRef, payload.DivergencePolicyRef)
+	// CD-0040 D11: the embedded component's shared provenance home. The run's
+	// first reported phase registers the observation; later phases of the
+	// same run share it, and verification events bind it here.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO external_observations(observation_id,work_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,subject_digest,observed_universe,freshness_policy_ref,divergence_policy_ref,verification_state,created_event_seq) VALUES(?,?,?,?,?,?,?,?,?,?,?,'unverified',?) ON CONFLICT(observation_id) DO NOTHING`,
+		payload.ObservationID, event.SubjectID, "native_run", payload.NativeSubjectRef, string(payload.CaptureMethod), payload.AssertedAt, payload.ReportingAuthorityRef, payload.SubjectDigest, string(universe), payload.FreshnessPolicyRef, payload.DivergencePolicyRef, event.Seq); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot register the native run observation", true, "retry once the database is writable", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref,observation_id)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(work_id,run_id,phase) DO UPDATE SET status=excluded.status,event_id=excluded.event_id,reporting_authority_ref=excluded.reporting_authority_ref,actor_ref=excluded.actor_ref,native_subject_ref=excluded.native_subject_ref,subject_digest=excluded.subject_digest,evidence_ref=excluded.evidence_ref,evidence_digest=excluded.evidence_digest,asserted_at=excluded.asserted_at,recorded_at=excluded.recorded_at,capture_method=excluded.capture_method,observed_universe=excluded.observed_universe,freshness_policy_ref=excluded.freshness_policy_ref,divergence_policy_ref=excluded.divergence_policy_ref,observation_id=excluded.observation_id`,
+		event.SubjectID, payload.RunID, payload.Phase, payload.Status, event.EventID, payload.ReportingAuthorityRef, payload.ActorRef, payload.NativeSubjectRef, payload.SubjectDigest, payload.EvidenceRef, payload.EvidenceDigest, payload.AssertedAt, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(payload.CaptureMethod), string(universe), payload.FreshnessPolicyRef, payload.DivergencePolicyRef, payload.ObservationID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot record native run report", true, "retry once the database is writable", err)
 	}
@@ -182,6 +227,8 @@ type NativeRunReport struct {
 	EvidenceDigest        string `json:"evidence_digest"`
 	AssertedAt            string `json:"asserted_at"`
 	RecordedAt            string `json:"recorded_at"`
+	ObservationID         string `json:"observation_id"`
+	VerificationState     string `json:"verification_state"`
 	Unverified            bool   `json:"unverified"`
 }
 
@@ -189,10 +236,12 @@ type NativeRunReport struct {
 // work item, newest phase report per run, on the caller's transaction. The
 // store pools a single SQLite connection, so this read must share the
 // continuity snapshot's transaction rather than open a second connection.
-// Reports read unverified carry that state explicitly (CD-0040 D9): they
-// remain readable while consequential consumers fail closed elsewhere.
+// Every report carries its verification participation (CD-0040 D9/D11):
+// unverified and diverged reports remain readable, and a consequential
+// consumer fails closed at workflow.evidence_bound until the observation is
+// verified.
 func readWorkflowNativeRunsTx(ctx context.Context, tx *sql.Tx, workID string) ([]NativeRunReport, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at FROM workflow_native_runs WHERE work_id=? ORDER BY run_id,phase`, workID)
+	rows, err := tx.QueryContext(ctx, `SELECT run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,COALESCE(observation_id,''),COALESCE(verification_state,'unverified') FROM workflow_native_runs WHERE work_id=? ORDER BY run_id,phase`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "native_runs", "cannot read native run reports", true, "retry once the database is readable", err)
 	}
@@ -200,10 +249,13 @@ func readWorkflowNativeRunsTx(ctx context.Context, tx *sql.Tx, workID string) ([
 	out := []NativeRunReport{}
 	for rows.Next() {
 		var report NativeRunReport
-		if err := rows.Scan(&report.RunID, &report.Phase, &report.Status, &report.EventID, &report.ReportingAuthorityRef, &report.ActorRef, &report.NativeSubjectRef, &report.SubjectDigest, &report.EvidenceRef, &report.EvidenceDigest, &report.AssertedAt, &report.RecordedAt); err != nil {
+		if err := rows.Scan(&report.RunID, &report.Phase, &report.Status, &report.EventID, &report.ReportingAuthorityRef, &report.ActorRef, &report.NativeSubjectRef, &report.SubjectDigest, &report.EvidenceRef, &report.EvidenceDigest, &report.AssertedAt, &report.RecordedAt, &report.ObservationID, &report.VerificationState); err != nil {
 			return nil, wrapFailure(KindUnavailable, "native_runs", "cannot decode native run reports", true, "retry once the database is readable", err)
 		}
-		report.Unverified = true
+		if report.VerificationState == "" {
+			report.VerificationState = string(VerificationUnverified)
+		}
+		report.Unverified = report.VerificationState != string(VerificationVerified)
 		out = append(out, report)
 	}
 	return out, rows.Err()

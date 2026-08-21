@@ -1927,6 +1927,93 @@ const GeneratedPayloadSchemaDocument = `{
       "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
       "type": "string"
     },
+    "observed_universe": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_token": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "applied_scope": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "canonical_identity_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "completion_evidence": {
+          "enum": [
+            "authoritative_item_read",
+            "end_signal",
+            "closed_structure_digest",
+            "exhaustive_local"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "observed_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_refs": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "omissions": {
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "shape": {
+          "enum": [
+            "item",
+            "collection",
+            "stream"
+          ]
+        },
+        "structure_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "total_kind": {
+          "enum": [
+            "eq",
+            "gte",
+            "unknown"
+          ]
+        },
+        "total_value": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shape",
+        "applied_scope",
+        "coverage",
+        "total_kind",
+        "canonical_identity_key"
+      ],
+      "type": "object"
+    },
     "operator_choice": {
       "additionalProperties": false,
       "properties": {
@@ -3730,7 +3817,168 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_define_observation_record_input": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "external"
+            ]
+          },
+          "required": [
+            "statement"
+          ]
+        },
+        {
+          "not": {
+            "required": [
+              "statement"
+            ]
+          },
+          "required": [
+            "external"
+          ]
+        }
+      ],
       "properties": {
+        "external": {
+          "additionalProperties": false,
+          "oneOf": [
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "verification_method"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "verified_at"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "result"
+                    ]
+                  }
+                ]
+              },
+              "required": [
+                "subject_kind",
+                "subject_ref",
+                "captured_at",
+                "observed_universe"
+              ]
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "subject_kind"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "subject_ref"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "captured_at"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "observed_universe"
+                    ]
+                  }
+                ]
+              },
+              "required": [
+                "verification_method",
+                "verified_at",
+                "result"
+              ]
+            }
+          ],
+          "properties": {
+            "captured_at": {
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 20,
+              "type": "string"
+            },
+            "current_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "capture",
+                "verification"
+              ]
+            },
+            "observation_id": {
+              "pattern": "^xobs:[0-9a-f]{16}$",
+              "type": "string"
+            },
+            "observed_universe": {
+              "$ref": "#/$defs/observed_universe"
+            },
+            "omissions": {
+              "items": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
+            "result": {
+              "enum": [
+                "matched",
+                "diverged",
+                "unreachable",
+                "unavailable"
+              ]
+            },
+            "subject_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "subject_kind": {
+              "enum": [
+                "native_run",
+                "git_position",
+                "recovery_artifact",
+                "environment"
+              ]
+            },
+            "subject_ref": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            "verification_method": {
+              "enum": [
+                "trusted_client_report",
+                "git_probe"
+              ]
+            },
+            "verified_at": {
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 20,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "observation_id"
+          ],
+          "type": "object"
+        },
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
@@ -3772,7 +4020,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "work_id",
-        "statement",
         "idempotency_key"
       ],
       "type": "object"

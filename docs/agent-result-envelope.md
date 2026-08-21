@@ -145,6 +145,13 @@ Expected domain outcomes such as `not_compacted`, canonical-note `missing`, or
 canonical-note `ambiguous` remain typed `ok.result` variants when the query itself
 succeeded. They are not infrastructure errors.
 
+`approval_required` refusals that minted a core approval challenge carry the
+CD-0037 typed `consequence_summary` object (tool, operation, consequence,
+operation digest, canonical scope and version bindings, expiry). It is derived
+only from the facts bound to the challenge; challenge-less approval refusals
+carry no summary, and a summary without a challenge is invalid. The adapter
+transports the object unchanged; the host renders it for the operator.
+
 `retry_safe=true` means repeating the **same canonical request with the same
 idempotency key** cannot create another effect. It does not mean retrying immediately
 will succeed; `recovery_action` owns preparation.

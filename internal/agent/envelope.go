@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -162,12 +163,31 @@ type TypedError struct {
 	Options          []string          `json:"options,omitempty"`
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
+	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
+	// at challenge mint from the exact facts the challenge binds, so nothing
+	// it describes can change without invalidating the challenge itself. It
+	// rides only refusals that minted a challenge; a refusal that minted
+	// nothing is instructions, not a consent prompt, and carries none.
+	ConsequenceSummary *ConsequenceSummary `json:"consequence_summary,omitempty"`
 	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
 	// budget_refused error — seconds refusal, result-size overrun, and the
 	// legacy millisecond bound alike — so the value a caller needs to recover
 	// is a field, never a details entry an implementation may forget to mint.
 	SupportedBudgetSeconds int            `json:"supported_budget_seconds,omitempty"`
 	Details                map[string]any `json:"details,omitempty"`
+}
+
+// ConsequenceSummary is the closed wire form of CD-0037 D1. Scope and
+// versions use the canonical sorted approval renderers, so an agent branches
+// on the same strings approval consumption compares byte-for-byte.
+type ConsequenceSummary struct {
+	Tool            string   `json:"tool"`
+	Operation       string   `json:"operation"`
+	Consequence     string   `json:"consequence"`
+	OperationDigest string   `json:"operation_digest"`
+	Scope           []string `json:"scope"`
+	Versions        []string `json:"versions"`
+	ExpiresAt       string   `json:"expires_at"`
 }
 
 // GoverningConflictOptions is the closed operator-choice vocabulary of CD-0035
@@ -622,6 +642,28 @@ func validateRecoveryAction(action RecoveryAction) error {
 	}
 	return nil
 }
+
+var (
+	toolIDRE      = regexp.MustCompile("^concord_[a-z0-9_]+$")
+	operationIDRE = regexp.MustCompile("^[a-z0-9_]+$")
+)
+
+// sortedBoundedList enforces the canonical renderer's contract: sorted,
+// unique, non-empty strings within the envelope bound.
+func sortedBoundedList(values []string, limit int) bool {
+	if len(values) == 0 || len(values) > limit {
+		return false
+	}
+	previous := ""
+	for i, value := range values {
+		if !bounded(value, 3, 256) || (i > 0 && value <= previous) {
+			return false
+		}
+		previous = value
+	}
+	return true
+}
+
 func validateError(err TypedError) error {
 	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "outcome_mismatch": true, "stale_requires_review": true, "stale_law_revision": true, "domain_overlap": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
 	if !allowed[err.Kind] {
@@ -700,6 +742,23 @@ func validateError(err TypedError) error {
 	// kind, not on which budget was exceeded.
 	if err.Kind == "budget_refused" && err.SupportedBudgetSeconds < 1 {
 		return errors.New("budget refusal must carry supported_budget_seconds")
+	}
+	// CD-0037 D1: the summary is a closed object of challenge-bound facts. The
+	// D2 coupling — present exactly when a challenge was minted — belongs to
+	// the mint sites; this validates the object's shape wherever it appears.
+	if summary := err.ConsequenceSummary; summary != nil {
+		if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !bounded(summary.Consequence, 2, 64) || !validSHA256Proof(summary.OperationDigest) {
+			return errors.New("consequence summary identity fields are invalid")
+		}
+		if summary.ExpiresAt == "" {
+			return errors.New("consequence summary lacks expiry")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
+			return errors.New("consequence summary expiry is not RFC3339")
+		}
+		if !sortedBoundedList(summary.Scope, 32) || !sortedBoundedList(summary.Versions, 32) {
+			return errors.New("consequence summary scope or versions are not canonical sorted bindings")
+		}
 	}
 	if err.Kind == "invalid_cursor" && err.RecoveryAction.Kind != "restart_query" {
 		return errors.New("cursor recovery coupling violated")

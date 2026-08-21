@@ -828,8 +828,12 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 		}
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 40 {
-		t.Fatalf("schema version=%d err=%v, want 40", version, err)
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
+		t.Fatalf("schema version=%d err=%v, want %d", version, err, CurrentSchemaVersion())
+	}
+	var nativeRuns int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workflow_native_runs'`).Scan(&nativeRuns); err != nil || nativeRuns != 1 {
+		t.Fatalf("workflow_native_runs count=%d err=%v", nativeRuns, err)
 	}
 	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
 		var err error

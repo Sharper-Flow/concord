@@ -682,16 +682,20 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		inv.HostAssertionDigest = digest
 	}
 	if requiresApproval && approval == "" {
+		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		var challengeRef string
 		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
 			return err
 		})
 		if txErr != nil {
 			return failureEnvelope(base, txErr), nil
 		}
 		response := coreError(base, "approval_required", "core approval is required for this workflow action", "request_approval", false)
+		// CD-0037 D2: a challenge was minted, so the refusal carries the typed
+		// summary derived from the same spec the challenge binds.
+		response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
 		premiseSummary := ""
 		if in.ActionID == "confirm_premise" {
 			if contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID); err == nil {
@@ -741,6 +745,26 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 		base.ResolvedScope = scopeFromMap(scope)
+		// CD-0039 D7/D8: a native report that the approved logical operation
+		// did not complete successfully classifies the action partial. The
+		// native steps are durable attributed facts; ok is reserved for
+		// successful native predicates.
+		if execution.NativeRun != nil && store.NativeRunStatusIsFailure(execution.NativeRun.Phase, execution.NativeRun.Status) {
+			report := execution.NativeRun
+			ref := OperationRef{ID: operationID, Kind: "workflow_action", Version: "1", State: OperationPartial, CurrentStep: report.Phase, UpdatedAt: r.Authority.now()}
+			partialErr := TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial, Message: "native authority reported the operation did not complete successfully"}
+			partialErr.Details = map[string]any{
+				"health_failure":   report.Phase + ":" + report.Status + " by " + report.ReportingAuthorityRef + " at " + report.AssertedAt,
+				"rollback_result":  report.EvidenceRef,
+				"native_run_id":    report.RunID,
+				"native_phase":     report.Phase,
+				"native_status":    report.Status,
+				"reporting_client": report.ReportingAuthorityRef,
+			}
+			result = NewPartial(base, ref, []string{report.Phase}, partialErr)
+			changedJSON, _ := json.Marshal(changed)
+			return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: "{}", ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
+		}
 		result = r.mutationResult(base, execution.Result, changed, nil)
 		if result.Outcome == OutcomeError {
 			resultRejected = true
@@ -2069,17 +2093,23 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		if requiresApproval && approval == "" {
 			challengeScope := boundedApprovalScope(scope)
-			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)})
+			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
 			if err != nil {
 				return err
 			}
 			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+			// CD-0037 D2: the coupling is challenge presence. Both branches
+			// below minted this challenge, so both carry the summary — the
+			// governing-conflict envelope as much as the plain refusal.
+			summary := consequenceSummaryFor(r.Tool, r.Operation, spec)
 			if len(governingConflict) > 0 {
 				response = governingConflictEnvelope(base, governingConflict)
 				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
 			} else {
 				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
 			}
+			response.Error.ConsequenceSummary = summary
 			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id"} {
 				if value, ok := scope[key]; ok {
 					details[key] = value

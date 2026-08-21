@@ -455,6 +455,11 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
+	// committed; the durability barrier must hold before acknowledging
+	if syncErr := s.SyncDurable(ctx); syncErr != nil {
+		writeOperatorDiagnostic(errOut, command, syncErr.Error())
+		return 1
+	}
 	if recorded != nil {
 		writeOperatorDiagnostic(errOut, command, recorded.Error())
 		return 1

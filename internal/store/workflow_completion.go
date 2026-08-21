@@ -64,6 +64,10 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot commit workflow completion", true, "retry once the database is writable", err)
 	}
+	// committed; the durability barrier must hold before acknowledging
+	if err := s.SyncDurable(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 

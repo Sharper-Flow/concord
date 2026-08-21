@@ -79,7 +79,7 @@ type ApprovalAuthorityRecord struct {
 }
 
 func (s *Store) RegisterTrustedClient(ctx context.Context, client TrustedClientRecord, key TrustedClientKeyRecord, now string) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "agent_register_client")
 		if err != nil {
 			return err
@@ -92,10 +92,15 @@ func (s *Store) RegisterTrustedClient(ctx context.Context, client TrustedClientR
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }
 
 func (s *Store) UpdateTrustedClientPolicy(ctx context.Context, clientRef string, policy TrustedClientRecord, now string) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "agent_update_policy")
 		if err != nil {
 			return err
@@ -112,10 +117,15 @@ func (s *Store) UpdateTrustedClientPolicy(ctx context.Context, clientRef string,
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }
 
 func (s *Store) RotateTrustedClientKey(ctx context.Context, clientRef string, key TrustedClientKeyRecord, now string) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "agent_rotate_key")
 		if err != nil {
 			return err
@@ -141,10 +151,15 @@ func (s *Store) RotateTrustedClientKey(ctx context.Context, clientRef string, ke
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }
 
 func (s *Store) RevokeTrustedClient(ctx context.Context, clientRef, now string) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "agent_revoke_client")
 		if err != nil {
 			return err
@@ -168,6 +183,11 @@ func (s *Store) RevokeTrustedClient(ctx context.Context, clientRef, now string) 
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }
 
 func (s *Store) TrustedClientForGrant(ctx context.Context, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
@@ -201,13 +221,18 @@ func (s *Store) PersistGrant(ctx context.Context, input GrantInsert) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "agent_issue_grant", "database is not open", true, "open the authority database")
 	}
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "agent_issue_grant")
 		if err != nil {
 			return err
 		}
 		return persistNonceAndGrant(ctx, tx, input)
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }
 
 func PersistGrantTx(ctx context.Context, transaction *Transaction, input GrantInsert) error {
@@ -260,9 +285,14 @@ func grant(ctx context.Context, q interface {
 }
 
 func (s *Store) ConsumeGrant(ctx context.Context, tokenHash []byte, clientRef, now string) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		return ConsumeGrantTx(ctx, transaction, tokenHash, clientRef, now)
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }
 
 func ConsumeGrantTx(ctx context.Context, transaction *Transaction, tokenHash []byte, clientRef, now string) error {
@@ -431,7 +461,7 @@ func (s *Store) RevokeGrant(ctx context.Context, tokenHash []byte, token, now st
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "agent_revoke_grant", "database is not open", true, "open the authority database")
 	}
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "agent_revoke_grant")
 		if err != nil {
 			return err
@@ -451,6 +481,11 @@ func (s *Store) RevokeGrant(ctx context.Context, tokenHash []byte, token, now st
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }
 
 func (s *Store) RevokeApproval(ctx context.Context, ref, now string) error {
@@ -463,7 +498,7 @@ func (s *Store) revoke(ctx context.Context, query string, args ...string) error 
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "agent_revoke", "database is not open", true, "open the authority database")
 	}
-	return s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "agent_revoke")
 		if err != nil {
 			return err
@@ -481,4 +516,9 @@ func (s *Store) revoke(ctx context.Context, query string, args ...string) error 
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
 }

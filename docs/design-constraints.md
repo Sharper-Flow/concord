@@ -69,7 +69,7 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 
 ## 4. Bounded writer admission, no history repair
 
-**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. History is never "repaired" by hand: if the past is wrong, the correction is appended; the original record remains intact and inspectable.
+**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash via the CD-0050 checkpoint barrier; ordinary writes are durable through the last consequential boundary. History is never "repaired" by hand: if the past is wrong, the correction is appended; the original record remains intact and inspectable.
 
 **Implication.** This is a constraint on **Concord's own state model**, not a mandate to rewrite any existing system. It is the storage-model constraint.
 

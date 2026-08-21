@@ -583,6 +583,24 @@
       "id": "CD-0049",
       "state": "outstanding",
       "issue": 257
+    },
+    {
+      "id": "CD-0050",
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestDurableBarrierAfterPersistGrantTruncatesWal"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestDurableSyncCheckpoint"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestDurableBarrierLeavesStoreUsable"
+        }
+      ]
     }
   ]
 }

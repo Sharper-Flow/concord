@@ -615,6 +615,16 @@
           "value": "internal/store.TestConformanceSchedulerOvershootIsInconclusive"
         }
       ]
+    },
+    {
+      "id": "CD-0052",
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestRelationKindsEnforceTheirOwnGraphRules"
+        }
+      ]
     }
   ]
 }

@@ -536,6 +536,11 @@
       "id": "CD-0048",
       "state": "outstanding",
       "issue": 239
+    },
+    {
+      "id": "CD-0049",
+      "state": "outstanding",
+      "issue": 257
     }
   ]
 }

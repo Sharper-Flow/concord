@@ -1807,6 +1807,10 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if claimErr != nil {
 			return failureEnvelope(base, claimErr), nil
 		}
+		// committed; the durability barrier must hold before acknowledging the claim dispatch
+		if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
+			return failureEnvelope(base, syncErr), nil
+		}
 		if claim.ResultKind == store.ResultCompleted {
 			changed := decodeChangedRefs(claim.ChangedRefs)
 			base.Replayed = claim.Replayed
@@ -1835,6 +1839,10 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(payload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 		if completeErr != nil {
 			return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
+		}
+		// committed; the durability barrier must hold before acknowledging the completion
+		if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
+			return failureEnvelope(base, syncErr), nil
 		}
 		base.Replayed = complete.Replayed
 		result.Replayed = complete.Replayed
@@ -1926,6 +1934,10 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(payload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 	if completeErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
+	}
+	// committed; the durability barrier must hold before acknowledging the completion
+	if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
+		return failureEnvelope(base, syncErr), nil
 	}
 	base.Replayed = complete.Replayed
 	result.Replayed = complete.Replayed

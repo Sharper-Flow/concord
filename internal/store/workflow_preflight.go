@@ -320,6 +320,10 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action", true, "retry once the database is writable", err)
 	}
+	// committed; the durability barrier must hold before acknowledging
+	if err := s.SyncDurable(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 

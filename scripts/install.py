@@ -31,6 +31,7 @@ SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MANIFEST_NAME = "install-manifest.json"
 ADAPTER_FILES = (
     "concord.ts",
+    "credentials.ts",
     "generated-contracts.ts",
     "generated-contract-tests.ts",
 )
@@ -310,10 +311,15 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     if not allowed_fixed.issubset(version_files):
         raise InstallerError("installer manifest omits a required managed version file")
 
+    # The manifest records what a previous install managed, which is a subset of
+    # what this version installs whenever an adapter file has since been added.
+    # Requiring equality would make adding one an upgrade-breaking change. Keys
+    # outside ADAPTER_FILES stay refused, so an unknown or traversing key cannot
+    # reach a delete.
     adapter_files = manifest.get("adapter_files")
     if (
         not isinstance(adapter_files, dict)
-        or set(adapter_files) != set(ADAPTER_FILES)
+        or not set(adapter_files).issubset(ADAPTER_FILES)
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in adapter_files.values())
     ):
         raise InstallerError("installer manifest has invalid adapter file records")

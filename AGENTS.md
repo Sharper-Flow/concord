@@ -163,8 +163,10 @@ the table is how coverage state changes; the validator keeps the claim honest.
 
 `docs/floor-readiness.v1.json` is the authorizing record of distance from the
 first-usable floor. Editing it is how readiness state changes — a satisfied item
-requires an existing evidence path, an outstanding item requires a tracking
-issue, and `unmeasured` is a distinct state from incomplete. See
+requires executable evidence anchors (`go_test`, `scenario`, `validator`,
+`generated`) that resolve and are invoked by a required workflow, an
+outstanding item requires a tracking issue, and `unmeasured` is a distinct
+state from incomplete. Paths alone are not evidence. See
 [`docs/floor-readiness.md`](docs/floor-readiness.md).
 
 ## Declared coverage (CD-0047)

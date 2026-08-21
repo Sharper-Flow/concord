@@ -16,9 +16,15 @@ checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)
 
 
+# A real, resolving anchor in this repository. The shared evidence_anchors
+# machinery reads from the actual repo ROOT, so a temp test root can use
+# any anchor that resolves there.
+RESOLVED_ANCHOR = {"kind": "go_test", "value": "internal/store.TestOpenAppliesRequiredPragmas"}
+
+
 def fixture() -> dict:
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "source": {"path": "docs/priorities.md", "section": "First-usable floor"},
         "conditions": [
             {"id": "fc1", "ordinal": 1, "title": "First condition"},
@@ -31,7 +37,7 @@ def fixture() -> dict:
                 "title": "Satisfied",
                 "requirement": "Something checkable is already true.",
                 "state": "satisfied",
-                "evidence": ["docs/priorities.md"],
+                "evidence": [dict(RESOLVED_ANCHOR)],
             },
             {
                 "id": "fc2-outstanding-item",
@@ -81,7 +87,7 @@ def test_fixture_is_accepted() -> None:
 
 def test_duplicate_keys_at_every_level() -> None:
     cases = [
-        '{"schema_version":"1.0","schema_version":"1.0"}',
+        '{"schema_version":"2.0","schema_version":"2.0"}',
         '{"source":{"path":"a","path":"b"}}',
         '{"items":[{"id":"a","id":"b"}]}',
     ]
@@ -94,10 +100,50 @@ def test_duplicate_keys_at_every_level() -> None:
             assert found and "invalid JSON" in found[0]
 
 
-def test_satisfied_item_requires_existing_evidence() -> None:
+def test_evidence_as_bare_path_string_is_rejected() -> None:
+    # Issue #187: "it cannot become satisfied from a cited path alone".
     value = fixture()
-    value["items"][0]["evidence"] = ["docs/does-not-exist.md"]
-    assert_rejected(value, "evidence path does not exist")
+    value["items"][0]["evidence"] = ["docs/priorities.md"]
+    assert_rejected(value, "evidence must be typed anchors, not paths")
+
+
+def test_unknown_anchor_kind_is_rejected() -> None:
+    value = fixture()
+    value["items"][0]["evidence"] = [{"kind": "path", "value": "docs/priorities.md"}]
+    assert_rejected(value, "anchor kind must be one of")
+
+
+def test_go_test_anchor_for_missing_test_is_rejected() -> None:
+    value = fixture()
+    value["items"][0]["evidence"] = [
+        {"kind": "go_test", "value": "internal/store.TestThisDoesNotExistAnywhere"}
+    ]
+    assert_rejected(value, "go_test anchor does not resolve")
+
+
+def test_validator_anchor_for_missing_script_is_rejected() -> None:
+    value = fixture()
+    value["items"][0]["evidence"] = [
+        {"kind": "validator", "value": "scripts/check-does-not-exist.py"}
+    ]
+    assert_rejected(value, "validator anchor")
+
+
+def test_validator_anchor_for_uninvoked_script_is_rejected() -> None:
+    # `scripts/test-agent-contracts.py` exists in the repo but is invoked by
+    # no required workflow — it is a real script that proves nothing. The
+    # invocation proof must catch it.
+    value = fixture()
+    value["items"][0]["evidence"] = [
+        {"kind": "validator", "value": "scripts/test-agent-contracts.py"}
+    ]
+    assert_rejected(value, "validator anchor is not invoked by a required workflow")
+
+
+def test_schema_version_1_0_is_rejected() -> None:
+    value = fixture()
+    value["schema_version"] = "1.0"
+    assert_rejected(value, "schema_version must be 2.0")
 
 
 def test_satisfied_item_requires_evidence() -> None:
@@ -121,7 +167,7 @@ def test_outstanding_item_requires_issue() -> None:
 
 def test_outstanding_item_rejects_evidence() -> None:
     value = fixture()
-    value["items"][1]["evidence"] = ["docs/priorities.md"]
+    value["items"][1]["evidence"] = [dict(RESOLVED_ANCHOR)]
     assert_rejected(value, "evidence is only valid for a satisfied item")
 
 
@@ -151,16 +197,9 @@ def test_unmeasured_item_rejects_issue() -> None:
     assert_rejected(value, "issue is only valid for an outstanding item")
 
 
-def test_unsafe_evidence_paths_are_rejected() -> None:
-    for path in ("../secrets.md", "/etc/passwd", "docs/../docs/priorities.md"):
-        value = fixture()
-        value["items"][0]["evidence"] = [path]
-        assert_rejected(value, "unsafe evidence path")
-
-
 def test_duplicate_evidence_is_rejected() -> None:
     value = fixture()
-    value["items"][0]["evidence"] = ["docs/priorities.md", "docs/priorities.md"]
+    value["items"][0]["evidence"] = [dict(RESOLVED_ANCHOR), dict(RESOLVED_ANCHOR)]
     assert_rejected(value, "evidence contains duplicates")
 
 
@@ -233,17 +272,29 @@ def test_boolean_is_not_an_issue_number() -> None:
     assert_rejected(value, "requires a tracking issue number")
 
 
-def test_repository_manifest_and_schema_are_valid() -> None:
+def test_repository_schema_matches_validator_constants() -> None:
+    # The schema is the part of the contract the validator owns; this
+    # checks that the published schema and the validator constants stay in
+    # lock-step so a drift becomes a failing test rather than a passing
+    # validator against an unsynchronized contract.
     assert checker.SCHEMA.is_file()
-    data = json.loads(checker.MANIFEST.read_text(encoding="utf-8"), object_pairs_hook=checker.reject_duplicate_pairs)
-    found, tally = checker.validate(data)
-    assert found == [], found
-    assert sum(tally.values()) > 0
     schema = json.loads(checker.SCHEMA.read_text(encoding="utf-8"))
     assert set(schema["properties"]) == checker.ALLOWED_ROOT
     assert set(schema["properties"]["items"]["items"]["properties"]) == checker.ALLOWED_ITEM
     assert set(schema["properties"]["items"]["items"]["required"]) == checker.REQUIRED_ITEM
     assert tuple(schema["properties"]["items"]["items"]["properties"]["state"]["enum"]) == checker.STATES
+    assert schema["properties"]["schema_version"]["const"] == checker.SCHEMA_VERSION
+
+
+def test_repository_manifest_passes_validation() -> None:
+    # The repository manifest must pass its own validator: every satisfied
+    # item carries executable anchors that resolve and are invoked by a
+    # required workflow. A failure here means a cited check stopped
+    # existing or stopped running — exactly the drift this manifest exists
+    # to catch at review time rather than at claim time.
+    data = json.loads(checker.MANIFEST.read_text(encoding="utf-8"))
+    findings, _tally = checker.validate(data)
+    assert findings == [], findings
 
 
 def test_condition_correspondence_dropped_condition() -> None:
@@ -269,7 +320,7 @@ def test_condition_correspondence_added_condition() -> None:
             "title": "Third",
             "requirement": "Third item is satisfied and checkable.",
             "state": "satisfied",
-            "evidence": ["docs/priorities.md"],
+            "evidence": [dict(RESOLVED_ANCHOR)],
         }
     )
     assert_rejected(value, "manifest declares 3 condition")

@@ -4,9 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	sqlite "modernc.org/sqlite"
+	sqlitelib "modernc.org/sqlite/lib"
 )
 
 // SubjectType names the kind of thing an event is about.
@@ -168,15 +172,37 @@ func isJSONObject(payload []byte) bool {
 	return json.Unmarshal(payload, &decoded) == nil && decoded != nil
 }
 
-// isUniqueViolation reports whether err is a uniqueness conflict. The driver
-// does not export a typed constraint error, so the message is matched here and
-// translated into a typed failure once, at this boundary.
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
+// constraintCode returns the typed SQLite result code carried by err, or
+// 0 when err is not a driver error. Driver message text is not a stability
+// contract; classification at this boundary uses the typed code.
+func constraintCode(err error) int {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return 0
 	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unique constraint failed")
+	return sqliteErr.Code()
+}
+
+// isUniqueViolation reports whether err is a uniqueness conflict.
+func isUniqueViolation(err error) bool {
+	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_UNIQUE
+}
+
+// isForeignKeyViolation reports whether err is a foreign-key conflict.
+func isForeignKeyViolation(err error) bool {
+	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY
+}
+
+// isCheckViolation reports whether err is a CHECK constraint conflict.
+func isCheckViolation(err error) bool {
+	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_CHECK
+}
+
+// isConstraintViolation reports whether err is any SQLite constraint
+// conflict (unique, primary key, foreign key, check, not-null).
+func isConstraintViolation(err error) bool {
+	code := constraintCode(err)
+	return code != 0 && code&0xff == sqlitelib.SQLITE_CONSTRAINT
 }
 
 // classifyEventIDConflict inspects the event that already holds the requested

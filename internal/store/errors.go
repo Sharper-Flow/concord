@@ -90,11 +90,21 @@ const (
 	KindMembershipMigrationRequired FailureKind = "membership_migration_required"
 	KindUnknownScope                FailureKind = "unknown_scope"
 	KindAmbiguousScope              FailureKind = "ambiguous_scope"
+	KindStaleContext                FailureKind = "stale_context"
 	KindInvalidFilter               FailureKind = "invalid_filter"
 	KindInvalidCursor               FailureKind = "invalid_cursor"
 	KindStaleRequiresReview         FailureKind = "stale_requires_review"
 	KindInvariantViolation          FailureKind = "invariant_violation"
 	KindUnreachable                 FailureKind = "unreachable"
+	KindApprovalInvalid             FailureKind = "approval_invalid"
+	KindDegradedNotAllowed          FailureKind = "degraded_not_allowed"
+	KindBudgetRefused               FailureKind = "budget_refused"
+	KindInvalidInput                FailureKind = "invalid_input"
+	KindCancelled                   FailureKind = "cancelled"
+	KindTimeout                     FailureKind = "timeout"
+	KindTransportFailure            FailureKind = "transport_failure"
+	KindMalformedResponse           FailureKind = "malformed_response"
+	KindInternalError               FailureKind = "internal_error"
 	KindInvalidNoteProof            FailureKind = "invalid_note_proof"
 	KindGitUnreachable              FailureKind = "git_unreachable"
 	KindKnowledgeIndexIncomplete    FailureKind = "knowledge_index_incomplete"
@@ -159,6 +169,54 @@ const (
 	KindStaleLawRevision      FailureKind = "stale_law_revision"
 	KindDomainOverlap         FailureKind = "domain_overlap"
 )
+
+var allowedFailureKinds = map[FailureKind]struct{}{
+	KindUnknownScope:        {},
+	KindAmbiguousScope:      {},
+	KindStaleContext:        {},
+	KindUnauthorized:        {},
+	KindApprovalRequired:    {},
+	KindApprovalInvalid:     {},
+	KindVersionConflict:     {},
+	KindIdempotencyConflict: {},
+	KindOperationConflict:   {},
+	KindInvalidTransition:   {},
+	KindInvalidRelation:     {},
+	KindInvariantViolation:  {},
+	KindMissingEvidence:     {},
+	KindNotTerminal:         {},
+	KindOutcomeMismatch:     {},
+	KindStaleRequiresReview: {},
+	KindStaleLawRevision:    {},
+	KindDomainOverlap:       {},
+	KindDegradedNotAllowed:  {},
+	KindUnreachable:         {},
+	KindInvalidCursor:       {},
+	KindLimitExceeded:       {},
+	KindBudgetRefused:       {},
+	KindInvalidInput:        {},
+	KindCancelled:           {},
+	KindTimeout:             {},
+	KindTransportFailure:    {},
+	KindMalformedResponse:   {},
+	KindInternalError:       {},
+}
+
+// AllowedFailureKinds returns a copy of the closed workflow action failure set.
+func AllowedFailureKinds() map[FailureKind]struct{} {
+	allowed := make(map[FailureKind]struct{}, len(allowedFailureKinds))
+	for kind := range allowedFailureKinds {
+		allowed[kind] = struct{}{}
+	}
+	return allowed
+}
+
+// IsAllowedFailureKind reports whether kind belongs to the closed workflow
+// action failure set.
+func IsAllowedFailureKind(kind FailureKind) bool {
+	_, ok := allowedFailureKinds[kind]
+	return ok
+}
 
 // Failure is a typed storage failure. The fields mirror the query contract's
 // typed error envelope so higher layers can surface a failure without

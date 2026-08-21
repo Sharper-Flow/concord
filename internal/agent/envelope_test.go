@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestEnvelopeGoldenOutcomes(t *testing.T) {
@@ -63,6 +65,14 @@ func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	raw = append(raw[:len(raw)-1], []byte(`,"unknown":true}`)...)
 	if _, err := DecodeEnvelope(raw); err == nil {
 		t.Fatal("unknown envelope field accepted")
+	}
+}
+
+func TestEnvelopeFailureKindClosureUsesStoreSet(t *testing.T) {
+	for kind := range store.AllowedFailureKinds() {
+		if !isAllowedFailureKind(string(kind)) {
+			t.Fatalf("agent rejected store failure kind %q", kind)
+		}
 	}
 }
 

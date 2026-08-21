@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 const MaxEnvelopeBytes = 65536
@@ -664,9 +666,12 @@ func sortedBoundedList(values []string, limit int) bool {
 	return true
 }
 
+func isAllowedFailureKind(kind string) bool {
+	return store.IsAllowedFailureKind(store.FailureKind(kind))
+}
+
 func validateError(err TypedError) error {
-	allowed := map[string]bool{"unknown_scope": true, "ambiguous_scope": true, "stale_context": true, "unauthorized": true, "approval_required": true, "approval_invalid": true, "version_conflict": true, "idempotency_conflict": true, "operation_conflict": true, "invalid_transition": true, "invalid_relation": true, "invariant_violation": true, "missing_evidence": true, "not_terminal": true, "outcome_mismatch": true, "stale_requires_review": true, "stale_law_revision": true, "domain_overlap": true, "degraded_not_allowed": true, "unreachable": true, "invalid_cursor": true, "limit_exceeded": true, "budget_refused": true, "invalid_input": true, "cancelled": true, "timeout": true, "transport_failure": true, "malformed_response": true, "internal_error": true}
-	if !allowed[err.Kind] {
+	if !isAllowedFailureKind(err.Kind) {
 		return fmt.Errorf("unknown error kind %q", err.Kind)
 	}
 	if err.RecoveryAction.Kind == "" {

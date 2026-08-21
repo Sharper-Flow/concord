@@ -81,7 +81,7 @@ test("spawn failure without exhaustion evidence is not mislabeled blocked", asyn
 })
 
 test("recorded session metadata proves the executing model and exposes fallback", async () => {
-  const fallback = "zai-coding-plan/glm-5.2"
+  const fallback = "zai-coding-plan/glm-5.3"
   const fallbackOutput = runOutput(JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", status: { action: { reason: "account_rate_limit" } } } }))
   expect(readRunSessionMetadata(fallbackOutput)).toEqual({ session_id: "session-1", fallback_reason: "rate_limit" })
   expect(readExportSessionMetadata(exportedSession(fallback), "session-1")).toEqual({ readback_model: fallback, session_id: "session-1" })
@@ -159,14 +159,14 @@ test("a declared fallback is recorded as fallback evidence, not as a failure", a
   const fallbackOutput = runOutput(JSON.stringify({ type: "message.updated", properties: { sessionId: "session-1", status: { action: { reason: "account_rate_limit" } } } }))
   const calls: { argv: string[]; input: string }[] = []
   const result = await dispatchWorker(packet(), { credentials: testCredentials,
-    runner: workerRunner("zai-coding-plan/glm-5.2", fallbackOutput),
+    runner: workerRunner("zai-coding-plan/glm-5.3", fallbackOutput),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("fallback")
   expect(calls).toHaveLength(2)
   const dispatched = JSON.parse(calls[0].input)
   const completed = JSON.parse(calls[1].input)
-  expect(dispatched.resolved_model).toBe("zai-coding-plan/glm-5.2")
+  expect(dispatched.resolved_model).toBe("zai-coding-plan/glm-5.3")
   expect(dispatched.resolution_role).toBe("fallback")
   expect(dispatched.fallback_reason).toBe("rate_limit")
   expect(completed.readback_model).toBe(dispatched.resolved_model)

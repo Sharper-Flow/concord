@@ -1327,7 +1327,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:6b89edd732d1655dbfdd4186fdb00a37fbcd5eca999812ca44ad056975a7ec72",
+      "sha256": "sha256:1962bf57ebfabeffa60c5f4c409f7fa565a7149438fb576598241dcfe6fdc29d",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1351,7 +1351,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e0cf80d25e1d384d5267b7e0de6c4fda83b17acdfe8afbbed4a23a30317e45cd",
+      "sha256": "sha256:4a069f599146bfa1b30f2e808c58fe3a0ca8a64c53be2ad0b26d44ddfb6eee3d",
       "home_domain_id": "product-root:concord"
     },
     {

@@ -140,10 +140,10 @@ plugin's ordered fallback targets under its plugin tuple, for example:
 {
   "plugin": [["opencode-model-routing", {
     "agents": {
-      "concord-research": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.2"] },
-      "concord-implement": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.2"] },
-      "concord-review": { "fallback_models": ["zai-coding-plan/glm-5.2", "kimi-for-coding/kimi-for-coding"] },
-      "concord-verify": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.2"] }
+      "concord-research": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.3"] },
+      "concord-implement": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.3"] },
+      "concord-review": { "fallback_models": ["zai-coding-plan/glm-5.3", "kimi-for-coding/k3"] },
+      "concord-verify": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.3"] }
     }
   }]]
 }

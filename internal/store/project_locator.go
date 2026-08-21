@@ -447,7 +447,7 @@ func insertProjectLocator(ctx context.Context, tx *sql.Tx, p projectLocatorPaylo
 	if isUniqueViolation(err) {
 		return newFailure(KindMembershipConflict, "fold_event", "Project locator is already claimed", false, "choose a unique normalized locator")
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "foreign key constraint failed") {
+	if isForeignKeyViolation(err) {
 		return newFailure(KindProjectionNotFound, "fold_event", "Project does not exist", false, "create the Project before adding a locator")
 	}
 	return wrapFailure(KindUnavailable, "fold_event", "cannot add Project locator", true, "retry once the database is writable", err)

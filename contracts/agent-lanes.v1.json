@@ -40,7 +40,7 @@
       "budgets": {"cost_usd_max": 2.5, "context_tokens_max": 40000, "time_seconds_max": 1200},
       "evidence_obligations": ["contract_findings", "severity", "verification_commands"],
       "lifecycle_states": ["dispatched", "completed", "failed"],
-      "pinned_model": "zai-coding-plan/glm-5.2"
+      "pinned_model": "zai-coding-plan/glm-5.3"
     },
     {
       "id": "verify",

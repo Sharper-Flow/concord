@@ -20,6 +20,13 @@ type InitiativeEntry struct {
 
 const maxInitiativeEntriesRead = 1000
 
+// maxInitiativeEntryPosition matches the agent surface bound. The reorder
+// fold stages rows at position+1000000, so positions at or beyond the staging
+// band would collide on the unique index and misclassify as retryable
+// unavailability. The event fold is the authority boundary; the bound holds
+// there, not only in the payload schema.
+const maxInitiativeEntryPosition = 1000
+
 // maxInitiativeNarrativeLength bounds the Initiative coordination narrative in characters,
 // matching SQLite length() and JSON Schema maxLength semantics and the accepted
 // summary bound used by workflow context boundaries.
@@ -90,8 +97,8 @@ func foldInitiativeEntryAdded(ctx context.Context, tx *sql.Tx, event Event) erro
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
-	if p.ChildWorkID == "" || p.Position < 0 || p.ExpectedVersion < 1 || p.ResultingVersion != p.ExpectedVersion+1 {
-		return newFailure(KindInvalidPayload, "fold_event", "initiative_entry.added payload is invalid", false, "supply child, non-negative position, and consecutive versions")
+	if p.ChildWorkID == "" || p.Position < 0 || p.Position > maxInitiativeEntryPosition || p.ExpectedVersion < 1 || p.ResultingVersion != p.ExpectedVersion+1 {
+		return newFailure(KindInvalidPayload, "fold_event", "initiative_entry.added payload is invalid", false, "supply child, a position from zero through 1000, and consecutive versions")
 	}
 	if err := validateInitiativeEntryScope(ctx, tx, event.SubjectID, p.ChildWorkID); err != nil {
 		return err
@@ -110,7 +117,11 @@ func foldInitiativeEntryAdded(ctx context.Context, tx *sql.Tx, event Event) erro
 	if childKind == "initiative" {
 		return newFailure(KindInitiativeScopeViolation, "fold_event", "nested Initiatives are not allowed", false, "add a non-Initiative canonical work item")
 	}
-	if err := validateWorkVersion(event, mustVersion(ctx, tx, event.SubjectID), p.ExpectedVersion, p.ResultingVersion); err != nil {
+	subjectVersion, versionErr := mustVersion(ctx, tx, event.SubjectID)
+	if versionErr != nil {
+		return versionErr
+	}
+	if err := validateWorkVersion(event, subjectVersion, p.ExpectedVersion, p.ResultingVersion); err != nil {
 		return err
 	}
 	if cycle, err := relationWouldCycle(ctx, tx, event.SubjectID, p.ChildWorkID, "includes"); err != nil {
@@ -167,8 +178,8 @@ func foldInitiativeEntryReordered(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
-	if p.ChildWorkID == "" || p.Position < 0 || p.ExpectedVersion < 1 || p.ResultingVersion != p.ExpectedVersion+1 {
-		return newFailure(KindInvalidPayload, "fold_event", "initiative_entry.reordered payload is invalid", false, "supply child, position, and consecutive versions")
+	if p.ChildWorkID == "" || p.Position < 0 || p.Position > maxInitiativeEntryPosition || p.ExpectedVersion < 1 || p.ResultingVersion != p.ExpectedVersion+1 {
+		return newFailure(KindInvalidPayload, "fold_event", "initiative_entry.reordered payload is invalid", false, "supply child, a position from zero through 1000, and consecutive versions")
 	}
 	if err := validateInitiativeOwnerAndVersion(ctx, tx, event.SubjectID, p.ExpectedVersion); err != nil {
 		return err
@@ -252,12 +263,18 @@ func validateInitiativeOwnerAndVersion(ctx context.Context, tx *sql.Tx, id strin
 	if kind != "initiative" {
 		return newFailure(KindInitiativeScopeViolation, "fold_event", "work item is not an Initiative", false, "use an Initiative work item")
 	}
-	return validateWorkVersion(Event{SubjectID: id}, mustVersion(ctx, tx, id), expected, expected+1)
+	version, versionErr := mustVersion(ctx, tx, id)
+	if versionErr != nil {
+		return versionErr
+	}
+	return validateWorkVersion(Event{SubjectID: id}, version, expected, expected+1)
 }
-func mustVersion(ctx context.Context, tx *sql.Tx, id string) int64 {
+func mustVersion(ctx context.Context, tx *sql.Tx, id string) (int64, error) {
 	var v int64
-	_ = tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, id).Scan(&v)
-	return v
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, id).Scan(&v); err != nil {
+		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot read the work item version", true, "retry once the database is readable", err)
+	}
+	return v, nil
 }
 func readInitiative(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	return readWorkKind(ctx, tx, id)

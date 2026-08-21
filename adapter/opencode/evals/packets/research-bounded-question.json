@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-research-bounded-question",
   "lane_id": "research",
   "lane_version": 1,
-  "lane_digest": "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb",
+  "lane_digest": "sha256:3969ceda54cc6be1532877e6d5b1dc5530c280ff77835f43286c4a0ad37e861b",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

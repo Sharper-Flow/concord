@@ -365,7 +365,7 @@
       "status": "accepted",
       "date": "2026-08-11T00:00:00Z",
       "title": "Typed workers and model routing",
-      "summary": "Defines the Concord-owned lane registry, capability-class model routing, pinned-model dispatch with readback identity evidence, typed fallback outcomes, and the worker authority boundary.",
+      "summary": "Defines the Concord-owned lane registry, host-loaded capability-class model routing, readback identity evidence, typed fallback outcomes, and the worker authority boundary.",
       "tags": [
         "typed-workers",
         "model-routing",
@@ -1314,7 +1314,7 @@
       "status": "accepted",
       "date": "2026-08-11T00:00:00Z",
       "title": "Agent lane contract",
-      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, pinned models, budgets, lifecycle states, and evidence obligations.",
+      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, capability classes, budgets, lifecycle states, and evidence obligations.",
       "tags": [
         "typed-workers",
         "lane-registry",
@@ -1327,7 +1327,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1962bf57ebfabeffa60c5f4c409f7fa565a7149438fb576598241dcfe6fdc29d",
+      "sha256": "sha256:68de0b63b1bdc0a07b14fbb72e8bdcf57638bd4527cddb4d802d07c2f603d2dc",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1337,7 +1337,7 @@
       "status": "accepted",
       "date": "2026-08-11T00:00:00Z",
       "title": "Worker routing policy",
-      "summary": "Generated CD-0017 routing policy binding capability classes to pinned preferred models and ordered declared fallback resolution sets.",
+      "summary": "Generated CD-0017 routing policy binding capability classes to host-loaded preferred models and ordered declared fallback resolution sets.",
       "tags": [
         "typed-workers",
         "model-routing",
@@ -1351,7 +1351,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4a069f599146bfa1b30f2e808c58fe3a0ca8a64c53be2ad0b26d44ddfb6eee3d",
+      "sha256": "sha256:78f01bafd9cd7e36132c010884efd53f8f5481c9fd3d92a13c44d6042494f7e7",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1577,7 +1577,35 @@
     {
       "id": "CD-0054",
       "kind": "decision",
-      "path": "docs/decisions/CD-0054-repository-check-authority.md",
+      "path": "docs/decisions/CD-0054-routing-policy-host-authority.md",
+      "status": "accepted",
+      "date": "2026-08-21T00:00:00Z",
+      "title": "Routing-policy authority is load-time host state",
+      "summary": "The routing policy loads from CONCORD_ROUTING_POLICY host state with the repo record as default template, failing closed when host state is set but unreadable; the lane registry becomes model-neutral, load-time validation replaces cross-file pinning including adapter-side opencode models existence checks, and the per-attempt digest-bound evidence boundary is unchanged.",
+      "tags": [
+        "routing",
+        "lanes",
+        "host-state"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cd06b7d7a1500fb0a18aa63c13da6e34f03aa49230600e51f5a4bca7abfe640e",
+      "evidence": [
+        "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+        "internal/store/routing_policy.go",
+        "adapter/opencode/dispatch.ts"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0055",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0055-repository-check-authority.md",
       "status": "accepted",
       "date": "2026-08-21T00:00:00Z",
       "title": "Repository checks are structural first, and textual guards are declared exceptions",
@@ -1600,7 +1628,7 @@
         "scripts/check-store-boundary.py"
       ],
       "home_domain_id": "product-root:concord",
-      "sha256": "sha256:d65b668ec9abb72ec5206dd6db347cbaa3beecbe647fbe9024b56507b495d1f2"
+      "sha256": "sha256:97e9fc349decaa3d3290ce4c8538c30bb3e531b5b93405f7042d20b468497844"
     }
   ]
 }

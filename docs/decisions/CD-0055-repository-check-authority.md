@@ -1,4 +1,4 @@
-# CD-0054: Repository checks are structural first, and textual guards are declared exceptions
+# CD-0055: Repository checks are structural first, and textual guards are declared exceptions
 
 - **Status:** Accepted
 - **Date:** 2026-08-21

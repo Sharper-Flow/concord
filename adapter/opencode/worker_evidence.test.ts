@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
-import { agentLanes, routingPolicyManifestDigest, routingPolicyVersion } from "./generated-agent-lanes"
-import { canonicalWorkerEvidence, dispatchWorker, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import { agentLanes, routingPolicies, routingPolicyManifestDigest, routingPolicyVersion } from "./generated-agent-lanes"
+import { canonicalWorkerEvidence, dispatchWorker, preferredModelForLane, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import workerEvidenceVector from "./worker-evidence-vector.json"
 
@@ -19,13 +19,14 @@ const runOutput = () => [
   JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
 ].join("\n")
 
-const exportedSession = (model = lane.pinned_model) => JSON.stringify({
+const exportedSession = (model = preferredModelForLane(lane)) => JSON.stringify({
   info: { id: "session-1" },
   messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] }],
 })
 
 const laneRunner: DispatchRunner = {
   async run(argv) {
+    if (argv[1] === "models") return { exitCode: 0, stdout: routingPolicies.flatMap(policy => policy.resolution_set).join("\n"), stderr: "" }
     if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
@@ -88,6 +89,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
   const recorded: Record<string, unknown>[] = []
   const runner: DispatchRunner = {
     async run(argv) {
+      if (argv[1] === "models") return { exitCode: 0, stdout: routingPolicies.flatMap(policy => policy.resolution_set).join("\n"), stderr: "" }
       if (argv[1] === "run") { spawnedArgv = argv; return { exitCode: 0, stdout: runOutput(), stderr: "" } }
       if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
       return { exitCode: 0, stdout: "", stderr: "" }

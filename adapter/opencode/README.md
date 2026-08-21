@@ -102,7 +102,7 @@ JSON-stdin boundary but are not grant-gated agent tools and do not expand TS8.
 
 CD-0017 lane workers are dispatched by the hand-written `dispatch.ts` module,
 not by the TS8 tool surface. It resolves a packet's registered lane to the
-generated `concord-<lane>` agent and its pinned preferred model, validates the
+generated `concord-<lane>` agent and its host-loaded policy preferred model, validates the
 closed `agent-lane-packet.v1` shape before spawning, and invokes:
 
 ```text
@@ -140,10 +140,10 @@ plugin's ordered fallback targets under its plugin tuple, for example:
 {
   "plugin": [["opencode-model-routing", {
     "agents": {
-      "concord-research": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.3"] },
-      "concord-implement": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.3"] },
-      "concord-review": { "fallback_models": ["zai-coding-plan/glm-5.3", "kimi-for-coding/k3"] },
-      "concord-verify": { "fallback_models": ["openai/gpt-5.6-luna", "zai-coding-plan/glm-5.3"] }
+      "concord-research": { "fallback_models": ["provider/preferred", "provider/fallback"] },
+      "concord-implement": { "fallback_models": ["provider/preferred", "provider/fallback"] },
+      "concord-review": { "fallback_models": ["provider/preferred", "provider/fallback"] },
+      "concord-verify": { "fallback_models": ["provider/preferred", "provider/fallback"] }
     }
   }]]
 }

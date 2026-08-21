@@ -21,6 +21,7 @@ EVALS = ROOT / "adapter/opencode/evals"
 CONFIG = EVALS / "promptfooconfig.yaml"
 PACKETS = EVALS / "packets"
 GENERATED = ROOT / "adapter/opencode/generated-agent-lanes.ts"
+ROUTING_POLICY = ROOT / "contracts/routing-policy.v1.json"
 AGENTS = ROOT / ".opencode/agents"
 
 PACKET_REQUIRED = (
@@ -70,6 +71,13 @@ def main():
         print(f"lane eval check failed: {len(findings)} finding(s)", file=sys.stderr)
         return 1
 
+    try:
+        routing_policy = json.loads(ROUTING_POLICY.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        findings.append(f"contracts/routing-policy.v1.json: cannot load default routing policy ({error})")
+        routing_policy = {"policies": []}
+    preferred_by_class = {entry["capability_class"]: entry["preferred_model"] for entry in routing_policy.get("policies", [])}
+
     packet_files = sorted(PACKETS.glob("*.json")) if PACKETS.is_dir() else []
     packets_by_lane = {}
 
@@ -115,14 +123,18 @@ def main():
             if packet["lane_digest"] != lane["digest"]:
                 findings.append(f"{rel}: lane_digest does not match the registered digest for lane {lane_id}")
 
-        # Each lane is evaluated through its own pinned model, matching dispatch.
+        preferred = preferred_by_class.get(lane["capability_class"])
+        if preferred is None:
+            findings.append(f"contracts/routing-policy.v1.json: no preferred model for capability class {lane['capability_class']}")
+            continue
+        # Each lane is evaluated through the default policy preferred model.
         provider = (
             f"- id: 'exec: opencode run --agent concord-{lane_id}"
-            f" --model {lane['pinned_model']} --format json'"
+            f" --model {preferred} --format json'"
         )
         if provider not in config_lines:
             findings.append(
-                f"adapter/opencode/evals/promptfooconfig.yaml: lane {lane_id} has no provider pinned to {lane['pinned_model']}"
+                f"adapter/opencode/evals/promptfooconfig.yaml: lane {lane_id} has no provider using default preferred model {preferred}"
             )
 
         prose = AGENTS / f"concord-{lane_id}.md"

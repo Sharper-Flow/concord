@@ -105,7 +105,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 			name: "dispatch without an assertion", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
 				value := map[string]any{}
-				if err := json.Unmarshal([]byte(workerDispatchJSON(t, key, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-dispatch-unsigned01")), &value); err != nil {
+				if err := json.Unmarshal([]byte(workerDispatchJSON(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-unsigned01")), &value); err != nil {
 					t.Fatal(err)
 				}
 				delete(value, "assertion")
@@ -124,14 +124,14 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				return workerDispatchJSON(t, forged, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-dispatch-forgedkey1")
+				return workerDispatchJSON(t, forged, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-forgedkey1")
 			},
 			want: "signature invalid",
 		},
 		{
 			name: "dispatch naming an unregistered client", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
-				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, "nonce-dispatch-unknownref", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
+				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-unknownref", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					a.ClientRef = "never-registered"
 					return a
 				})
@@ -141,7 +141,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 		{
 			name: "dispatch whose assertion claims a different attempt", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
-				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, "nonce-dispatch-wrongattem", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
+				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-wrongattem", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					a.AttemptID = "attempt-other"
 					return a
 				})
@@ -151,7 +151,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 		{
 			name: "dispatch whose assertion claims a different work item", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
-				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, "nonce-dispatch-crosswork1", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
+				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-crosswork1", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					a.WorkID = "work-somewhere-else"
 					return a
 				})
@@ -161,7 +161,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 		{
 			name: "dispatch whose assertion was signed for another verb", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
-				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, "nonce-dispatch-verbswap01", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
+				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-verbswap01", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					a.Verb = agent.WorkerEvidenceVerbComplete
 					return a
 				})
@@ -171,7 +171,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 		{
 			name: "dispatch carrying a stale assertion", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
-				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, "nonce-dispatch-stalestamp", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
+				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-stalestamp", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					a.IssuedAt = time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
 					return a
 				})
@@ -181,7 +181,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 		{
 			name: "dispatch whose assertion understates the provenance digest", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
-				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, lane.PinnedModel, "nonce-dispatch-provdigest", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
+				return workerDispatchJSONWith(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-provdigest", func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					a.HostProvenanceDigest = "sha256:" + strings.Repeat("c", 64)
 					return a
 				})
@@ -211,7 +211,7 @@ func TestWorkerEvidenceAssertionCannotBeReplayed(t *testing.T) {
 	t.Setenv(dbOverrideEnv, dbPath)
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
-	dispatch := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-dispatch-replay0001")
+	dispatch := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-replay0001")
 
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
@@ -234,20 +234,20 @@ func TestWorkerEvidenceCannotChangeATerminalResult(t *testing.T) {
 	lane := store.BuiltinLaneDefinitions()[0]
 
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-dispatch-terminal01")), &out, &errOut); code != 0 {
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-terminal01")), &out, &errOut); code != 0 {
 		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
-	complete := workerCompleteJSON(t, key, "complete-1", "work-1", "attempt-1", lane.PinnedModel, "nonce-complete-terminal01", &lane)
+	complete := workerCompleteJSON(t, key, "complete-1", "work-1", "attempt-1", preferredLaneModel(lane), "nonce-complete-terminal01", &lane)
 	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(complete), &out, &errOut); code != 0 {
 		t.Fatalf("worker-complete exit=%d stderr=%q", code, errOut.String())
 	}
 
 	overwrite := fmt.Sprintf(`{"event_id":"fail-after-complete","work_id":"work-1","attempt_id":"attempt-1","readback_model":%q,"failure_kind":%q,"detail":"late failure","assertion":%s}`,
-		lane.PinnedModel, store.WorkerFailureFallbackBlocked, mustJSON(t, signWorkerEvidence(t, key, agent.WorkerEvidenceAssertion{
+		preferredLaneModel(lane), store.WorkerFailureFallbackBlocked, mustJSON(t, signWorkerEvidence(t, key, agent.WorkerEvidenceAssertion{
 			Verb: agent.WorkerEvidenceVerbFail, WorkID: "work-1", AttemptID: "attempt-1",
 			LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
 			RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: store.RoutingPolicyManifestDigest,
-			ReadbackModel: lane.PinnedModel, FailureKind: string(store.WorkerFailureFallbackBlocked),
+			ReadbackModel: preferredLaneModel(lane), FailureKind: string(store.WorkerFailureFallbackBlocked),
 			Nonce: "nonce-fail-afterterminal",
 		})))
 	out.Reset()
@@ -287,7 +287,7 @@ func TestWorkerEvidenceRequiresTheWorkerEvidenceCapability(t *testing.T) {
 	})
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
-	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, privateKey, "dispatch-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-dispatch-nocapabil1")), &out, &errOut)
+	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, privateKey, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-nocapabil1")), &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "worker_evidence capability") {
 		t.Fatalf("exit=%d stderr=%q, want capability refusal", code, errOut.String())
 	}
@@ -303,7 +303,7 @@ func TestWorkerEvidenceRefusesARevokedClient(t *testing.T) {
 	runCLIJSON(t, []string{"client", "revoke"}, map[string]any{"client_ref": workerEvidenceClientRef})
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
-	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-dispatch-revoked001")), &out, &errOut)
+	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-revoked001")), &out, &errOut)
 	if code == 0 {
 		t.Fatalf("revoked client recorded worker evidence; stderr=%q", errOut.String())
 	}
@@ -318,7 +318,7 @@ func TestWorkerEvidenceRecordsTheVerifiedClientAsActor(t *testing.T) {
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, lane.PinnedModel, store.WorkerPacketSchemaVersion, "nonce-dispatch-actorcheck")), &out, &errOut); code != 0 {
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-actorcheck")), &out, &errOut); code != 0 {
 		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
 	s, err := store.Open(context.Background(), dbPath)

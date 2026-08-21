@@ -15,7 +15,7 @@
     "lane": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "purpose", "capability_class", "capabilities", "packet_schema_ref", "report_schema_ref", "budgets", "evidence_obligations", "lifecycle_states", "pinned_model"],
+      "required": ["id", "version", "purpose", "capability_class", "capabilities", "packet_schema_ref", "report_schema_ref", "budgets", "evidence_obligations", "lifecycle_states"],
       "properties": {
         "id": {"type": "string", "minLength": 2, "maxLength": 32, "pattern": "^[a-z][a-z0-9_-]*$"},
         "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
@@ -26,8 +26,7 @@
         "report_schema_ref": {"type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]*$"},
         "budgets": {"$ref": "#/$defs/budgets"},
         "evidence_obligations": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_-]*$"}},
-        "lifecycle_states": {"type": "array", "minItems": 3, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["dispatched", "completed", "failed"]}},
-        "pinned_model": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]*/[^/ ]+$"}
+        "lifecycle_states": {"type": "array", "minItems": 3, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["dispatched", "completed", "failed"]}}
       }
     },
     "budgets": {

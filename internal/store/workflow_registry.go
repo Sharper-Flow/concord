@@ -864,64 +864,89 @@ func uniqueWorkKinds(values []WorkKind) bool {
 	return true
 }
 
+// ActionEventShape names which event a completed action appends. The shape is a
+// property of the action, but applyWorkflowActionRawTx decides it from three
+// separate pieces of control flow — the ActionCheckpoint branch, the "complete"
+// guard, and whether workflowSemanticActionEvents has a case arm. Declaring it
+// here makes the choice explicit at registration, so an action cannot acquire a
+// shape by omission.
+type ActionEventShape string
+
+const (
+	// ActionEventCheckpoint appends WorkflowActionCheckpointed. Reached by
+	// execution mode, before the semantic switch, so these actions require
+	// ExecutionMode ActionCheckpoint and must not carry a semantic case arm.
+	ActionEventCheckpoint ActionEventShape = "checkpoint"
+	// ActionEventTyped appends an event carrying the action's own payload shape,
+	// built by a case arm in workflowSemanticActionEvents.
+	ActionEventTyped ActionEventShape = "typed"
+	// ActionEventCompletion appends the terminal completion events. Held by
+	// "complete" alone, which the dispatcher excludes from the semantic switch.
+	ActionEventCompletion ActionEventShape = "completion"
+	// ActionEventGeneric appends WorkflowActionCompleted and nothing else. The
+	// action is recorded, but its payload is not projected into a typed event.
+	ActionEventGeneric ActionEventShape = "generic"
+)
+
 type builtinActionPolicy struct {
 	Consequence   ActionConsequence
 	Approval      ActionApproval
 	ExecutionMode ActionExecutionMode
+	EventShape    ActionEventShape
 }
 
-func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode) builtinActionPolicy {
-	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode}
+func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode, shape ActionEventShape) builtinActionPolicy {
+	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode, EventShape: shape}
 }
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
-	"record_proposal":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_discovery":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_design":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"approve_contract":       actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
-	"start_execution":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_execution":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"bind_evidence":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"declare_impact":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"link_successor":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"confirm_premise":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
-	"complete":               actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"record_reproduction":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_root_cause":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"start_repair":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"frame_research":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_finding":         actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"revise_candidates":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_report":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_conclusion":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"frame_question":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_research":        actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"record_option":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"start_poc":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"discard_poc":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionCheckpoint),
-	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold),
-	"approve_operation":      actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
-	"start_run":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"add_condition":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"resolve_condition":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"cancel_condition":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_health":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"rollback_run":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"cleanup_run":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"declare_scope":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"run_analysis":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_analysis":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"start_action":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_action":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
+	"record_proposal":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_discovery":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_design":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"approve_contract":       actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
+	"start_execution":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_execution":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"bind_evidence":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"declare_impact":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"link_successor":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"confirm_premise":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
+	"complete":               actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventCompletion),
+	"record_reproduction":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_root_cause":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"start_repair":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"frame_research":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_finding":         actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"revise_candidates":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"record_report":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"record_conclusion":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"frame_question":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_research":        actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"record_option":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"start_poc":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"discard_poc":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventTyped),
+	"approve_operation":      actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
+	"start_run":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped),
+	"checkpoint_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"add_condition":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"resolve_condition":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"cancel_condition":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"record_health":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"rollback_run":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped),
+	"cleanup_run":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"declare_scope":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"run_analysis":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_analysis":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"start_action":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_action":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
 }
 
 func actionDefinitions(ids []string) []WorkflowActionDefinition {

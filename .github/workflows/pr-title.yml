@@ -1,0 +1,32 @@
+name: PR title
+
+# The repository merges by squash with squash_merge_commit_title=PR_TITLE, so
+# this title becomes the commit subject on main verbatim, and scripts/release.py
+# computes the next version from those subjects. A title outside the
+# Conventional Commit grammar releases nothing and says nothing, without
+# failing. This check makes that consequence visible before the merge.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    name: title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate pull-request title as a release subject
+        env:
+          COMMIT_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 scripts/check-commit-title.py

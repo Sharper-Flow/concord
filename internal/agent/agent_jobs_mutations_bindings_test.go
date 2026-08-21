@@ -1256,3 +1256,162 @@ func TestGoverningRequirementCoveredCapturePassesUngated(t *testing.T) {
 		t.Fatalf("covered capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// AJ8 — budget refusal (CD-0038)
+// ---------------------------------------------------------------------------
+
+// bindAJ8BudgetRefused proves the seconds ceiling is real: an approved audit
+// requesting 60 seconds against workflow_action's TS1-fixed 30 refuses before
+// any effect, carries the typed ceiling, and never clamps. The clamp probe is
+// the retry: a refused request records no idempotency effect, so the same key
+// reused with an admissible budget executes for real. A silent clamp would
+// surface there as a replay or as a fabricated completion.
+func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
+	t.Helper()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+
+	workID := "work-budget-audit"
+	definition := store.BuiltinWorkflowDefinitions()[0]
+	registered, err := store.BuiltinWorkflowRegistry().Register(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"kind":"task","title":"Run the approved audit","priority":3,"expected_version":0,"resulting_version":1}`)}
+	membership := store.Event{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{created, membership}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
+		t.Fatalf("seed work: %v", err)
+	}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "human-operator", ClientRef: "client-mutation", AgentRef: "agent-engineer", SessionRef: "session-mutation", ActorClass: store.ActorAgent}, Now: fixedTime()})
+	}); err != nil {
+		t.Fatalf("initialize workflow: %v", err)
+	}
+	_, version := readWorkFromStore(t, s, workID)
+	actionID := definition.AvailableActions[0]
+	key := "aj8-budget-1"
+	if seed, ok := sc.InitialState["idempotency_seed"].(string); ok && seed != "" {
+		key = seed
+	}
+
+	overBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"requested_budget_seconds":60,"idempotency_key":%q}`, workID, version, actionID, key))
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: overBudget}, env)
+	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "budget_refused" {
+		t.Fatalf("60-second request was not refused outcome=%s err=%+v", resp.Outcome, resp.Error)
+	}
+	if resp.Error.SupportedBudgetSeconds != 30 {
+		t.Fatalf("refusal ceiling=%d, want the TS1-fixed 30", resp.Error.SupportedBudgetSeconds)
+	}
+	if resp.Error.EffectState != EffectNone {
+		t.Fatalf("refusal claims effect state %q", resp.Error.EffectState)
+	}
+	if resp.Replayed {
+		t.Fatal("a refused request must not be marked as a replay")
+	}
+
+	// The clamp probe, first half: the refusal changed nothing durably.
+	_, versionAfterRefusal := readWorkFromStore(t, s, workID)
+	if versionAfterRefusal != version {
+		t.Fatalf("refusal bumped work version %d -> %d", version, versionAfterRefusal)
+	}
+
+	// The clamp probe, second half: the same idempotency key with an
+	// admissible budget executes for real. A silent clamp would have consumed
+	// the key or fabricated a completion; either fails here.
+	withinBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"requested_budget_seconds":30,"idempotency_key":%q}`, workID, version, actionID, key))
+	retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: withinBudget}, env)
+	if retry.Outcome != OutcomeOK {
+		t.Fatalf("lowered-budget retry on the same key was refused outcome=%s err=%+v", retry.Outcome, retry.Error)
+	}
+	if retry.Replayed {
+		t.Fatal("retry was served as a replay: the refusal recorded an idempotency effect")
+	}
+
+	obs := envelopeToObservation(resp)
+	obs.State = map[string]any{
+		"operation": map[string]any{"started": false},
+	}
+	obs.Effects = map[string]any{
+		"refused_before_effect":             true,
+		"atomic_core_effect_zero":           true,
+		"budget_retry_executed":             true,
+		"work_version_unchanged_by_refusal": true,
+		// The active absence probe: the refusal response was an error, the
+		// work version did not move, and the same idempotency key executed
+		// for real at an admissible budget. A clamp would have been a
+		// success envelope, a version bump, or a replay — each is excluded
+		// above, so the absence is observed, not assumed.
+		"silent_budget_clamp": probedAbsent{Evidence: "refused without version change; same key executed at 30s without replay"},
+	}
+	obs.Authority["budget_refusal_typed"] = true
+	return obs
+}
+
+// ---------------------------------------------------------------------------
+// AJ8 — approval consequence summary (CD-0037)
+// ---------------------------------------------------------------------------
+
+// bindAJ8ApprovalRequired proves the consent prompt is typed and core-derived:
+// a consequential transition the operator has not approved mints a challenge
+// and returns the summary derived from that challenge's own facts. The
+// credential rotation never starts, and its absence is probed, not assumed —
+// no effect ran, no transition event exists, and the work version did not
+// move.
+func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
+	t.Helper()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+
+	workID := "work-ready-high"
+	_, version := readWorkFromStore(t, s, workID)
+	key := "aj8-approval-1"
+	if seed, ok := sc.InitialState["idempotency_seed"].(string); ok && seed != "" {
+		key = seed
+	}
+
+	input := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"target":"completed","reason":"credential rotation delivered","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, workID, version, key))
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
+	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
+		t.Fatalf("unapproved consequential transition was not an approval refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
+	}
+	summary := resp.Error.ConsequenceSummary
+	if summary == nil {
+		t.Fatal("minted challenge refusal carries no typed consequence summary")
+	}
+	if summary.Tool != "concord_work_transition" || summary.Operation != "lifecycle" || summary.Consequence == "" {
+		t.Fatalf("summary is not derived from the validated invocation: %#v", summary)
+	}
+	if summary.OperationDigest == "" || len(summary.Scope) == 0 || len(summary.Versions) == 0 || summary.ExpiresAt == "" {
+		t.Fatalf("summary lacks the challenge-bound facts: %#v", summary)
+	}
+	approvalRef, ok := resp.Error.Details["approval_ref"].(string)
+	if !ok || len(approvalRef) != 64 {
+		t.Fatalf("refusal did not mint a challenge: %v", resp.Error.Details["approval_ref"])
+	}
+
+	// The operation never started: version unchanged and no terminal event.
+	_, versionAfter := readWorkFromStore(t, s, workID)
+	if versionAfter != version {
+		t.Fatalf("refused transition moved the work version %d -> %d", version, versionAfter)
+	}
+	if lifecycle, _ := readWorkFromStore(t, s, workID); lifecycle != "needed" && lifecycle != "in_progress" {
+		t.Fatalf("refused transition changed lifecycle to %q", lifecycle)
+	}
+
+	obs := envelopeToObservation(resp)
+	obs.State = map[string]any{
+		"operation": map[string]any{"started": false},
+	}
+	obs.Effects = map[string]any{
+		"approval_challenge_minted": true,
+		"atomic_core_effect_zero":   true,
+		// Actively probed absence: no effect ran (version unchanged, no
+		// terminal transition event), so nothing was rotated and nothing was
+		// clamped into a fabricated completion.
+		"credential_rotated": probedAbsent{Evidence: "refusal before effect; work version unchanged and lifecycle non-terminal"},
+	}
+	obs.Authority["approval_ref"] = approvalRef
+	obs.Authority["challenge_digest"] = summary.OperationDigest
+	return obs
+}

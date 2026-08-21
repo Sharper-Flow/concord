@@ -377,24 +377,24 @@ func TestBudgetFieldsRefuseOrBoundResultsStructurally(t *testing.T) {
 	base := NewBase("request", "concord_work_browse", "list")
 	meta := store.ResultMeta{QueryID: "PM1.Q3", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	items := []store.WorkItem{{ID: "one", Kind: "task", Title: "one", Lifecycle: "needed"}, {ID: "two", Kind: "task", Title: "two", Lifecycle: "needed"}}
-	response, err := (runtime{Budget: budgetInput{MaxItems: 1}}).q3(base, store.Q3Result{ResultMeta: meta, Items: items})
+	response, err := (runtime{Tool: "concord_work_browse", Operation: "trace", Budget: budgetInput{MaxItems: 1}}).q3(base, store.Q3Result{ResultMeta: meta, Items: items})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "budget_refused" {
 		t.Fatalf("max_items was ignored: %#v", response)
 	}
-	response, err = (runtime{Budget: budgetInput{MaxBytes: 1}}).q3(base, store.Q3Result{ResultMeta: meta, Items: items[:1]})
+	response, err = (runtime{Tool: "concord_work_browse", Operation: "trace", Budget: budgetInput{MaxBytes: 1}}).q3(base, store.Q3Result{ResultMeta: meta, Items: items[:1]})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "budget_refused" {
 		t.Fatalf("max_bytes was ignored: %#v", response)
 	}
-	ctx, cancel, budget, err := applyBudget(context.Background(), []byte(`{"budget":{"max_bytes":65536,"max_items":1,"max_millis":1}}`))
+	ctx, cancel, budget, budgetErr := applyBudget(context.Background(), contractOpFor(t, "concord_work_browse", "list"), []byte(`{"budget":{"max_bytes":65536,"max_items":1,"max_millis":1}}`))
 	defer cancel()
-	if err != nil || budget.MaxMillis != 1 {
-		t.Fatalf("max_millis was not accepted: budget=%#v err=%v", budget, err)
+	if budgetErr != nil || budget.MaxMillis != 1 {
+		t.Fatalf("max_millis was not accepted: budget=%#v err=%v", budget, budgetErr)
 	}
 	if _, ok := ctx.Deadline(); !ok {
 		t.Fatal("max_millis did not install a context deadline")
@@ -582,4 +582,13 @@ func runRuntimeGit(t *testing.T, repo string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return string(out)
+}
+
+func contractOpFor(t *testing.T, tool, operation string) ContractOperation {
+	t.Helper()
+	op, ok := ValidateContractOperation(tool, operation)
+	if !ok {
+		t.Fatalf("no contract operation %s.%s", tool, operation)
+	}
+	return op
 }

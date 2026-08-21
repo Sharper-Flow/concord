@@ -846,6 +846,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "oneOf": [
@@ -909,6 +912,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -977,6 +983,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -1001,6 +1010,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -1033,6 +1045,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -1064,6 +1079,9 @@
             "project",
             "work"
           ]
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "oneOf": [
@@ -1116,6 +1134,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -1135,6 +1156,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -1596,6 +1620,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -1664,6 +1691,9 @@
         },
         "domain_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -1676,6 +1706,9 @@
         },
         "knowledge_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "oneOf": [
@@ -2229,6 +2262,9 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2291,6 +2327,9 @@
           "items": {
             "$ref": "#/$defs/evidence"
           }
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2340,6 +2379,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2374,6 +2416,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2398,6 +2443,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2428,6 +2476,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2456,6 +2507,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2486,6 +2540,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2501,6 +2558,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2582,6 +2642,9 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2723,6 +2786,41 @@
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 31536000
+                },
+                "run_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "native_subject_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "started",
+                    "failed_to_start",
+                    "healthy",
+                    "degraded",
+                    "failed",
+                    "rolled_back",
+                    "partially_rolled_back",
+                    "rollback_failed",
+                    "cleaned",
+                    "cleanup_failed"
+                  ]
+                },
+                "evidence_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "evidence_digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "asserted_at": {
+                  "type": "string",
+                  "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
                 }
               }
             }
@@ -2776,6 +2874,9 @@
               }
             }
           }
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "if": {
@@ -2921,6 +3022,9 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -2960,6 +3064,9 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3014,6 +3121,9 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3060,6 +3170,9 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3102,6 +3215,9 @@
           "items": {
             "$ref": "#/$defs/evidence"
           }
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3154,6 +3270,9 @@
           "items": {
             "$ref": "#/$defs/evidence"
           }
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3203,6 +3322,9 @@
           "items": {
             "$ref": "#/$defs/evidence"
           }
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3237,6 +3359,9 @@
           "items": {
             "$ref": "#/$defs/evidence"
           }
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       },
       "oneOf": [
@@ -3385,6 +3510,9 @@
         },
         "source": {
           "$ref": "#/$defs/product_row_source"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3724,6 +3852,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3751,6 +3882,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3851,6 +3985,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3875,6 +4012,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -3963,6 +4103,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4040,6 +4183,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4074,6 +4220,9 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 2147483647
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4098,6 +4247,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4496,6 +4648,9 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4514,6 +4669,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4615,6 +4773,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4642,6 +4803,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4666,6 +4830,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4763,6 +4930,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4790,6 +4960,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4812,6 +4985,9 @@
         },
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4919,6 +5095,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4970,6 +5149,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -4986,6 +5168,9 @@
         },
         "domain_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -5005,6 +5190,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -5021,6 +5209,9 @@
         },
         "domain_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -5036,6 +5227,9 @@
         },
         "domain_id": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },
@@ -5458,6 +5652,11 @@
           "type": "boolean"
         }
       }
+    },
+    "requested_budget_seconds": {
+      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; never part of the hidden call envelope or the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
+      "type": "integer",
+      "minimum": 1
     }
   }
 }

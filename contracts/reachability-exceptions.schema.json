@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/reachability-exceptions.schema.json",
+  "title": "Concord product-reachability exception manifest",
+  "description": "Closed contract for functions that no cmd/concord invocation can reach and that the repository has nonetheless decided to keep. Reachability is computed rather than declared (CD-0047 D4): scripts/check-reachability.py runs the pinned analysis, subtracts these exceptions, and fails on any remainder, so there is no per-symbol manifest to maintain and no way for the manifest to disagree with the code. A declared function that has become reachable is equally a finding, because stale exceptions widen the surface without anyone choosing to widen it. States reuse the vocabulary accepted in contracts/floor-readiness.schema.json, less 'satisfied': a reachable function is not an exception.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "analysis",
+    "exceptions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "analysis": {
+      "description": "The pinned command that computes the finding set. Pinning the version is what makes the set reproducible: a toolchain upgrade then surfaces as a reviewable manifest diff rather than an unexplained CI failure. The tool runs through go run and is not a module dependency, the precedent .github/workflows/ci.yml already sets for govulncheck.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "version",
+        "args",
+        "entrypoints"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 256
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "entrypoints": {
+          "description": "The complete set of program entrypoints. The OpenCode adapter reaches Go only by executing the binary, so cmd/concord is the whole product surface.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "exceptions": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "functions"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "minLength": 3,
+            "maxLength": 128
+          },
+          "state": {
+            "description": "out_of_scope: an accepted decision keeps this unreachable, and it is declared rather than excused. outstanding: it should be reachable and is not, tracked by an issue. unmeasured: its status has not been assessed. One exception may cover several functions where a single decision governs them, because that is how the reasons cluster.",
+            "type": "string",
+            "enum": [
+              "outstanding",
+              "unmeasured",
+              "out_of_scope"
+            ]
+          },
+          "functions": {
+            "description": "Symbols as <package>.<Name>, where Name may carry a receiver. Line and column are deliberately excluded: the identity being declared is the function, not its position in a file.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9/_]+\\.[A-Za-z_][A-Za-z0-9_.]*$",
+              "minLength": 3,
+              "maxLength": 256
+            }
+          },
+          "issue": {
+            "description": "Public issue tracking an outstanding exception. Required when outstanding; forbidden otherwise.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "description": "Why this is unmeasured or out of scope. Required for those states; forbidden otherwise.",
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          }
+        }
+      }
+    }
+  }
+}

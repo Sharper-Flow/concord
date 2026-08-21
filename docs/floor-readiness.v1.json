@@ -180,9 +180,13 @@
       "id": "fc2-ts1-corpus-complete",
       "condition": "fc2",
       "title": "All 23 TS1 scenarios are bound and passing",
-      "requirement": "All 23 TS1 scenarios are bound (not deferred) and pass against the real dispatch path. Today nineteen of twenty-three are bound: the four AJ1/AJ2 read scenarios, the eleven AJ3/AJ4/AJ5 mutation scenarios, the two AJ6 compaction scenarios, the two AJ7 knowledge scenarios, and AJ8-ground-truth-reclamation. The remaining three are deferred and must be bound for this item to be satisfied: AJ8-approval-required (#172), AJ8-budget-refused (#173), and AJ8-health-failure-rollback (#174).",
-      "state": "outstanding",
-      "issue": 165
+      "requirement": "All 23 TS1 scenarios are bound (not deferred) and pass against the real dispatch path.",
+      "state": "satisfied",
+      "evidence": [
+        "internal/agent/agent_jobs_corpus_test.go",
+        "internal/agent/agent_jobs_operational_bindings_test.go",
+        "scenarios/agent-jobs.v1.json"
+      ]
     },
     {
       "id": "fc2-domain-authority",

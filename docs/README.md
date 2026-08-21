@@ -34,6 +34,8 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 |---|---|
 | [`priorities.md`](./priorities.md) | Ranked priorities, operating envelope, Advance relationship, quality governance, open questions. **This file is the authority.** |
 | [`floor-readiness.md`](./floor-readiness.md) + [`floor-readiness.v1.json`](./floor-readiness.v1.json) | **Authorizing readiness record:** validated per-item state of every first-usable floor condition, distinguishing satisfied, outstanding, unmeasured, and out-of-scope. |
+| [`law-coverage.v1.json`](./law-coverage.v1.json) | **Authorizing coverage record:** how each indexed law record is proved, by typed anchor rather than by repository path; an indexed record the manifest omits is a validator finding (CD-0047). |
+| [`reachability-exceptions.v1.json`](./reachability-exceptions.v1.json) | **Authorizing exception record:** functions no `cmd/concord` invocation reaches that the repository has decided to keep; reachability itself is computed, so an undeclared unreachable function is a validator finding (CD-0047). |
 | [`predecessor-operational-coverage.md`](./predecessor-operational-coverage.md) | **Authorizing for floor condition 6:** predecessor operational territory enumerated by outcome; the fc6 bar is covered-with-evidence or excluded-with-reason, with nothing left not covered (see `floor-readiness.v1.json`). |
 | [`core-architecture.md`](./core-architecture.md) | Go-core direction, state authority (CD-0002), consolidated resilience invariants. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and hard constraints derived from the priorities. |

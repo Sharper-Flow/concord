@@ -1041,3 +1041,20 @@ func (s *Service) RevokeGrant(ctx context.Context, token string) error {
 	}
 	return nil
 }
+
+// consequenceSummaryFor derives the CD-0037 typed approval prompt from the
+// exact spec the challenge was minted with. It runs at mint time only: the
+// summary is never stored, so nothing it describes can drift without
+// invalidating the challenge that carries the same facts. Tool and operation
+// come from the validated invocation, never from caller input.
+func consequenceSummaryFor(tool, operation string, spec ApprovalChallengeSpec) *ConsequenceSummary {
+	return &ConsequenceSummary{
+		Tool:            tool,
+		Operation:       operation,
+		Consequence:     spec.Consequence,
+		OperationDigest: spec.OperationDigest,
+		Scope:           approvalScopeBindings(spec.Scope),
+		Versions:        approvalVersionBindings(spec.Versions),
+		ExpiresAt:       spec.ExpiresAt.UTC().Format(time.RFC3339Nano),
+	}
+}

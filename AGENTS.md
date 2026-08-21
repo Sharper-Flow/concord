@@ -67,10 +67,10 @@ python3 scripts/check-public-content.py
 python3 scripts/check-doc-links.py
 python3 scripts/check-json.py
 python3 scripts/check-predecessor-coverage.py
-python3 scripts/check-agent-contracts.py
+CONCORD_REQUIRE_BUN=1 python3 scripts/check-agent-contracts.py
 python3 scripts/check-tx-scope.py
 python3 scripts/check-store-boundary.py
-python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-tx-scope.py && python3 scripts/test-store-boundary.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py
+python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-commit-title.py && python3 scripts/test-tx-scope.py && python3 scripts/test-store-boundary.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py
 test -z "$(gofmt -l .)"
 go mod tidy
 git diff --exit-code            # CI's clean checkout; locally scope to -- go.mod go.sum
@@ -97,9 +97,23 @@ wrapper. For tight Go TDD loops, `targeted` the smallest package first, then
 `full` before push.
 
 Adapter tests (`adapter/opencode/*.test.ts`) use `bun:test` — run them with
-`bun test adapter/opencode`. There is no `package.json`; bun is optional, and
-CI validates the adapter through the Python contract checker instead of
-running bun.
+`bun test adapter/opencode`. There is no `package.json`. CI installs Bun and
+runs the whole adapter suite through `scripts/check-agent-contracts.py`, which
+also build-checks the generated TypeScript and the hand-written `concord.ts`.
+
+Bun stays optional locally: without it the checker falls back to a
+generated-file marker scan that cannot observe a behavioural change to
+`concord.ts` or `dispatch.ts`. `CONCORD_REQUIRE_BUN=1` turns that fallback into
+a failure, and CI sets it, so removing the toolchain step fails the required
+check instead of silently reducing it to a marker scan.
+
+A second CI workflow (`.github/workflows/pr-title.yml`) validates the
+pull-request title with `scripts/check-commit-title.py`. The repository squashes
+with `squash_merge_commit_title=PR_TITLE`, so the title becomes the commit
+subject verbatim and is read by `scripts/release.py`. The checker imports that
+module's grammar rather than restating it, and closes the type vocabulary —
+`release.py` parses any identifier as a type, so `feature:` would otherwise
+parse cleanly and bump nothing.
 
 ## Generated code — do not hand-edit
 
@@ -122,7 +136,7 @@ Inputs: `contracts/agent-tool-surface.v1.json` (manifest),
 - `adapter/opencode/generated-agent-lanes.ts`
 - `contracts/agent-lanes.digest`, `contracts/routing-policy.digest`
 - `docs/agent-lanes-contract.md`, `docs/routing-policy-contract.md`
-- `adapter/opencode/agents/concord-{lane}.md` lane agent definitions
+- `.opencode/agents/concord-{lane}.md` lane agent definitions
 
 Inputs: `contracts/agent-lanes.v1.json` (lane manifest) and
 `contracts/routing-policy.v1.json` (routing policy), each with its schema and
@@ -137,8 +151,8 @@ rejection (local `python3` unittest; not part of CI).
 `docs/concord-knowledge-index.v1.json` is validated by
 `scripts/check-knowledge-index.py` and `docs/floor-readiness.v1.json` by
 `scripts/check-floor-readiness.py`. `scripts/check-json.py` (CI) nests those
-two plus `check-agent-contracts.py`, `check-tx-scope.py`, `check-store-boundary.py`, and
-`check-lane-evals.py` (adapter lane evals).
+two plus `check-agent-contracts.py`, `check-tx-scope.py`, `check-store-boundary.py`,
+`check-lane-evals.py` (adapter lane evals), and `check-law-coverage.py`.
 
 `docs/predecessor-operational-coverage.md` is validated by
 `scripts/check-predecessor-coverage.py`, which runs as its own CI step. It parses
@@ -153,6 +167,34 @@ requires an existing evidence path, an outstanding item requires a tracking
 issue, and `unmeasured` is a distinct state from incomplete. See
 [`docs/floor-readiness.md`](docs/floor-readiness.md).
 
+## Declared coverage (CD-0047)
+
+Two manifests record what is proved and what is merely present. Both reuse the
+floor-readiness state vocabulary, and both fail on an undeclared gap in either
+direction — a subject the manifest forgot, or a declaration that has gone stale.
+
+`docs/law-coverage.v1.json` gives every record in the knowledge index a coverage
+state. The subject set comes from the index, not from this manifest, so adding a
+CD without declaring how it is proved fails `scripts/check-law-coverage.py`. A
+`satisfied` record cites typed anchors — `go_test`, `scenario`, `validator`,
+`generated` — that must resolve, and executable anchors must be reached by a
+required check. A repository path is not an anchor, and a corpus scenario that a
+harness defers is refused because nothing executes it. `outstanding`,
+`unmeasured`, and `out_of_scope` are legal: prose-only law stays legal when it
+is declared prose-only.
+
+`docs/reachability-exceptions.v1.json` declares only exceptions. Reachability is
+computed, not asserted: `scripts/check-reachability.py` runs a version-pinned
+`deadcode` over `./cmd/...` — the complete entry set, since the adapter reaches
+Go only by executing the binary — subtracts the declared functions, and fails on
+any remainder. Adding an exported function no CLI path reaches means declaring
+why, when the reason is still known. Textual analysis cannot substitute here:
+`internal/store` is built on method plus tx-scoped-core pairs, so grepping for
+`.X(` reports live code as dead.
+
+Set `CONCORD_SKIP_REACHABILITY_ANALYSIS=1` to check manifest shape without a Go
+toolchain. It produces no verdict and never runs in CI.
+
 ## Release flow
 
 Releases are fully automated (`.github/workflows/release.yml`): on a green CI
@@ -161,7 +203,8 @@ Commit history, builds the Linux amd64 `CGO_ENABLED=0` binary with the version
 ldflag, packages adapter + skills + installer, generates an SBOM, attests
 provenance, tags, and publishes the GitHub Release. Do not hand-tag or hand-cut
 releases. Conventional Commit titles are load-bearing for semver — not just
-style.
+style, and `.github/workflows/pr-title.yml` enforces them on the title that
+becomes the squashed subject.
 
 ## Public-content boundary
 
@@ -204,7 +247,8 @@ the validator to make a check pass.
 | `internal/portfolio/`, `internal/workflowcorpus/` | Read projections and conformance coverage. |
 | `contracts/` | Public JSON schemas + manifests (generated-code inputs). |
 | `scenarios/` | Synthetic acceptance scenarios and fixtures. |
-| `adapter/opencode/` | Implemented TypeScript custom-tool adapter (`concord.ts` hand-written + generated contracts); `agents/` holds generated lane definitions and `evals/` the advisory CD-0017 D7 prompt-eval harness. |
+| `adapter/opencode/` | Implemented TypeScript custom-tool adapter (`concord.ts` hand-written + generated contracts); `evals/` holds the advisory CD-0017 D7 prompt-eval harness. |
+| `.opencode/agents/` | Generated Concord lane agent definitions, in the location OpenCode discovers project agents. Generated by `scripts/generate-agent-lanes.py`; do not hand-edit. |
 | `docs/` | Constitutional Product law and design evidence. |
 | `workflows/`, `skills/` | Reserved (README only); `skills/` is packaged into releases. |
 | `scripts/` | Validators, codegen, release/install tooling, and their tests. |

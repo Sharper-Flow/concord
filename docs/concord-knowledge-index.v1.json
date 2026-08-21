@@ -494,7 +494,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -1283,7 +1283,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1b6546008b06db57a181a3abd511cfb190ab0b2396174647246e47e1b6998ddc",
+      "sha256": "sha256:f9d3d48f5dcf5d2bee3d77d00bdf833fc58a78addfaeb5fcc1c1347811b1faed",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1374,6 +1374,35 @@
         "tag_ids": []
       },
       "sha256": "sha256:fd761c185f157c531c661cd2ef6b60da027bc9d23bbe0b14856f01a88d90b929",
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0047",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0047-declared-coverage-state.md",
+      "status": "accepted",
+      "date": "2026-08-20T00:00:00Z",
+      "title": "Coverage is declared, and an undeclared gap is a failure",
+      "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction.",
+      "tags": [
+        "coverage",
+        "drift",
+        "evidence"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:017d3b70a673b9e911e8f09b3f92b1f60cdc0d2569af2fa7a6e3dcd3d31fce81",
+      "evidence": [
+        "scripts/check-law-coverage.py",
+        "scripts/check-reachability.py",
+        "docs/law-coverage.v1.json",
+        "docs/reachability-exceptions.v1.json"
+      ],
       "home_domain_id": "product-root:concord"
     }
   ]

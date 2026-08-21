@@ -155,7 +155,6 @@
         "internal/agent.NewAdapterError",
         "internal/agent.NewOKRead",
         "internal/store.AddManagedResourceConsumer",
-        "internal/store.BuiltinLaneDefinitions",
         "internal/store.BuiltinLaneRegistry",
         "internal/store.BuiltinRoutingPolicies",
         "internal/store.CheckSchemaCompatibility",

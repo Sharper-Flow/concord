@@ -5,11 +5,45 @@ AGENTS.md is the only repository file loaded into every agent's context
 automatically, so its size is a permanent tax and its accuracy is unverified by
 any other check. scripts/check-doc-links.py validates Markdown and HTML link
 forms only, which leaves backticked paths and reproduced command lines checked
-by nothing. Three structural rules close that gap:
+by nothing. Three rules close that gap:
 
   budget    the file may not exceed MAX_LINES lines
   paths     a backticked repository path must resolve on disk
   commands  a CI command line may not be reproduced verbatim
+
+Authority classes under CD-0055:
+
+The budget and path rules are structural (D1). Neither approximates an
+invariant: a line count is exact, and a path either resolves on disk or does
+not. Both read the artifact they govern rather than a description of it.
+
+The command rule is a declared textual guard (D3), and qualifies on each
+condition:
+
+  invisible failure class    A workflow edit that leaves a stale copy in
+                             AGENTS.md raises nothing anywhere. The agent that
+                             trusts the copy runs the wrong verification
+                             contract, and the mistake surfaces only as
+                             misplaced confidence. Four such drifts had already
+                             accumulated when this check was written.
+  inexpressible in D1 today  Nothing types the relationship between a workflow
+                             step and prose describing it.
+  small, with a documented   The rule bans exact reproduction of a run: line,
+  false-positive shape       including &&-joined segments, and only for
+                             commands carrying an argument. Its false-positive
+                             shape is legitimate instructional prose that names
+                             a CI command verbatim for a reason other than
+                             restating the contract — "run `go mod tidy` before
+                             committing" is a finding even though it advises
+                             rather than duplicates. The remedy is to link to
+                             the workflow, which is the intended form anyway.
+                             Near-miss staleness is deliberately out of scope:
+                             detecting it needs fuzzy comparison, which is a D4
+                             heuristic and may never block.
+  structural end-state       Generating AGENTS.md's verification pointers from
+                             .github/workflows/ci.yml, so reproduction is
+                             impossible rather than forbidden. At that point
+                             this rule is deleted, not extended.
 """
 
 from __future__ import annotations

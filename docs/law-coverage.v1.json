@@ -601,6 +601,20 @@
           "value": "internal/store.TestDurableBarrierLeavesStoreUsable"
         }
       ]
+    },
+    {
+      "id": "CD-0051",
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestConformanceFalsifierFiresOnSustainedCommitDuration"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestConformanceSchedulerOvershootIsInconclusive"
+        }
+      ]
     }
   ]
 }

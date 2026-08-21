@@ -241,6 +241,7 @@ type ConformanceReport struct {
 	ProductionLike         bool                     `json:"production_like"`
 	ProductionLikeAttempts int                      `json:"production_like_attempts"`
 	ProductionLikeP99MS    int64                    `json:"production_like_p99_ms"`
+	VerdictQuantity        string                   `json:"verdict_quantity"`
 	PaceIntervalMS         int64                    `json:"pace_interval_ms"`
 	RunnerProfile          conformanceRunnerProfile `json:"runner_profile"`
 	AcceptancePopulation   bool                     `json:"acceptance_population"`
@@ -579,6 +580,7 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 		assertTenWorkers(t, path, results)
 		report := newConformanceReport(runnerProfile)
 		report.ProductionLike = true
+		report.VerdictQuantity = "commit_duration_p99"
 		report.Populations.ProductionLike = true
 		report.Scenarios["production_like_writes"] = map[WorkerOutcome]int{}
 		samples := expandWorkerResults(results)
@@ -597,12 +599,9 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 		report.CorrectnessPassed = report.Attempts == 1000 && report.Populations.AcceptedWrites == 1000 && report.Populations.AllAttempts == 1000 && report.WallLatency.Population == 1000 && report.BeginWaitLatency.Population == 1000 && report.CommitLatency.Population == 1000 && report.AcceptedWallLatency.Population == 1000 && report.AcceptedBeginLatency.Population == 1000 && report.AcceptedCommitLatency.Population == 1000 && report.Counts[outcomeAccepted] == 1000 && report.Lost == 0 && report.UnexpectedDupes == 0 && report.InvariantViolations == 0 && report.BusyEscaped == 0 && report.Counts[outcomeError] == 0
 		reports = append(reports, report)
 	}
-	above := 0
+	above := roundsAboveCommitTarget(reports)
 	correctnessPassed := true
 	for _, report := range reports {
-		if report.ProductionLikeP99MS > report.P99TargetMS {
-			above++
-		}
 		if !report.CorrectnessPassed {
 			correctnessPassed = false
 		}
@@ -620,10 +619,20 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 		}
 	}
 	if status == falsifierFired {
-		t.Fatal("falsifier_status=fired: sustained production-like P99 exceeded target on the isolated acceptance population")
+		t.Fatal("falsifier_status=fired: sustained production-like commit-duration P99 exceeded target on the isolated acceptance population")
 	} else if threshold == thresholdExceeded {
-		t.Logf("threshold_status=exceeded: runner_profile=%s is diagnostic; accepted falsifier remains inconclusive", runnerProfile)
+		t.Logf("threshold_status=exceeded: verdict_quantity=commit-duration P99 runner_profile=%s is diagnostic; accepted falsifier remains inconclusive", runnerProfile)
 	}
+}
+
+func roundsAboveCommitTarget(reports []ConformanceReport) int {
+	above := 0
+	for _, report := range reports {
+		if report.CommitLatency.P99MS > report.P99TargetMS {
+			above++
+		}
+	}
+	return above
 }
 
 func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario string) WorkerResult {

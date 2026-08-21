@@ -217,7 +217,7 @@ func TestWorkerDispatchV3CarriesProvenanceAndV2Upcasts(t *testing.T) {
 	payload, _ := json.Marshal(WorkerDispatchedPayload{
 		AttemptID: "attempt:106-prov", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
 		CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: RoutingPolicyManifestDigest,
-		ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: "1.0", ReportSchemaVersion: "1.0",
+		ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: "1.0", ReportSchemaVersion: "1.0",
 		HostProvenance: provenance,
 	})
 	v3 := Event{EventID: "w106-prov-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "work-106", Actor: "actor:dispatch", OccurredAt: now, PayloadVersion: 3, Payload: payload}
@@ -233,7 +233,7 @@ func TestWorkerDispatchV3CarriesProvenanceAndV2Upcasts(t *testing.T) {
 	noProv, _ := json.Marshal(WorkerDispatchedPayload{
 		AttemptID: "attempt:106-noprov", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
 		CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: RoutingPolicyManifestDigest,
-		ResolvedModel: lane.PinnedModel, ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: "1.0", ReportSchemaVersion: "1.0",
+		ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: "1.0", ReportSchemaVersion: "1.0",
 	})
 	err := appendWorkerEventErr(t, s, Event{EventID: "w106-noprov-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "work-106", Actor: "actor:dispatch", OccurredAt: now, PayloadVersion: 3, Payload: noProv})
 	if err != nil {

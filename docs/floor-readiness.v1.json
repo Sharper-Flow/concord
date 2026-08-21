@@ -340,7 +340,7 @@
       "id": "fc3-lane-behavioral-evals",
       "condition": "fc3",
       "title": "Lane prompt behaviour is measured by an evaluation harness",
-      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness evaluates every registered lane through its pinned model, and a deterministic validator fails when the harness drifts from the lane registry.",
+      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness evaluates every registered lane through the routing-policy preferred model, and a deterministic validator fails when the harness drifts from the lane registry.",
       "state": "satisfied",
       "evidence": [
         {

@@ -5,11 +5,11 @@
 Policy version: `routing-v1`
 Registry digest: `sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736`
 
-| Capability class | Preferred | Ordered resolution set |
-|---|---|---|
-| `research` | `openai/gpt-5.6-luna` | `openai/gpt-5.6-luna` → `zai-coding-plan/glm-5.3` |
-| `implementation` | `openai/gpt-5.6-luna` | `openai/gpt-5.6-luna` → `zai-coding-plan/glm-5.3` |
-| `review` | `zai-coding-plan/glm-5.3` | `zai-coding-plan/glm-5.3` → `kimi-for-coding/k3` |
-| `verification` | `openai/gpt-5.6-luna` | `openai/gpt-5.6-luna` → `zai-coding-plan/glm-5.3` |
+| Capability class | Resolution policy |
+|---|---|
+| `research` | host-loaded preferred model and ordered resolution set |
+| `implementation` | host-loaded preferred model and ordered resolution set |
+| `review` | host-loaded preferred model and ordered resolution set |
+| `verification` | host-loaded preferred model and ordered resolution set |
 
-The first resolution-set member is the lane-pinned preferred model. A host fallback is legal only when the resolved model is a declared later member, its role and typed fallback reason are recorded, and readback confirms the same model.
+The first resolution-set member is the preferred model. A host fallback is legal only when the resolved model is a declared later member, its role and typed fallback reason are recorded, and readback confirms the same model.

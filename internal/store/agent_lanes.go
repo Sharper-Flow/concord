@@ -21,7 +21,6 @@ type LaneDefinition struct {
 	Budgets             LaneBudgets
 	EvidenceObligations []string
 	LifecycleStates     []string
-	PinnedModel         string
 }
 
 type LaneBudgets struct {
@@ -38,7 +37,15 @@ type LaneRegistry struct {
 var laneIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
 var laneRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,127}$`)
 var laneDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-var laneModelPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]*/[^/ ]+$`)
+
+// Persisted worker events may carry the pre-policy lane digest. Those digests
+// remain valid only for the matching lane identity and current definition.
+var legacyLaneDigests = map[string]string{
+	laneKey("research", 1):  "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb",
+	laneKey("implement", 1): "sha256:84f204c2145897411b16e16f5d6d099ee792213042aecb01f59059090636de85",
+	laneKey("review", 1):    "sha256:cc4d20f113f1bd0a1587afe400b3c3e5421536814efc177bbdda8a4572e53a56",
+	laneKey("verify", 1):    "sha256:27aa54758f4c90542c1e7d0da567e68bd79f8476cf50fa1590849be29a8a7f4c",
+}
 
 func laneKey(id string, version int64) string { return fmt.Sprintf("%s:%d", id, version) }
 
@@ -74,7 +81,7 @@ func (r LaneRegistry) Lookup(id string, version int64, digest string) (LaneDefin
 	if !ok {
 		return LaneDefinition{}, newFailure(KindLaneDefinitionNotRegistered, "lane_registry", "lane identity is not registered", false, "select a registered lane identity")
 	}
-	if definition.Digest != digest || !laneDigestPattern.MatchString(digest) {
+	if (definition.Digest != digest && legacyLaneDigests[laneKey(id, version)] != digest) || !laneDigestPattern.MatchString(digest) {
 		return LaneDefinition{}, newFailure(KindLaneDefinitionDigestMismatch, "lane_registry", "lane contract digest does not match the registered definition", false, "reread the lane registry and retry with its digest")
 	}
 	return cloneLaneDefinition(definition), nil
@@ -91,8 +98,8 @@ func ValidateLaneDefinition(definition LaneDefinition) error {
 	if len(definition.Purpose) < 2 || len(definition.Purpose) > 512 || !laneRefPattern.MatchString(definition.CapabilityClass) || len(definition.Capabilities) < 1 || len(definition.Capabilities) > 16 || !uniqueBoundedLaneStrings(definition.Capabilities, 64) {
 		return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane purpose or capability set is invalid", false, "repair the generated lane manifest")
 	}
-	if definition.PacketSchemaRef != "agent-lane-packet.v1" || definition.ReportSchemaRef != "agent-lane-report.v1" || !laneModelPattern.MatchString(definition.PinnedModel) {
-		return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane schema reference or pinned model is invalid", false, "pin a valid packet/report schema and model")
+	if definition.PacketSchemaRef != "agent-lane-packet.v1" || definition.ReportSchemaRef != "agent-lane-report.v1" {
+		return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane schema reference is invalid", false, "use the registered packet and report schemas")
 	}
 	if definition.Budgets.CostUSDMax <= 0 || definition.Budgets.CostUSDMax > 1000 || definition.Budgets.ContextTokensMax < 1 || definition.Budgets.ContextTokensMax > 1000000 || definition.Budgets.TimeSecondsMax < 1 || definition.Budgets.TimeSecondsMax > 86400 {
 		return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane budgets are outside accepted bounds", false, "repair the generated lane manifest")
@@ -123,7 +130,6 @@ func LaneDefinitionDigest(definition LaneDefinition) (string, error) {
 		"packet_schema_ref": definition.PacketSchemaRef, "report_schema_ref": definition.ReportSchemaRef,
 		"budgets":              map[string]any{"cost_usd_max": definition.Budgets.CostUSDMax, "context_tokens_max": definition.Budgets.ContextTokensMax, "time_seconds_max": definition.Budgets.TimeSecondsMax},
 		"evidence_obligations": nonNilStrings(definition.EvidenceObligations), "lifecycle_states": nonNilStrings(definition.LifecycleStates),
-		"pinned_model": definition.PinnedModel,
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {

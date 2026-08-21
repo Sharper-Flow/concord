@@ -365,7 +365,7 @@
       "status": "accepted",
       "date": "2026-08-11T00:00:00Z",
       "title": "Typed workers and model routing",
-      "summary": "Defines the Concord-owned lane registry, capability-class model routing, pinned-model dispatch with readback identity evidence, typed fallback outcomes, and the worker authority boundary.",
+      "summary": "Defines the Concord-owned lane registry, host-loaded capability-class model routing, readback identity evidence, typed fallback outcomes, and the worker authority boundary.",
       "tags": [
         "typed-workers",
         "model-routing",
@@ -379,7 +379,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
+      "sha256": "sha256:cf598ab653eb068d864c115c5b84795928c233542e973c7a9a2e093f4d5d4c04",
       "evidence": [
         "contracts/agent-lanes.v1.json",
         "internal/store/worker_authority_boundary_test.go",
@@ -1058,7 +1058,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:a5f0f1cb210c716354f7b17638fb892954c6fafd7bdd81dfeae45ce96b0cc455",
+      "sha256": "sha256:3335fb47212561a5a5149ead0ecd79fb277fb4d8740c1750e896b74d5b9b79c4",
       "evidence": [
         "docs/capability-placement.md",
         "docs/predecessor-operational-coverage.md",
@@ -1314,7 +1314,7 @@
       "status": "accepted",
       "date": "2026-08-11T00:00:00Z",
       "title": "Agent lane contract",
-      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, pinned models, budgets, lifecycle states, and evidence obligations.",
+      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, capability classes, budgets, lifecycle states, and evidence obligations.",
       "tags": [
         "typed-workers",
         "lane-registry",
@@ -1327,7 +1327,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1962bf57ebfabeffa60c5f4c409f7fa565a7149438fb576598241dcfe6fdc29d",
+      "sha256": "sha256:68de0b63b1bdc0a07b14fbb72e8bdcf57638bd4527cddb4d802d07c2f603d2dc",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1337,7 +1337,7 @@
       "status": "accepted",
       "date": "2026-08-11T00:00:00Z",
       "title": "Worker routing policy",
-      "summary": "Generated CD-0017 routing policy binding capability classes to pinned preferred models and ordered declared fallback resolution sets.",
+      "summary": "Generated CD-0017 routing policy binding capability classes to host-loaded preferred models and ordered declared fallback resolution sets.",
       "tags": [
         "typed-workers",
         "model-routing",
@@ -1351,7 +1351,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4a069f599146bfa1b30f2e808c58fe3a0ca8a64c53be2ad0b26d44ddfb6eee3d",
+      "sha256": "sha256:78f01bafd9cd7e36132c010884efd53f8f5481c9fd3d92a13c44d6042494f7e7",
       "home_domain_id": "product-root:concord"
     },
     {

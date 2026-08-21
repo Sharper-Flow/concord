@@ -45,19 +45,14 @@ Unknown lane type, version, or digest **fails closed before work begins**.
 
 ### D2. Host owns process and model dispatch
 
-The OpenCode adapter resolves each lane to a concrete agent definition with a pinned
-model and performs dispatch through documented host mechanisms (agent frontmatter
-`model`, `opencode run --agent --model`, or SDK session creation). The adapter
+The OpenCode adapter resolves each lane to a concrete agent definition and loads the
+host routing policy before dispatch through documented host mechanisms (agent
+definitions, `opencode run --agent --model`, or SDK session creation). The adapter
 validates **envelopes and identity only**; all domain semantics remain in the Go
-core per CD-0005 D6.
-
-Every registered lane definition **must pin a model**. OpenCode's documented
-inheritance rule runs an unpinned subagent on the invoking primary's model, which
-would make executing-model identity invisible. Pinning is the distinctness control,
-not a preference. Pinning declares the lane's **preferred** model and defeats
-invisible host inheritance; it does not forbid a host-resolved, declared, recorded
-fallback per D3/D9. A pinned model that never runs because a declared fallback ran
-instead is not a pinning violation; an undeclared or unrecorded model is.
+core per CD-0005 D6. Host configuration chooses the preferred model and ordered
+fallback chain for the lane's capability class. The adapter verifies model
+availability, records the selected resolution, and confirms executing identity by
+readback.
 
 ### D3. Model routing binds capability classes, not vendor identifiers
 
@@ -179,7 +174,8 @@ is owned.
 A canonical routing-policy record lives in `contracts/`, generated and
 digest-pinned under the same regime as the lane registry (D1). Each entry binds a
 capability class to an ordered resolution set `[preferred, fallback…]` where
-`preferred` equals the `pinned_model` of every lane of that class. A dispatch pins
+`preferred` is the first model in the host-loaded policy for the lane's capability
+class. A dispatch pins
 `(capability_class, routing_policy_version, routing_policy_digest)`, and
 `resolved_model` must be a member of the declared set. Provider releases change the
 routing-policy record and host configuration, not the lane registry (D3).
@@ -193,7 +189,8 @@ routing-policy record and host configuration, not the lane registry (D3).
    typed report.
 3. Unknown type/version/digest fails closed before authority changes.
 4. Worker runs never record workflow step transitions, verdicts, or completion.
-5. Every lane definition pins a model; unpinned inheritance is a registry defect.
+5. Every lane definition declares a capability class; model resolution is owned by
+   the validated host routing policy, not by the lane registry.
 6. Readback executing-model identity appears in every worker attempt's evidence.
 7. A fallback produces a typed outcome — preferred resolution, recorded fallback
    resolution (`resolved ∈` declared set, `readback == resolved`), or blocked —

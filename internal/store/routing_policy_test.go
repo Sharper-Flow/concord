@@ -2,12 +2,40 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func routingPolicyTestDocument(t *testing.T) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile("../../contracts/routing-policy.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	return document
+}
+
+func writeRoutingPolicyTestDocument(t *testing.T, document map[string]any) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "routing-policy.json")
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 func TestRoutingPolicyRegistryIsDigestPinnedAndMatchesLanePreferences(t *testing.T) {
 	policies := BuiltinRoutingPolicies()
@@ -29,8 +57,8 @@ func TestRoutingPolicyRegistryIsDigestPinnedAndMatchesLanePreferences(t *testing
 			t.Fatalf("LookupRoutingPolicy(%s) error = %v", policy.CapabilityClass, err)
 		}
 		for _, lane := range BuiltinLaneDefinitions() {
-			if lane.CapabilityClass == policy.CapabilityClass && lane.PinnedModel != policy.PreferredModel {
-				t.Fatalf("lane %s pinned model = %q, policy preferred = %q", lane.ID, lane.PinnedModel, policy.PreferredModel)
+			if lane.CapabilityClass == policy.CapabilityClass && policy.PreferredModel == "" {
+				t.Fatalf("lane %s has an empty policy preferred model", lane.ID)
 			}
 		}
 	}
@@ -40,6 +68,71 @@ func TestRoutingPolicyRegistryIsDigestPinnedAndMatchesLanePreferences(t *testing
 	if _, err := LookupRoutingPolicy("research", RoutingPolicyVersion, "sha256:"+strings.Repeat("0", 64)); !hasFailureKind(err, KindRoutingPolicyDigestMismatch) {
 		t.Fatalf("digest mismatch error = %v", err)
 	}
+}
+
+func TestRoutingPolicyHostOverrideBindsDigestAndDispatchValidation(t *testing.T) {
+	document := routingPolicyTestDocument(t)
+	for _, raw := range document["policies"].([]any) {
+		entry := raw.(map[string]any)
+		entry["preferred_model"] = "host/preferred"
+		entry["resolution_set"] = []any{"host/preferred", "host/fallback"}
+	}
+	t.Setenv(routingPolicySourceEnv, writeRoutingPolicyTestDocument(t, document))
+	s := openTemp(t)
+	defer s.Close()
+	if got := LoadedRoutingPolicyManifestDigest(); got == RoutingPolicyManifestDigest {
+		t.Fatalf("host policy digest = default digest %q", got)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	policy, err := LookupRoutingPolicy(lane.CapabilityClass, "routing-v1", LoadedRoutingPolicyManifestDigest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWorkerDispatchIdentity(lane, policy, "host/preferred", WorkerResolutionPreferred, ""); err != nil {
+		t.Fatalf("host policy dispatch validation failed: %v", err)
+	}
+	if err := ValidateWorkerDispatchIdentity(lane, policy, "openai/gpt-5.6-luna", WorkerResolutionPreferred, ""); !hasFailureKind(err, KindRoutingPolicyInvalid) {
+		t.Fatalf("default model accepted by host policy: %v", err)
+	}
+}
+
+func TestRoutingPolicySetButMissingPathFailsTyped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-routing-policy.json")
+	t.Setenv(routingPolicySourceEnv, path)
+	_, err := LoadRoutingPolicyRegistry()
+	if !hasFailureKind(err, KindUnavailable) || !strings.Contains(err.Error(), path) {
+		t.Fatalf("missing host policy error = %v, want typed path-bearing unavailable failure", err)
+	}
+}
+
+func TestRoutingPolicyMalformedAndIncompleteHostPoliciesNameFailures(t *testing.T) {
+	t.Run("missing field", func(t *testing.T) {
+		document := map[string]any{"schema_version": "1.0", "registry": "routing_policy", "version": "routing-v1"}
+		t.Setenv(routingPolicySourceEnv, writeRoutingPolicyTestDocument(t, document))
+		_, err := LoadRoutingPolicyRegistry()
+		if !hasFailureKind(err, KindRoutingPolicyInvalid) || !strings.Contains(err.Error(), "policies") {
+			t.Fatalf("malformed policy error = %v, want policies field", err)
+		}
+	})
+	t.Run("missing capability class", func(t *testing.T) {
+		document := routingPolicyTestDocument(t)
+		document["policies"] = document["policies"].([]any)[:3]
+		t.Setenv(routingPolicySourceEnv, writeRoutingPolicyTestDocument(t, document))
+		_, err := LoadRoutingPolicyRegistry()
+		if !hasFailureKind(err, KindRoutingPolicyInvalid) || !strings.Contains(err.Error(), "verification") {
+			t.Fatalf("incomplete policy error = %v, want verification class", err)
+		}
+	})
+	t.Run("unknown capability class", func(t *testing.T) {
+		document := routingPolicyTestDocument(t)
+		entry := document["policies"].([]any)[0].(map[string]any)
+		entry["capability_class"] = "unknown"
+		t.Setenv(routingPolicySourceEnv, writeRoutingPolicyTestDocument(t, document))
+		_, err := LoadRoutingPolicyRegistry()
+		if !hasFailureKind(err, KindRoutingPolicyInvalid) || !strings.Contains(err.Error(), "unknown") {
+			t.Fatalf("unknown class policy error = %v, want unknown class", err)
+		}
+	})
 }
 
 func TestRecordedFallbackCompletesWhenReadbackMatchesDeclaredResolution(t *testing.T) {
@@ -83,7 +176,7 @@ func TestRoutingPolicyRejectsSilentSubstitutionAndInvalidResolutionEvidence(t *t
 	}{
 		{name: "undeclared model", model: "openai/not-declared", role: WorkerResolutionFallback, reason: "other"},
 		{name: "fallback without reason", model: "zai-coding-plan/glm-5.3", role: WorkerResolutionFallback, reason: ""},
-		{name: "preferred marked fallback", model: lane.PinnedModel, role: WorkerResolutionFallback, reason: "rate_limit"},
+		{name: "preferred marked fallback", model: preferredModelForLane(lane), role: WorkerResolutionFallback, reason: "rate_limit"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -96,7 +189,7 @@ func TestRoutingPolicyRejectsSilentSubstitutionAndInvalidResolutionEvidence(t *t
 			}
 		})
 	}
-	if err := ValidateWorkerCompletion(lane.PinnedModel, "zai-coding-plan/glm-5.3"); !hasFailureKind(err, KindModelIdentityMismatch) {
+	if err := ValidateWorkerCompletion(preferredModelForLane(lane), "zai-coding-plan/glm-5.3"); !hasFailureKind(err, KindModelIdentityMismatch) {
 		t.Fatalf("readback mismatch = %v, want %s", err, KindModelIdentityMismatch)
 	}
 }

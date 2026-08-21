@@ -18,7 +18,7 @@
 ## Context
 
 The lane registry is structurally complete. Four lanes are closed, versioned, and
-digest-pinned; each pins a model; packet and report schemas are strict; dispatch is
+digest-pinned; each declares a capability class; packet and report schemas are strict; dispatch is
 fenced; the worker authority boundary is proved by negative tests; a validator fails
 on drift between the registry and its evaluation harness.
 

@@ -1462,6 +1462,35 @@
         "adapter/opencode/dispatch.ts"
       ],
       "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0050",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0050-durable-acknowledgement.md",
+      "status": "accepted",
+      "date": "2026-08-21T00:00:00Z",
+      "title": "Durable acknowledgement at consequential boundaries",
+      "summary": "Acknowledged consequential operations are durable across power loss via a TRUNCATE-checkpoint barrier that syncs the whole WAL even under synchronous=NORMAL; ordinary writes stay NORMAL and are durable through the last boundary; the barrier lives at the acknowledgement layer, not inside fence primitives.",
+      "tags": [
+        "durability",
+        "sqlite",
+        "authority"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:445f87fdde1d5e529b34b88d98e6cd67b70f18d62526f4674dcc97ba0e36813b",
+      "evidence": [
+        "internal/store/durable.go",
+        "internal/store/agent_authority.go",
+        "internal/agent/mutations.go",
+        "cmd/concord/main.go"
+      ],
+      "home_domain_id": "product-root:concord"
     }
   ]
 }

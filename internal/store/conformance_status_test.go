@@ -2,6 +2,51 @@ package store
 
 import "testing"
 
+func TestConformanceFalsifierFiresOnSustainedCommitDuration(t *testing.T) {
+	t.Parallel()
+
+	reports := []ConformanceReport{
+		conformanceRoundReport(150, 50, 50),
+		conformanceRoundReport(120, 50, 50),
+		conformanceRoundReport(80, 50, 50),
+	}
+	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
+	above := roundsAboveCommitTarget(reports)
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true)
+
+	if threshold != thresholdExceeded || status != falsifierFired {
+		t.Fatalf("commit-duration P99 rounds above target = %d, classifySustainedFalsifier = %q/%q, want 2/exceeded/fired", above, threshold, status)
+	}
+}
+
+func TestConformanceSchedulerOvershootIsInconclusive(t *testing.T) {
+	t.Parallel()
+
+	reports := []ConformanceReport{
+		conformanceRoundReport(50, 150, 150),
+		conformanceRoundReport(60, 120, 120),
+		conformanceRoundReport(70, 110, 110),
+	}
+	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
+	above := roundsAboveCommitTarget(reports)
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true)
+
+	if threshold != thresholdMet || status != falsifierPassed {
+		t.Fatalf("scheduler-overshoot rounds above commit target = %d, classifySustainedFalsifier = %q/%q, want 0/met/passed", above, threshold, status)
+	}
+}
+
+func conformanceRoundReport(commitP99, wallP99, beginWaitP99 int64) ConformanceReport {
+	return ConformanceReport{
+		CorrectnessPassed:   true,
+		P99TargetMS:         100,
+		ProductionLikeP99MS: wallP99,
+		WallLatency:         latencySummary{P99MS: wallP99},
+		BeginWaitLatency:    latencySummary{P99MS: beginWaitP99},
+		CommitLatency:       latencySummary{P99MS: commitP99},
+	}
+}
+
 func TestClassifySustainedFalsifierRequiresAcceptancePopulation(t *testing.T) {
 	t.Parallel()
 

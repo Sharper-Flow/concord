@@ -491,9 +491,24 @@ func (s *Service) consumeGrant(ctx context.Context, tx *store.Transaction, in In
 	return g, nil
 }
 
+// expiryPassed reports whether a stored RFC3339Nano expiry is at or before now,
+// comparing parsed instants rather than their encodings. RFC3339Nano omits
+// trailing zeros, so a value carrying a fractional second and one without it do
+// not sort chronologically: '.' (0x2E) precedes 'Z' (0x5A). A stored value that
+// does not parse cannot be compared and counts as expired, so corruption at the
+// authorization boundary fails closed.
+func expiryPassed(stored string, now time.Time) (time.Time, bool) {
+	parsed, err := time.Parse(time.RFC3339Nano, stored)
+	if err != nil {
+		return time.Time{}, true
+	}
+	return parsed, !parsed.After(now)
+}
+
 func (s *Service) validateGrantRecord(record store.GrantRecord, in Invocation, now time.Time) (Grant, error) {
 	var g Grant
-	if record.ClientStatus != "active" || record.ClientKeyID != record.ActiveKeyID || record.RevokedAt != "" || record.ManifestDigest != ManifestDigest || record.ExpiresAt <= now.Format(time.RFC3339Nano) {
+	expiresAt, expired := expiryPassed(record.ExpiresAt, now)
+	if record.ClientStatus != "active" || record.ClientKeyID != record.ActiveKeyID || record.RevokedAt != "" || record.ManifestDigest != ManifestDigest || expired {
 		return g, errors.New("grant expired or revoked")
 	}
 	if record.ClientRef != in.ClientRef || record.PrincipalRef != in.PrincipalRef || record.SessionRef != in.SessionRef || record.AgentRef != in.AgentRef || record.Directory != in.Directory || record.Worktree != in.Worktree || in.ManifestDigest != record.ManifestDigest {
@@ -515,11 +530,18 @@ func (s *Service) validateGrantRecord(record store.GrantRecord, in Invocation, n
 	g.Directory, g.Worktree, g.ClientKeyID = record.Directory, record.Worktree, record.ClientKeyID
 	g.ManifestDigest = record.ManifestDigest
 	g.ScopeVersion = record.ScopeVersion
-	_ = json.Unmarshal([]byte(record.ScopeSnapshotJSON), &g.ScopeSnapshot)
-	_ = json.Unmarshal([]byte(record.CandidateProductsJSON), &g.CandidateProducts)
+	// A snapshot that fails to parse leaves the decoded scope nil, and a nil
+	// scope satisfies containment by missing every lookup. Reject it rather
+	// than let a corrupt record widen the grant.
+	if err := json.Unmarshal([]byte(record.ScopeSnapshotJSON), &g.ScopeSnapshot); err != nil {
+		return Grant{}, errors.New("grant scope snapshot is unreadable")
+	}
+	if err := json.Unmarshal([]byte(record.CandidateProductsJSON), &g.CandidateProducts); err != nil {
+		return Grant{}, errors.New("grant candidate products are unreadable")
+	}
 	g.Token = in.GrantToken
 	g.IssuedAt, _ = time.Parse(time.RFC3339Nano, record.IssuedAt)
-	g.ExpiresAt, _ = time.Parse(time.RFC3339Nano, record.ExpiresAt)
+	g.ExpiresAt = expiresAt
 	if in.ProductID != "" && !contains(g.ProductScope, in.ProductID) {
 		return g, errors.New("product outside grant scope")
 	}
@@ -732,7 +754,8 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 	if challengeErr == nil {
 		storedScope, _ := json.Marshal(check.Scope)
 		storedVersions, _ := json.Marshal(check.Versions)
-		if challenge.Status != "active" || challenge.ExpiresAt <= s.now().Format(time.RFC3339Nano) || challenge.OperationDigest != check.OperationDigest || challenge.ScopeJSON != string(storedScope) || challenge.VersionJSON != string(storedVersions) || challenge.Consequence != check.Consequence || challenge.HostAssertionDigest != in.HostAssertionDigest {
+		_, challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
+		if challenge.Status != "active" || challengeExpired || challenge.OperationDigest != check.OperationDigest || challenge.ScopeJSON != string(storedScope) || challenge.VersionJSON != string(storedVersions) || challenge.Consequence != check.Consequence || challenge.HostAssertionDigest != in.HostAssertionDigest {
 			return false, errors.New("approval challenge binding invalid")
 		}
 	} else if challengeErr != nil {
@@ -800,7 +823,8 @@ func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.T
 	if err != nil {
 		return "", errors.New("approval challenge not found")
 	}
-	if challenge.Status != "active" || challenge.UsedCount >= challenge.MaxUses || challenge.HostAssertionDigest != in.HostAssertionDigest || challenge.ExpiresAt <= s.now().Format(time.RFC3339Nano) {
+	_, challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
+	if challenge.Status != "active" || challenge.UsedCount >= challenge.MaxUses || challenge.HostAssertionDigest != in.HostAssertionDigest || challengeExpired {
 		return "", errors.New("approval challenge invalid")
 	}
 	if err := store.ConsumeApprovalChallengeTx(ctx, tx, challengeRef, g.RecordID, s.now().Format(time.RFC3339Nano)); err != nil {
@@ -824,6 +848,23 @@ func sha256Hex(value []byte) string {
 	sum := sha256.Sum256(value)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
+
+// authorizedScopeFromSnapshot decodes a stored scope snapshot for re-checking
+// against the current grant. An absent snapshot carries no scope constraint and
+// decodes to nil, but a present snapshot that fails to parse must surface the
+// error: scopeWithinGrant reads a nil scope as satisfying every lookup, so a
+// discarded parse failure would widen the grant instead of narrowing it.
+func authorizedScopeFromSnapshot(scopeJSON string) (map[string]any, error) {
+	if scopeJSON == "" {
+		return nil, nil
+	}
+	var scope map[string]any
+	if err := json.Unmarshal([]byte(scopeJSON), &scope); err != nil {
+		return nil, err
+	}
+	return scope, nil
+}
+
 func scopeWithinGrant(scope map[string]any, grant Grant) bool {
 	if product, ok := scope["product_id"].(string); ok && !contains(grant.ProductScope, product) {
 		return false
@@ -939,7 +980,8 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Tr
 	if err != nil {
 		return errors.New("approval not found")
 	}
-	if approval.ClientStatus != "active" || approval.RevokedAt != "" || approval.UsedCount >= approval.MaxUses || approval.ExpiresAt <= s.now().Format(time.RFC3339Nano) || approval.OperationDigest != check.OperationDigest || approval.Consequence != check.Consequence || approval.ClientRef != check.ClientRef || approval.SessionRef != check.SessionRef {
+	_, approvalExpired := expiryPassed(approval.ExpiresAt, s.now())
+	if approval.ClientStatus != "active" || approval.RevokedAt != "" || approval.UsedCount >= approval.MaxUses || approvalExpired || approval.OperationDigest != check.OperationDigest || approval.Consequence != check.Consequence || approval.ClientRef != check.ClientRef || approval.SessionRef != check.SessionRef {
 		return errors.New("approval binding invalid")
 	}
 	wantScope, _ := json.Marshal(check.Scope)

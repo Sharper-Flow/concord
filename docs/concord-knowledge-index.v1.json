@@ -305,7 +305,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:69572c989082346d22b3330f3b4b3596f3e0be9996bc5d9ec95647e63bdd8579",
+      "sha256": "sha256:295da03b371c170ba6689a84e658679ddffb4d5bf991675639aaf560df291d2d",
       "home_domain_id": "product-root:concord"
     },
     {
@@ -1489,6 +1489,59 @@
         "internal/store/agent_authority.go",
         "internal/agent/mutations.go",
         "cmd/concord/main.go"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0051",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0051-conformance-falsifier-quantity.md",
+      "status": "accepted",
+      "date": "2026-08-21T00:00:00Z",
+      "title": "The conformance falsifier weighs commit duration, not scheduler time",
+      "summary": "The sustained conformance falsifier weighs commit-duration P99, the quantity CD-0045 names as Concord-owned, against the unchanged 100ms target; wall and writer-admission wait stay measured and diagnostic, correctness precedence and population authority are untouched, and scheduler-owned overshoot on a shared runner reports as inconclusive instead of a law-grade fired verdict.",
+      "tags": [
+        "conformance",
+        "concurrency",
+        "falsifier"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:6f5a1e9e5e146c2439518fe32667cb4f11fa9728cca4ea3b0f10ecc332b711ca",
+      "evidence": [
+        "docs/decisions/CD-0045-writer-admission-invariant.md",
+        "internal/store/conformance_test.go"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0052",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0052-implements-fulfilment-semantics.md",
+      "status": "accepted",
+      "date": "2026-08-21T00:00:00Z",
+      "title": "implements declares fulfilment-link semantics, display-only",
+      "summary": "The work-relation kind implements is a directional, non-blocking, non-hierarchical, cycle-exempt many-to-one fulfilment link recording that a work item fulfils a decision-kind item; it is display-only until a consumer defines its read surface in a citing record, and removal stays off the table while it remains in the closed vocabulary.",
+      "tags": [
+        "relations",
+        "vocabulary"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:ed5858431069edc94e11c8eb8589c9b2dbe77e953b20ac1b60f7974a2c79b9cc",
+      "evidence": [
+        "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
+        "internal/store/lifecycle_relations_test.go"
       ],
       "home_domain_id": "product-root:concord"
     }

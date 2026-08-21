@@ -655,6 +655,11 @@
           "value": "internal/store.TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof"
         }
       ]
+    },
+    {
+      "id": "CD-0054",
+      "state": "outstanding",
+      "issue": 302
     }
   ]
 }

@@ -90,7 +90,7 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 			Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 			Clear:   key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "clear")),
 			Search:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
-			Section: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "section")),
+			Section: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "panel/section")),
 			Launch:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "launch")),
 		},
 	}
@@ -277,7 +277,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.OpenQuery()
 		}
 	case "tab":
-		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
+		if m.core.Snapshot().Screen == launcher.ScreenProduct {
+			_ = m.core.CyclePanelFocus()
+			m.Sync()
+		} else if m.core.Snapshot().Screen == launcher.ScreenWork {
 			next := launcher.SectionDomains
 			switch m.core.Section() {
 			case launcher.SectionDomains:
@@ -486,6 +489,9 @@ func (m *Model) clampCursor() {
 func (m *Model) rowCount() int {
 	s := m.core.Snapshot()
 	if s.Screen == launcher.ScreenProduct {
+		if m.core.PanelFocus() == launcher.S2PanelDomain {
+			return len(s.Domains.Domains)
+		}
 		return len(m.filteredRanked())
 	}
 	if s.Screen == launcher.ScreenWork {
@@ -566,7 +572,8 @@ func (m *Model) Render() string {
 func (m *Model) renderS2(headers []string) string {
 	lines := append([]string{}, headers...)
 	s := m.core.Snapshot()
-	lines = append(lines, "S2 PRODUCT COORDINATION", "SECTION: "+string(s.Section), "RELIANCE: "+s.Reliance+" COVERAGE: "+s.Coverage)
+	stack := s.S2AnswerStack()
+	lines = append(lines, "S2 PRODUCT COORDINATION")
 	if s.StatusMessage != "" {
 		lines = append(lines, "STATUS: "+s.StatusMessage)
 	}
@@ -575,56 +582,9 @@ func (m *Model) renderS2(headers []string) string {
 	} else if m.filterValue != "" {
 		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
 	}
-	switch s.Section {
-	case launcher.SectionDomains:
-		lines = append(lines, domainLines(s.Domains)...)
-	case launcher.SectionRelations:
-		if s.Relations.Unavailable != "" {
-			lines = append(lines, "RELATIONS: unavailable: "+s.Relations.Unavailable)
-		}
-		if s.Relations.Invariant != "" {
-			lines = append(lines, "INVARIANT: "+s.Relations.Invariant)
-		}
-		if len(s.Relations.Roots) > 0 {
-			lines = append(lines, "ROOTS: "+strings.Join(s.Relations.Roots, ", "))
-		}
-		if len(s.Relations.Clusters) == 0 {
-			lines = append(lines, "RELATIONS: authoritative-empty")
-		}
-		for i, cluster := range s.Relations.Clusters {
-			lines = append(lines, "CLUSTER "+fmtInt(i+1)+": "+strings.Join(cluster, " -> "))
-		}
-		for _, edge := range s.Relations.Edges {
-			lines = append(lines, "EDGE "+edge.Kind+": "+edge.Source+" -> "+edge.Target)
-		}
-	case launcher.SectionRanked:
-		ranked := m.filteredRanked()
-		if len(ranked) == 0 {
-			lines = append(lines, "WORK: authoritative-empty")
-		}
-		for i, item := range ranked {
-			marker := "ACTIVE"
-			if item.Ready {
-				marker = "READY"
-			}
-			if item.Blocked {
-				marker = "BLOCKED"
-			}
-			urgency := item.Urgency
-			if urgency == "" {
-				urgency = "standard"
-			}
-			lines = append(lines, fmtInt(i+1)+" "+marker+" "+item.ID+" "+item.Title+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+" projects="+fmtInt(item.ProjectCount))
-			for _, blocker := range item.Blockers {
-				external := ""
-				if blocker.External {
-					external = " external"
-				}
-				lines = append(lines, "  BLOCKER "+blocker.ID+" "+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
-			}
-		}
-	case launcher.SectionKnowledge:
-		lines = append(lines, knowledgeLines(s.Knowledge)...)
+	for _, panel := range stack.Panels {
+		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
+		lines = append(lines, s2PanelLines(panel, focused, stack, s, m.filteredRanked())...)
 	}
 	if s.QueryResult {
 		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
@@ -644,6 +604,126 @@ func (m *Model) renderS2(headers []string) string {
 		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
 	}
 	return strings.Join(wrapHeaders(lines, m.width), "\n")
+}
+
+func s2PanelLines(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork) []string {
+	if !expanded {
+		switch panel {
+		case launcher.S2PanelDomain:
+			return domainSummaryLines(stack.Domain.Domain)
+		case launcher.S2PanelBlocked:
+			return blockedSummaryLines(stack.Blocked.Work)
+		case launcher.S2PanelNext:
+			return nextSummaryLines(stack.Next.Work)
+		}
+	}
+	switch panel {
+	case launcher.S2PanelDomain:
+		lines := []string{"DOMAIN:"}
+		lines = append(lines, domainLines(snapshot.Domains)...)
+		lines = append(lines, knowledgeLines(snapshot.Knowledge)...)
+		lines = append(lines, relationLines(snapshot.Relations)...)
+		return lines
+	case launcher.S2PanelBlocked, launcher.S2PanelNext:
+		return append([]string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked)...)
+	default:
+		return nil
+	}
+}
+
+func domainSummaryLines(summary launcher.S2DomainSummary) []string {
+	if summary.UnavailableReason != "" {
+		return []string{"DOMAIN: unavailable: " + summary.UnavailableReason}
+	}
+	if !summary.Evaluated {
+		return []string{"DOMAIN: unavailable: not_read"}
+	}
+	if len(summary.UnresolvedOverlaps) == 0 {
+		return []string{"DOMAIN: no unresolved overlaps"}
+	}
+	parts := make([]string, 0, len(summary.UnresolvedOverlaps))
+	for _, pair := range summary.UnresolvedOverlaps {
+		state := pair.State
+		if state == "" {
+			state = "absent"
+		}
+		parts = append(parts, pair.From+" & "+pair.To+" domains="+strings.Join(pair.SharedDomains, ",")+" resolution="+state)
+	}
+	return []string{"DOMAIN: unresolved overlap: " + strings.Join(parts, "; ")}
+}
+
+func blockedSummaryLines(item *launcher.RankedWork) []string {
+	if item == nil {
+		return []string{"BLOCKED: authoritative-empty"}
+	}
+	state := rankedMarker(item)
+	blockers := make([]string, 0, len(item.Blockers))
+	for _, blocker := range item.Blockers {
+		blockers = append(blockers, blocker.ID+"["+blocker.Authority+"]")
+	}
+	return []string{"BLOCKED: " + item.ID + " " + item.Title + " marker=" + state + " blockers=" + strings.Join(blockers, ",")}
+}
+
+func nextSummaryLines(item *launcher.RankedWork) []string {
+	if item == nil {
+		return []string{"NEXT: authoritative-empty"}
+	}
+	return []string{"NEXT: " + rankedMarker(item) + " " + item.ID + " " + item.Title}
+}
+
+func rankedMarker(item *launcher.RankedWork) string {
+	if item.Blocked {
+		return "!BLOCKED"
+	}
+	if item.Ready {
+		return "+READY"
+	}
+	return "~ACTIVE"
+}
+
+func relationLines(relations launcher.RelationTree) []string {
+	lines := []string{}
+	if relations.Unavailable != "" {
+		lines = append(lines, "RELATIONS: unavailable: "+relations.Unavailable)
+	}
+	if relations.Invariant != "" {
+		lines = append(lines, "INVARIANT: "+relations.Invariant)
+	}
+	if len(relations.Roots) > 0 {
+		lines = append(lines, "ROOTS: "+strings.Join(relations.Roots, ", "))
+	}
+	if len(relations.Clusters) == 0 {
+		lines = append(lines, "RELATIONS: authoritative-empty")
+	}
+	for i, cluster := range relations.Clusters {
+		lines = append(lines, "CLUSTER "+fmtInt(i+1)+": "+strings.Join(cluster, " -> "))
+	}
+	for _, edge := range relations.Edges {
+		lines = append(lines, "EDGE "+edge.Kind+": "+edge.Source+" -> "+edge.Target)
+	}
+	return lines
+}
+
+func rankedLines(ranked []launcher.RankedWork) []string {
+	if len(ranked) == 0 {
+		return []string{"WORK: authoritative-empty"}
+	}
+	lines := make([]string, 0, len(ranked))
+	for i, item := range ranked {
+		urgency := item.Urgency
+		if urgency == "" {
+			urgency = "standard"
+		}
+		lines = append(lines, fmtInt(i+1)+" "+rankedMarker(&item)+" "+item.ID+" "+item.Title+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+" projects="+fmtInt(item.ProjectCount))
+		for _, blocker := range item.Blockers {
+			external := ""
+			if blocker.External {
+				external = " external"
+			}
+			lines = append(lines, "  BLOCKER "+blocker.ID+" "+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
+		}
+	}
+	return lines
 }
 
 func (m *Model) renderS3(headers []string) string {

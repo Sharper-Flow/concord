@@ -34,6 +34,20 @@ const (
 	SectionKnowledge Section = "knowledge"
 )
 
+// S2Panel identifies one answer in Product screen order. The order is a
+// contract, not a ranking computed by the launcher.
+type S2Panel string
+
+const (
+	S2PanelDomain  S2Panel = "domain"
+	S2PanelBlocked S2Panel = "blocked"
+	S2PanelNext    S2Panel = "next"
+)
+
+func S2PanelOrder() []S2Panel {
+	return []S2Panel{S2PanelDomain, S2PanelBlocked, S2PanelNext}
+}
+
 // ReadPort is the only authority the launcher can read. It deliberately does
 // not expose store or domain types.
 type ReadPort interface {
@@ -151,6 +165,27 @@ type DomainSection struct {
 	Truncated bool
 }
 
+type S2DomainSummary struct {
+	Evaluated          bool
+	UnavailableReason  string
+	UnresolvedOverlaps []OverlapPair
+}
+
+type S2PanelSummary struct {
+	Panel  S2Panel
+	Domain S2DomainSummary
+	Work   *RankedWork
+}
+
+// S2AnswerStack is the framework-independent composition of the values the
+// store already materialized for the Product screen.
+type S2AnswerStack struct {
+	Panels  []S2Panel
+	Domain  S2PanelSummary
+	Blocked S2PanelSummary
+	Next    S2PanelSummary
+}
+
 type KnowledgeItem struct {
 	ID, Kind, Title, Summary, Reference, Watermark string
 }
@@ -192,6 +227,7 @@ type Snapshot struct {
 	StatusMessage          string
 	FirstRun               bool
 	Section                Section
+	PanelFocus             S2Panel
 	Domains                DomainSection
 	Relations              RelationTree
 	Ranked                 []RankedWork
@@ -232,7 +268,14 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 				m.snapshot = Snapshot{Screen: ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 				return err
 			}
+			// The Domain panel is focused on entry, so load its bounded knowledge
+			// section through the existing lazy read path. A failed knowledge read
+			// remains typed in the Product snapshot without losing navigation.
+			_ = m.EnsureKnowledge(ctx)
 			m.snapshot.Session = SessionHandoff{ProductID: product}
+			m.snapshot.PanelFocus = S2PanelDomain
+			m.snapshot.Section = SectionDomains
+			m.section = SectionDomains
 			return err
 		}
 	}
@@ -312,6 +355,48 @@ func (m *Model) SetSection(section Section) error {
 	return nil
 }
 
+func (m *Model) PanelFocus() S2Panel {
+	if m.snapshot.PanelFocus == "" {
+		return S2PanelDomain
+	}
+	return m.snapshot.PanelFocus
+}
+
+func (m *Model) SetPanelFocus(panel S2Panel) error {
+	if m.snapshot.Screen != ScreenProduct {
+		return nil
+	}
+	if !isS2Panel(panel) {
+		return nil
+	}
+	m.snapshot.PanelFocus = panel
+	if panel == S2PanelDomain {
+		m.snapshot.Section = SectionDomains
+		m.section = SectionDomains
+	} else {
+		m.snapshot.Section = SectionRanked
+		m.section = SectionRanked
+	}
+	return nil
+}
+
+func (m *Model) CyclePanelFocus() S2Panel {
+	current := m.PanelFocus()
+	if m.snapshot.Screen != ScreenProduct {
+		return current
+	}
+	order := S2PanelOrder()
+	for i, panel := range order {
+		if panel == current {
+			next := order[(i+1)%len(order)]
+			_ = m.SetPanelFocus(next)
+			return next
+		}
+	}
+	_ = m.SetPanelFocus(S2PanelDomain)
+	return S2PanelDomain
+}
+
 func (m *Model) EnsureKnowledge(ctx context.Context) error {
 	if m.snapshot.Screen != ScreenProduct && m.snapshot.Screen != ScreenWork {
 		return nil
@@ -328,6 +413,17 @@ func (m *Model) Section() Section { return m.section }
 func (m *Model) Handoff() SessionHandoff { return m.snapshot.Session }
 
 func (m *Model) RestoreSnapshot(snapshot Snapshot) {
+	if snapshot.Screen == ScreenProduct {
+		if snapshot.Section == "" {
+			snapshot.Section = SectionDomains
+		}
+		if snapshot.PanelFocus == "" {
+			snapshot.PanelFocus = S2PanelDomain
+			if snapshot.Section == SectionRanked {
+				snapshot.PanelFocus = S2PanelNext
+			}
+		}
+	}
 	m.snapshot = snapshot
 	m.section = snapshot.Section
 }
@@ -343,6 +439,41 @@ func (m *Model) Resize(width, height int) {
 
 func (m *Model) Snapshot() Snapshot {
 	return cloneSnapshot(m.snapshot)
+}
+
+func (snapshot Snapshot) S2AnswerStack() S2AnswerStack {
+	stack := S2AnswerStack{Panels: S2PanelOrder()}
+	stack.Domain = S2PanelSummary{Panel: S2PanelDomain, Domain: domainSummary(snapshot.Domains)}
+	if len(snapshot.Ranked) > 0 {
+		stack.Blocked = S2PanelSummary{Panel: S2PanelBlocked, Work: &snapshot.Ranked[0]}
+		stack.Next = S2PanelSummary{Panel: S2PanelNext, Work: &snapshot.Ranked[0]}
+	} else {
+		stack.Blocked.Panel = S2PanelBlocked
+		stack.Next.Panel = S2PanelNext
+	}
+	return stack
+}
+
+func domainSummary(section DomainSection) S2DomainSummary {
+	summary := S2DomainSummary{}
+	if section.State == "unavailable" || !section.Read {
+		summary.UnavailableReason = section.Reason
+		if summary.UnavailableReason == "" && !section.Read {
+			summary.UnavailableReason = "not_read"
+		}
+		return summary
+	}
+	summary.Evaluated = true
+	for _, pair := range section.Overlaps {
+		if pair.State == "absent" {
+			summary.UnresolvedOverlaps = append(summary.UnresolvedOverlaps, pair)
+		}
+	}
+	return summary
+}
+
+func isS2Panel(panel S2Panel) bool {
+	return panel == S2PanelDomain || panel == S2PanelBlocked || panel == S2PanelNext
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {
@@ -469,6 +600,15 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if request.Kind == ReadKnowledge {
 		snapshot = mergeKnowledgeSnapshot(previous, snapshot)
 	}
+	if snapshot.Screen == ScreenProduct && snapshot.PanelFocus == "" {
+		snapshot.PanelFocus = previous.PanelFocus
+		if snapshot.PanelFocus == "" {
+			snapshot.PanelFocus = S2PanelDomain
+			if snapshot.Section == SectionRanked {
+				snapshot.PanelFocus = S2PanelNext
+			}
+		}
+	}
 	if snapshot.Coverage == "" {
 		snapshot.Coverage = "authoritative"
 	}
@@ -484,11 +624,13 @@ func mergeKnowledgeSnapshot(previous, knowledge Snapshot) Snapshot {
 	knowledge.AmbientProduct = previous.AmbientProduct
 	knowledge.SelectedWorkID = previous.SelectedWorkID
 	knowledge.Rows = previous.Rows
+	knowledge.Domains = previous.Domains
 	knowledge.Ranked = previous.Ranked
 	knowledge.Relations = previous.Relations
 	knowledge.Detail = previous.Detail
 	knowledge.Detail.Knowledge = knowledge.Knowledge
 	knowledge.Section = SectionKnowledge
+	knowledge.PanelFocus = previous.PanelFocus
 	knowledge.Session = previous.Session
 	return knowledge
 }

@@ -362,8 +362,29 @@
     },
     {
       "id": "CD-0040",
-      "state": "outstanding",
-      "issue": 219
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestObservedUniverseRejectsUnearnedCompleteness"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestVerificationFoldCoversTheRequiredMatrix"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestExternalObservationCaptureVerifyAndRebuild"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestUnverifiedCaptureStaysLegiblyUnverified"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestNativeRunVerificationParticipationAndEvidenceGate"
+        }
+      ]
     },
     {
       "id": "CD-0041",

@@ -5057,7 +5057,6 @@
       "additionalProperties": false,
       "required": [
         "work_id",
-        "statement",
         "idempotency_key"
       ],
       "properties": {
@@ -5069,6 +5068,145 @@
           "pattern": "^obs:[0-9a-f]{16}$",
           "minLength": 20,
           "maxLength": 20
+        },
+        "external": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observation_id"
+          ],
+          "oneOf": [
+            {
+              "required": [
+                "subject_kind",
+                "subject_ref",
+                "captured_at",
+                "observed_universe"
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "verification_method"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "verified_at"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "result"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "required": [
+                "verification_method",
+                "verified_at",
+                "result"
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "subject_kind"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "subject_ref"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "captured_at"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "observed_universe"
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "capture",
+                "verification"
+              ]
+            },
+            "observation_id": {
+              "type": "string",
+              "pattern": "^xobs:[0-9a-f]{16}$"
+            },
+            "subject_kind": {
+              "enum": [
+                "native_run",
+                "git_position",
+                "recovery_artifact",
+                "environment"
+              ]
+            },
+            "subject_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "captured_at": {
+              "type": "string",
+              "format": "date-time",
+              "minLength": 20,
+              "maxLength": 64
+            },
+            "subject_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "observed_universe": {
+              "$ref": "#/$defs/observed_universe"
+            },
+            "verification_method": {
+              "enum": [
+                "trusted_client_report",
+                "git_probe"
+              ]
+            },
+            "verified_at": {
+              "type": "string",
+              "format": "date-time",
+              "minLength": 20,
+              "maxLength": 64
+            },
+            "result": {
+              "enum": [
+                "matched",
+                "diverged",
+                "unreachable",
+                "unavailable"
+              ]
+            },
+            "current_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "omissions": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          }
         },
         "statement": {
           "type": "string",
@@ -5099,7 +5237,29 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "statement"
+          ],
+          "not": {
+            "required": [
+              "external"
+            ]
+          }
+        },
+        {
+          "required": [
+            "external"
+          ],
+          "not": {
+            "required": [
+              "statement"
+            ]
+          }
+        }
+      ]
     },
     "session_boot_packet": {
       "type": "object",
@@ -5657,6 +5817,93 @@
       "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; never part of the hidden call envelope or the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
       "type": "integer",
       "minimum": 1
+    },
+    "observed_universe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shape",
+        "applied_scope",
+        "coverage",
+        "total_kind",
+        "canonical_identity_key"
+      ],
+      "properties": {
+        "shape": {
+          "enum": [
+            "item",
+            "collection",
+            "stream"
+          ]
+        },
+        "applied_scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "anchor_token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "structure_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "observed_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "total_kind": {
+          "enum": [
+            "eq",
+            "gte",
+            "unknown"
+          ]
+        },
+        "total_value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completion_evidence": {
+          "enum": [
+            "authoritative_item_read",
+            "end_signal",
+            "closed_structure_digest",
+            "exhaustive_local"
+          ]
+        },
+        "canonical_identity_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "omissions": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        }
+      }
     }
   }
 }

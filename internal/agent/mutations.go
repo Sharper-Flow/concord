@@ -191,6 +191,28 @@ type observationRecordInput struct {
 	Refs           []string `json:"refs"`
 	Tags           []string `json:"tags"`
 	IdempotencyKey string   `json:"idempotency_key"`
+	// External is the CD-0040 D10 variant: a capture of, or verification
+	// against, state outside Concord. Plain observations stay plain statements
+	// and satisfy no evidence or gate; the external variant is also
+	// non-authoritative and can only supply or withhold a precondition.
+	External *observationExternalInput `json:"external"`
+}
+
+type observationExternalInput struct {
+	Kind          string `json:"kind"`
+	ObservationID string `json:"observation_id"`
+	// capture fields
+	SubjectKind      string                  `json:"subject_kind"`
+	SubjectRef       string                  `json:"subject_ref"`
+	CapturedAt       string                  `json:"captured_at"`
+	SubjectDigest    string                  `json:"subject_digest"`
+	ObservedUniverse *store.ObservedUniverse `json:"observed_universe"`
+	// verification fields
+	VerificationMethod string   `json:"verification_method"`
+	VerifiedAt         string   `json:"verified_at"`
+	Result             string   `json:"result"`
+	CurrentDigest      string   `json:"current_digest"`
+	Omissions          []string `json:"omissions"`
 }
 type researchBindingInput struct {
 	PackID   string `json:"pack_id"`
@@ -413,6 +435,34 @@ func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult) (En
 	default:
 		return coreError(base, "malformed_response", "durable workflow result classification is unsupported", "contact_operator", false), nil
 	}
+}
+
+// validateObservationExternalVariant checks the mode-specific shape before any
+// effect exists. Field-level bounds are owned by the store validator; this
+// keeps the two variants from being mixed into one call.
+func validateObservationExternalVariant(in *observationExternalInput) error {
+	switch in.Kind {
+	case "capture":
+		if in.SubjectKind == "" || in.SubjectRef == "" || in.CapturedAt == "" || in.ObservedUniverse == nil {
+			return errors.New("external capture requires subject kind, subject reference, capture time, and the observed universe")
+		}
+		if in.VerificationMethod != "" || in.VerifiedAt != "" || in.Result != "" {
+			return errors.New("external capture cannot carry verification fields")
+		}
+	case "verification":
+		if in.VerifiedAt == "" || in.Result == "" {
+			return errors.New("external verification requires the check time and result")
+		}
+		if in.SubjectKind != "" || in.SubjectRef != "" || in.CapturedAt != "" || in.ObservedUniverse != nil {
+			return errors.New("external verification cannot carry capture fields")
+		}
+	default:
+		return errors.New("external observation variant must be capture or verification")
+	}
+	if len(in.ObservationID) < 6 || len(in.ObservationID) > 32 {
+		return errors.New("external observation requires its xobs: identifier")
+	}
+	return nil
 }
 
 func decodeWorkflowChangedRefs(values []string) []ChangedRef {
@@ -1332,19 +1382,73 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			return base, err
 		}
 		scope["work_ids"] = []string{in.WorkID}
-		intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
-			observationID := in.ObservationID
-			if observationID == "" {
-				sum := sha256.Sum256([]byte(digest))
-				observationID = "obs:" + hex.EncodeToString(sum[:8])
+		if in.External != nil {
+			// CD-0040 D2/D3: the reporting or verifying authority is derived
+			// from the validated grant's trusted client. A caller-supplied
+			// authority name never reaches the record, and the agent surface
+			// can only ever claim attributed trusted-client reports — the
+			// core-owned Git probe is not reachable from agent input.
+			if err := validateObservationExternalVariant(in.External); err != nil {
+				return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 			}
-			payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":observation", Kind: "work.observation_recorded", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
-				return nil, nil, nil, err
+			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
+			effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+				if in.External.Kind == "capture" {
+					capture := store.ExternalObservationCapture{
+						ObservationID:         in.External.ObservationID,
+						SubjectKind:           in.External.SubjectKind,
+						SubjectRef:            in.External.SubjectRef,
+						CaptureMethod:         store.CaptureTrustedClientReport,
+						CapturedAt:            in.External.CapturedAt,
+						ReportingAuthorityRef: "client:" + grant.ClientRef,
+						SubjectDigest:         in.External.SubjectDigest,
+						ObservedUniverse:      *in.External.ObservedUniverse,
+					}
+					if err := store.ValidateExternalObservationCapture(capture); err != nil {
+						return nil, nil, nil, err
+					}
+					policy, _ := store.ExternalSubjectPolicyFor(capture.SubjectKind)
+					capture.FreshnessPolicyRef = store.PolicyRef(policy)
+					capture.DivergencePolicyRef = store.PolicyRef(policy)
+					if err := store.AppendExternalObservationCaptureTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), capture); err != nil {
+						return nil, nil, nil, err
+					}
+					changed := []ChangedRef{{EntityKind: "external_observation", ID: capture.ObservationID, Version: "1"}}
+					return mutationPayload(changed, intents), []string{capture.ObservationID}, changed, nil
+				}
+				verification := store.ExternalObservationVerification{
+					ObservationID:         in.External.ObservationID,
+					VerificationMethod:    store.VerifyTrustedClientReport,
+					VerifiedAt:            in.External.VerifiedAt,
+					VerifyingAuthorityRef: "client:" + grant.ClientRef,
+					Result:                store.VerificationResultKind(in.External.Result),
+					CurrentDigest:         in.External.CurrentDigest,
+					Omissions:             in.External.Omissions,
+				}
+				if err := store.ValidateExternalObservationVerification(verification); err != nil {
+					return nil, nil, nil, err
+				}
+				if err := store.AppendExternalObservationVerificationTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), verification); err != nil {
+					return nil, nil, nil, err
+				}
+				changed := []ChangedRef{{EntityKind: "external_observation", ID: verification.ObservationID, Version: "2"}}
+				return mutationPayload(changed, intents), []string{verification.ObservationID}, changed, nil
 			}
-			changed := []ChangedRef{{EntityKind: "observation", ID: observationID, Version: "1"}}
-			return mutationPayload(changed, intents), []string{observationID}, changed, nil
+		} else {
+			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
+			effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+				observationID := in.ObservationID
+				if observationID == "" {
+					sum := sha256.Sum256([]byte(digest))
+					observationID = "obs:" + hex.EncodeToString(sum[:8])
+				}
+				payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
+				if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":observation", Kind: "work.observation_recorded", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+					return nil, nil, nil, err
+				}
+				changed := []ChangedRef{{EntityKind: "observation", ID: observationID, Version: "1"}}
+				return mutationPayload(changed, intents), []string{observationID}, changed, nil
+			}
 		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput

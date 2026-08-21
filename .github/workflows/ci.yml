@@ -55,7 +55,10 @@ jobs:
       - name: Validate product reachability
         run: python3 scripts/check-reachability.py
       - name: Test with race detector
-        run: go test -race ./...
+        # internal/agent under -race runs at ~575-595s on 2-core runners —
+        # 96-99% of the 10m default. The suite outgrew the default timeout;
+        # raise it rather than let routine growth flake every branch.
+        run: go test -race -timeout=20m ./...
       - name: Run production-like ten-process acceptance conformance
         env:
           CONCORD_CONFORMANCE_LONG: "1"

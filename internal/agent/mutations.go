@@ -347,9 +347,9 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if storedDigest != digest {
 		return coreError(base, "idempotency_conflict", "idempotency key was reused with a different canonical request", "retry_same_request", false), true, nil
 	}
-	var authorizedScope map[string]any
-	if scopeJSON != "" {
-		_ = json.Unmarshal([]byte(scopeJSON), &authorizedScope)
+	authorizedScope, scopeErr := authorizedScopeFromSnapshot(scopeJSON)
+	if scopeErr != nil {
+		return coreError(base, "unauthorized", "stored mutation scope is unreadable and cannot be re-authorized", "contact_operator", false), true, nil
 	}
 	if !scopeWithinGrant(authorizedScope, grant) {
 		return coreError(base, "unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false), true, nil

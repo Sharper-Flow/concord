@@ -379,7 +379,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:cf598ab653eb068d864c115c5b84795928c233542e973c7a9a2e093f4d5d4c04",
+      "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
       "evidence": [
         "contracts/agent-lanes.v1.json",
         "internal/store/worker_authority_boundary_test.go",
@@ -1058,7 +1058,7 @@
         "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:3335fb47212561a5a5149ead0ecd79fb277fb4d8740c1750e896b74d5b9b79c4",
+      "sha256": "sha256:a5f0f1cb210c716354f7b17638fb892954c6fafd7bdd81dfeae45ce96b0cc455",
       "evidence": [
         "docs/capability-placement.md",
         "docs/predecessor-operational-coverage.md",
@@ -1571,6 +1571,34 @@
         "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
         "docs/decisions/CD-0026-learning-capture.md",
         "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md"
+      ],
+      "home_domain_id": "product-root:concord"
+    },
+    {
+      "id": "CD-0054",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0054-routing-policy-host-authority.md",
+      "status": "accepted",
+      "date": "2026-08-21T00:00:00Z",
+      "title": "Routing-policy authority is load-time host state",
+      "summary": "The routing policy loads from CONCORD_ROUTING_POLICY host state with the repo record as default template, failing closed when host state is set but unreadable; the lane registry becomes model-neutral, load-time validation replaces cross-file pinning including adapter-side opencode models existence checks, and the per-attempt digest-bound evidence boundary is unchanged.",
+      "tags": [
+        "routing",
+        "lanes",
+        "host-state"
+      ],
+      "scopes": {
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "domain_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cd06b7d7a1500fb0a18aa63c13da6e34f03aa49230600e51f5a4bca7abfe640e",
+      "evidence": [
+        "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+        "internal/store/routing_policy.go",
+        "adapter/opencode/dispatch.ts"
       ],
       "home_domain_id": "product-root:concord"
     }

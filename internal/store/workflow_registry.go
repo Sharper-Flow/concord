@@ -864,64 +864,74 @@ func uniqueWorkKinds(values []WorkKind) bool {
 	return true
 }
 
+type actionEventShape string
+
+const (
+	shapeCheckpoint    actionEventShape = "checkpoint"
+	shapeTypedSemantic actionEventShape = "typed_semantic"
+	shapeCompletion    actionEventShape = "completion"
+	shapeGeneric       actionEventShape = "generic"
+)
+
 type builtinActionPolicy struct {
 	Consequence   ActionConsequence
 	Approval      ActionApproval
 	ExecutionMode ActionExecutionMode
+	EventShape    actionEventShape
 }
 
-func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode) builtinActionPolicy {
-	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode}
+func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode, shape actionEventShape) builtinActionPolicy {
+	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode, EventShape: shape}
 }
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
-	"record_proposal":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_discovery":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_design":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"approve_contract":       actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
-	"start_execution":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_execution":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"bind_evidence":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"declare_impact":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"link_successor":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"confirm_premise":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
-	"complete":               actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"record_reproduction":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_root_cause":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"start_repair":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"frame_research":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_finding":         actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"revise_candidates":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_report":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_conclusion":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"frame_question":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_research":        actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"record_option":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"start_poc":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"discard_poc":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionCheckpoint),
-	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold),
-	"approve_operation":      actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
-	"start_run":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"add_condition":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"resolve_condition":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"cancel_condition":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"record_health":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance),
-	"rollback_run":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"cleanup_run":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"declare_scope":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"run_analysis":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_analysis":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"start_action":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced),
-	"checkpoint_action":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint),
-	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold),
-	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance),
-	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance),
+	"record_proposal":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"record_discovery":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"record_design":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"approve_contract":       actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, shapeTypedSemantic),
+	"start_execution":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, shapeGeneric),
+	"checkpoint_execution":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, shapeCheckpoint),
+	"bind_evidence":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, shapeTypedSemantic),
+	"declare_impact":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, shapeTypedSemantic),
+	"link_successor":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, shapeTypedSemantic),
+	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, shapeTypedSemantic),
+	"confirm_premise":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, shapeTypedSemantic),
+	"complete":               actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, shapeCompletion),
+	"record_reproduction":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"record_root_cause":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"start_repair":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, shapeGeneric),
+	"checkpoint_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, shapeCheckpoint),
+	"frame_research":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"record_finding":         actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"revise_candidates":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"record_report":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"record_conclusion":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"frame_question":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"record_research":        actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"record_option":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"start_poc":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, shapeGeneric),
+	"checkpoint_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, shapeCheckpoint),
+	"discard_poc":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionCheckpoint, shapeCheckpoint),
+	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, shapeTypedSemantic),
+	"approve_operation":      actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, shapeTypedSemantic),
+	"start_run":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, shapeTypedSemantic),
+	"checkpoint_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, shapeCheckpoint),
+	"add_condition":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"resolve_condition":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"cancel_condition":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"record_health":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"rollback_run":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, shapeTypedSemantic),
+	"cleanup_run":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, shapeTypedSemantic),
+	"declare_scope":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"run_analysis":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, shapeGeneric),
+	"checkpoint_analysis":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, shapeCheckpoint),
+	"start_action":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, shapeGeneric),
+	"checkpoint_action":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, shapeCheckpoint),
+	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, shapeTypedSemantic),
+	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeTypedSemantic),
+	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, shapeGeneric),
+	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, shapeTypedSemantic),
 }
 
 func actionDefinitions(ids []string) []WorkflowActionDefinition {

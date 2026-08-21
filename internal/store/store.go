@@ -43,8 +43,8 @@ type Store struct {
 
 // DatabaseForTesting exposes the raw handle only to tests and fixtures.
 // Production code must use typed store operations so the store owns its
-// transaction and projection boundaries. scripts/check-store-boundary.py
-// enforces this seam.
+// transaction and projection boundaries. boundary_test.go enforces this
+// seam through the toolchain parser.
 func (s *Store) DatabaseForTesting() *sql.DB {
 	if s == nil {
 		return nil

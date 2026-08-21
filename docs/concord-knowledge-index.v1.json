@@ -1625,7 +1625,7 @@
       "evidence": [
         "scripts/check-reachability.py",
         "scripts/check-tx-scope.py",
-        "scripts/check-store-boundary.py"
+        "internal/store/boundary_test.go"
       ],
       "home_domain_id": "product-root:concord",
       "sha256": "sha256:97e9fc349decaa3d3290ce4c8538c30bb3e531b5b93405f7042d20b468497844"

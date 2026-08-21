@@ -215,3 +215,14 @@ func fallbackProjectionSnapshot(t *testing.T, s *Store) string {
 	}
 	return strings.Join([]string{state, role, reason, resolved, readback, digest}, "|")
 }
+
+// preferredModelForLane resolves the active registry's preferred model for a
+// lane's capability class. It is a test convenience for building valid worker
+// evidence without repeating registry lookups.
+func preferredModelForLane(lane LaneDefinition) string {
+	policy, err := LookupRoutingPolicy(lane.CapabilityClass, RoutingPolicyVersion, LoadedRoutingPolicyManifestDigest())
+	if err != nil {
+		panic(err)
+	}
+	return policy.PreferredModel
+}

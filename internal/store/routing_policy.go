@@ -232,12 +232,6 @@ func LoadedRoutingPolicyManifestDigest() string {
 	return activeRoutingPolicyRegistry.digest
 }
 
-func LoadedRoutingPolicyVersion() string {
-	activeRoutingPolicyMu.RLock()
-	defer activeRoutingPolicyMu.RUnlock()
-	return activeRoutingPolicyRegistry.version
-}
-
 func BuiltinRoutingPolicies() []RoutingPolicyDefinition {
 	result := make([]RoutingPolicyDefinition, 0, len(generatedRoutingPolicies))
 	for _, policy := range generatedRoutingPolicies {
@@ -261,14 +255,6 @@ func LookupRoutingPolicy(capabilityClass, version, digest string) (RoutingPolicy
 	activeRoutingPolicyMu.RLock()
 	defer activeRoutingPolicyMu.RUnlock()
 	return activeRoutingPolicyRegistry.Lookup(capabilityClass, version, digest)
-}
-
-func preferredModelForLane(lane LaneDefinition) string {
-	policy, err := LookupRoutingPolicy(lane.CapabilityClass, LoadedRoutingPolicyVersion(), LoadedRoutingPolicyManifestDigest())
-	if err != nil {
-		panic(err)
-	}
-	return policy.PreferredModel
 }
 
 func ValidateRoutingPolicyDefinition(policy RoutingPolicyDefinition) error {

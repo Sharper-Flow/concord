@@ -129,15 +129,25 @@ def test_validator_anchor_for_missing_script_is_rejected() -> None:
     assert_rejected(value, "validator anchor")
 
 
-def test_validator_anchor_for_uninvoked_script_is_rejected() -> None:
-    # `scripts/test-agent-contracts.py` exists in the repo but is invoked by
-    # no required workflow — it is a real script that proves nothing. The
-    # invocation proof must catch it.
-    value = fixture()
-    value["items"][0]["evidence"] = [
-        {"kind": "validator", "value": "scripts/test-agent-contracts.py"}
-    ]
-    assert_rejected(value, "validator anchor is not invoked by a required workflow")
+def test_validator_anchor_for_uninvoked_script_is_rejected(
+    tmp_name: str = "check-orphan-fixture.py",
+) -> None:
+    # A checker that exists but is wired into nothing proves nothing, so the
+    # fixture is a real on-disk script that no required workflow invokes. A
+    # script that gains a workflow invocation cannot serve here; the orphan
+    # must stay synthetic.
+    orphan = Path(__file__).resolve().parents[1] / "scripts" / tmp_name
+    orphan.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    try:
+        value = fixture()
+        value["items"][0]["evidence"] = [
+            {"kind": "validator", "value": f"scripts/{tmp_name}"}
+        ]
+        assert_rejected(
+            value, "validator anchor is not invoked by a required workflow"
+        )
+    finally:
+        orphan.unlink()
 
 
 def test_schema_version_1_0_is_rejected() -> None:

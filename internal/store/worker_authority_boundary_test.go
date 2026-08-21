@@ -400,10 +400,31 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 	})
 }
 
+// The fold rejected kinds the rest of the system accepts, so a workflow action
+// failing with stale_law_revision or domain_overlap could not be recorded.
+// Drive the real fold rather than the closure predicate, so the assertion binds
+// to the layer where the defect bit.
+func TestWorkflowActionFailedAcceptsLawFailureKinds(t *testing.T) {
+	for _, failureKind := range []FailureKind{KindStaleLawRevision, KindDomainOverlap} {
+		t.Run(string(failureKind), func(t *testing.T) {
+			workID := "authority-failed-" + string(failureKind)
+			s, workerRef, _, _ := seedWorkerAtExecution(t, workID)
+			event := actionFailedFixtureWithKind("failed-"+string(failureKind), workID, workerRef, workerRef, "execution", 1, false, failureKind)
+			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}); err != nil {
+				t.Fatalf("current executor %s failure rejected: %v", failureKind, err)
+			}
+		})
+	}
+}
+
 func actionFailedFixture(eventID, workID, eventActor, payloadActor, stepID string, epoch int64, recoverable bool) Event {
+	return actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, stepID, epoch, recoverable, KindTimeout)
+}
+
+func actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, stepID string, epoch int64, recoverable bool, failureKind FailureKind) Event {
 	return workflowEventWithActor(eventID, WorkflowActionFailed, workID, eventActor, map[string]any{
 		"work_id": workID, "expected_version": 10, "resulting_version": 11,
-		"step_id": stepID, "attempt_epoch": epoch, "failure_kind": "timeout", "recoverable": recoverable,
+		"step_id": stepID, "attempt_epoch": epoch, "failure_kind": string(failureKind), "recoverable": recoverable,
 		"actor_ref": payloadActor,
 	})
 }

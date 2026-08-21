@@ -673,6 +673,11 @@
           "value": "internal/store.TestRoutingPolicyMalformedAndIncompleteHostPoliciesNameFailures"
         }
       ]
+    },
+    {
+      "id": "CD-0055",
+      "state": "outstanding",
+      "issue": 302
     }
   ]
 }

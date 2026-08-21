@@ -13,7 +13,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 const dependencyInventoryPath = "docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json"
@@ -61,6 +63,11 @@ type moduleFile struct {
 const (
 	moduleCacheLicenseSource = "module-cache"
 	repositoryLicenseSource  = "repository"
+
+	dependencyInventoryTempPrefix = "TestDependencyEvidenceWorksWithoutGitCheckoutState"
+	hermeticCacheGracePeriod      = 15 * time.Minute
+	// Covers one checkout copy and one module cache with headroom.
+	hermeticCacheMinFreeBytes uint64 = 512 << 20
 )
 
 func offlineGoCommand(args ...string) *exec.Cmd {
@@ -634,10 +641,108 @@ func makeTreeWritable(root string) {
 	})
 }
 
+func sweepStaleDependencyInventoryCaches(now time.Time) {
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		return
+	}
+	cutoff := now.Add(-hermeticCacheGracePeriod)
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), dependencyInventoryTempPrefix) {
+			continue
+		}
+		path := filepath.Join(os.TempDir(), entry.Name())
+		info, err := entry.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		makeTreeWritable(path)
+		_ = os.RemoveAll(path)
+	}
+}
+
+func tempFilesystemFreeBytes() (uint64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(os.TempDir(), &stat); err != nil {
+		return 0, err
+	}
+	if stat.Bavail <= 0 || stat.Bsize <= 0 {
+		return 0, nil
+	}
+	return uint64(stat.Bavail) * uint64(stat.Bsize), nil
+}
+
+func requireHermeticCacheSpace(t *testing.T) {
+	t.Helper()
+	freeBytes, err := tempFilesystemFreeBytes()
+	if err != nil {
+		t.Skipf("unable to measure free space on temp filesystem: %v", err)
+	}
+	if freeBytes < hermeticCacheMinFreeBytes {
+		t.Skipf("temp filesystem has %d bytes free, below the %d-byte threshold for the hermetic dependency-inventory cache", freeBytes, hermeticCacheMinFreeBytes)
+	}
+}
+
+func TestSweepStaleDependencyInventoryCaches(t *testing.T) {
+	now := time.Now()
+	stale, err := os.MkdirTemp(os.TempDir(), dependencyInventoryTempPrefix+"-stale-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeTreeWritable(stale)
+	t.Cleanup(func() {
+		makeTreeWritable(stale)
+		_ = os.RemoveAll(stale)
+	})
+	readonlyDir := filepath.Join(stale, "readonly")
+	if err := os.Mkdir(readonlyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	readonlyFile := filepath.Join(readonlyDir, "cache.zip")
+	if err := os.WriteFile(readonlyFile, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(readonlyDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(readonlyFile, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-(hermeticCacheGracePeriod + time.Hour))
+	if err := os.Chtimes(readonlyFile, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(readonlyDir, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := os.MkdirTemp(os.TempDir(), dependencyInventoryTempPrefix+"-fresh-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		makeTreeWritable(fresh)
+		_ = os.RemoveAll(fresh)
+	})
+
+	sweepStaleDependencyInventoryCaches(now)
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale cache still exists after sweep: %v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh concurrent cache was swept: %v", err)
+	}
+}
+
 func TestDependencyEvidenceWorksWithoutGitCheckoutState(t *testing.T) {
 	if os.Getenv("CONCORD_DEPENDENCY_INVENTORY_CLEAN_CHECKOUT") == "1" {
 		t.Skip("clean-checkout child process")
 	}
+	sweepStaleDependencyInventoryCaches(time.Now())
+	requireHermeticCacheSpace(t)
 	source, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -652,7 +757,7 @@ func TestDependencyEvidenceWorksWithoutGitCheckoutState(t *testing.T) {
 		t.Fatal(err)
 	}
 	freshModuleCache := t.TempDir()
-	defer makeTreeWritable(freshModuleCache)
+	t.Cleanup(func() { makeTreeWritable(freshModuleCache) })
 	compile := exec.Command("go", "test", "./internal/launcher/render/bubbletea")
 	compile.Dir = clean
 	compile.Env = append(os.Environ(),

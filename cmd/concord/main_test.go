@@ -699,6 +699,70 @@ func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
 	}
 }
 
+func TestBackupAndRestoreRoundTripViaCLI(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	if _, err := store.Open(context.Background(), dbPath); err != nil {
+		t.Fatal(err)
+	}
+	backupDir := t.TempDir()
+	destination := filepath.Join(backupDir, "snapshot.db")
+	runBackupRaw := runCLIJSON(t, []string{"backup"}, map[string]any{"destination": destination})
+	var backupManifest struct {
+		SchemaVersion  int    `json:"schema_version"`
+		SnapshotID     string `json:"snapshot_id"`
+		BinaryVersion  string `json:"binary_version"`
+		IntegrityCheck string `json:"integrity_check"`
+	}
+	if err := json.Unmarshal(runBackupRaw, &backupManifest); err != nil {
+		t.Fatalf("backup response is not a manifest: %v; raw=%s", err, runBackupRaw)
+	}
+	if backupManifest.SchemaVersion < 1 || backupManifest.SnapshotID == "" || backupManifest.IntegrityCheck != "ok" {
+		t.Fatalf("backup manifest fields = %+v, want verified snapshot", backupManifest)
+	}
+
+	restoreHome := t.TempDir()
+	restoreParent := filepath.Join(restoreHome, "concord")
+	if err := os.MkdirAll(restoreParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	restoreDestination := filepath.Join(restoreParent, "concord.db")
+	runRestoreRaw := runCLIJSON(t, []string{"restore"}, map[string]any{"source": destination, "destination": restoreDestination})
+	var restoreManifest struct {
+		SchemaVersion  int    `json:"schema_version"`
+		SnapshotID     string `json:"snapshot_id"`
+		BinaryVersion  string `json:"binary_version"`
+		IntegrityCheck string `json:"integrity_check"`
+	}
+	if err := json.Unmarshal(runRestoreRaw, &restoreManifest); err != nil {
+		t.Fatalf("restore response is not a manifest: %v; raw=%s", err, runRestoreRaw)
+	}
+	if restoreManifest.SnapshotID != backupManifest.SnapshotID || restoreManifest.IntegrityCheck != "ok" {
+		t.Fatalf("restore manifest = %+v, want snapshot matching backup", restoreManifest)
+	}
+	if _, err := os.Stat(restoreDestination); err != nil {
+		t.Fatalf("restore destination file is missing: %v", err)
+	}
+}
+
+func TestRestoreRefusesLiveDatabaseDestination(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	if _, err := store.Open(context.Background(), dbPath); err != nil {
+		t.Fatal(err)
+	}
+	backupDir := t.TempDir()
+	destination := filepath.Join(backupDir, "snapshot.db")
+	runCLIJSON(t, []string{"backup"}, map[string]any{"destination": destination})
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"restore"}, strings.NewReader(fmt.Sprintf(`{"source":%q,"destination":%q}`, destination, dbPath)), &out, &errOut); code != 1 {
+		t.Fatalf("restore to live db exit=%d, want 1; stderr=%q", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "live database path") {
+		t.Fatalf("restore diagnostic = %q, want live database path refusal", errOut.String())
+	}
+}
+
 func assertChangedRefVersion(t *testing.T, raw []byte, entityKind, id, version string) {
 	t.Helper()
 	if got := changedRefVersion(t, raw, entityKind, id); got != mustParseVersion(t, version) {

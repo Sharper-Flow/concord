@@ -648,6 +648,19 @@
           "value": "scripts/test-release.py"
         }
       ]
+    },
+    {
+      "id": "fc7-blackbox-acceptance",
+      "condition": "fc7",
+      "title": "A packaged black-box acceptance path exercises the shipped product end to end",
+      "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport — bootstrap, grant, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility — importing no internal Go packages.",
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "validator",
+          "value": "scripts/test-blackbox-acceptance.py"
+        }
+      ]
     }
   ]
 }

@@ -58,7 +58,6 @@
         "internal/store.projectionColumns",
         "internal/store.readWorkflowStalenessWarnings",
         "internal/store.setContains",
-        "internal/store.workflowReplayContext",
         "internal/store.workflowResumePreflight",
         "internal/store.workflowResumePreflightWithRegistry",
         "internal/store.workflowStartPreflight",
@@ -66,35 +65,6 @@
         "internal/store.writeHashValue"
       ],
       "reason": "CD-0013 D11 keeps the public workflow-action surface reserved until the engine registers and ships, so no CLI verb reaches the engine by design. The engine itself is not unproven: the 48-scenario corpus in scenarios/workflow-engine.v1.json executes it against authoritative state. Exposing it is the act that makes these reachable."
-    },
-    {
-      "id": "backup-restore-no-operator-verb",
-      "state": "outstanding",
-      "functions": [
-        "internal/store.Backup",
-        "internal/store.BackupWithOptions",
-        "internal/store.RestoreBackup",
-        "internal/store.VerifyBackup",
-        "internal/store.cloneStringMap",
-        "internal/store.contextErr",
-        "internal/store.fileSHA256",
-        "internal/store.foreignKeyCheck",
-        "internal/store.isRetryableBackupError",
-        "internal/store.manifestPath",
-        "internal/store.newSnapshotID",
-        "internal/store.notifyBackupStarted",
-        "internal/store.notifyRestoreStageReady",
-        "internal/store.pragmaSingle",
-        "internal/store.projectionDigest",
-        "internal/store.readBackupManifest",
-        "internal/store.readOnlyDataSource",
-        "internal/store.validateBackupDestination",
-        "internal/store.verifyBackupFile",
-        "internal/store.verifySQLiteTriple",
-        "internal/store.waitBackupRetry",
-        "internal/store.writeBackupManifest"
-      ],
-      "issue": 187
     },
     {
       "id": "point-in-time-reconstruction-no-operator-verb",
@@ -122,10 +92,7 @@
         "internal/store.ReadCompleteResearchPack",
         "internal/store.RecordResearchFindingWithinTx",
         "internal/store.UpdateResearchFinding",
-        "internal/store.UpdateResearchSource",
-        "internal/store.dropActiveResearchRebuildSnapshot",
-        "internal/store.restoreActiveResearchAfterRebuild",
-        "internal/store.snapshotActiveResearchForRebuild"
+        "internal/store.UpdateResearchSource"
       ],
       "reason": "Research authoring reaches the agent surface under CD-0025, but these specific mutation and read paths do not. Which of them the agent surface is meant to expose has not been assessed."
     },
@@ -159,9 +126,7 @@
         "internal/store.BuiltinRoutingPolicies",
         "internal/store.CheckSchemaCompatibility",
         "internal/store.CreateManagedResource",
-        "internal/store.CurrentSchemaVersion",
         "internal/store.MigrateLegacyKnowledgeManifest",
-        "internal/store.RebuildFromLog",
         "internal/store.RebuildKnowledgeIndex",
         "internal/store.ReplaceDomainProjectAttachments",
         "internal/store.ReplaceDomainResourceAttachments",
@@ -170,7 +135,6 @@
         "internal/store.enrichKnowledgeScopes",
         "internal/store.knownSubjectTypes",
         "internal/store.readAppliedMigrations",
-        "internal/store.readEvents",
         "internal/store.rollbackRead",
         "internal/store.tableExists",
         "internal/store.upcastEvent",

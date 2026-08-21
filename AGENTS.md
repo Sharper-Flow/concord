@@ -37,7 +37,8 @@ Small but no longer `--version`-only:
 - JSON-stdin commands: `grant`, `invoke`, worker evidence (`worker-dispatch`,
   `worker-complete`, `worker-fail`), and operator setup (`client register`
   / `policy-update` / `key-rotate` / `revoke`, `product create`, `project
-  create`, `product project-add`, `project locator-add` / `update` / `remove`).
+  create`, `product project-add`, `project locator-add` / `update` / `remove`,
+  `backup`, `restore`).
 
 The `worker-*` verbs record CD-0017 worker attempt evidence and are not agent
 callable. The OpenCode adapter appends them through `adapter/opencode/dispatch.ts`

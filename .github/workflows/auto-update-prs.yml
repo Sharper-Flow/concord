@@ -1,0 +1,56 @@
+name: Auto-update PR branches
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '*/15 * * * *'
+
+concurrency:
+  group: auto-update-prs
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository == 'Sharper-Flow/concord'
+    name: Update branches behind main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Update open pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          updated=0
+          skipped=0
+          failed=0
+
+          if ! prs="$(gh pr list --repo Sharper-Flow/concord --state open --base main --limit 1000 --json number,isDraft,mergeStateStatus)"; then
+            echo "Unable to list open pull requests" >&2
+            exit 1
+          fi
+
+          while IFS= read -r pr; do
+            number="$(jq -r '.number' <<<"$pr")"
+            is_draft="$(jq -r '.isDraft' <<<"$pr")"
+            merge_state="$(jq -r '.mergeStateStatus' <<<"$pr")"
+
+            if [[ "$is_draft" == "true" || "$merge_state" != "BEHIND" ]]; then
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            if gh pr update-branch "$number" --repo Sharper-Flow/concord; then
+              updated=$((updated + 1))
+            else
+              printf 'Failed to update PR #%s\n' "$number" >&2
+              failed=$((failed + 1))
+            fi
+          done < <(jq -c '.[]' <<<"$prs")
+
+          printf 'Auto-update summary: updated %d, skipped %d, failed %d\n' "$updated" "$skipped" "$failed"

@@ -24,7 +24,11 @@ cd "$repo_root"
 # defaults to GOMAXPROCS, which saturates the machine when several agents run
 # the full tier concurrently.
 full_workers="${OC_TEST_GO_WORKERS:-4}"
-full_timeout="${OC_TEST_FULL_TIMEOUT:-20m}"
+# Measured under this tier's own admission control (-p 4, nice 10): the race
+# suite needs ~38m wall and internal/agent alone runs ~23m, so the default must
+# clear both the gate bound and the per-package go test timeout. CI is not
+# affected; it invokes the underlying commands natively.
+full_timeout="${OC_TEST_FULL_TIMEOUT:-45m}"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -39,7 +43,7 @@ Usage: bin/oc-test <targeted|smoke|conformance|full> [-- <go test args...>]
 
 Environment:
   OC_TEST_GO_WORKERS     full-tier `go test -p` value (default 4)
-  OC_TEST_FULL_TIMEOUT   full-tier wall-clock bound (default 20m)
+  OC_TEST_FULL_TIMEOUT   full-tier wall-clock bound (default 45m)
 USAGE
   exit 64
 }

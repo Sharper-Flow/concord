@@ -281,11 +281,11 @@ func TestS1NavigationFilterHelpRefreshAndS2BackAreReadBounded(t *testing.T) {
 	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.StatusMessage != "" {
 		t.Fatalf("S2=%#v", got)
 	}
-	if p.reads != 3 {
+	if p.reads != 4 {
 		t.Fatalf("selection reads=%d", p.reads)
 	}
 	m.UpdateKey("esc")
-	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 3 {
+	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 4 {
 		t.Fatalf("back screen=%s reads=%d", core.Snapshot().Screen, p.reads)
 	}
 }
@@ -383,14 +383,14 @@ func TestS2S3NavigationRestoresProductSelectionAndScroll(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
-	if core.Snapshot().Screen != launcher.ScreenProduct || p.reads != 2 {
+	if core.Snapshot().Screen != launcher.ScreenProduct || p.reads != 3 {
 		t.Fatalf("S2=%#v reads=%d", core.Snapshot(), p.reads)
 	}
-	m.UpdateKey("tab") // domains -> relations
-	m.UpdateKey("tab") // relations -> ranked
+	m.UpdateKey("tab") // domain -> blocked
+	m.UpdateKey("tab") // blocked -> next
 	m.UpdateKey("j")
 	m.UpdateKey("enter")
-	if core.Snapshot().Screen != launcher.ScreenWork || core.Handoff().WorkID != "work-2" || p.reads != 3 {
+	if core.Snapshot().Screen != launcher.ScreenWork || core.Handoff().WorkID != "work-2" || p.reads != 4 {
 		t.Fatalf("S3=%#v reads=%d", core.Snapshot(), p.reads)
 	}
 	m.UpdateKey("esc")
@@ -430,7 +430,7 @@ func TestS3BackRestoresProductSnapshotCursorAndScrollForEveryBackKey(t *testing.
 	}
 }
 
-func TestKnowledgeIsLazyAndQuerySubmitsExactlyOnce(t *testing.T) {
+func TestS2PanelFocusAndQuerySubmitsExactlyOnce(t *testing.T) {
 	p := &coordinationPort{}
 	core := launcher.New(p)
 	if err := core.Enter(context.Background()); err != nil {
@@ -439,28 +439,25 @@ func TestKnowledgeIsLazyAndQuerySubmitsExactlyOnce(t *testing.T) {
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
 	reads := p.reads
-	m.UpdateKey("tab") // domains -> relations
+	m.UpdateKey("tab") // domain -> blocked
 	if p.reads != reads {
-		t.Fatalf("domains to relations read=%d", p.reads)
+		t.Fatalf("domain to blocked read=%d", p.reads)
 	}
-	m.UpdateKey("tab") // relations -> ranked
+	m.UpdateKey("tab") // blocked -> next
 	if p.reads != reads {
-		t.Fatalf("relation to ranked read=%d", p.reads)
+		t.Fatalf("blocked to next read=%d", p.reads)
 	}
-	m.UpdateKey("tab") // ranked -> knowledge
-	if p.reads != reads+1 || !core.Snapshot().Knowledge.Read {
-		t.Fatalf("knowledge read=%d snapshot=%#v", p.reads, core.Snapshot())
+	m.UpdateKey("tab") // next -> domain
+	if p.reads != reads {
+		t.Fatalf("S2 panel cycling must not read=%d", p.reads)
 	}
-	m.UpdateKey("tab") // knowledge -> domains
-	m.UpdateKey("tab") // domains -> relations
-	m.UpdateKey("tab") // relations -> ranked
 	m.UpdateKey("s")
 	m.Update(keyPress('b', "b", 0))
-	if p.reads != reads+1 {
+	if p.reads != reads {
 		t.Fatalf("query typing read=%d", p.reads)
 	}
 	m.UpdateKey("enter")
-	if p.reads != reads+2 || len(p.requests) == 0 || p.requests[len(p.requests)-1].Kind != launcher.ReadSearch {
+	if p.reads != reads+1 || len(p.requests) == 0 || p.requests[len(p.requests)-1].Kind != launcher.ReadSearch {
 		t.Fatalf("query submit reads=%d requests=%#v", p.reads, p.requests)
 	}
 }
@@ -473,14 +470,14 @@ func TestDisplayedQueryEscRestoresSnapshotCursorAndScroll(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
-	m.UpdateKey("tab") // domains -> relations
-	m.UpdateKey("tab") // relations -> ranked
+	m.UpdateKey("tab") // domain -> blocked
+	m.UpdateKey("tab") // blocked -> next
 	m.UpdateKey("j")
 	m.scroll = 1
 	m.UpdateKey("s")
 	m.Update(keyPress('b', "b", 0))
 	m.UpdateKey("enter")
-	if p.reads != 3 {
+	if p.reads != 4 {
 		t.Fatalf("query must make exactly one port read: %d", p.reads)
 	}
 	m.UpdateKey("esc")
@@ -553,7 +550,7 @@ func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	if called != (launcher.SessionHandoff{ProductID: "product-1"}) {
 		t.Fatalf("S2 handoff=%#v", called)
 	}
-	// S2 opens on the Domain section; two tabs reach the ranked work mode.
+	// S2 opens on the Domain panel; two tabs reach the ranked work mode.
 	m.UpdateKey("tab")
 	m.UpdateKey("tab")
 	m.UpdateKey("enter")
@@ -611,8 +608,94 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 	if strings.Contains(rendered, "COMPONENT ") {
 		t.Fatalf("retired component label still rendered: %q", rendered)
 	}
-	m.UpdateKey("tab") // domains -> relations (work-relation clusters)
-	if !strings.Contains(m.Render(), "CLUSTER 1:") {
+	if !strings.Contains(rendered, "CLUSTER 1:") {
 		t.Fatalf("work-relation cluster label missing after rename: %q", m.Render())
+	}
+}
+
+func TestS2AnswerStackAdapterRendersPanelsInContractOrderAndKeepsSummariesStable(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
+		PanelFocus: launcher.S2PanelDomain,
+		Domains:    launcher.DomainSection{Read: true, State: "authoritative", Overlaps: []launcher.OverlapPair{{From: "w-a", To: "w-b", State: "absent", SharedDomains: []string{"d-law"}}}},
+		Ranked:     []launcher.RankedWork{{ID: "w-store", Title: "Stored order", Blocked: true, Blockers: []launcher.Blocker{{ID: "b-store", Authority: "law"}}}, {ID: "w-second", Title: "Not first", Ready: true}},
+	}
+	core := launcher.New(nil)
+	core.RestoreSnapshot(snapshot)
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	rendered := m.Render()
+	for _, want := range []string{"OVERLAP w-a & w-b domains=d-law resolution=absent", "BLOCKED: w-store Stored order marker=!BLOCKED blockers=b-store[law]", "NEXT: !BLOCKED w-store Stored order"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("initial stack line missing %q: %q", want, rendered)
+		}
+	}
+	if strings.Index(rendered, "DOMAIN:") > strings.Index(rendered, "BLOCKED:") || strings.Index(rendered, "BLOCKED:") > strings.Index(rendered, "NEXT:") {
+		t.Fatalf("panel order changed: %q", rendered)
+	}
+	m.UpdateKey("tab")
+	m.UpdateKey("tab")
+	rendered = m.Render()
+	for _, want := range []string{"DOMAIN: unresolved overlap: w-a & w-b domains=d-law resolution=absent", "BLOCKED: w-store Stored order marker=!BLOCKED blockers=b-store[law]", "1 !BLOCKED w-store Stored order"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("summary missing %q: %q", want, rendered)
+		}
+	}
+}
+
+func TestS2AnswerStackAdapterRedrawIsByteIdentical(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
+		Domains: launcher.DomainSection{Read: true, State: "authoritative"},
+		Ranked:  []launcher.RankedWork{{ID: "w-1", Title: "Next", Ready: true}},
+	})
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	if first, second := m.Render(), m.Render(); first != second {
+		t.Fatalf("unchanged S2 state rendered different bytes")
+	}
+}
+
+func TestS2AnswerStackSummaryLinesStayWithin80ColumnsAndUnavailableDiffersFromClean(t *testing.T) {
+	for _, state := range []launcher.DomainSection{
+		{Read: true, State: "authoritative"},
+		{Read: true, State: "unavailable", Reason: "registry unavailable"},
+	} {
+		core := launcher.New(nil)
+		core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", PanelFocus: launcher.S2PanelNext, Domains: state, Ranked: []launcher.RankedWork{{ID: "w-1", Title: strings.Repeat("x", 200), Ready: true}}})
+		m := New(core, context.Background(), Profile{})
+		m.Sync()
+		rendered := m.Render()
+		for _, line := range strings.Split(rendered, "\n") {
+			if width := lipgloss.Width(line); width > 80 {
+				t.Fatalf("line width=%d: %q", width, line)
+			}
+		}
+		if state.State == "unavailable" && !strings.Contains(rendered, "DOMAIN: unavailable: registry unavailable") {
+			t.Fatalf("typed unavailable reason missing: %q", rendered)
+		}
+		if state.State == "authoritative" && !strings.Contains(rendered, "DOMAIN: no unresolved overlaps") {
+			t.Fatalf("evaluated-clean summary missing: %q", rendered)
+		}
+	}
+}
+
+func TestS2TabFocusAndS3TabSectionBehaviour(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, Section: launcher.SectionDomains, Domains: launcher.DomainSection{Read: true, State: "authoritative"}})
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	for _, want := range []launcher.S2Panel{launcher.S2PanelBlocked, launcher.S2PanelNext, launcher.S2PanelDomain} {
+		m.UpdateKey("tab")
+		if got := core.PanelFocus(); got != want {
+			t.Fatalf("S2 focus=%q, want %q", got, want)
+		}
+	}
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenWork, Section: launcher.SectionRelations, Detail: launcher.WorkDetail{Knowledge: launcher.KnowledgeSection{Read: true}}})
+	m.Sync()
+	m.UpdateKey("tab")
+	if got := core.Section(); got != launcher.SectionRanked {
+		t.Fatalf("S3 Tab changed to %q, want next existing section", got)
 	}
 }

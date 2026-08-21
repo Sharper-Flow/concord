@@ -42,7 +42,7 @@ func TestModelReadsOnlyOnEntrySubmitAndRefresh(t *testing.T) {
 	}
 }
 
-func TestSelectingProductReadsS2OnceAndBackDoesNotRead(t *testing.T) {
+func TestSelectingProductReadsS2DataAndBackDoesNotRead(t *testing.T) {
 	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
 	model := New(port)
 	if err := model.Enter(context.Background()); err != nil {
@@ -61,8 +61,8 @@ func TestSelectingProductReadsS2OnceAndBackDoesNotRead(t *testing.T) {
 	if got := model.Snapshot(); got.Screen != ScreenPortfolio || got.AmbientProduct != "" {
 		t.Fatalf("back snapshot = %#v", got)
 	}
-	if len(port.requests) != 2 {
-		t.Fatalf("selection/back read count = %d, want 2", len(port.requests))
+	if len(port.requests) != 3 {
+		t.Fatalf("selection/back read count = %d, want 3", len(port.requests))
 	}
 }
 
@@ -190,7 +190,7 @@ func TestSelectingProductOpensOnDomainSection(t *testing.T) {
 	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
 		t.Fatal(err)
 	}
-	if len(port.requests) != 2 || port.requests[1].Kind != ReadDomains || port.requests[1].Section != SectionDomains {
+	if len(port.requests) != 3 || port.requests[1].Kind != ReadDomains || port.requests[1].Section != SectionDomains || port.requests[2].Kind != ReadKnowledge {
 		t.Fatalf("S2 entry requests=%#v", port.requests)
 	}
 	if got := model.Snapshot(); got.Section != SectionDomains || len(got.Domains.Domains) != 1 || !got.Domains.Domains[0].Home {

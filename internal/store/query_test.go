@@ -183,8 +183,14 @@ func TestLauncherProductDepthThreeRepresentativeP99(t *testing.T) {
 	}
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p99 := durations[(99*len(durations)+99)/100-1]
-	t.Logf("C17 S2 depth-3 representative P99=%s target=100ms population=100 work items, 99 structural edges, samples=%d", p99, samples)
-	if p99 > 100*time.Millisecond {
+	if !representativeP99WithinTarget(
+		t,
+		"C17 S2 depth-3 representative",
+		p99,
+		100*time.Millisecond,
+		"100 work items, 99 structural edges",
+		samples,
+	) {
 		t.Fatalf("C17 S2 depth-3 representative P99=%s exceeds 100ms target", p99)
 	}
 }

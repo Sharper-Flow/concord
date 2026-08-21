@@ -2024,7 +2024,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	var response Envelope
 	var resultRejected bool
 	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
-		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: capabilityForMutation(r.Tool), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+		if !registered {
+			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
+		}
+		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
@@ -2250,20 +2254,6 @@ func idempotencyKey(raw []byte) string {
 func marshalEventIDs(ids []string) string { b, _ := json.Marshal(ids); return string(b) }
 func storeIdempotencyConflict(operation, key string) error {
 	return store.IdempotencyConflict(operation, key)
-}
-func capabilityForMutation(tool string) Capability {
-	switch tool {
-	case "concord_work_define":
-		return "work_define"
-	case "concord_work_transition":
-		return "work_transition"
-	case "concord_work_relate":
-		return "work_relate"
-	case "concord_work_initiative":
-		return "work_initiative"
-	default:
-		return "work_compact"
-	}
 }
 
 func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEndpoints []string, intents []NextIntent) mutationEffect {

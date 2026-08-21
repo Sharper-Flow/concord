@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "source": {
     "path": "docs/priorities.md",
     "section": "First-usable floor"
@@ -53,9 +53,14 @@
       "requirement": "The operator can reach portfolio rows, a Product drill-down, and a single Work item from the terminal launcher without leaving it.",
       "state": "satisfied",
       "evidence": [
-        "internal/launcher/model.go",
-        "internal/launcher/render/bubbletea/model.go",
-        "docs/terminal-launcher-contract.md"
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestProductAndWorkProjectionCarriesTypedScreenSections"
+        }
       ]
     },
     {
@@ -65,8 +70,14 @@
       "requirement": "The operator can act on a selected Work item by launching an agent session seeded with its identity, without the launcher performing a durable write.",
       "state": "satisfied",
       "evidence": [
-        "internal/launcher/render/bubbletea/model.go",
-        "docs/terminal-launcher-contract.md"
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/sessionboot.TestBuildMatchesCanonicalContinuityPayload"
+        }
       ]
     },
     {
@@ -76,9 +87,14 @@
       "requirement": "Per CD-0021 the operator plans by reaching work in the launcher and opening a session that authors it. An operator-side authoring surface is not required at the floor; work creation keeps one write authority through the grant-gated tool surface.",
       "state": "satisfied",
       "evidence": [
-        "docs/decisions/CD-0021-floor-condition-1-scope.md",
-        "docs/terminal-launcher-contract.md",
-        "internal/launcher/render/bubbletea/model.go"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestDispatchCaptureCreatesWorkAndMembershipsAtomically"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestProductOnlySessionRemainsIdentityOnly"
+        }
       ]
     },
     {
@@ -88,9 +104,14 @@
       "requirement": "Per CD-0021 'across the full Product scope' means every Product is reachable from the launcher, which the S1 portfolio delivers. Cross-Product result sets stay excluded by C18 section 12 anti-requirement 11 and are not part of the floor.",
       "state": "satisfied",
       "evidence": [
-        "docs/decisions/CD-0021-floor-condition-1-scope.md",
-        "docs/terminal-launcher-contract.md",
-        "internal/launcher/model.go"
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestModelReadsOnlyOnEntrySubmitAndRefresh"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher"
+        }
       ]
     },
     {
@@ -100,10 +121,18 @@
       "requirement": "The launcher opens Product detail through a bounded Domain hierarchy and shows current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap before subordinate work or Initiative views.",
       "state": "satisfied",
       "evidence": [
-        "internal/launcher/storeport/port.go",
-        "internal/launcher/render/bubbletea/model.go",
-        "internal/store/launcher_query.go",
-        "docs/terminal-launcher-contract.md"
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestSelectingProductOpensOnDomainSection"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestS2NoUnresolvedOverlapIsDistinctFromUnavailable"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection"
+        }
       ]
     },
     {
@@ -113,9 +142,14 @@
       "requirement": "The four accepted TS3 read tools are exposed in the generated surface and dispatch to store projections.",
       "state": "satisfied",
       "evidence": [
-        "contracts/agent-tool-surface.v1.json",
-        "internal/agent/runtime.go",
-        "docs/agent-read-tool-contract.md"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestDispatchProductResolveReturnsGeneratedPayload"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-contracts.py"
+        }
       ]
     },
     {
@@ -125,9 +159,14 @@
       "requirement": "The four accepted TS4 mutation tools are exposed and dispatch through the authorized mutation path.",
       "state": "satisfied",
       "evidence": [
-        "contracts/agent-tool-surface.v1.json",
-        "internal/agent/mutations.go",
-        "docs/agent-mutation-tool-contract.md"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestDispatchCaptureCreatesWorkAndMembershipsAtomically"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-contracts.py"
+        }
       ]
     },
     {
@@ -137,9 +176,14 @@
       "requirement": "Every invocation resolves a core-issued grant to a principal and capability set; consequential mutations require a durable approval bound to operation digest, scope, and expected versions. Caller prose and self-asserted booleans confer no authority.",
       "state": "satisfied",
       "evidence": [
-        "internal/agent/authority.go",
-        "internal/store/schema.go",
-        "docs/agent-call-context-contract.md"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestApprovalConsumptionIsTransactionBoundAndSingleUse"
+        }
       ]
     },
     {
@@ -149,8 +193,10 @@
       "requirement": "The accepted TS6 adapter exposes the tool surface to the host and validates envelopes and identity only, leaving domain semantics in the core.",
       "state": "satisfied",
       "evidence": [
-        "adapter/opencode/concord.ts",
-        "docs/agent-adapter-transport-contract.md"
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-contracts.py"
+        }
       ]
     },
     {
@@ -160,8 +206,10 @@
       "requirement": "An outdated but semantically unchanged scope permits a read with an explicit refreshed version, while a mutation on outdated scope fails before any effect. Ownership change or new ambiguity fails all Product-scoped calls.",
       "state": "satisfied",
       "evidence": [
-        "internal/agent/context_freshness_test.go",
-        "internal/agent/runtime.go"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect"
+        }
       ]
     },
     {
@@ -171,9 +219,10 @@
       "requirement": "The accepted TS1 agent-jobs corpus runs in CI against the real dispatch path, every scenario is structurally validated at the harness level, and no scenario can be silently skipped: the test fails when a scenario is in neither the bindings nor the deferral registry, and the deferral registry is structurally pinned to the TS1 scenario set.",
       "state": "satisfied",
       "evidence": [
-        "internal/agent/agent_jobs_corpus_test.go",
-        "scripts/check-agent-jobs.py",
-        "contracts/agent-jobs-scenarios.schema.json"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentJobsCorpus"
+        }
       ]
     },
     {
@@ -183,9 +232,10 @@
       "requirement": "All 23 TS1 scenarios are bound (not deferred) and pass against the real dispatch path.",
       "state": "satisfied",
       "evidence": [
-        "internal/agent/agent_jobs_corpus_test.go",
-        "internal/agent/agent_jobs_operational_bindings_test.go",
-        "scenarios/agent-jobs.v1.json"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentJobsCorpus"
+        }
       ]
     },
     {
@@ -195,11 +245,18 @@
       "requirement": "Agent reads and mutations resolve the Product Git home's canonical Domain registry, law homes, and typed local attachments without accepting legacy component identity as new authority.",
       "state": "satisfied",
       "evidence": [
-        "docs/concord-knowledge-index.v1.json",
-        "internal/store/knowledge_manifest.go",
-        "internal/store/domain_attachments.go",
-        "internal/store/domain_projection_test.go",
-        "scripts/check-knowledge-index.py"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-knowledge-index.py"
+        }
       ]
     },
     {
@@ -209,10 +266,14 @@
       "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/domain_reads.go",
-        "internal/agent/runtime.go",
-        "contracts/agent-tool-surface.v1.json",
-        "docs/agent-read-tool-contract.md"
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestRelationTreeResolvesSupersessionChainOnce"
+        }
       ]
     },
     {
@@ -222,9 +283,14 @@
       "requirement": "A code-defined, versioned, digest-pinned registry supplies a workflow definition for each supported work kind plus one generic one-off type, and unknown references fail closed.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/workflow_registry.go",
-        "contracts/workflow-definition.schema.json",
-        "docs/workflows.md"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLatestBuiltinWorkflowProductTruthClassification"
+        }
       ]
     },
     {
@@ -234,9 +300,14 @@
       "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, a verdict authored by a distinct actor, and an operator-class premise confirmation, all in one transaction.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/workflow_completion.go",
-        "internal/store/workflow_conformance_test.go",
-        "docs/decisions/CD-0013-workflow-engine-mechanism.md"
+        {
+          "kind": "scenario",
+          "value": "WF19-completion-one-transaction"
+        },
+        {
+          "kind": "scenario",
+          "value": "WF47-evidence-commit-binding"
+        }
       ]
     },
     {
@@ -246,9 +317,10 @@
       "requirement": "A synthetic scenario drives the registered lanes through one workflow producing typed worker evidence, and only a distinct owner accepts a completed attempt.",
       "state": "satisfied",
       "evidence": [
-        "scenarios/workflow-engine.v1.json",
-        "internal/store/workflow_conformance_test.go",
-        "contracts/workflow-engine-scenarios.schema.json"
+        {
+          "kind": "scenario",
+          "value": "WF48-lane-pipeline-typed-evidence"
+        }
       ]
     },
     {
@@ -258,11 +330,10 @@
       "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The distinctness check compares the readback executing model against the verdict model wherever a definition declares evaluator independence, and fails closed when either model is absent.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/workflow_outcome.go",
-        "internal/store/workflow_completion.go",
-        "internal/store/workflow_registry.go",
-        "internal/store/workflow_model_distinctness_test.go",
-        "contracts/workflow-definition.schema.json"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed"
+        }
       ]
     },
     {
@@ -272,9 +343,10 @@
       "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness evaluates every registered lane through its pinned model, and a deterministic validator fails when the harness drifts from the lane registry.",
       "state": "satisfied",
       "evidence": [
-        "adapter/opencode/evals/promptfooconfig.yaml",
-        "adapter/opencode/evals/packets",
-        "scripts/check-lane-evals.py"
+        {
+          "kind": "validator",
+          "value": "scripts/check-lane-evals.py"
+        }
       ]
     },
     {
@@ -284,8 +356,14 @@
       "requirement": "CD-0017 D4 forbids workers recording step transitions, verdicts, or completion. Worker attempts remain authority-free; negative tests prove self-transition, self-verdict, self-completion, stale-attempt acceptance, failed-attempt acceptance, and model-mismatch acceptance are refused without mutation.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/worker_authority_boundary_test.go",
-        "internal/store/workflow.go"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerAuthorityBoundaryHoldsInBothDirections"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerCannotRecordItsOwnVerdict"
+        }
       ]
     },
     {
@@ -295,11 +373,14 @@
       "requirement": "The workflow registry structurally classifies every definition with `changes_product_truth`; Product-changing contracts require a complete architecture binding, while non-Product-changing and generic work cannot write Product law or architecture.",
       "state": "satisfied",
       "evidence": [
-        "contracts/workflow-definition.schema.json",
-        "internal/store/workflow_registry.go",
-        "internal/store/workflow_registry_test.go",
-        "internal/store/workflow_architecture_binding.go",
-        "internal/store/workflow_architecture_binding_test.go"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDefinitionValidationEnforcesVersionedProductTruthMatrix"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces"
+        }
       ]
     },
     {
@@ -309,9 +390,14 @@
       "requirement": "The current pre-go-live path uses Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/initiative.go",
-        "internal/store/lifecycle.go",
-        "docs/workflows.md"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestInitiativeNarrativeRevisedFoldAndAudit"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestInitiativeEntryPositionIsBoundedAtFoldTime"
+        }
       ]
     },
     {
@@ -321,11 +407,14 @@
       "requirement": "External systems retain authority for their own execution and enforcement. Concord owns workflow coordination (progression, branching, retries, evidence, recovery, composition) while native systems (git, CI, cloud, database, service-manager operations) retain their own execution and enforcement authority. Worker attempts cannot create workflow authority; preflight authorization occurs at every cross-authority or external-effect boundary; external-effect steps drive native systems through typed consequence classes and never reimplement them.",
       "state": "satisfied",
       "evidence": [
-        "docs/decisions/CD-0006-concord-root-product-policy.md",
-        "docs/decisions/CD-0013-workflow-engine-mechanism.md",
-        "internal/store/worker_authority_boundary_test.go",
-        "internal/store/worktrees.go",
-        "internal/store/workflow_preflight.go"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerEventKindsAreNotWorkflowAuthority"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestAcceptWorkerResultRejectsWithoutMutation"
+        }
       ]
     },
     {
@@ -335,8 +424,10 @@
       "requirement": "Capability class, resolved scope, expected entity versions, and approval class are declared per operation and validated by the core rather than inferred from caller input.",
       "state": "satisfied",
       "evidence": [
-        "internal/agent/authority.go",
-        "docs/agent-call-context-contract.md"
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+        }
       ]
     },
     {
@@ -346,9 +437,14 @@
       "requirement": "Workflows declare typed impact edges with hard/soft class and severity; consequential actions consult impact notices through one bounded query before executing.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/schema.go",
-        "internal/store/workflow_preflight.go",
-        "internal/store/workflow_conformance_test.go"
+        {
+          "kind": "scenario",
+          "value": "WF29-impact-notice-identity"
+        },
+        {
+          "kind": "scenario",
+          "value": "WF30-breaking-dependent-block"
+        }
       ]
     },
     {
@@ -358,10 +454,10 @@
       "requirement": "Completion computes inbound dependents, records work-item-keyed notices with an explicit breaking verdict, and blocks only hard plus breaking while advisory combinations remain non-blocking.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/workflow_impact_propagation_test.go",
-        "internal/store/workflow_completion.go",
-        "internal/store/workflow_preflight.go",
-        "scenarios/workflow-engine.v1.json"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass"
+        }
       ]
     },
     {
@@ -371,8 +467,14 @@
       "requirement": "Blocking staleness rules whose bound input has drifted prevent completion; warning rules surface without blocking.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/workflow_completion.go",
-        "internal/store/workflow_staleness.go"
+        {
+          "kind": "scenario",
+          "value": "WF40-staleness-block"
+        },
+        {
+          "kind": "scenario",
+          "value": "WF41-staleness-warning-recorded"
+        }
       ]
     },
     {
@@ -382,11 +484,14 @@
       "requirement": "Two nonterminal Product-changing contracts with intersecting affected Domains cannot both hold execution authority without a current operator-approved resolution pinned to both contract versions, and every consequential mutation revalidates it transactionally.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/workflow_domain_overlap.go",
-        "internal/store/workflow_domain_overlap_test.go",
-        "internal/store/workflow_preflight.go",
-        "internal/store/workflow_completion.go",
-        "internal/agent/mutations.go"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDomainOverlapCrossProcessWorker"
+        }
       ]
     },
     {
@@ -396,9 +501,14 @@
       "requirement": "Domain events are the authority and typed projections are derived in the same transaction. Corrections append; history is not hand-repaired.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/schema.go",
-        "docs/product-memory-domain-schema.md",
-        "docs/decisions/CD-0002-concord-state-authority.md"
+        {
+          "kind": "scenario",
+          "value": "WF35-rebuild-byte-equal"
+        },
+        {
+          "kind": "scenario",
+          "value": "WF36-point-in-time-reconstruction"
+        }
       ]
     },
     {
@@ -408,9 +518,10 @@
       "requirement": "A production-like multi-process harness on the isolated acceptance population reports zero escaped busy failures, zero lost effects, zero unexpected duplicates, and zero invariant violations, with writer-admission wait, commit duration, and wall time measured separately and sustained P99 at or below the accepted target. Correctness precedes latency: a failed correctness population forces an inconclusive verdict and fails the run.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/conformance_test.go",
-        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
-        "docs/decisions/CD-0045-writer-admission-invariant.md"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestTenProcessAcceptanceConformance"
+        }
       ]
     },
     {
@@ -420,7 +531,14 @@
       "requirement": "A schema or workflow-definition change lands without corrupting or stranding work already in progress, and historical events remain readable across the change.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/inflight_evolution_test.go"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestInFlightWorkflowSurvivesSchemaMigration"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestInFlightWorkflowSurvivesDefinitionVersionSupersession"
+        }
       ]
     },
     {
@@ -430,11 +548,14 @@
       "requirement": "Canonical Domain registries, law homes, typed attachments, and their knowledge-index projections validate and rebuild from the accepted Git/event authorities without introducing a second Domain or law authority.",
       "state": "satisfied",
       "evidence": [
-        "internal/store/knowledge_manifest.go",
-        "internal/store/knowledge_manifest_test.go",
-        "internal/store/domain_attachments.go",
-        "internal/store/domain_attachments_test.go",
-        "internal/store/reconstruction.go"
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestReplaceDomainProjectAttachmentsRejectsCrossProductProjectAndStaleSet"
+        }
       ]
     },
     {
@@ -444,7 +565,10 @@
       "requirement": "An authorizing artifact names the operational capabilities the predecessor provides, described by territory rather than by command shape, so Concord coverage can be judged against it.",
       "state": "satisfied",
       "evidence": [
-        "docs/predecessor-operational-coverage.md"
+        {
+          "kind": "validator",
+          "value": "scripts/check-predecessor-coverage.py"
+        }
       ]
     },
     {
@@ -454,14 +578,10 @@
       "requirement": "Every enumerated predecessor capability in docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered. This is issue #108's acceptance bar, restated here because the original wording (\"covered, not covered, or excluded\") was trivially satisfied by any table state and contradicted this item's outstanding status. Met 2026-08-15: 57 covered, 0 not covered, 8 excluded.",
       "state": "satisfied",
       "evidence": [
-        "docs/predecessor-operational-coverage.md",
-        "docs/decisions/CD-0021-floor-condition-1-scope.md",
-        "docs/decisions/CD-0023-verdict-read-scope.md",
-        "docs/decisions/CD-0024-epic-agent-surface-and-ts9-exception.md",
-        "docs/decisions/CD-0025-research-surface.md",
-        "docs/decisions/CD-0026-learning-capture.md",
-        "docs/decisions/CD-0027-typed-restart-excluded.md",
-        "docs/decisions/CD-0028-resource-claims.md"
+        {
+          "kind": "validator",
+          "value": "scripts/check-predecessor-coverage.py"
+        }
       ]
     },
     {
@@ -471,8 +591,10 @@
       "requirement": "Any predecessor surface Concord consumes as evidence is identified, and its stability is assessed against the reliance placed on it.",
       "state": "satisfied",
       "evidence": [
-        "docs/predecessor-operational-coverage.md",
-        "docs/decisions/CD-0010-pre-readiness-development-authority.md"
+        {
+          "kind": "validator",
+          "value": "scripts/check-predecessor-coverage.py"
+        }
       ]
     },
     {
@@ -482,10 +604,10 @@
       "requirement": "Release artifacts are produced by an automated release pipeline that computes a semver tag from Conventional Commits, builds the Linux amd64 binary with the version ldflag, packages the adapter and skills, generates a SPDX SBOM, produces a SHA-256 checksum manifest, and attests provenance for every uploaded asset. The pipeline is exercised by unit tests pinned to the workflow YAML.",
       "state": "satisfied",
       "evidence": [
-        "scripts/release.py",
-        "scripts/test-release.py",
-        ".github/workflows/release.yml",
-        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
+        {
+          "kind": "validator",
+          "value": "scripts/test-release.py"
+        }
       ]
     },
     {
@@ -495,9 +617,10 @@
       "requirement": "The Concord-owned idempotent installer verifies the published SHA-256 checksum and archive before changing the operator's data, binary, adapter, or OpenCode configuration paths, and supports install, upgrade, and uninstall. The installer's behavior is exercised by unit tests covering checksum verification, archive extraction, and version selection.",
       "state": "satisfied",
       "evidence": [
-        "scripts/install.py",
-        "scripts/test-installer.py",
-        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
+        {
+          "kind": "validator",
+          "value": "scripts/test-installer.py"
+        }
       ]
     },
     {
@@ -507,8 +630,10 @@
       "requirement": "The public-content boundary is enforced by a repository-scanning validator that rejects private Product/customer data, personal filesystem paths, machine names, private network details, credentials, and unreachable private citations. The validator runs in CI; CD-0007's privacy and provenance requirements are sourced from this item.",
       "state": "satisfied",
       "evidence": [
-        "scripts/check-public-content.py",
-        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
+        {
+          "kind": "validator",
+          "value": "scripts/check-public-content.py"
+        }
       ]
     },
     {
@@ -518,8 +643,23 @@
       "requirement": "Linux amd64 is the only supported v1 platform in CD-0007 D5, and the release pipeline produces a single Linux amd64 binary with `CGO_ENABLED=0`, archives it with a deterministic tar, and excludes any other platform. The artifact verification step runs the binary in CI to confirm its reported version matches the published tag.",
       "state": "satisfied",
       "evidence": [
-        ".github/workflows/release.yml",
-        "docs/decisions/CD-0007-concord-repository-bootstrap.md"
+        {
+          "kind": "validator",
+          "value": "scripts/test-release.py"
+        }
+      ]
+    },
+    {
+      "id": "fc7-blackbox-acceptance",
+      "condition": "fc7",
+      "title": "A packaged black-box acceptance path exercises the shipped product end to end",
+      "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport — bootstrap, grant, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility — importing no internal Go packages.",
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "validator",
+          "value": "scripts/test-blackbox-acceptance.py"
+        }
       ]
     }
   ]

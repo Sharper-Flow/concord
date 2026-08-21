@@ -116,6 +116,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
+	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
+	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 }
 
 func routeCommand(args []string) (string, []string, bool) {
@@ -791,6 +793,47 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "backup":
+		var request struct {
+			Destination string `json:"destination"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if request.Destination == s.Path() {
+			writeOperatorDiagnostic(errOut, command, "backup destination equals the live database path; choose a separate snapshot path")
+			return 1
+		}
+		manifest, err := store.Backup(ctx, s, request.Destination)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if _, err := store.VerifyBackup(ctx, request.Destination); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeJSON(out, manifest, errOut)
+	case "restore":
+		var request struct {
+			Source      string `json:"source"`
+			Destination string `json:"destination"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if request.Destination == s.Path() {
+			writeOperatorDiagnostic(errOut, command, "restore destination equals the live database path; restore to a new path and swap")
+			return 1
+		}
+		manifest, err := store.RestoreBackup(ctx, request.Source, request.Destination)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeJSON(out, manifest, errOut)
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2

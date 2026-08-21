@@ -28,17 +28,20 @@ authority drifts silently, which is the failure
 non-authorizing.
 
 Authority here comes from mechanical checking rather than assertion. The
-validator rejects a satisfied item whose evidence path does not exist, an
-outstanding item with no tracking issue, and an unmeasured item with no reason.
-An item cannot claim satisfaction against a deleted file, and a floor condition
-cannot silently carry no items at all. The first run of the validator against
-the first draft of the manifest rejected a fabricated decision-record path.
+validator rejects a satisfied item whose evidence does not resolve to an
+executable check, an outstanding item with no tracking issue, and an
+unmeasured item with no reason. A floor condition cannot silently carry no
+items at all. The first run of the validator against the first draft of the
+manifest rejected a fabricated decision-record path; the schema-2.0 tightening
+now rejects a satisfied item whose evidence is anything other than an anchor
+that resolves and — for executable anchors — that a required workflow
+actually invokes.
 
 ## Contract
 
 The manifest has only `schema_version`, `source`, `conditions`, and `items`.
-Unknown fields, duplicate keys, duplicate IDs, and duplicate evidence paths are
-invalid.
+Unknown fields, duplicate keys, duplicate IDs, and duplicate evidence entries
+are invalid.
 
 A condition has a closed `fcN` identifier, an ordinal that must agree with that
 identifier, and a title. Ordinals are contiguous from 1. Every declared
@@ -50,14 +53,30 @@ checked rather than agreed with. State-dependent fields are exclusive:
 
 | State | Requires | Forbids |
 |---|---|---|
-| `satisfied` | at least one existing repository evidence path | `issue`, `reason` |
+| `satisfied` | at least one executable anchor that resolves and — for `validator` anchors — is invoked by a required workflow | `issue`, `reason` |
 | `outstanding` | a public tracking issue number | `evidence`, `reason` |
 | `unmeasured` | a reason | `evidence`, `issue` |
 | `out_of_scope` | a reason | `evidence`, `issue` |
 
-Evidence paths are repository-relative, contain no parent traversal, and must
-exist. Issue numbers are validated as bounded integers, not resolved over the
-network; CI performs no lookups.
+A satisfied item's `evidence` is a bounded array of anchor objects. Each
+anchor carries a closed `{kind, value}` pair from the closed set `{go_test,
+scenario, validator, generated}` and is resolved by the shared
+`scripts/evidence_anchors.py` machinery — the same machinery the
+law-coverage plane uses, so the proof layer is single-sourced. A `go_test`
+anchor names `<package>.<TestName>` and resolves when the test is declared in
+that package (a required CI step runs `go test ./...`). A `scenario` anchor
+names a corpus id and resolves when the id appears in a corpus file under
+`scenarios/` and nothing in `internal/` defers it. A `validator` anchor names
+`scripts/(check|test)-<name>.py` and resolves when the script exists and a
+required workflow (`.github/workflows/ci.yml` or
+`.github/workflows/release.yml`) invokes it directly or via
+`scripts/check-json.py`. A `generated` anchor names `<path>#<symbol>` and
+resolves when the symbol lives in a file whose leading comment carries the
+generator marker.
+
+Paths are not evidence: a satisfied item cannot be established from a cited
+repository path alone. Issue numbers are validated as bounded integers, not
+resolved over the network; CI performs no lookups.
 
 ## Reading the states
 

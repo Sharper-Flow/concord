@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Validate Concord's authorizing first-usable-floor readiness manifest."""
+"""Validate Concord's authorizing first-usable-floor readiness manifest.
+
+A satisfied item must cite at least one anchor from the shared `evidence_anchors`
+machinery — `go_test`, `scenario`, `validator`, or `generated`. A repository
+path is not an anchor: paths are exactly what the old validator accepted, and
+accepting them here would restate the defect in new syntax (issue #187). A
+satisfied claim is only as load-bearing as the executable check that backs
+it, so the validator proves the anchor resolves and, for the executable kinds,
+that a required workflow invokes it.
+
+Everything else — condition correspondence, source copying, state exclusivity,
+ordinals, and path safety for `issue`/`reason`-free items — is unchanged from
+the 1.0 form; the schema bump to 2.0 only narrows what an evidence reference
+may be.
+"""
 
 from __future__ import annotations
 
@@ -9,8 +23,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from evidence_anchors import check_anchor  # noqa: E402
+
 MANIFEST = ROOT / "docs/floor-readiness.v1.json"
 SCHEMA = ROOT / "contracts/floor-readiness.schema.json"
+SCHEMA_VERSION = "2.0"
 
 ALLOWED_ROOT = {"schema_version", "source", "conditions", "items"}
 ALLOWED_SOURCE = {"path", "section"}
@@ -64,6 +83,15 @@ def safe_repository_path(value: object) -> bool:
         return False
     candidate = Path(value)
     return candidate.as_posix() == value and ".." not in candidate.parts
+
+
+def anchor_dedup_key(anchor: object) -> str | None:
+    """Stable string key for dedup of anchor objects; None when the entry
+    is not a comparable anchor (a string here is rejected downstream, so it
+    is its own kind and dedup is moot)."""
+    if isinstance(anchor, dict):
+        return json.dumps(anchor, sort_keys=True, separators=(",", ":"))
+    return None
 
 
 def validate_source(source: object, findings: list[str], *, root: Path) -> None:
@@ -310,6 +338,33 @@ def validate_conditions(
     return declared, effective_sources
 
 
+def validate_evidence(evidence: object, prefix: str, findings: list[str]) -> bool:
+    """Validate the evidence array for a satisfied item.
+
+    Returns False if the array itself is malformed (length, type) so the
+    caller can skip per-entry checks. Each entry must be an anchor object —
+    a string is a finding per issue #187, "it cannot become satisfied from a
+    cited path alone". Anchors are resolved by the shared `check_anchor`
+    so the proof machinery is the same as the law-coverage plane.
+    """
+    if not isinstance(evidence, list) or not 1 <= len(evidence) <= MAX_EVIDENCE:
+        findings.append(f"{prefix}: satisfied item requires bounded non-empty evidence")
+        return False
+    keys = [anchor_dedup_key(item) for item in evidence]
+    if any(key is None for key in keys):
+        # A non-anchor (string) entry is rejected per element below; dedup is
+        # not meaningful across a mixed array and would mask the rejection.
+        pass
+    elif len(set(keys)) != len(keys):
+        findings.append(f"{prefix}: evidence contains duplicates")
+    for position, anchor in enumerate(evidence):
+        if isinstance(anchor, str):
+            findings.append(f"{prefix}: evidence must be typed anchors, not paths")
+            continue
+        check_anchor(anchor, f"{prefix} anchor {position}", findings)
+    return True
+
+
 def validate_items(raw: object, declared: dict[str, int], findings: list[str], *, root: Path) -> dict[str, int]:
     tally = {state: 0 for state in STATES}
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_ITEMS:
@@ -366,16 +421,7 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str], *
         if state == "satisfied":
             if issue is not None or reason is not None:
                 findings.append(f"{prefix}: satisfied item must not carry issue or reason")
-            if not isinstance(evidence, list) or not 1 <= len(evidence) <= MAX_EVIDENCE:
-                findings.append(f"{prefix}: satisfied item requires bounded non-empty evidence")
-                continue
-            if len(evidence) != len(set(evidence)):
-                findings.append(f"{prefix}: evidence contains duplicates")
-            for reference in evidence:
-                if not safe_repository_path(reference):
-                    findings.append(f"{prefix}: unsafe evidence path: {reference!r}")
-                elif not (root / reference).exists():
-                    findings.append(f"{prefix}: evidence path does not exist: {reference}")
+            validate_evidence(evidence, prefix, findings)
             continue
 
         if evidence is not None:
@@ -411,8 +457,8 @@ def validate(data: object, *, root: Path = ROOT) -> tuple[list[str], dict[str, i
     if missing:
         findings.append(f"manifest: missing fields: {sorted(missing)}")
         return findings, tally
-    if data["schema_version"] != "1.0":
-        findings.append("manifest: schema_version must be 1.0")
+    if data["schema_version"] != SCHEMA_VERSION:
+        findings.append(f"manifest: schema_version must be {SCHEMA_VERSION}")
     validate_source(data["source"], findings, root=root)
     default_source: dict[str, str] | None = None
     if isinstance(data["source"], dict):

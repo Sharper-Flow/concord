@@ -37,7 +37,8 @@ Small but no longer `--version`-only:
 - JSON-stdin commands: `grant`, `invoke`, worker evidence (`worker-dispatch`,
   `worker-complete`, `worker-fail`), and operator setup (`client register`
   / `policy-update` / `key-rotate` / `revoke`, `product create`, `project
-  create`, `product project-add`, `project locator-add` / `update` / `remove`).
+  create`, `product project-add`, `project locator-add` / `update` / `remove`,
+  `backup`, `restore`).
 
 The `worker-*` verbs record CD-0017 worker attempt evidence and are not agent
 callable. The OpenCode adapter appends them through `adapter/opencode/dispatch.ts`
@@ -163,8 +164,10 @@ the table is how coverage state changes; the validator keeps the claim honest.
 
 `docs/floor-readiness.v1.json` is the authorizing record of distance from the
 first-usable floor. Editing it is how readiness state changes — a satisfied item
-requires an existing evidence path, an outstanding item requires a tracking
-issue, and `unmeasured` is a distinct state from incomplete. See
+requires executable evidence anchors (`go_test`, `scenario`, `validator`,
+`generated`) that resolve and are invoked by a required workflow, an
+outstanding item requires a tracking issue, and `unmeasured` is a distinct
+state from incomplete. Paths alone are not evidence. See
 [`docs/floor-readiness.md`](docs/floor-readiness.md).
 
 ## Declared coverage (CD-0047)

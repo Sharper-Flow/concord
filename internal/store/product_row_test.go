@@ -353,8 +353,14 @@ func TestProductRowsC14RepresentativeP99(t *testing.T) {
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p99Index := (99*len(durations)+99)/100 - 1
 	p99 := durations[p99Index]
-	t.Logf("C14 representative P99=%s target=100ms population=100 Products, 200 Projects, 700 work items, 1,400 Project memberships, 200 blocker edges, 100 workflow instances, 100 stage overrides, samples=%d", p99, len(durations))
-	if p99 > 100*time.Millisecond {
+	if !representativeP99WithinTarget(
+		t,
+		"C14 representative",
+		p99,
+		100*time.Millisecond,
+		"100 Products, 200 Projects, 700 work items, 1,400 Project memberships, 200 blocker edges, 100 workflow instances, 100 stage overrides",
+		len(durations),
+	) {
 		t.Fatalf("C14 representative P99=%s exceeds 100ms target", p99)
 	}
 }

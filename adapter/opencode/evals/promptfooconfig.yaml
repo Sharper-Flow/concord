@@ -36,7 +36,7 @@ providers:
     label: lane-implement
     prompts:
       - 'implement/*'
-  - id: 'exec: opencode run --agent concord-review --model zai-coding-plan/glm-5.2 --format json'
+  - id: 'exec: opencode run --agent concord-review --model zai-coding-plan/glm-5.3 --format json'
     label: lane-review
     prompts:
       - 'review/*'

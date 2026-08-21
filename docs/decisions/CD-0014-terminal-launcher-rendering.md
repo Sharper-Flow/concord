@@ -15,7 +15,7 @@ Concord chooses Bubble Tea v2 behind an isolated renderer adapter:
 
 - `charm.land/bubbletea/v2 v2.0.8`
 - `charm.land/bubbles/v2 v2.1.1`
-- `charm.land/lipgloss/v2 v2.0.5`
+- `charm.land/lipgloss/v2 v2.0.6`
 
 The framework-independent launcher model and read port live under
 `internal/launcher`. All Bubble Tea, Bubbles, and Lip Gloss imports live under
@@ -106,7 +106,7 @@ nodes without exact module and `/go.mod` checksums in `go.sum` are not inventory
 entries. Every group records exact versions, roles, accepted license families,
 license-file paths, and SHA-256 hashes; graph-only license files are checked-in
 bounded evidence while runtime/test files remain verified against the actual
-module cache. Its artifact SHA-256 is `82be3ff6cd74533d468031fca8501bebcc04a1c9c8e9d25057b70f3e9514d51f`.
+module cache. Its artifact SHA-256 is `21b7f24afaf656e3c86bd3ec0c51ebd2d5513ae00c59497bdd43f91239196c54`.
 
 The inventory test compares the artifact with both derived closures, validates
 each module's exact `go.sum` module and `/go.mod` checksums, and re-reads each

@@ -20,6 +20,8 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/launcher"
+	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
+	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -189,6 +191,131 @@ func launcherDurableCounts(t *testing.T, s *store.Store) map[string]int {
 		counts[table] = count
 	}
 	return counts
+}
+
+// recordingPort records which read kinds a launcher session actually reached,
+// so a durability assertion cannot pass by never reading at all.
+type recordingPort struct {
+	inner launcher.ReadPort
+	kinds map[launcher.ReadKind]int
+}
+
+func (p *recordingPort) Read(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
+	if p.kinds == nil {
+		p.kinds = map[launcher.ReadKind]int{}
+	}
+	p.kinds[request.Kind]++
+	return p.inner.Read(ctx, request)
+}
+
+func TestFullLauncherSessionAppendsNothingToTheEventLog(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	if code, _, diag := runPredecessorImportRequest(t, dbPath, predecessorImportRequest(t, writeSyntheticSnapshot(t))); code != 0 {
+		t.Fatalf("seed import exit=%d, want 0; stderr=%q", code, diag)
+	}
+	s := openFreshImportStore(t, dbPath)
+	defer s.Close()
+
+	before := eventLogState(t, s)
+	if before == "" {
+		t.Fatal("seeded event log is empty, so an unchanged log would prove nothing")
+	}
+	beforeCounts := launcherDurableCounts(t, s)
+	if beforeCounts == nil {
+		return
+	}
+
+	port := &recordingPort{inner: storeport.New(s)}
+	core := launcher.New(port)
+	if err := core.Enter(ctx); err != nil {
+		t.Fatalf("S1 entry: %v", err)
+	}
+	m := bubbletea.New(core, ctx, bubbletea.Profile{})
+	m.Sync()
+	if got := core.Snapshot(); len(got.Rows) == 0 {
+		t.Fatalf("seeded S1 rendered no Products, so the session reads nothing: %#v", got)
+	}
+
+	m.UpdateKey("r")     // S1 explicit refresh
+	m.UpdateKey("enter") // S1 -> S2, which also reads the focused knowledge section
+	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.AmbientProduct == "" {
+		t.Fatalf("S2 entry = %#v", got)
+	}
+	m.UpdateKey("tab") // domain -> blocked
+	m.UpdateKey("tab") // blocked -> next, the ranked work mode
+	m.UpdateKey("r")   // S2 explicit refresh
+	m.UpdateKey("s")   // S2 semantic query
+	m.UpdateKey("b")
+	m.UpdateKey("enter")
+	m.UpdateKey("esc") // leave the query result
+
+	// The seeded work item is addressed directly so S3 is reached even when the
+	// ranked mode renders nothing. A failure here would leave the read-coverage
+	// assertion below satisfied by an attempted read, so it fails the test.
+	if err := core.SelectWork(ctx, "import-advance-work-synth-change-alpha-1"); err != nil {
+		t.Fatalf("S3 entry: %v", err)
+	}
+	if got := core.Snapshot(); got.Screen != launcher.ScreenWork {
+		t.Fatalf("S3 entry left the session on %v, so the work screen is unexercised", got.Screen)
+	}
+	m.Sync()
+	m.UpdateKey("tab") // S3 sections, ending on knowledge
+	m.UpdateKey("tab")
+	m.UpdateKey("tab")
+	m.UpdateKey("r") // S3 explicit refresh
+	m.UpdateKey("s") // S3 semantic query
+	m.UpdateKey("b")
+	m.UpdateKey("enter")
+	m.UpdateKey("esc") // leave the query result
+	m.UpdateKey("esc") // S3 -> S2
+	m.UpdateKey("esc") // S2 -> S1
+	m.UpdateKey("r")   // S1 explicit refresh
+	m.Render()
+
+	for _, kind := range []launcher.ReadKind{
+		launcher.ReadPortfolio, launcher.ReadDomains, launcher.ReadProduct,
+		launcher.ReadWork, launcher.ReadKnowledge, launcher.ReadSearch,
+	} {
+		if port.kinds[kind] == 0 {
+			t.Fatalf("session never issued a %s read: kinds=%v", kind, port.kinds)
+		}
+	}
+
+	if after := eventLogState(t, s); after != before {
+		t.Fatalf("launcher session changed the event log:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+	if after := launcherDurableCounts(t, s); after == nil || fmt.Sprint(after) != fmt.Sprint(beforeCounts) {
+		t.Fatalf("launcher session changed durable state: before=%v after=%v", beforeCounts, after)
+	}
+}
+
+// eventLogState serializes every column of every event in log order. It reads
+// the raw handle outside any transaction, so it never contends with the store's
+// single pooled connection.
+func eventLogState(t *testing.T, s *store.Store) string {
+	t.Helper()
+	rows, err := s.DatabaseForTesting().QueryContext(context.Background(),
+		`SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`)
+	if err != nil {
+		t.Fatalf("read event log: %v", err)
+	}
+	defer rows.Close()
+	var log strings.Builder
+	for rows.Next() {
+		var seq int64
+		var payloadVersion int
+		var eventID, kind, subjectType, subjectID, actor, occurredAt, payload string
+		if err := rows.Scan(&seq, &eventID, &kind, &subjectType, &subjectID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
+			t.Fatalf("scan event log: %v", err)
+		}
+		fmt.Fprintf(&log, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
+			seq, eventID, kind, subjectType, subjectID, actor, occurredAt, payloadVersion, payload)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate event log: %v", err)
+	}
+	return log.String()
 }
 
 func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {

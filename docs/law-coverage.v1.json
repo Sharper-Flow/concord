@@ -395,14 +395,9 @@
       "state": "satisfied"
     },
     {
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestComponentInputsAreProhibitedOnTheAgentSurface"
-        }
-      ],
       "id": "CD-0041",
-      "state": "satisfied"
+      "issue": 337,
+      "state": "outstanding"
     },
     {
       "evidence": [

@@ -759,6 +759,118 @@ Body.
     assert exit_code == 0, (exit_code, stdout, stderr)
 
 
+# ---------------------------------------------------------------------------
+# Criterion granularity and verification coverage
+# ---------------------------------------------------------------------------
+
+
+def _granularity_body(criteria: str, verification: str) -> str:
+    return f"""# Spec
+
+## Context
+
+Body.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+{criteria}
+
+## Verification
+
+{verification}
+"""
+
+
+def test_ac_multiple_when_fails() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- Given a precondition\n"
+        "  When an action happens\n"
+        "  When a second action happens\n"
+        "  Then an outcome follows.",
+        "Body.",
+    )
+    path = "docs/two-triggers.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g1")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ac-multiple-when" in line for line in stdout.splitlines()), stdout
+
+
+def test_ac_split_triggers_pass() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- When an action happens\n"
+        "  Then an outcome follows.\n"
+        "- When a second action happens\n"
+        "  Then a second outcome follows.",
+        "- One check.\n- A second check.",
+    )
+    path = "docs/split-triggers.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g2")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_when_prefixed_word_is_not_a_second_trigger() -> None:
+    """A raw substring count reads "Whenever" as a When clause.
+
+    Without word-bounded matching this criterion tallies two triggers and is
+    wrongly reported as too coarse, so this is the non-vacuity check for the
+    keyword regex rather than a restatement of the single-When rule.
+    """
+    root = sandbox()
+    body = _granularity_body(
+        "- When a request arrives\n"
+        "  Then the system responds. Whenever load is high it queues first.",
+        "Body.",
+    )
+    path = "docs/whenever.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g3")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_underspecified_when_entries_fewer_than_criteria() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- When an action happens\n"
+        "  Then an outcome follows.\n"
+        "- When a second action happens\n"
+        "  Then a second outcome follows.",
+        "One check only.",
+    )
+    path = "docs/underspecified.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g4")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any(
+        "verification-underspecified" in line for line in stdout.splitlines()
+    ), stdout
+
+
+def test_verification_empty_section_fails() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- When an action happens\n  Then an outcome follows.",
+        "",
+    )
+    path = "docs/empty-verification.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g5")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("verification-empty" in line for line in stdout.splitlines()), stdout
+
+
 def main() -> int:
     tests = [
         value

@@ -349,16 +349,6 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 	return failure
 }
 
-// CheckWorkflowDomainOverlapTransactionTx adapts the overlap guard to the
-// caller-owned transaction used by the agent mutation envelope.
-func CheckWorkflowDomainOverlapTransactionTx(ctx context.Context, transaction *Transaction, workID string) error {
-	tx, err := transactionSQL(transaction, "workflow_domain_overlap")
-	if err != nil {
-		return err
-	}
-	return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
-}
-
 func boundWorkflowDomainOverlapFailure(failure *DomainOverlapFailure) {
 	if failure == nil {
 		return

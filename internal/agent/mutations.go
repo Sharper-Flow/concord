@@ -1394,6 +1394,10 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
 			effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 				if in.External.Kind == "capture" {
+					// The reviewed policy references are derived from the
+					// subject kind before validation, which requires the
+					// record to carry exactly the reviewed policy.
+					policy, _ := store.ExternalSubjectPolicyFor(in.External.SubjectKind)
 					capture := store.ExternalObservationCapture{
 						ObservationID:         in.External.ObservationID,
 						SubjectKind:           in.External.SubjectKind,
@@ -1403,13 +1407,12 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 						ReportingAuthorityRef: "client:" + grant.ClientRef,
 						SubjectDigest:         in.External.SubjectDigest,
 						ObservedUniverse:      *in.External.ObservedUniverse,
+						FreshnessPolicyRef:    store.PolicyRef(policy),
+						DivergencePolicyRef:   store.PolicyRef(policy),
 					}
 					if err := store.ValidateExternalObservationCapture(capture); err != nil {
 						return nil, nil, nil, err
 					}
-					policy, _ := store.ExternalSubjectPolicyFor(capture.SubjectKind)
-					capture.FreshnessPolicyRef = store.PolicyRef(policy)
-					capture.DivergencePolicyRef = store.PolicyRef(policy)
 					if err := store.AppendExternalObservationCaptureTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), capture); err != nil {
 						return nil, nil, nil, err
 					}
@@ -2195,9 +2198,13 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			}
 			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
+		// CD-0041 D7: every consequential boundary validates the contract's law
+		// revision pins and its active Domain overlaps. The recovery operations
+		// this exempts are the closed recovery choices both refusals name, so
+		// guarding them would refuse the only way out of either condition.
 		if !mutationIsOverlapRecovery(r.Tool, r.Operation, raw) {
 			for _, workID := range mutationScopeWorkIDs(scope) {
-				if err := store.CheckWorkflowDomainOverlapTransactionTx(ctx, tx, workID); err != nil {
+				if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
 					return err
 				}
 			}

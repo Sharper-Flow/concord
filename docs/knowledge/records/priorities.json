@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-22T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "priorities",
+  "kind": "constitution",
+  "path": "docs/priorities.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:447220bc95ee0ebed48a22d44282b21652eedf71a78320df2577bda1998b6856",
+  "status": "accepted",
+  "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
+  "tags": [
+    "priorities",
+    "envelope",
+    "governance"
+  ],
+  "title": "Concord priorities"
+}

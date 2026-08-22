@@ -251,6 +251,35 @@ def test_nul_path_is_rejected_without_traceback() -> None:
     assert any("forbidden or unsafe path" in finding for finding in findings)
 
 
+def test_accepted_contracts_are_eligible_record_paths() -> None:
+    """CD-0014 accepted C18 and ea68397 accepted C17 within days of the
+    exclusion that named them. Both now carry authority, so both may carry a
+    record. This proves the repeal at the checker, not only at the schema."""
+    for path in ("docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"):
+        findings = checker.validate(fixture(path=path), check_hashes=False)
+        assert not any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
+
+
+def test_class_exclusions_survive_the_repeal() -> None:
+    """The repeal removed two named files, not the live class exclusions."""
+    for path in (
+        "docs/work/scratch.md",
+        "docs/research/R7-expedited-parallel-work.md",
+        "docs/generated-agent-contracts.md",
+        "docs/api/generated.md",
+        "docs/Generated-Contracts.md",
+    ):
+        findings = checker.validate(fixture(path=path), check_hashes=False)
+        assert any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
+
+
+def test_eligible_paths_are_not_swept_up_by_the_substring_rule() -> None:
+    """`generated` is a substring rule; near misses must stay eligible."""
+    for path in ("docs/workflows.md", "docs/generation-policy.md", "docs/researcher-guide.md"):
+        findings = checker.validate(fixture(path=path), check_hashes=False)
+        assert not any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
+
+
 def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
@@ -283,6 +312,115 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
             "manifest: decision CD-0014 has multiple canonical files: "
             "docs/decisions/CD-0014-a-decision.md, docs/decisions/CD-0014-z-note.md"
         ]
+
+
+def taxonomy_fixture(root: Path, kind: str, path: str, status: str) -> dict:
+    """A one-record v1.2 manifest whose kind, path, and status are the subject."""
+    (root / path).parent.mkdir(parents=True, exist_ok=True)
+    (root / path).write_text("body\n", encoding="utf-8")
+    value = v12_fixture()
+    value["supported_kinds"] = ["work_note", "constitution", "decision", "spec", "lesson", "reference", "research"]
+    value["indexed_kinds"] = list(value["supported_kinds"])
+    record = value["records"][0]
+    record["kind"], record["path"], record["status"] = kind, path, status
+    if kind == "decision":
+        record["id"] = Path(path).stem
+    if kind not in checker.LAW_BEARING_KINDS:
+        record.pop("home_domain_id", None)
+    return value
+
+
+def test_record_status_follows_the_kind_tier() -> None:
+    """Both directions of the tier rule, for every kind the taxonomy declares."""
+    cases = [
+        ("constitution", "docs/constitution.md", "accepted", "published"),
+        ("decision", "docs/decisions/CD-0099.md", "accepted", "published"),
+        ("spec", "docs/spec.md", "accepted", "published"),
+        ("lesson", "docs/lessons/one.md", "published", "accepted"),
+        ("reference", "docs/installation.md", "published", "accepted"),
+        ("research", "docs/market-landscape.md", "published", "accepted"),
+    ]
+    for kind, path, valid_status, forbidden_status in cases:
+        with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+            root = Path(directory)
+            valid = taxonomy_fixture(root, kind, path, valid_status)
+            with mock.patch.object(checker, "ROOT", root):
+                assert checker.validate(valid, check_hashes=False) == [], (kind, valid_status)
+                forbidden = copy.deepcopy(valid)
+                forbidden["records"][0]["status"] = forbidden_status
+                findings = checker.validate(forbidden, check_hashes=False)
+            assert any("invalid status/kind combination" in finding for finding in findings), (kind, findings)
+
+
+def test_non_law_records_cannot_author_law_home_fields() -> None:
+    for kind, path in (("lesson", "docs/lessons/one.md"), ("reference", "docs/installation.md"), ("research", "docs/market-landscape.md")):
+        with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+            root = Path(directory)
+            value = taxonomy_fixture(root, kind, path, "published")
+            value["records"][0]["home_domain_id"] = "product-root:concord"
+            with mock.patch.object(checker, "ROOT", root):
+                findings = checker.validate(value, check_hashes=False)
+            assert any("non-law records cannot author law-home fields" in finding for finding in findings), (kind, findings)
+
+
+def test_law_relations_remain_decision_and_spec_only() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = taxonomy_fixture(root, "constitution", "docs/constitution.md", "accepted")
+        value["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "spec-2"}]
+        with mock.patch.object(checker, "ROOT", root):
+            findings = checker.validate(value, check_hashes=False)
+        assert any("law_relations are only allowed on decision/spec records" in finding for finding in findings), findings
+
+
+def test_valid_disposition_is_accepted_and_a_record_path_is_not() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = taxonomy_fixture(root, "spec", "docs/spec.md", "accepted")
+        value["dispositions"] = [{
+            "path": "docs/scratch.md",
+            "disposition": "archived",
+            "reason": "Superseded working note kept for provenance only.",
+        }]
+        with mock.patch.object(checker, "ROOT", root):
+            assert checker.validate(value, check_hashes=False) == []
+            collision = copy.deepcopy(value)
+            collision["dispositions"][0]["path"] = "docs/spec.md"
+            findings = checker.validate(collision, check_hashes=False)
+        assert findings == [
+            "manifest.dispositions[0]: path is both a record and a disposition: docs/spec.md"
+        ]
+
+
+def test_malformed_dispositions_are_rejected() -> None:
+    cases = {
+        "unknown field": {"path": "docs/scratch.md", "disposition": "archived", "reason": "Reason.", "owner": "operator"},
+        "missing reason": {"path": "docs/scratch.md", "disposition": "archived"},
+        "empty reason": {"path": "docs/scratch.md", "disposition": "archived", "reason": ""},
+        "unclosed disposition": {"path": "docs/scratch.md", "disposition": "deferred", "reason": "Reason."},
+        "non markdown path": {"path": "docs/scratch.txt", "disposition": "archived", "reason": "Reason."},
+        "absolute path": {"path": "/docs/scratch.md", "disposition": "archived", "reason": "Reason."},
+        "traversal path": {"path": "docs/../scratch.md", "disposition": "archived", "reason": "Reason."},
+    }
+    for name, entry in cases.items():
+        with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+            root = Path(directory)
+            value = taxonomy_fixture(root, "spec", "docs/spec.md", "accepted")
+            value["dispositions"] = [entry]
+            with mock.patch.object(checker, "ROOT", root):
+                findings = checker.validate(value, check_hashes=False)
+            assert findings, name
+
+
+def test_duplicate_disposition_path_is_rejected() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = taxonomy_fixture(root, "spec", "docs/spec.md", "accepted")
+        entry = {"path": "docs/scratch.md", "disposition": "archived", "reason": "Reason."}
+        value["dispositions"] = [entry, dict(entry)]
+        with mock.patch.object(checker, "ROOT", root):
+            findings = checker.validate(value, check_hashes=False)
+        assert any("duplicate disposition path" in finding for finding in findings), findings
 
 
 if __name__ == "__main__":

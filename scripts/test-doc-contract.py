@@ -669,6 +669,111 @@ def test_manifest_unknown_doc_contract_field_is_rejected() -> None:
     assert any("unknown fields" in line for line in stdout.splitlines()), stdout
 
 
+# ---------------------------------------------------------------------------
+# ac_required false forbids an acceptance-criteria section.
+# ---------------------------------------------------------------------------
+
+
+def non_spec_record(kind: str, path: str, sha_digest: str = "a") -> dict:
+    entry = record(path, sha_digest)
+    entry["id"], entry["kind"], entry["status"] = f"{kind}-1", kind, "published"
+    entry.pop("home_domain_id", None)
+    return entry
+
+
+def kind_contract(kind: str, required_sections: list[str]) -> dict:
+    return {
+        "enforced": True,
+        kind: {"required_sections": required_sections, "ac_required": False},
+        "banned_phrases": list(checker.DEFAULT_BANNED_PHRASES),
+    }
+
+
+def test_non_spec_kind_without_acceptance_criteria_passes() -> None:
+    root = sandbox()
+    path = "docs/reference.md"
+    write_spec(root, path, "# Reference\n\nBody.\n")
+    manifest = manifest_with(root, [non_spec_record("reference", path)], kind_contract("reference", []))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_non_spec_kind_with_acceptance_criteria_is_a_finding() -> None:
+    root = sandbox()
+    body = """# Reference
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+"""
+    path = "docs/reference.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [non_spec_record("reference", path, "b")], kind_contract("reference", []))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ac-forbidden: docs/reference.md#5" in line for line in stdout.splitlines()), stdout
+
+
+def test_prose_that_says_when_and_then_is_not_an_acceptance_section() -> None:
+    """The boundary is the heading scan, not the presence of Gherkin words."""
+    root = sandbox()
+    body = """# Research
+
+## Findings
+
+When the cache is cold, then the first read pays the index build.
+"""
+    path = "docs/research-note.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [non_spec_record("research", path, "c")], kind_contract("research", ["Findings"]))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_new_kind_required_sections_are_enforced() -> None:
+    root = sandbox()
+    path = "docs/constitution.md"
+    write_spec(root, path, "# Constitution\n\nBody.\n")
+    contract = kind_contract("constitution", ["Purpose"])
+    manifest = manifest_with(root, [non_spec_record("constitution", path, "d")], contract)
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("missing-section: docs/constitution.md (Purpose)" in line for line in stdout.splitlines()), stdout
+
+    root = sandbox()
+    write_spec(root, path, "# Constitution\n\n## Purpose\n\nBody.\n")
+    manifest = manifest_with(root, [non_spec_record("constitution", path, "e")], contract)
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_empty_section_name_is_rejected_for_a_kind_whose_list_may_be_empty() -> None:
+    """An empty array of sections is allowed; an empty section name is not."""
+    root = sandbox()
+    path = "docs/reference.md"
+    write_spec(root, path, "# Reference\n\nBody.\n")
+    manifest = manifest_with(root, [non_spec_record("reference", path, "f")], kind_contract("reference", [""]))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("required_sections must be a unique array" in line for line in stdout.splitlines()), stdout
+
+
+def test_live_manifest_declares_a_contract_for_every_new_kind() -> None:
+    """The taxonomy's non-law kinds must forbid acceptance criteria, not ignore them."""
+    live = json.loads(
+        (Path(checker.ROOT) / "docs/concord-knowledge-index.v1.json").read_text(encoding="utf-8")
+    )
+    contract = live["doc_contract"]
+    for kind in ("constitution", "reference", "research"):
+        assert kind in contract, kind
+        assert contract[kind]["ac_required"] is False, kind
+    assert contract["spec"]["ac_required"] is True
+
+
 def test_decision_records_are_skipped_when_not_in_contract() -> None:
     root = sandbox()
     path = "docs/decision.md"

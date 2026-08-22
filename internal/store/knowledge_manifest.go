@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -29,14 +31,82 @@ const (
 )
 
 var knowledgeKindsClosed = map[string]bool{
-	"work_note": true,
-	"lesson":    true,
-	"decision":  true,
-	"spec":      true,
-	"research":  true,
+	"work_note":    true,
+	"constitution": true,
+	"decision":     true,
+	"spec":         true,
+	"lesson":       true,
+	"reference":    true,
+	"research":     true,
 }
 
-var manifestRecordKinds = map[string]bool{"lesson": true, "decision": true, "spec": true}
+// manifestRecordKinds is every kind a manifest record may declare. work_note is
+// a supported knowledge kind that no record carries, so it is absent here.
+var manifestRecordKinds = map[string]bool{
+	"constitution": true,
+	"decision":     true,
+	"spec":         true,
+	"lesson":       true,
+	"reference":    true,
+	"research":     true,
+}
+
+// manifestLawBearingKinds splits the record kinds into the two status tiers the
+// schema declares. A law-bearing record is accepted or superseded; every other
+// record kind is published or superseded. The tier decides the status, the
+// law-home requirement, and the status a successor must carry.
+var manifestLawBearingKinds = map[string]bool{
+	"constitution": true,
+	"decision":     true,
+	"spec":         true,
+}
+
+// manifestLawRelationSubjects is narrower than manifestLawBearingKinds: the
+// law-relation graph, the domain registry's governing_law_ids, and the
+// supersedes symmetry rule are all defined over decisions and specs. A
+// constitution is law-bearing for status purposes without yet participating in
+// that graph.
+var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true}
+
+// manifestRootKeys is the declared top-level vocabulary of the knowledge
+// manifest contract. The value records whether this package projects the key
+// onto a KnowledgeManifest field. A false value marks repository policy the
+// store does not interpret — knowledge roots, exclusions, and the prose
+// contract — which must survive a parse and re-marshal verbatim, because
+// rewriting the manifest to append a record must never silently repeal it.
+// TestKnowledgeManifestVocabularyMatchesSchema binds this set to
+// contracts/concord-knowledge-index.v1.schema.json.
+var manifestRootKeys = map[string]bool{
+	"schema_version":  true,
+	"supported_kinds": true,
+	"indexed_kinds":   true,
+	"domain_registry": true,
+	"records":         true,
+	"dispositions":    true,
+	"knowledge_roots": false,
+	"exclusions":      false,
+	"doc_contract":    false,
+}
+
+// canonicalManifestRootOrder is the root key order of the knowledge manifest:
+// the property order declared by contracts/concord-knowledge-index.v1.schema.json,
+// which is also the order scripts/generate-knowledge-index.py carries forward
+// from its aggregate template. Go's map order is lexical and would regroup the
+// root keys, so the emitter places them from this list.
+// TestKnowledgeManifestKeyOrderMatchesSchema binds it to the schema. Record
+// keys need no such list: the generator emits them sorted, which is what
+// encoding/json already does for a map.
+var canonicalManifestRootOrder = []string{
+	"schema_version",
+	"supported_kinds",
+	"indexed_kinds",
+	"domain_registry",
+	"knowledge_roots",
+	"exclusions",
+	"dispositions",
+	"doc_contract",
+	"records",
+}
 
 var lawRelationKinds = map[string]bool{
 	"supersedes":     true,
@@ -56,7 +126,12 @@ type KnowledgeManifest struct {
 	Exclusions            []string                `json:"exclusions,omitempty"`
 	DocContract           *KnowledgeDocContract   `json:"doc_contract,omitempty"`
 	Records               []KnowledgeRecord       `json:"records"`
+	Dispositions          []KnowledgeDisposition  `json:"dispositions"`
 	domainRegistryPresent bool
+	dispositionsPresent   bool
+	// uninterpreted holds every declared top-level key this package does not
+	// model, verbatim, so marshalKnowledgeManifest can put it back.
+	uninterpreted map[string]json.RawMessage
 }
 
 type KnowledgeDocContract struct {
@@ -123,6 +198,17 @@ type KnowledgeRecord struct {
 	appliesToDomainsPresent bool
 }
 
+// KnowledgeDisposition records source material the operator has decided not to
+// formalize. It is the opposite of a record: a record makes a document
+// knowledge, a disposition states that the document will never become
+// knowledge and why. The two are mutually exclusive over a path, so a document
+// cannot be answered with both a law state and a refusal to give it one.
+type KnowledgeDisposition struct {
+	Path        string `json:"path"`
+	Disposition string `json:"disposition"`
+	Reason      string `json:"reason"`
+}
+
 // KnowledgeRelation is authored in the Git knowledge manifest. It is never a
 // source of precedence by itself; conflicts_with records an unresolved pair.
 type KnowledgeRelation struct {
@@ -183,23 +269,50 @@ func (scopes KnowledgeRecordScopes) MarshalJSON() ([]byte, error) {
 }
 
 func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	modeled := make(map[string]json.RawMessage, len(fields))
+	uninterpreted := map[string]json.RawMessage{}
+	for key, value := range fields {
+		projected, declared := manifestRootKeys[key]
+		if !declared {
+			return fmt.Errorf("json: unknown field %q", key)
+		}
+		if projected {
+			modeled[key] = value
+			continue
+		}
+		uninterpreted[key] = value
+	}
+	body, err := json.Marshal(modeled)
+	if err != nil {
+		return err
+	}
 	type manifestAlias KnowledgeManifest
 	var parsed manifestAlias
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	*manifest = KnowledgeManifest(parsed)
+	manifest.uninterpreted = uninterpreted
+	_, manifest.domainRegistryPresent = fields["domain_registry"]
+	_, manifest.dispositionsPresent = fields["dispositions"]
+	return nil
+}
+
+func (disposition *KnowledgeDisposition) UnmarshalJSON(data []byte) error {
+	type dispositionAlias KnowledgeDisposition
+	var parsed dispositionAlias
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&parsed); err != nil {
 		return err
 	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return fmt.Errorf("manifest contains trailing JSON values")
-	}
-	*manifest = KnowledgeManifest(parsed)
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	_, manifest.domainRegistryPresent = fields["domain_registry"]
+	*disposition = KnowledgeDisposition(parsed)
 	return nil
 }
 
@@ -279,6 +392,78 @@ func (record *KnowledgeRecord) UnmarshalJSON(data []byte) error {
 		record.appliesToDomainsPresent = true
 	}
 	return nil
+}
+
+// orderManifestFields emits the canonical order, then any key this package has
+// not placed yet, sorted, so the output stays deterministic for a key the
+// contract gains later.
+func orderManifestFields(values map[string]any, canonical []string) orderedObject {
+	ordered := make(orderedObject, 0, len(values))
+	remaining := make(map[string]any, len(values))
+	for key, value := range values {
+		remaining[key] = value
+	}
+	for _, key := range canonical {
+		if value, ok := remaining[key]; ok {
+			ordered = append(ordered, orderedMember{key: key, value: value})
+			delete(remaining, key)
+		}
+	}
+	unplaced := make([]string, 0, len(remaining))
+	for key := range remaining {
+		unplaced = append(unplaced, key)
+	}
+	sort.Strings(unplaced)
+	for _, key := range unplaced {
+		ordered = append(ordered, orderedMember{key: key, value: remaining[key]})
+	}
+	return ordered
+}
+
+// orderedObject is a JSON object that emits its members in slice order.
+// encoding/json sorts map keys, so an object whose authored order carries
+// meaning cannot round-trip through map[string]any.
+type orderedObject []orderedMember
+
+type orderedMember struct {
+	key   string
+	value any
+}
+
+func (object orderedObject) MarshalJSON() ([]byte, error) {
+	buffer := bytes.Buffer{}
+	buffer.WriteByte('{')
+	for index, member := range object {
+		if index > 0 {
+			buffer.WriteByte(',')
+		}
+		key, err := marshalManifestValue(member.key)
+		if err != nil {
+			return nil, err
+		}
+		value, err := marshalManifestValue(member.value)
+		if err != nil {
+			return nil, err
+		}
+		buffer.Write(key)
+		buffer.WriteByte(':')
+		buffer.Write(value)
+	}
+	buffer.WriteByte('}')
+	return buffer.Bytes(), nil
+}
+
+// marshalManifestValue encodes without HTML escaping, matching the Python
+// updater's json.dumps. Escaping "&" as "\u0026" in a lesson title would make
+// the two writers disagree on a byte the reader never typed.
+func marshalManifestValue(value any) ([]byte, error) {
+	buffer := &bytes.Buffer{}
+	encoder := json.NewEncoder(buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buffer.Bytes(), "\n"), nil
 }
 
 func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
@@ -403,7 +588,7 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 	}
 	for kind := range indexed {
 		if kind != "work_note" && !manifestRecordKinds[kind] {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "indexed_kinds contains a kind without manifest record support: "+kind, false, "index only lesson, decision, or spec")
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "indexed_kinds contains a kind without manifest record support: "+kind, false, "index only kinds a record may declare")
 		}
 		if !supported[kind] {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "indexed kind is not supported: "+kind, false, "include every indexed kind in supported_kinds")
@@ -428,6 +613,9 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 			return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "manifest contains duplicate canonical paths", false, "assign one canonical path to one record")
 		}
 		ids[record.ID], paths[record.Path] = true, true
+	}
+	if err := validateManifestDispositions(manifest.Dispositions, paths); err != nil {
+		return err
 	}
 	if err := validateManifestSuccessors(manifest.Records); err != nil {
 		return err
@@ -671,7 +859,7 @@ func validateKnowledgeDomainLawReferences(registry KnowledgeDomainRegistry, reco
 	}
 	acceptedLaws := map[string]bool{}
 	for _, record := range records {
-		if (record.Kind == "decision" || record.Kind == "spec") && record.Status == "accepted" {
+		if manifestLawRelationSubjects[record.Kind] && record.Status == "accepted" {
 			acceptedLaws[record.ID] = true
 		}
 	}
@@ -709,15 +897,15 @@ func validateManifestLawHome(record KnowledgeRecord, schemaVersion string, regis
 		}
 		return nil
 	}
-	if record.Kind == "lesson" {
+	if !manifestLawBearingKinds[record.Kind] {
 		if record.HomeDomainID != "" || len(record.AppliesToDomainIDs) > 0 || record.homeDomainPresent || record.appliesToDomainsPresent {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "lessons cannot author domain law-home fields", false, "keep domain law-home fields on decisions and specs only")
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "non-law records cannot author domain law-home fields", false, "keep domain law-home fields on law-bearing records only")
 		}
 		return nil
 	}
 	hasHome := record.homeDomainPresent || record.HomeDomainID != ""
 	if record.Status == "accepted" && !hasHome {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "accepted decision/spec requires exactly one home domain", false, "author one home_domain_id")
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "an accepted law-bearing record requires exactly one home domain", false, "author one home_domain_id")
 	}
 	if hasHome && !validManifestID(record.HomeDomainID) {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law home domain is invalid", false, "reference one clean domain ID")
@@ -761,7 +949,7 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 		if len(record.LawRelations) == 0 {
 			continue
 		}
-		if (manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || record.Kind == "lesson" || !manifestRecordKinds[record.Kind] {
+		if (manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || !manifestLawRelationSubjects[record.Kind] {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on 1.1 or 1.2 decision/spec records", false, "publish authored relations on a schema 1.1 or 1.2 decision or spec")
 		}
 		for _, relation := range record.LawRelations {
@@ -769,7 +957,7 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind, target, or self-edge is invalid", false, "use one closed relation kind and a distinct law ID")
 			}
 			target, ok := byID[relation.TargetID]
-			if !ok || target.Kind == "lesson" || !manifestRecordKinds[target.Kind] {
+			if !ok || !manifestLawRelationSubjects[target.Kind] {
 				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")
 			}
 			key := relation.Kind + "\x00" + record.ID + "\x00" + relation.TargetID
@@ -843,6 +1031,43 @@ func relationGraphHasCycle(graph map[string][]string) bool {
 	return false
 }
 
+// dispositionPathPattern mirrors $defs.disposition.path in
+// contracts/concord-knowledge-index.v1.schema.json. Only markdown is walked by
+// the closure validator, so a disposition naming anything else could never
+// subtract a document and would sit in the manifest as a claim nobody checks.
+var dispositionPathPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\.md$`)
+
+var manifestDispositions = map[string]bool{"archived": true}
+
+// validateManifestDispositions enforces the record/disposition exclusion. A
+// path is either knowledge with a law state or source material the operator
+// declined to formalize; a manifest that claims both has no answer to give.
+func validateManifestDispositions(dispositions []KnowledgeDisposition, recordPaths map[string]bool) error {
+	if len(dispositions) > maxManifestRecords {
+		return newFailure(KindKnowledgeIndexIncomplete, "parse_knowledge_manifest", "manifest contains too many dispositions", true, "split the knowledge authority into bounded homes")
+	}
+	seen := make(map[string]bool, len(dispositions))
+	for _, disposition := range dispositions {
+		if len(disposition.Path) > maxManifestPath || strings.Contains(disposition.Path, "..") || !dispositionPathPattern.MatchString(disposition.Path) {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "disposition path is not a bounded repository-relative markdown path: "+disposition.Path, false, "name one markdown document under a declared knowledge root")
+		}
+		if !manifestDispositions[disposition.Disposition] {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "disposition is not closed: "+disposition.Disposition, false, "use the archived disposition")
+		}
+		if disposition.Reason == "" || utf8.RuneCountInString(disposition.Reason) > maxManifestSummary || strings.TrimSpace(disposition.Reason) != disposition.Reason {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "disposition reason is empty, oversized, or not clean", false, "state why the document is not formalized")
+		}
+		if seen[disposition.Path] {
+			return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "manifest disposes of the same path twice: "+disposition.Path, false, "dispose of one path once")
+		}
+		if recordPaths[disposition.Path] {
+			return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "path is both a record and a disposition: "+disposition.Path, false, "either record the document or dispose of it, never both")
+		}
+		seen[disposition.Path] = true
+	}
+	return nil
+}
+
 func validateManifestSuccessors(records []KnowledgeRecord) error {
 	byID := make(map[string]KnowledgeRecord, len(records))
 	for _, record := range records {
@@ -862,9 +1087,9 @@ func validateManifestSuccessors(records []KnowledgeRecord) error {
 		if successor.Kind != record.Kind {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record successor kind does not match", false, "reference a successor of the same knowledge kind")
 		}
-		wantStatus := "accepted"
-		if record.Kind == "lesson" {
-			wantStatus = "published"
+		wantStatus := "published"
+		if manifestLawBearingKinds[record.Kind] {
+			wantStatus = "accepted"
 		}
 		if successor.Status != wantStatus {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record successor status is incompatible", false, "reference the active accepted or published successor")
@@ -874,12 +1099,11 @@ func validateManifestSuccessors(records []KnowledgeRecord) error {
 }
 
 func validateManifestKindList(values []string, field string) (map[string]bool, error) {
-	max := len(knowledgeKindsClosed)
-	if field == "indexed_kinds" {
-		max = len(knowledgeKindsClosed) - 1
-	}
-	if len(values) > max {
-		return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", field+" exceeds the closed kind bound", false, "use the five closed knowledge kinds")
+	// Both lists draw from the same closed vocabulary. research used to be
+	// supported without being indexable because no record could declare it;
+	// it is a record kind now, so the two bounds are the same number.
+	if len(values) > len(knowledgeKindsClosed) {
+		return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", field+" exceeds the closed kind bound", false, "use the closed knowledge kind vocabulary")
 	}
 	result := make(map[string]bool, len(values))
 	for _, kind := range values {
@@ -911,7 +1135,7 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record ID is empty, oversized, or not clean", false, "use a bounded stable ID")
 	}
 	if !manifestRecordKinds[record.Kind] {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record kind is not manifest-backed: "+record.Kind, false, "use lesson, decision, or spec")
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record kind is not manifest-backed: "+record.Kind, false, "use constitution, decision, spec, lesson, reference, or research")
 	}
 	if !supported[record.Kind] || !indexed[record.Kind] {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record kind is not indexed: "+record.Kind, false, "include the record kind in supported_kinds and indexed_kinds")
@@ -925,8 +1149,8 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	if record.Status != "accepted" && record.Status != "published" && record.Status != "superseded" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record status is not closed", false, "use accepted, published, or superseded")
 	}
-	if record.Status == "published" && record.Kind != "lesson" || record.Status == "accepted" && record.Kind == "lesson" {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "status is invalid for record kind", false, "lessons are published; decisions and specs are accepted")
+	if lawBearing := manifestLawBearingKinds[record.Kind]; lawBearing && record.Status == "published" || !lawBearing && record.Status == "accepted" {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "status is invalid for record kind", false, "law-bearing records are accepted; every other kind is published")
 	}
 	if record.Status == "superseded" && record.Successor == "" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record lacks successor", false, "declare the stable successor ID")
@@ -984,10 +1208,44 @@ func validateManifestPath(value string) error {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path contains traversal or empty components", false, "use a clean relative path")
 		}
 	}
-	if strings.HasPrefix(value, "docs/work/") || strings.Contains(strings.ToLower(value), "generated") || strings.HasPrefix(value, "docs/research/") || value == "docs/product-coordination-view.md" || value == "docs/terminal-launcher-contract.md" {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path is not an eligible authored knowledge blob", false, "exclude work notes, research packs, and generated docs")
+	if reason, ineligible := manifestPathIneligible(value); ineligible {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path is not an eligible authored knowledge blob", false, reason+"; "+manifestIneligibleHint())
 	}
 	return nil
+}
+
+// manifestIneligiblePrefixes and manifestIneligibleSubstring decompose the
+// negative lookahead of $defs.record.path in
+// contracts/concord-knowledge-index.v1.schema.json, which is the sole
+// declaration of which authored docs paths may carry a manifest record. RE2
+// has no lookahead, so the schema pattern cannot be compiled here;
+// TestKnowledgeManifestIneligiblePathsMatchSchema binds this decomposition
+// back to the schema alternation instead of trusting the restatement.
+var manifestIneligiblePrefixes = []string{"docs/work/", "docs/research/"}
+
+// The comparison is ASCII case-insensitive, which the schema alternation
+// spells as a per-letter character class so both forms accept the same set.
+const manifestIneligibleSubstring = "generated"
+
+// manifestPathIneligible reports why a well-formed docs markdown path may not
+// carry a manifest record, or false when the path is eligible.
+func manifestPathIneligible(value string) (string, bool) {
+	for _, prefix := range manifestIneligiblePrefixes {
+		if strings.HasPrefix(value, prefix) {
+			return "path is under " + prefix, true
+		}
+	}
+	if strings.Contains(strings.ToLower(value), manifestIneligibleSubstring) {
+		return "path contains " + strconv.Quote(manifestIneligibleSubstring), true
+	}
+	return "", false
+}
+
+// manifestIneligibleHint states exactly what validateManifestPath enforces, so
+// the operator guidance cannot drift from the rules that produced the failure.
+func manifestIneligibleHint() string {
+	return "a record path may not start with " + strings.Join(manifestIneligiblePrefixes, " or ") +
+		", or contain " + strconv.Quote(manifestIneligibleSubstring)
 }
 
 func validateManifestScopes(scopes KnowledgeRecordScopes) error {

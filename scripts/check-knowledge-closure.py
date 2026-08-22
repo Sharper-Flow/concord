@@ -33,8 +33,14 @@ MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 DEFAULT_KNOWLEDGE_ROOTS = ("docs/",)
 
 ROOT_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*/$")
+# An exclusion is either a directory prefix or a single markdown file. Generated
+# build output such as docs/generated-agent-tool-surface.md is not knowledge
+# awaiting formalization, and excluding its whole directory would hide the
+# authored documents beside it.
+EXCLUSION_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\.md)$")
 MAX_ROOTS = 16
 MAX_EXCLUSIONS = 32
+MAX_DISPOSITIONS = 1000
 MAX_FINDINGS = 1000
 
 
@@ -61,9 +67,11 @@ def load_manifest(findings: list[str]) -> object:
         return None
 
 
-def validate_root_path(value: str, prefix: str, findings: list[str]) -> bool:
-    if not isinstance(value, str) or not ROOT_RE.fullmatch(value):
-        findings.append(f"{prefix}: must be a relative directory path with trailing slash: {value!r}")
+def validate_root_path(
+    value: str, prefix: str, findings: list[str], pattern: re.Pattern[str] = ROOT_RE, shape: str = "a relative directory path with trailing slash"
+) -> bool:
+    if not isinstance(value, str) or not pattern.fullmatch(value):
+        findings.append(f"{prefix}: must be {shape}: {value!r}")
         return False
     if ".." in value.split("/"):
         findings.append(f"{prefix}: traversal segments are forbidden: {value!r}")
@@ -127,10 +135,42 @@ def validate_knowledge_roots(
             findings.append(f"{prefix}: duplicate entry: {value!r}")
             continue
         seen_exclusions.add(value)
-        if validate_root_path(value, prefix, findings):
+        if validate_root_path(
+            value,
+            prefix,
+            findings,
+            EXCLUSION_RE,
+            "a relative directory prefix with trailing slash, or a relative markdown file path",
+        ):
             valid_exclusions.append(value)
 
     return tuple(valid_roots), tuple(valid_exclusions)
+
+
+def validate_dispositions(manifest: dict, findings: list[str]) -> tuple[str, ...]:
+    """Return the paths the manifest records as deliberately not formalized.
+
+    Shape validation of a disposition belongs to check-knowledge-index.py,
+    which owns the manifest contract. This function reads the paths and
+    reports an entry it cannot read, so a malformed disposition cannot silently
+    subtract nothing while looking like it subtracted something.
+    """
+    raw = manifest.get("dispositions")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        findings.append("manifest: dispositions must be an array")
+        return ()
+    if len(raw) > MAX_DISPOSITIONS:
+        findings.append(f"manifest: dispositions carries more than {MAX_DISPOSITIONS} entries")
+        raw = raw[:MAX_DISPOSITIONS]
+    paths: list[str] = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            findings.append(f"manifest.dispositions[{index}]: malformed disposition skipped")
+            continue
+        paths.append(normalize(entry["path"]))
+    return tuple(paths)
 
 
 def normalize(path: str) -> str:
@@ -182,18 +222,28 @@ def compute_unprocessed(
     walked: list[str],
     referenced: set[str],
     exclusions: tuple[str, ...],
+    dispositions: tuple[str, ...] = (),
 ) -> list[str]:
-    """Files under knowledge_roots that have no record AND are not excluded.
+    """Files under knowledge_roots that have no record, exclusion, or disposition.
 
-    Exclusions are directory prefixes; any walked file whose path begins with
-    an exclusion prefix is dropped before the set-difference. The exclusions
-    are applied as plain string prefixes (with trailing slash from the
-    validator's normalization) so a typo like `docs/research` does not match
-    `docs/researcher-notes/`.
+    A directory exclusion ends in a slash and drops every walked file beneath
+    it; the prefix comparison keeps the trailing slash so a typo like
+    `docs/research` does not match `docs/researcher-notes/`. A file exclusion
+    ends in `.md` and drops exactly that path, which is how generated build
+    output is removed without hiding the authored documents beside it.
+
+    A disposition subtracts one path too, but for the opposite reason: the file
+    is source material the operator decided not to formalize, so it is counted
+    and reported separately rather than folded into a green result.
     """
+    prefixes = tuple(value for value in exclusions if value.endswith("/"))
+    files = frozenset(value for value in exclusions if not value.endswith("/"))
+    disposed = frozenset(dispositions)
     kept: list[str] = []
     for path in walked:
-        if any(path.startswith(prefix) for prefix in exclusions):
+        if path in files or path in disposed:
+            continue
+        if any(path.startswith(prefix) for prefix in prefixes):
             continue
         if path not in referenced:
             kept.append(path)
@@ -215,6 +265,22 @@ def report_unprocessed(unprocessed: list[str]) -> None:
     print(
         f"unprocessed summary: {len(unprocessed)} file(s) under declared knowledge_roots "
         f"have no manifest record",
+        file=sys.stderr,
+    )
+
+
+def report_dispositions(dispositions: tuple[str, ...]) -> None:
+    """Report the disposition count on its own line, always.
+
+    A disposed document is not processed knowledge; it is a document the
+    operator refused to formalize. Folding it into the unprocessed count would
+    hide a growing pile of refusals behind a shrinking backlog, so the number
+    is printed even when it is zero.
+    """
+    for path in dispositions:
+        print(f"disposition: {path}")
+    print(
+        f"disposition summary: {len(dispositions)} file(s) recorded as deliberately not formalized",
         file=sys.stderr,
     )
 
@@ -269,13 +335,15 @@ def main(argv: list[str]) -> int:
     for path in malformed:
         findings.append(f"manifest: malformed record path skipped: {path}")
 
-    unprocessed = compute_unprocessed(walked, referenced, exclusions)
+    dispositions = validate_dispositions(manifest, findings)
+    unprocessed = compute_unprocessed(walked, referenced, exclusions, dispositions)
     missing = compute_missing(referenced)
 
     if missing:
         findings.extend(f"missing-record-file: {path}" for path in missing)
 
     report_unprocessed(unprocessed)
+    report_dispositions(dispositions)
     report_missing(missing)
 
     if findings:

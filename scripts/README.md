@@ -20,6 +20,25 @@ and fails on any remainder or on a declaration that has become reachable. They
 share one state vocabulary through `coverage_state.py`, which is a single
 definition rather than two copies kept equal by a test.
 
+`check-knowledge-vocabulary.py` makes
+`contracts/concord-knowledge-index.v1.schema.json` the one declaration of the
+knowledge manifest vocabulary. CI carries no JSON Schema validator, so
+`check-knowledge-index.py` restates that vocabulary as Python sets and
+`internal/store` restates it again as Go maps. This checker fails when the
+schema and the Python sets disagree in either direction;
+`TestKnowledgeManifestVocabularyMatchesSchema` does the same for Go. Adding a
+record kind or field is therefore a schema edit plus two failing checks that
+name exactly what to update.
+
+`check-knowledge-closure.py` reports three separate numbers, and the split is
+the point. Unprocessed documents are source material still awaiting a decision.
+Exclusions are paths that are not knowledge at all, either a whole directory or
+one generated file. Dispositions are documents the operator has decided will
+never be formalized, and they are counted and listed on their own line even when
+the count is zero. Folding a disposition into the unprocessed count would hide a
+growing pile of refusals behind a shrinking backlog; folding it into an exclusion
+would hide it entirely.
+
 `install.py` is the standard-library-only Concord release installer. It verifies
 published checksums before changing managed data, adapter, launcher, or
 OpenCode skill-path files. It journals phase boundaries and recovers interrupted

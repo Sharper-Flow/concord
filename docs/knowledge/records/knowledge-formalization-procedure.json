@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-22T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "knowledge-formalization-procedure",
+  "kind": "constitution",
+  "path": "docs/knowledge-formalization-procedure.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:5963e0e8c8536bdf324caebb8652b666cb064a649f2e6e7ade529cfa04b32b34",
+  "status": "accepted",
+  "summary": "Defines how a document becomes accepted Product law, becomes registered non-law, or is dispositioned. Declares the four knowledge states, the three destinations for an unprocessed document, the two-tier kind taxonomy, the ordered kind-selection path, the acceptance-criteria rule, and the atomicity requirement binding a document edit to its recorded hash.",
+  "tags": [
+    "knowledge",
+    "formalization",
+    "procedure"
+  ],
+  "title": "Knowledge formalization procedure"
+}

@@ -1,0 +1,5 @@
+{
+  "id": "market-landscape",
+  "reason": "Investigation findings about an external market, with status published and no authority over Concord. Its claims are about other products and are explicitly caveated in its own unverified section, so they are not propositions this repository can prove by executable evidence. Where a finding influenced Concord's direction, the decision record that adopted it carries the coverage obligation.",
+  "state": "out_of_scope"
+}

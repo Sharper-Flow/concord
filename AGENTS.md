@@ -24,7 +24,7 @@ derivable fact drifts from its source and no check catches it.
   (CD-0010). See [`docs/development-authority.md`](docs/development-authority.md).
 - Advance is public predecessor evidence only. Do not create or dual-write
   Advance state, and do not route Concord work through ADV. A local
-  `project.json` may appear; it is **not** gitignored — never commit it.
+  `project.json` may appear; it is ignored by git and must never be committed.
 
 ## Context discipline
 

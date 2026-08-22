@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:7bddb41f38047b1e77a778072214961439ac0080a82851ee08f2b78654b47d0e"
+const ManifestDigest = "sha256:f6e8644d1e67dca969f8993a1c2a89aa86b386eee7d3958df748606084b79d75"
 
 type OperationKind string
 
@@ -222,7 +222,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_lifecycle_input":            {Required: []string{"work_id", "expected_version", "target", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "target", "reason", "idempotency_key", "evidence", "approval", "requested_budget_seconds"}},
 	"work_transition_worktree_claim_input":       {Required: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key", "requested_budget_seconds"}},
 	"work_transition_worktree_reclaim_input":     {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key", "requested_budget_seconds"}},
-	"workflow_contract":                          {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class"}},
+	"workflow_contract":                          {Required: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth", "legacy_product_truth_compatibility"}, Properties: []string{"version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "legacy_product_truth_compatibility", "architecture_binding"}},
 	"workflow_read":                              {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "stale_law_revision"}},
 }
 

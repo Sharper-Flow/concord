@@ -182,7 +182,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 				return out, err
 			}
 		}
-		out.SpecMandate = append([]string(nil), contract.SpecMandate...)
+		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
 		out.PendingOperatorDecision, err = workflowOperatorQuestionTx(req.Work, currentStep, workVersion, definition, contract)
 		if err != nil {
 			return out, err

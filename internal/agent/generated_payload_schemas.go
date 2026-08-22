@@ -5610,6 +5610,12 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_contract": {
       "additionalProperties": false,
       "properties": {
+        "architecture_binding": {
+          "$ref": "#/$defs/architecture_binding"
+        },
+        "changes_product_truth": {
+          "type": "boolean"
+        },
         "law_modifies": {
           "items": {
             "$ref": "#/$defs/id"
@@ -5638,6 +5644,9 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 32,
           "type": "array",
           "uniqueItems": true
+        },
+        "legacy_product_truth_compatibility": {
+          "type": "boolean"
         },
         "outcome_kind": {
           "$ref": "#/$defs/short"
@@ -5688,7 +5697,9 @@ const GeneratedPayloadSchemaDocument = `{
         "outcome_payload",
         "required_evidence",
         "route_conventions",
-        "spec_mandate"
+        "spec_mandate",
+        "changes_product_truth",
+        "legacy_product_truth_compatibility"
       ],
       "type": "object"
     },

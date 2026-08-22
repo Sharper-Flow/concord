@@ -1306,8 +1306,8 @@ func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, 
 	if !found || payload.AttemptEpoch != startEpoch {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker result attempt epoch does not match the latest workflow action start", false, "accept the current workflow attempt")
 	}
-	var attemptWorkID, lifecycle, readback, resolved string
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model,resolved_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback, &resolved); err != nil {
+	var attemptWorkID, lifecycle, readback string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt does not exist", false, "dispatch the worker attempt before accepting its result")
 		}
@@ -1329,8 +1329,8 @@ func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, 
 	if lifecycle != "completed" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt is not completed", false, "accept only a completed worker attempt")
 	}
-	if readback == "" || readback != resolved {
-		return newFailure(KindModelIdentityMismatch, "fold_event", "worker readback model does not match the resolved model", false, "accept only a model-verified worker result")
+	if readback == "" {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker readback model is empty", false, "accept only a worker attempt that reported a readback model")
 	}
 	if payload.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "accepting actor must match the authenticated event actor", false, "accept the worker result through the authenticated workflow owner")

@@ -159,15 +159,9 @@ const (
 	KindLaneDefinitionNotRegistered  FailureKind = "lane_definition_not_registered"
 	KindLaneDefinitionDigestMismatch FailureKind = "lane_definition_digest_mismatch"
 	KindLaneDefinitionInvalid        FailureKind = "lane_definition_invalid"
-	KindRoutingPolicyNotRegistered   FailureKind = "routing_policy_not_registered"
-	KindRoutingPolicyDigestMismatch  FailureKind = "routing_policy_digest_mismatch"
-	KindRoutingPolicyInvalid         FailureKind = "routing_policy_invalid"
-	// KindModelIdentityMismatch records a completed worker whose host readback
-	// identity differs from the model resolved at dispatch.
-	KindModelIdentityMismatch FailureKind = "model_identity_mismatch"
-	KindUnauthorized          FailureKind = "unauthorized"
-	KindStaleLawRevision      FailureKind = "stale_law_revision"
-	KindDomainOverlap         FailureKind = "domain_overlap"
+	KindUnauthorized                 FailureKind = "unauthorized"
+	KindStaleLawRevision             FailureKind = "stale_law_revision"
+	KindDomainOverlap                FailureKind = "domain_overlap"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

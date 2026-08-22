@@ -30,7 +30,7 @@ const (
 
 // WorkerEvidenceAssertion is the proof a registered client presents when it
 // records worker evidence. It authenticates the caller and binds the exact
-// attempt, lane, and routing identities the evidence claims. It carries no
+// attempt, lane, and readback model the evidence claims. It carries no
 // workflow authority: a valid assertion still cannot transition a step, record
 // a verdict, or complete work.
 type WorkerEvidenceAssertion struct {
@@ -41,9 +41,6 @@ type WorkerEvidenceAssertion struct {
 	LaneID               string `json:"lane_id"`
 	LaneVersion          int64  `json:"lane_version"`
 	LaneDigest           string `json:"lane_digest"`
-	RoutingPolicyVersion string `json:"routing_policy_version"`
-	RoutingPolicyDigest  string `json:"routing_policy_digest"`
-	ResolvedModel        string `json:"resolved_model"`
 	ReadbackModel        string `json:"readback_model"`
 	FailureKind          string `json:"failure_kind"`
 	HostProvenanceDigest string `json:"host_provenance_digest"`
@@ -68,9 +65,6 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 		a.LaneID,
 		strconv.FormatInt(a.LaneVersion, 10),
 		a.LaneDigest,
-		a.RoutingPolicyVersion,
-		a.RoutingPolicyDigest,
-		a.ResolvedModel,
 		a.ReadbackModel,
 		a.FailureKind,
 		a.HostProvenanceDigest,
@@ -85,9 +79,6 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 		"lane_id",
 		"lane_version",
 		"lane_digest",
-		"routing_policy_version",
-		"routing_policy_digest",
-		"resolved_model",
 		"readback_model",
 		"failure_kind",
 		"host_provenance_digest",
@@ -109,9 +100,9 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 }
 
 // WorkerEvidenceBinding is the identity the CLI boundary already established
-// from the lane registry, routing policy, and stored attempt. The assertion
-// must claim exactly this identity, so a signature captured for one attempt
-// cannot authorize evidence for another.
+// from the lane registry and stored attempt. The assertion must claim exactly
+// this identity, so a signature captured for one attempt cannot authorize
+// evidence for another.
 type WorkerEvidenceBinding struct {
 	Verb                 string
 	WorkID               string
@@ -119,9 +110,6 @@ type WorkerEvidenceBinding struct {
 	LaneID               string
 	LaneVersion          int64
 	LaneDigest           string
-	RoutingPolicyVersion string
-	RoutingPolicyDigest  string
-	ResolvedModel        string
 	ReadbackModel        string
 	FailureKind          string
 	HostProvenanceDigest string
@@ -150,9 +138,6 @@ func workerEvidenceMatchesBinding(a WorkerEvidenceAssertion, binding WorkerEvide
 		a.LaneID == binding.LaneID &&
 		a.LaneVersion == binding.LaneVersion &&
 		a.LaneDigest == binding.LaneDigest &&
-		a.RoutingPolicyVersion == binding.RoutingPolicyVersion &&
-		a.RoutingPolicyDigest == binding.RoutingPolicyDigest &&
-		a.ResolvedModel == binding.ResolvedModel &&
 		a.ReadbackModel == binding.ReadbackModel &&
 		a.FailureKind == binding.FailureKind &&
 		a.HostProvenanceDigest == binding.HostProvenanceDigest

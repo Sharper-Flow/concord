@@ -104,9 +104,9 @@ func formatRequiredFields(fields []commandField) string {
 var commandSpecs = []commandSpec{
 	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research"},
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
-	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("routing_policy_version"), field("routing_policy_digest"), field("resolved_model"), field("resolution_role"), field("fallback_reason"), field("packet_schema_version"), field("report_schema_version")), Optional: "host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "resolution_role: preferred | fallback | undeclared; fallback_reason: rate_limit | provider_unavailable | budget_exhausted | other | empty for preferred; resolved_model must be in the declared routing-policy resolution set"},
-	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version")), Optional: "none", Enums: "readback_model must equal the dispatch resolved_model"},
-	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | model_identity_mismatch"},
+	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version")), Optional: "readback_model (host-reported executing model); host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version")), Optional: "none", Enums: "none"},
+	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research; public_key: base64 Ed25519"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
@@ -281,19 +281,18 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 }
 
 type workerDispatchRequest struct {
-	EventID              string `json:"event_id"`
-	WorkID               string `json:"work_id"`
-	AttemptID            string `json:"attempt_id"`
-	LaneID               string `json:"lane_id"`
-	LaneVersion          int64  `json:"lane_version"`
-	LaneDigest           string `json:"lane_digest"`
-	RoutingPolicyVersion string `json:"routing_policy_version"`
-	RoutingPolicyDigest  string `json:"routing_policy_digest"`
-	ResolvedModel        string `json:"resolved_model"`
-	ResolutionRole       string `json:"resolution_role"`
-	FallbackReason       string `json:"fallback_reason"`
-	PacketSchemaVersion  string `json:"packet_schema_version"`
-	ReportSchemaVersion  string `json:"report_schema_version"`
+	EventID             string `json:"event_id"`
+	WorkID              string `json:"work_id"`
+	AttemptID           string `json:"attempt_id"`
+	LaneID              string `json:"lane_id"`
+	LaneVersion         int64  `json:"lane_version"`
+	LaneDigest          string `json:"lane_digest"`
+	PacketSchemaVersion string `json:"packet_schema_version"`
+	ReportSchemaVersion string `json:"report_schema_version"`
+	// ReadbackModel records the model the host reports as having executed
+	// the attempt (CD-0056 D2). Concord asserts nothing about which model
+	// should have run; this is the sole model evidence the store retains.
+	ReadbackModel string `json:"readback_model"`
 	// HostProvenance is the declared record of host prompt-injection
 	// surfaces (CD-0034 / issue #103); required for v3 evidence.
 	HostProvenance *store.WorkerHostProvenance `json:"host_provenance"`
@@ -343,15 +342,6 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
-		policy, err := store.LookupRoutingPolicy(lane.CapabilityClass, request.RoutingPolicyVersion, request.RoutingPolicyDigest)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		if err := store.ValidateWorkerDispatchIdentity(lane, policy, request.ResolvedModel, request.ResolutionRole, request.FallbackReason); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
 		if err := store.ValidateWorkerHostProvenance(request.HostProvenance); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
@@ -367,12 +357,10 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			LaneID:               request.LaneID,
 			LaneVersion:          request.LaneVersion,
 			LaneDigest:           request.LaneDigest,
-			RoutingPolicyVersion: request.RoutingPolicyVersion,
-			RoutingPolicyDigest:  request.RoutingPolicyDigest,
-			ResolvedModel:        request.ResolvedModel,
+			ReadbackModel:        request.ReadbackModel,
 			HostProvenanceDigest: request.HostProvenance.Digest,
 		}
-		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: request.RoutingPolicyVersion, RoutingPolicyDigest: request.RoutingPolicyDigest, ResolvedModel: request.ResolvedModel, ResolutionRole: request.ResolutionRole, FallbackReason: request.FallbackReason, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance}
+		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-complete":
 		var request workerCompleteRequest
@@ -388,18 +376,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		}
 		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion}
 		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}
-		mismatch := func(attempt store.WorkerAttempt) (store.Event, error) {
-			mismatchErr := store.ValidateWorkerCompletion(attempt.ResolvedModel, request.ReadbackModel)
-			if mismatchErr == nil {
-				return event, nil
-			}
-			// A model-identity mismatch is still authenticated evidence: it is
-			// recorded as a typed failure rather than discarded, and the caller
-			// still learns the completion was refused.
-			failure := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: store.WorkerFailureModelIdentity, Detail: "resolved model differs from host readback model"}
-			return store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(failure)}, mismatchErr
-		}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, mismatch, event, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, event, out, errOut)
 	case "worker-fail":
 		var request workerFailRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -442,8 +419,12 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			binding.LaneID = attempt.LaneID
 			binding.LaneVersion = attempt.LaneVersion
 			binding.LaneDigest = attempt.LaneDigest
-			binding.RoutingPolicyVersion = attempt.RoutingPolicyVersion
-			binding.RoutingPolicyDigest = attempt.RoutingPolicyDigest
+			// CD-0056: the terminal verb's readback is what the host reports
+			// NOW, not the dispatch-time readback. The CLI cannot overwrite
+			// the binding from the stored attempt because that would make
+			// the assertion mismatch when the terminal verb reports a
+			// divergent readback (which the store now accepts as a normal
+			// completion).
 			if resolve != nil {
 				resolved, resolveErr := resolve(attempt)
 				event = resolved

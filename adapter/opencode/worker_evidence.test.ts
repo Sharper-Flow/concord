@@ -1,10 +1,11 @@
 import { test, expect } from "bun:test"
-import { agentLanes, routingPolicies, routingPolicyManifestDigest, routingPolicyVersion } from "./generated-agent-lanes"
-import { canonicalWorkerEvidence, dispatchWorker, preferredModelForLane, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import { agentLanes } from "./generated-agent-lanes"
+import { canonicalWorkerEvidence, dispatchWorker, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import workerEvidenceVector from "./worker-evidence-vector.json"
 
 const lane = agentLanes[0]
+const READBACK_MODEL = "openai/gpt-5.6-luna"
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
 
 function packet(): AgentLanePacket {
@@ -19,14 +20,13 @@ const runOutput = () => [
   JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
 ].join("\n")
 
-const exportedSession = (model = preferredModelForLane(lane)) => JSON.stringify({
+const exportedSession = (model = READBACK_MODEL) => JSON.stringify({
   info: { id: "session-1" },
   messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] }],
 })
 
 const laneRunner: DispatchRunner = {
   async run(argv) {
-    if (argv[1] === "models") return { exitCode: 0, stdout: routingPolicies.flatMap(policy => policy.resolution_set).join("\n"), stderr: "" }
     if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
@@ -69,8 +69,7 @@ test("dispatch and completion evidence each carry a bound assertion", async () =
     expect(assertion.work_id).toBe("work-1")
     expect(assertion.attempt_id).toBe("attempt-1")
     expect(assertion.lane_digest).toBe(lane.digest)
-    expect(assertion.routing_policy_version).toBe(routingPolicyVersion)
-    expect(assertion.routing_policy_digest).toBe(routingPolicyManifestDigest)
+    expect(assertion.readback_model).toBe(READBACK_MODEL)
     expect(assertion.nonce.length).toBeGreaterThanOrEqual(16)
   }
 })
@@ -89,7 +88,6 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
   const recorded: Record<string, unknown>[] = []
   const runner: DispatchRunner = {
     async run(argv) {
-      if (argv[1] === "models") return { exitCode: 0, stdout: routingPolicies.flatMap(policy => policy.resolution_set).join("\n"), stderr: "" }
       if (argv[1] === "run") { spawnedArgv = argv; return { exitCode: 0, stdout: runOutput(), stderr: "" } }
       if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
       return { exitCode: 0, stdout: "", stderr: "" }

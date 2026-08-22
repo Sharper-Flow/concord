@@ -63,7 +63,6 @@ func workerCompleteJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, a
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbComplete, WorkID: workID, AttemptID: attemptID,
 		LaneID: resolved.ID, LaneVersion: resolved.Version, LaneDigest: resolved.Digest,
-		RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: store.RoutingPolicyManifestDigest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	value := map[string]any{
@@ -79,7 +78,6 @@ func workerFailJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, attem
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbFail, WorkID: workID, AttemptID: attemptID,
 		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
-		RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: store.RoutingPolicyManifestDigest,
 		ReadbackModel: readback, FailureKind: failureKind, Nonce: nonce,
 	}
 	value := map[string]any{
@@ -246,7 +244,6 @@ func TestWorkerEvidenceCannotChangeATerminalResult(t *testing.T) {
 		preferredLaneModel(lane), store.WorkerFailureFallbackBlocked, mustJSON(t, signWorkerEvidence(t, key, agent.WorkerEvidenceAssertion{
 			Verb: agent.WorkerEvidenceVerbFail, WorkID: "work-1", AttemptID: "attempt-1",
 			LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
-			RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: store.RoutingPolicyManifestDigest,
 			ReadbackModel: preferredLaneModel(lane), FailureKind: string(store.WorkerFailureFallbackBlocked),
 			Nonce: "nonce-fail-afterterminal",
 		})))

@@ -297,7 +297,7 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:24] {
+	for _, migration := range migrations[:25] {
 		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -305,8 +305,16 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
+	// Migrations beyond 25 are applied manually through 42 so the routing
+	// columns (which migration 43 drops) remain visible to this v25-shape
+	// test. Migration 43's own coverage lives in TestMigrateV42ToV43.
+	for _, migration := range migrations[25:42] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-22T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, column := range []string{"routing_policy_digest", "resolution_role", "fallback_reason"} {
 		var count int
@@ -325,11 +333,79 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT routing_policy_digest,resolution_role,fallback_reason FROM worker_attempts WHERE attempt_id='attempt'`).Scan(&digest, &role, &reason); err != nil {
 		t.Fatal(err)
 	}
-	if digest != RoutingPolicyManifestDigest || role != WorkerResolutionPreferred || reason != "" {
+	if digest != historicalRoutingPolicyDigest || role != "preferred" || reason != "" {
 		t.Fatalf("migration defaults = %s/%s/%s", digest, role, reason)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET resolution_role='fallback', fallback_reason='' WHERE attempt_id='attempt'`); err == nil {
 		t.Fatal("fallback without typed reason bypassed CHECK")
+	}
+}
+
+// historicalRoutingPolicyDigest is the DEFAULT literal frozen into migration
+// 25's DDL. A database created before migration 43 carries this value, so the
+// migration-history tests assert against the literal rather than a live
+// constant.
+const historicalRoutingPolicyDigest = "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736"
+
+// TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows covers CD-0056
+// D4: the declared-side worker attempt columns are removed under a rename +
+// recreate + copy + drop, every pre-existing row survives, and the lifecycle
+// CHECK that references readback_model is preserved.
+func TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v42.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:42] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-22T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('pre-existing-work','pre-existing','research',1,?,'research','routing-v1',?,'openai/gpt-5.6-luna','preferred','','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64), historicalRoutingPolicyDigest); err != nil {
+		t.Fatalf("seed v42 worker attempt: %v", err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// The fold guard must be re-deactivated so a direct INSERT is rejected
+	// by the trigger rather than permitted because the guard is open.
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"routing_policy_version", "routing_policy_digest", "resolved_model", "resolution_role", "fallback_reason"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('worker_attempts') WHERE name=?`, column).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("column %s count=%d err=%v, want 0", column, count, err)
+		}
+	}
+	var readback, lifecycle, capability string
+	if err := db.QueryRowContext(ctx, `SELECT readback_model,lifecycle_state,capability_class FROM worker_attempts WHERE attempt_id='pre-existing'`).Scan(&readback, &lifecycle, &capability); err != nil {
+		t.Fatalf("pre-existing row missing after migration 43: %v", err)
+	}
+	if readback != "openai/gpt-5.6-luna" || lifecycle != "dispatched" || capability != "research" {
+		t.Fatalf("pre-existing row projection = %q/%q/%q, want preserved readback/lifecycle/capability", readback, lifecycle, capability)
+	}
+	// The lifecycle CHECK that references readback_model survives the
+	// migration; a 'completed' attempt must still carry a 3+-char readback.
+	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET lifecycle_state='completed', readback_model='', completed_at='2026-08-22T00:00:00Z' WHERE attempt_id='pre-existing'`); err == nil {
+		t.Fatal("completed-with-empty-readback bypassed the lifecycle CHECK")
+	}
+	// The fold-only triggers must be reinstalled so direct INSERT is refused.
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',1,?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
+		t.Fatal("direct INSERT bypassed the fold guard")
 	}
 }
 

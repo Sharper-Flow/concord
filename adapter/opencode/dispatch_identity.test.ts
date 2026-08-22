@@ -13,7 +13,7 @@ test("run metadata accepts only one typed session identity", () => {
     runEvent("step_start", "session-1", { part: { type: "step-start", model: "incidental/not-readback" } }),
     runEvent("step_finish", "session-1", { part: { type: "step-finish", reason: "stop" } }),
   ].join("\n")
-  expect(readRunSessionMetadata(output)).toEqual({ session_id: "session-1", fallback_reason: null })
+  expect(readRunSessionMetadata(output)).toEqual({ session_id: "session-1" })
   expect(readRunSessionMetadata(`${output}\n${runEvent("text", "session-2", { part: { type: "text", text: "x" } })}`)).toBeNull()
   expect(readRunSessionMetadata(`${output}\n${JSON.stringify({ type: "unknown", sessionID: "session-1" })}`)).toBeNull()
 })

@@ -11,7 +11,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:68de0b63b1bdc0a07b14fbb72e8bdcf57638bd4527cddb4d802d07c2f603d2dc",
+  "sha256": "sha256:8589406995368186380222618357930a5b55cbd168d510b7c00b9e75881b1053",
   "status": "accepted",
   "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, capability classes, budgets, lifecycle states, and evidence obligations.",
   "tags": [

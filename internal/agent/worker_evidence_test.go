@@ -24,9 +24,6 @@ func TestCanonicalWorkerEvidenceVector(t *testing.T) {
 		LaneID               string `json:"lane_id"`
 		LaneVersion          int64  `json:"lane_version"`
 		LaneDigest           string `json:"lane_digest"`
-		RoutingPolicyVersion string `json:"routing_policy_version"`
-		RoutingPolicyDigest  string `json:"routing_policy_digest"`
-		ResolvedModel        string `json:"resolved_model"`
 		ReadbackModel        string `json:"readback_model"`
 		FailureKind          string `json:"failure_kind"`
 		HostProvenanceDigest string `json:"host_provenance_digest"`
@@ -40,8 +37,7 @@ func TestCanonicalWorkerEvidenceVector(t *testing.T) {
 	assertion := WorkerEvidenceAssertion{
 		ClientRef: vector.ClientRef, Verb: vector.Verb, WorkID: vector.WorkID, AttemptID: vector.AttemptID,
 		LaneID: vector.LaneID, LaneVersion: vector.LaneVersion, LaneDigest: vector.LaneDigest,
-		RoutingPolicyVersion: vector.RoutingPolicyVersion, RoutingPolicyDigest: vector.RoutingPolicyDigest,
-		ResolvedModel: vector.ResolvedModel, ReadbackModel: vector.ReadbackModel, FailureKind: vector.FailureKind,
+		ReadbackModel: vector.ReadbackModel, FailureKind: vector.FailureKind,
 		HostProvenanceDigest: vector.HostProvenanceDigest, IssuedAt: vector.IssuedAt, Nonce: vector.Nonce,
 	}
 	if got := base64.StdEncoding.EncodeToString(CanonicalWorkerEvidenceAssertion(assertion)); got != vector.CanonicalBase64 {

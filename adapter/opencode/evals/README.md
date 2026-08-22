@@ -33,7 +33,8 @@ Refusing the second kind is the passing behaviour.
 Providers wrap the same argv shape that
 [`dispatch.ts`](../dispatch.ts) uses, so a run exercises the real lane through
 the real host path rather than a paraphrase of it. Each lane is evaluated
-through the default routing-policy preferred model for its capability class.
+through whatever model the host selects — Concord no longer asserts a model
+identifier on dispatch (CD-0056).
 
 ## Running
 
@@ -53,16 +54,7 @@ npx promptfoo@0.122.0 validate config -c adapter/opencode/evals/promptfooconfig.
 ## What CI enforces
 
 CI never runs the evals — it has no model access, and eval verdicts carry no
-authority. It does run
-[`scripts/check-lane-evals.py`](../../../scripts/check-lane-evals.py), which
-fails when the harness stops describing the lanes the registry declares:
-
-- a registered lane with no eval packet
-- a packet whose `lane_version` or `lane_digest` has drifted from the registry
-- a packet the configuration never references
-- a lane whose eval command does not use the routing-policy preferred model
-- a packet for a lane that is not registered
-- a registered lane with no prose file
-
-That keeps the harness honest across lane changes without pretending a model
-judgement is a deterministic check.
+authority. Under CD-0056 there is no longer an in-repo drift validator for the
+harness, so a lane addition, retirement, or digest change can drift from the
+configuration without failing CI. The harness itself is updated by hand and is
+treated as advisory infrastructure rather than a Concord machine check.

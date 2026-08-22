@@ -570,15 +570,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestRoutingPolicyHostOverrideBindsDigestAndDispatchValidation"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestRoutingPolicySetButMissingPathFailsTyped"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestRoutingPolicyMalformedAndIncompleteHostPoliciesNameFailures"
+          "value": "internal/store.TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows"
         }
       ],
       "id": "CD-0054",
@@ -604,6 +596,32 @@
         }
       ],
       "id": "CD-0055",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerEventsRejectUnknownLanePacketAndPayloadFields"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerCompletedAndFailedEventsRetainD5Evidence"
+        }
+      ],
+      "id": "CD-0056",
       "state": "satisfied"
     },
     {
@@ -674,16 +692,6 @@
         }
       ],
       "id": "agent-lanes-contract",
-      "state": "satisfied"
-    },
-    {
-      "evidence": [
-        {
-          "kind": "generated",
-          "value": "internal/store/generated_routing_policy.go#RoutingPolicyManifestDigest"
-        }
-      ],
-      "id": "routing-policy-contract",
       "state": "satisfied"
     },
     {

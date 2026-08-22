@@ -108,15 +108,16 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{mismatch}}); err != nil {
 		t.Fatal(err)
 	}
-	var state, failureKind, readback string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind,readback_model FROM worker_attempts WHERE attempt_id=?`, "dispatch-mismatch").Scan(&state, &failureKind, &readback); err != nil {
+	// CD-0056: Concord records the host readback verbatim. A completion that
+	// names a different readback than the dispatch is accepted as a normal
+	// completion; the dispatch and terminal readback are both recorded. The
+	// store no longer asserts a model_identity_mismatch.
+	var state, readback string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, "dispatch-mismatch").Scan(&state, &readback); err != nil {
 		t.Fatal(err)
 	}
-	if state != "failed" || failureKind != string(KindModelIdentityMismatch) || readback != "openai/fallback-model" {
-		t.Fatalf("mismatch projection = %s/%s/%s", state, failureKind, readback)
-	}
-	if err := ValidateWorkerCompletion(preferredModelForLane(lane), "openai/fallback-model"); !hasFailureKind(err, KindModelIdentityMismatch) {
-		t.Fatalf("pre-fold mismatch = %v, want %s", err, KindModelIdentityMismatch)
+	if state != "completed" || readback != "openai/fallback-model" {
+		t.Fatalf("readback projection = %s/%s, want completed/openai/fallback-model", state, readback)
 	}
 	before := workerProjectionSnapshot(t, s)
 	if err := RebuildFromLog(context.Background(), s); err != nil {
@@ -188,7 +189,12 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		beforeEvents := countRows(t, s, "domain_events")
 		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-foreign-failed-subject", "terminal-foreign-failed-event", "terminal-foreign-failed-attempt", preferredModelForLane(lane)), KindInvalidOperation, before, beforeEvents)
 	})
-	t.Run("model mismatch is terminal", func(t *testing.T) {
+	t.Run("model mismatch is no longer a terminal kind", func(t *testing.T) {
+		// CD-0056: the readback mismatch no longer records a typed failure. A
+		// completion that names a different readback than the dispatch
+		// succeeds as a normal completion; the readback column records what
+		// the host reported. A second completion is still rejected because
+		// the attempt is already terminal.
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[1]
 		attemptID := "terminal-model-mismatch-attempt"
@@ -201,12 +207,12 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		before := workerProjectionSnapshot(t, s)
 		beforeEvents := countRows(t, s, "domain_events")
 		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-model-mismatch", "terminal-model-recovery", attemptID, preferredModelForLane(lane)), KindProjectionConflict, before, beforeEvents)
-		var state, failureKind string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &failureKind); err != nil {
+		var state, readback string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &readback); err != nil {
 			t.Fatal(err)
 		}
-		if state != "failed" || failureKind != string(KindModelIdentityMismatch) {
-			t.Fatalf("model mismatch terminal state=%q failure=%q", state, failureKind)
+		if state != "completed" || readback != "openai/fallback-model" {
+			t.Fatalf("post-mismatch terminal state=%q readback=%q", state, readback)
 		}
 	})
 }
@@ -247,7 +253,7 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_version=? AND lane_digest=? AND capability_class=? AND routing_policy_version=? AND resolved_model=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, "routing-v1", preferredModelForLane(lane), WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_version=? AND lane_digest=? AND capability_class=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {
@@ -259,8 +265,9 @@ func workerDispatchEvent(workID, eventID string, lane LaneDefinition, overrides 
 	payload := map[string]any{
 		"attempt_id": eventID,
 		"lane_id":    lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-		"capability_class": lane.CapabilityClass, "routing_policy_version": "routing-v1",
-		"resolved_model": preferredModelForLane(lane), "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
+		"capability_class":      lane.CapabilityClass,
+		"readback_model":        preferredModelForLane(lane),
+		"packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 	}
 	for key, value := range overrides {
 		payload[key] = value
@@ -274,19 +281,19 @@ func workerCompleteEvent(workID, eventID, attemptID, model string) Event {
 
 func workerProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,resolved_model,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
+	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	var result strings.Builder
 	for rows.Next() {
-		var values [17]string
+		var values [15]string
 		var version int64
-		if err := rows.Scan(&values[0], &values[1], &values[2], &version, &values[4], &values[5], &values[6], &values[7], &values[8], &values[9], &values[10], &values[11], &values[12], &values[13], &values[14], &values[15], &values[16]); err != nil {
+		if err := rows.Scan(&values[0], &values[1], &values[2], &version, &values[4], &values[5], &values[6], &values[7], &values[8], &values[9], &values[10], &values[11], &values[12], &values[13], &values[14]); err != nil {
 			t.Fatal(err)
 		}
-		result.WriteString(strings.Join([]string{values[0], values[1], values[2], fmt.Sprintf("%d", version), values[4], values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14], values[15], values[16]}, "|"))
+		result.WriteString(strings.Join([]string{values[0], values[1], values[2], fmt.Sprintf("%d", version), values[4], values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14]}, "|"))
 		result.WriteByte('\n')
 	}
 	if err := rows.Err(); err != nil {
@@ -306,6 +313,20 @@ func mustJSONValue(value any) []byte {
 func hasFailureKind(err error, want FailureKind) bool {
 	var failure *Failure
 	return errors.As(err, &failure) && failure.Kind == want
+}
+
+// preferredModelForLane is a test fixture: a literal model string keyed by the
+// lane's capability class. The store no longer carries a routing policy, so
+// the previous lookup-based helper had to be re-homed; this stand-in keeps
+// D6 evidence (workflow_actors.execution_model) populatable and gives worker
+// dispatch fixtures a stable readback_model value.
+func preferredModelForLane(lane LaneDefinition) string {
+	switch lane.CapabilityClass {
+	case "review":
+		return "zai-coding-plan/glm-5.3"
+	default:
+		return "openai/gpt-5.6-luna"
+	}
 }
 
 // CD-0017 D4/acceptance: a generic host agent is never a Concord lane. The
@@ -334,5 +355,72 @@ func TestGenericHostAgentsAreNotDispatchableLanes(t *testing.T) {
 	}
 	if got := countRows(t, s, "worker_attempts"); got != 0 {
 		t.Fatalf("generic dispatch rows = %d, want 0", got)
+	}
+}
+
+// CD-0034: host prompt provenance is declared at dispatch — validated closed,
+// required for v3 evidence at the CLI boundary, and upcasted with an honest
+// legacy marker for v1/v2 history. Provenance is unaffected by CD-0056; only
+// the routing-policy fields left the dispatch payload.
+func TestWorkerHostProvenanceValidation(t *testing.T) {
+	valid := &WorkerHostProvenance{Digest: "sha256:" + strings.Repeat("a", 64), Sources: []WorkerHostProvenanceSource{
+		{Kind: "agent_definition", Path: "/agents/concord-research.md", SHA256: "sha256:" + strings.Repeat("b", 64)},
+		{Kind: "agents_md", Path: "/repo/AGENTS.md", SHA256: "sha256:" + strings.Repeat("c", 64)},
+		{Kind: "unenumerated"},
+	}}
+	if err := ValidateWorkerHostProvenance(valid); err != nil {
+		t.Fatalf("valid provenance refused: %v", err)
+	}
+	if err := ValidateWorkerHostProvenance(nil); err != nil {
+		t.Fatalf("nil provenance (payload < v3) must pass validation itself: %v", err)
+	}
+	bad := []struct {
+		name string
+		p    *WorkerHostProvenance
+	}{
+		{"bad digest", &WorkerHostProvenance{Digest: "sha256:short", Sources: valid.Sources}},
+		{"no sources", &WorkerHostProvenance{Digest: valid.Digest, Sources: nil}},
+		{"unknown kind", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "mystery", Path: "/x", SHA256: valid.Digest}}}},
+		{"unenumerated with path", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "/x"}}}},
+		{"enumerated without hash", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "agents_md", Path: "/x"}}}},
+		{"duplicate source", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "agents_md", Path: "/x", SHA256: valid.Digest}, {Kind: "agents_md", Path: "/x", SHA256: valid.Digest}}}},
+	}
+	for _, tc := range bad {
+		if err := ValidateWorkerHostProvenance(tc.p); err == nil {
+			t.Fatalf("%s must refuse", tc.name)
+		}
+	}
+}
+
+// CD-0034: a v3 dispatch carries host provenance into durable evidence. The
+// fold accepts a v3 payload without provenance because the CLI boundary is the
+// gate that requires it.
+func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
+	s := openTemp(t)
+	lane := BuiltinLaneDefinitions()[0]
+	provenance := map[string]any{
+		"digest": "sha256:" + strings.Repeat("d", 64),
+		"sources": []map[string]any{
+			{"kind": "agent_definition", "path": "/agents/concord-research.md", "sha256": "sha256:" + strings.Repeat("e", 64)},
+			{"kind": "unenumerated"},
+		},
+	}
+	withProv := workerDispatchEvent("work-prov", "attempt-prov", lane, map[string]any{"host_provenance": provenance})
+	withProv.PayloadVersion = 3
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withProv}}); err != nil {
+		t.Fatalf("v3 dispatch with provenance refused: %v", err)
+	}
+	var storedPayload string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='attempt-prov'`).Scan(&storedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(storedPayload, strings.Repeat("d", 16)) {
+		t.Fatalf("provenance not durable in evidence: %s", storedPayload)
+	}
+
+	noProv := workerDispatchEvent("work-prov", "attempt-noprov", lane, nil)
+	noProv.PayloadVersion = 3
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{noProv}}); err != nil {
+		t.Fatalf("v3 without provenance should be accepted at fold level (CLI gates it): %v", err)
 	}
 }

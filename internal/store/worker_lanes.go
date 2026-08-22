@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -25,26 +24,18 @@ const (
 	WorkerFailureModelIdentity   = "model_identity_mismatch"
 )
 
-const (
-	WorkerResolutionPreferred = "preferred"
-	WorkerResolutionFallback  = "fallback"
-)
-
-// WorkerDispatchedPayload is the complete D5 dispatch identity. The event
-// subject is the owning work item; AttemptID identifies the worker attempt.
+// WorkerDispatchedPayload is the v3 dispatch identity. The event subject is
+// the owning work item; AttemptID identifies the worker attempt. The
+// declared-side routing columns were dropped under CD-0056: Concord records
+// what executed (readback_model) and nothing else.
 type WorkerDispatchedPayload struct {
-	AttemptID            string `json:"attempt_id"`
-	LaneID               string `json:"lane_id"`
-	LaneVersion          int64  `json:"lane_version"`
-	LaneDigest           string `json:"lane_digest"`
-	CapabilityClass      string `json:"capability_class"`
-	RoutingPolicyVersion string `json:"routing_policy_version"`
-	RoutingPolicyDigest  string `json:"routing_policy_digest"`
-	ResolvedModel        string `json:"resolved_model"`
-	ResolutionRole       string `json:"resolution_role"`
-	FallbackReason       string `json:"fallback_reason"`
-	PacketSchemaVersion  string `json:"packet_schema_version"`
-	ReportSchemaVersion  string `json:"report_schema_version"`
+	AttemptID           string `json:"attempt_id"`
+	LaneID              string `json:"lane_id"`
+	LaneVersion         int64  `json:"lane_version"`
+	LaneDigest          string `json:"lane_digest"`
+	CapabilityClass     string `json:"capability_class"`
+	PacketSchemaVersion string `json:"packet_schema_version"`
+	ReportSchemaVersion string `json:"report_schema_version"`
 	// HostProvenance is the declared record of unversioned host prompt
 	// surfaces that shape the worker's behavior (issue #103 / CD-0034):
 	// the adapter enumerates what it can bind — agent definition file,
@@ -52,6 +43,11 @@ type WorkerDispatchedPayload struct {
 	// them. Injection is permitted only when recorded. Nil is legal only
 	// for payloads older than v3.
 	HostProvenance *WorkerHostProvenance `json:"host_provenance,omitempty"`
+	// ReadbackModel records the model the host reports as having executed
+	// the attempt (CD-0056 D2). It is the only model evidence Concord
+	// records; the adapter writes the same value on dispatch and on the
+	// worker.completed / worker.failed terminal events.
+	ReadbackModel string `json:"readback_model,omitempty"`
 	// Terminal records the immediate terminal outcome forced at dispatch
 	// (issue #106): "failed" for an undeclared executing model or an
 	// exhausted resolution chain, empty for an ordinary dispatch. A
@@ -97,27 +93,23 @@ type WorkerHostProvenanceSource struct {
 
 // WorkerAttempt is the fold-only current projection of one worker attempt.
 // It intentionally contains no workflow step, verdict, or completion state.
+// The declared-side routing columns were dropped under CD-0056.
 type WorkerAttempt struct {
-	WorkID               string `json:"work_id"`
-	AttemptID            string `json:"attempt_id"`
-	LaneID               string `json:"lane_id"`
-	LaneVersion          int64  `json:"lane_version"`
-	LaneDigest           string `json:"lane_digest"`
-	CapabilityClass      string `json:"capability_class"`
-	RoutingPolicyVersion string `json:"routing_policy_version"`
-	RoutingPolicyDigest  string `json:"routing_policy_digest"`
-	ResolvedModel        string `json:"resolved_model"`
-	ResolutionRole       string `json:"resolution_role"`
-	FallbackReason       string `json:"fallback_reason"`
-	ReadbackModel        string `json:"readback_model"`
-	PacketSchemaVersion  string `json:"packet_schema_version"`
-	ReportSchemaVersion  string `json:"report_schema_version"`
-	LifecycleState       string `json:"lifecycle_state"`
-	FailureKind          string `json:"failure_kind,omitempty"`
-	FailureDetail        string `json:"failure_detail,omitempty"`
-	DispatchedAt         string `json:"dispatched_at"`
-	CompletedAt          string `json:"completed_at,omitempty"`
-	FailedAt             string `json:"failed_at,omitempty"`
+	WorkID              string `json:"work_id"`
+	AttemptID           string `json:"attempt_id"`
+	LaneID              string `json:"lane_id"`
+	LaneVersion         int64  `json:"lane_version"`
+	LaneDigest          string `json:"lane_digest"`
+	CapabilityClass     string `json:"capability_class"`
+	ReadbackModel       string `json:"readback_model"`
+	PacketSchemaVersion string `json:"packet_schema_version"`
+	ReportSchemaVersion string `json:"report_schema_version"`
+	LifecycleState      string `json:"lifecycle_state"`
+	FailureKind         string `json:"failure_kind,omitempty"`
+	FailureDetail       string `json:"failure_detail,omitempty"`
+	DispatchedAt        string `json:"dispatched_at"`
+	CompletedAt         string `json:"completed_at,omitempty"`
+	FailedAt            string `json:"failed_at,omitempty"`
 }
 
 var workerModelPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]*/[^/ ]+$`)
@@ -146,14 +138,11 @@ func decodeClosedWorkerPayload(event Event, target any) error {
 }
 
 func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) error {
-	modelShape := workerModelPattern.MatchString(payload.ResolvedModel)
-	if payload.ResolutionRole == WorkerResolutionUndeclared && payload.ResolvedModel == "" {
-		// Exhausted resolution chain: no model ran, so there is no model to
-		// shape-check (issue #106).
-		modelShape = true
-	}
-	if event.SubjectType != SubjectWorkItem || event.SubjectID == "" || payload.AttemptID == "" || !laneIDPattern.MatchString(payload.LaneID) || payload.LaneVersion < 1 || !laneDigestPattern.MatchString(payload.LaneDigest) || !workerVersionPattern.MatchString(payload.CapabilityClass) || !workerVersionPattern.MatchString(payload.RoutingPolicyVersion) || !laneDigestPattern.MatchString(payload.RoutingPolicyDigest) || !modelShape || payload.PacketSchemaVersion != WorkerPacketSchemaVersion || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
+	if event.SubjectType != SubjectWorkItem || event.SubjectID == "" || payload.AttemptID == "" || !laneIDPattern.MatchString(payload.LaneID) || payload.LaneVersion < 1 || !laneDigestPattern.MatchString(payload.LaneDigest) || !workerVersionPattern.MatchString(payload.CapabilityClass) || payload.PacketSchemaVersion != WorkerPacketSchemaVersion || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
 		return invalidWorkerPayload("worker.dispatched payload has invalid identity")
+	}
+	if payload.ReadbackModel != "" && !workerModelPattern.MatchString(payload.ReadbackModel) {
+		return invalidWorkerPayload("worker.dispatched readback_model has invalid shape")
 	}
 	lane, err := LookupLane(payload.LaneID, payload.LaneVersion, payload.LaneDigest)
 	if err != nil {
@@ -162,14 +151,13 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	if payload.CapabilityClass != lane.CapabilityClass {
 		return invalidWorkerPayload("worker.dispatched capability class does not match lane")
 	}
-	policy, err := LookupRoutingPolicy(payload.CapabilityClass, payload.RoutingPolicyVersion, payload.RoutingPolicyDigest)
-	if err != nil {
-		return err
+	if payload.Terminal != "" && payload.Terminal != "failed" {
+		return invalidWorkerPayload("worker.dispatched terminal value must be empty or 'failed'")
 	}
-	if err := ValidateWorkerHostProvenance(payload.HostProvenance); err != nil {
-		return err
+	if payload.Terminal == "failed" && payload.TerminalFailureKind == "" {
+		return invalidWorkerPayload("worker.dispatched terminal failure requires a typed kind")
 	}
-	return ValidateWorkerDispatchIdentity(lane, policy, payload.ResolvedModel, payload.ResolutionRole, payload.FallbackReason)
+	return ValidateWorkerHostProvenance(payload.HostProvenance)
 }
 
 // workerProvenancePattern binds the total digest and per-source hashes.
@@ -220,20 +208,12 @@ func upcastWorkerDispatchedV1(event Event) (Event, error) {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return Event{}, err
 	}
-	lane, err := LookupLane(payload.LaneID, payload.LaneVersion, payload.LaneDigest)
-	if err != nil {
+	if _, err := LookupLane(payload.LaneID, payload.LaneVersion, payload.LaneDigest); err != nil {
 		return Event{}, err
 	}
-	policy, err := LookupRoutingPolicy(payload.CapabilityClass, payload.RoutingPolicyVersion, LoadedRoutingPolicyManifestDigest())
-	if err != nil {
-		return Event{}, err
-	}
-	if payload.CapabilityClass != lane.CapabilityClass || payload.ResolvedModel != policy.PreferredModel {
-		return Event{}, newFailure(KindRoutingPolicyInvalid, "worker_event_upcast", "legacy worker dispatch is not a preferred routing-policy resolution", false, "repair the worker event evidence")
-	}
-	payload.RoutingPolicyDigest = LoadedRoutingPolicyManifestDigest()
-	payload.ResolutionRole = WorkerResolutionPreferred
-	payload.FallbackReason = ""
+	// CD-0056: declared-side routing fields were dropped. v1 payloads that
+	// carried them are folded as-is — the columns simply do not survive the
+	// migration to v3 and the fold reads only the surviving identity.
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return Event{}, wrapFailure(KindInvalidPayload, "worker_event_upcast", "cannot encode the worker dispatch payload", false, "repair the worker event payload", err)
@@ -264,20 +244,10 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	lifecycleState := "dispatched"
 	failureKind, failureDetail := "", ""
+	readbackModel := payload.ReadbackModel
 	if payload.Terminal == "failed" {
-		// Terminal-at-birth dispatch (issue #106): the evidence row for an
-		// undeclared executing model or an exhausted resolution chain. It
-		// lands in the failed state immediately and can never bind a
-		// completion.
-		if payload.ResolutionRole != WorkerResolutionUndeclared || payload.TerminalFailureKind == "" {
-			return newFailure(KindInvalidPayload, "fold_event", "terminal dispatch requires the undeclared resolution role and a typed failure kind", false, "record the prohibited outcome with its typed failure")
-		}
-		switch {
-		case payload.ResolvedModel != "" && payload.TerminalFailureKind != string(KindModelIdentityMismatch):
-			return newFailure(KindInvalidPayload, "fold_event", "an undeclared model dispatch must fail as model_identity_mismatch", false, "fail the attempt with the model identity mismatch kind")
-		case payload.ResolvedModel == "" && payload.TerminalFailureKind == string(KindModelIdentityMismatch):
-			return newFailure(KindInvalidPayload, "fold_event", "model identity mismatch requires the undeclared executing model to be recorded", false, "record the model that actually ran")
-		}
+		// Terminal-at-birth dispatch (issue #106): the evidence row records
+		// a prohibited outcome as durable evidence, never a usable attempt.
 		lifecycleState = "failed"
 		failureKind = payload.TerminalFailureKind
 		failureDetail = payload.TerminalDetail
@@ -287,8 +257,8 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		failedAt = now
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
-		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,failed_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, payload.RoutingPolicyVersion, payload.RoutingPolicyDigest, payload.ResolvedModel, payload.ResolutionRole, payload.FallbackReason, payload.ResolvedModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, lifecycleState, failureKind, failureDetail, now, failedAt)
+		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,failed_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, readbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, lifecycleState, failureKind, failureDetail, now, failedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already dispatched", false, "use a new attempt identity")
@@ -303,21 +273,11 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	var workID, lifecycle, resolvedModel string
-	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle, &resolvedModel); err != nil {
+	var workID, lifecycle string
+	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle); err != nil {
 		return err
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	if resolvedModel != payload.ReadbackModel {
-		result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, string(KindModelIdentityMismatch), "resolved model differs from host readback model", now, payload.AttemptID, workID)
-		if err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot record worker model identity mismatch", true, "retry once the database is writable", err)
-		}
-		if err := verifyWorkerTerminalUpdate(result, "cannot verify worker model identity mismatch", "record worker.dispatched before worker.completed"); err != nil {
-			return err
-		}
-		return nil
-	}
 	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, now, payload.AttemptID, workID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot complete worker attempt projection", true, "retry once the database is writable", err)
@@ -333,8 +293,8 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	var workID, lifecycle, resolvedModel string
-	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle, &resolvedModel); err != nil {
+	var workID, lifecycle string
+	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle); err != nil {
 		return err
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
@@ -348,11 +308,11 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, attemptID string, workID, lifecycle, resolvedModel *string) error {
+func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, attemptID string, workID, lifecycle *string) error {
 	if event.SubjectType != SubjectWorkItem {
 		return newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,resolved_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(workID, lifecycle, resolvedModel); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(workID, lifecycle); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before the terminal worker event")
 		}
@@ -376,74 +336,6 @@ func verifyWorkerTerminalUpdate(result sql.Result, unavailableDetail, missingDet
 		return newFailure(KindProjectionConflict, "fold_event", "worker attempt terminal transition was not uniquely applied", false, missingDetail)
 	}
 	return nil
-}
-
-// ValidateWorkerCompletion provides the typed pre-fold mismatch check for
-// callers that need to reject a result before constructing worker.completed.
-func ValidateWorkerCompletion(resolvedModel, readbackModel string) error {
-	if resolvedModel != readbackModel {
-		return newFailure(KindModelIdentityMismatch, "worker_completion", fmt.Sprintf("resolved model %q differs from readback model %q", resolvedModel, readbackModel), false, "record a typed worker failure outcome")
-	}
-	return nil
-}
-
-// ValidateWorkerDispatchIdentity accepts only preferred or declared fallback
-// resolutions. A fallback must carry a typed reason; the preferred path cannot
-// carry fallback evidence.
-// WorkerResolutionUndeclared records that the model which actually executed
-// was outside the declared routing-policy resolution set. Such a dispatch is
-// terminal at birth: evidence without usability (issue #106).
-const WorkerResolutionUndeclared = "undeclared"
-
-func ValidateWorkerDispatchIdentity(lane LaneDefinition, policy RoutingPolicyDefinition, resolvedModel, role, fallbackReason string) error {
-	if role != WorkerResolutionUndeclared && resolvedModel == "" {
-		return newFailure(KindLaneDefinitionInvalid, "worker_dispatch", "resolved model is empty", false, "use the registered lane pinned or fallback model")
-	}
-	if role == WorkerResolutionUndeclared {
-		// The prohibited outcome itself (issue #106), in one of two shapes:
-		// an executing model outside the declared set (recorded exactly as
-		// read back), or an exhausted resolution chain where no model ran.
-		// Both are recordable only as terminal evidence rows — the dispatch
-		// carries its forced failure so no consumer can act on it.
-		if resolvedModel != "" && containsModel(policy.ResolutionSet, resolvedModel) {
-			return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "undeclared resolution must name a model outside the declared resolution set", false, "record the undeclared executing model exactly as read back")
-		}
-		return nil
-	}
-	if policy.ResolutionSet[0] != policy.PreferredModel || !containsModel(policy.ResolutionSet, resolvedModel) {
-		return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "resolved model is not a declared routing-policy member", false, "use a model from the registered resolution set")
-	}
-	switch role {
-	case WorkerResolutionPreferred:
-		if resolvedModel != policy.PreferredModel || fallbackReason != "" {
-			return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "preferred resolution must equal the policy preferred model and have no fallback reason", false, "record the preferred resolution identity")
-		}
-	case WorkerResolutionFallback:
-		if resolvedModel == policy.PreferredModel || !validWorkerFallbackReason(fallbackReason) {
-			return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "fallback resolution requires a declared non-preferred model and typed reason", false, "record a declared fallback and reason")
-		}
-	default:
-		return newFailure(KindRoutingPolicyInvalid, "worker_dispatch", "resolution role is not recognized", false, "use preferred or fallback")
-	}
-	return nil
-}
-
-func containsModel(models []string, wanted string) bool {
-	for _, model := range models {
-		if model == wanted {
-			return true
-		}
-	}
-	return false
-}
-
-func validWorkerFallbackReason(value string) bool {
-	switch value {
-	case "rate_limit", "provider_unavailable", "budget_exhausted", "other":
-		return true
-	default:
-		return false
-	}
 }
 
 // WorkerAttemptByID returns the durable dispatch identity needed to validate a
@@ -480,8 +372,8 @@ func workerAttemptByID(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, attemptID string) (WorkerAttempt, error) {
 	var attempt WorkerAttempt
-	err := q.QueryRowContext(ctx, `SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,COALESCE(failure_kind,''),COALESCE(failure_detail,''),dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(
-		&attempt.WorkID, &attempt.AttemptID, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.CapabilityClass, &attempt.RoutingPolicyVersion, &attempt.RoutingPolicyDigest, &attempt.ResolvedModel, &attempt.ResolutionRole, &attempt.FallbackReason, &attempt.ReadbackModel, &attempt.PacketSchemaVersion, &attempt.ReportSchemaVersion, &attempt.LifecycleState, &attempt.FailureKind, &attempt.FailureDetail, &attempt.DispatchedAt, &attempt.CompletedAt, &attempt.FailedAt,
+	err := q.QueryRowContext(ctx, `SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,COALESCE(failure_kind,''),COALESCE(failure_detail,''),dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(
+		&attempt.WorkID, &attempt.AttemptID, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.CapabilityClass, &attempt.ReadbackModel, &attempt.PacketSchemaVersion, &attempt.ReportSchemaVersion, &attempt.LifecycleState, &attempt.FailureKind, &attempt.FailureDetail, &attempt.DispatchedAt, &attempt.CompletedAt, &attempt.FailedAt,
 	)
 	if err == sql.ErrNoRows {
 		return WorkerAttempt{}, newFailure(KindProjectionNotFound, "worker_attempt_read", "worker dispatch row does not exist", false, "record worker.dispatched before the worker result")

@@ -28,19 +28,19 @@ prompts:
     label: verify/refuses-repair
 
 providers:
-  - id: 'exec: opencode run --agent concord-research --model openai/gpt-5.6-luna --format json'
+  - id: 'exec: opencode run --agent concord-research --format json'
     label: lane-research
     prompts:
       - 'research/*'
-  - id: 'exec: opencode run --agent concord-implement --model openai/gpt-5.6-luna --format json'
+  - id: 'exec: opencode run --agent concord-implement --format json'
     label: lane-implement
     prompts:
       - 'implement/*'
-  - id: 'exec: opencode run --agent concord-review --model zai-coding-plan/glm-5.3 --format json'
+  - id: 'exec: opencode run --agent concord-review --format json'
     label: lane-review
     prompts:
       - 'review/*'
-  - id: 'exec: opencode run --agent concord-verify --model openai/gpt-5.6-luna --format json'
+  - id: 'exec: opencode run --agent concord-verify --format json'
     label: lane-verify
     prompts:
       - 'verify/*'

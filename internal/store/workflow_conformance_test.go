@@ -2167,26 +2167,26 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 
 // observeWorkerAttempts exposes the CD-0017 D5 worker attempt evidence to the
 // scenario corpus. Every dispatched attempt carries its registered lane
-// identity, the declared routing resolution, and the readback executing model,
-// so a scenario can assert typed lane evidence rather than response wording.
+// identity and the readback executing model (CD-0056: the only model evidence
+// Concord records), so a scenario can assert typed lane evidence rather than
+// response wording.
 func observeWorkerAttempts(ctx context.Context, s *Store, workID string, observation *workflowObservation) error {
-	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at, attempt_id`, workID)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at, attempt_id`, workID)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	lanes := []any{}
 	for rows.Next() {
-		var attemptID, laneID, laneDigest, capability, policyVersion, policyDigest, resolved, role, reason, readback, lifecycle string
+		var attemptID, laneID, laneDigest, capability, readback, lifecycle string
 		var laneVersion int64
-		if err := rows.Scan(&attemptID, &laneID, &laneVersion, &laneDigest, &capability, &policyVersion, &policyDigest, &resolved, &role, &reason, &readback, &lifecycle); err != nil {
+		if err := rows.Scan(&attemptID, &laneID, &laneVersion, &laneDigest, &capability, &readback, &lifecycle); err != nil {
 			return err
 		}
 		observation.WorkerAttempts[attemptID] = map[string]any{
 			"lane_id": laneID, "lane_version": laneVersion, "lane_digest": laneDigest,
-			"capability_class": capability, "routing_policy_version": policyVersion, "routing_policy_digest": policyDigest,
-			"resolved_model": resolved, "resolution_role": role, "fallback_reason": reason,
-			"readback_model": readback, "lifecycle_state": lifecycle,
+			"capability_class": capability,
+			"readback_model":   readback, "lifecycle_state": lifecycle,
 		}
 		lanes = append(lanes, laneID)
 	}

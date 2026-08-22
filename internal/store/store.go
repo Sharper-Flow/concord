@@ -80,11 +80,6 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, newFailure(KindUnavailable, "open", "empty database path", false,
 			"pass a database path or use DefaultPath")
 	}
-	routingPolicy, err := LoadRoutingPolicyRegistry()
-	if err != nil {
-		return nil, err
-	}
-	setActiveRoutingPolicyRegistry(routingPolicy)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, wrapFailure(KindUnavailable, "open", "cannot create the data directory", true,
 			"check directory permissions", err)

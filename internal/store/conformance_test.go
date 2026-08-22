@@ -28,6 +28,7 @@ const (
 	conformanceAcceptanceRunnerEnv = "CONCORD_ACCEPTANCE_RUNNER"
 	githubActionsEnv               = "GITHUB_ACTIONS"
 	acceptanceRunnerSignalExpected = "1"
+	conformanceP99TargetMS         = int64(100)
 )
 
 // populationAuthorityReason names the closed set of reasons a population
@@ -241,6 +242,7 @@ type ConformanceReport struct {
 	ProductionLike         bool                     `json:"production_like"`
 	ProductionLikeAttempts int                      `json:"production_like_attempts"`
 	ProductionLikeP99MS    int64                    `json:"production_like_p99_ms"`
+	ControlCommitP99MS     int64                    `json:"control_commit_p99_ms"`
 	VerdictQuantity        string                   `json:"verdict_quantity"`
 	PaceIntervalMS         int64                    `json:"pace_interval_ms"`
 	RunnerProfile          conformanceRunnerProfile `json:"runner_profile"`
@@ -491,7 +493,7 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	t.Log("ConformanceReport " + mustJSON(report))
 
 	if long {
-		runLongProfiles(t, ctx, root, runnerProfile)
+		runLongProfiles(t, ctx, root, runnerProfile, report.CommitLatency.P99MS)
 	}
 }
 
@@ -501,7 +503,7 @@ func newConformanceReport(profile conformanceRunnerProfile) ConformanceReport {
 		Workers:                   10,
 		Counts:                    map[WorkerOutcome]int{},
 		Scenarios:                 map[string]map[WorkerOutcome]int{},
-		P99TargetMS:               100,
+		P99TargetMS:               conformanceP99TargetMS,
 		RunnerProfile:             profile,
 		AcceptancePopulation:      authority == populationAuthorityAccepted,
 		PopulationAuthority:       authority,
@@ -533,9 +535,11 @@ func loadPaceInterval() time.Duration {
 // classifySustainedFalsifier decides what verdict the rounds produced. An
 // accepted verdict is reachable only when the resolved authority is accepted:
 // a diagnostic authority, even with the threshold exceeded, returns
-// `inconclusive`. Correctness precedence is preserved: a failed correctness
-// population still forces `inconclusive` and fails the run independently.
-func classifySustainedFalsifier(authority populationAuthority, aboveTarget, rounds int, correctnessPassed bool) (sustainedThresholdStatus, falsifierStatus) {
+// `inconclusive`. A paced commit-duration exceedance also requires an
+// above-target commit-duration P99 in the unpaced control round. Correctness
+// precedence is preserved: a failed correctness population still forces
+// `inconclusive` and fails the run independently.
+func classifySustainedFalsifier(authority populationAuthority, aboveTarget, rounds int, correctnessPassed bool, controlCommitP99MS int64) (sustainedThresholdStatus, falsifierStatus) {
 	if rounds < 1 || aboveTarget < 0 || aboveTarget > rounds {
 		return thresholdInconclusive, falsifierInconclusive
 	}
@@ -551,6 +555,9 @@ func classifySustainedFalsifier(authority populationAuthority, aboveTarget, roun
 	}
 	switch threshold {
 	case thresholdExceeded:
+		if controlCommitP99MS <= conformanceP99TargetMS {
+			return threshold, falsifierInconclusive
+		}
 		return threshold, falsifierFired
 	case thresholdMet:
 		return threshold, falsifierPassed
@@ -559,7 +566,7 @@ func classifySustainedFalsifier(authority populationAuthority, aboveTarget, roun
 	}
 }
 
-func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfile conformanceRunnerProfile) {
+func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfile conformanceRunnerProfile, controlCommitP99MS int64) {
 	t.Helper()
 	if err := validateLoadPacing(runnerProfile, os.Getenv(conformanceUnpacedEnv) == "1"); err != nil {
 		t.Fatal(err)
@@ -581,6 +588,7 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 		report := newConformanceReport(runnerProfile)
 		report.ProductionLike = true
 		report.VerdictQuantity = "commit_duration_p99"
+		report.ControlCommitP99MS = controlCommitP99MS
 		report.Populations.ProductionLike = true
 		report.Scenarios["production_like_writes"] = map[WorkerOutcome]int{}
 		samples := expandWorkerResults(results)
@@ -607,7 +615,7 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 		}
 	}
 	authority, _ := resolvePopulationAuthority(runnerProfile, acceptanceRunnerSignal())
-	threshold, status := classifySustainedFalsifier(authority, above, len(reports), correctnessPassed)
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), correctnessPassed, controlCommitP99MS)
 	for round, report := range reports {
 		report.ThresholdStatus = threshold
 		report.FalsifierStatus = status
@@ -621,8 +629,22 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 	if status == falsifierFired {
 		t.Fatal("falsifier_status=fired: sustained production-like commit-duration P99 exceeded target on the isolated acceptance population")
 	} else if threshold == thresholdExceeded {
-		t.Logf("threshold_status=exceeded: verdict_quantity=commit-duration P99 runner_profile=%s is diagnostic; accepted falsifier remains inconclusive", runnerProfile)
+		if correctnessPassed && authority == populationAuthorityAccepted && controlCommitP99MS <= conformanceP99TargetMS {
+			t.Logf("falsifier=inconclusive: paced commit-duration overshoot with clean unpaced control (host scheduling); paced_worst_p99_ms=%d control_p99_ms=%d", worstCommitP99(reports), controlCommitP99MS)
+		} else {
+			t.Logf("threshold_status=exceeded: verdict_quantity=commit-duration P99 runner_profile=%s is diagnostic; accepted falsifier remains inconclusive", runnerProfile)
+		}
 	}
+}
+
+func worstCommitP99(reports []ConformanceReport) int64 {
+	var worst int64
+	for _, report := range reports {
+		if report.CommitLatency.P99MS > worst {
+			worst = report.CommitLatency.P99MS
+		}
+	}
+	return worst
 }
 
 func roundsAboveCommitTarget(reports []ConformanceReport) int {

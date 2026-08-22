@@ -61,6 +61,31 @@ def _check_closed_schema(path: Path, required: set[str]) -> list[str]:
 def _load_json(path: Path) -> object:
     return json.loads(path.read_text(encoding="utf-8"))
 
+def _routing_policy_digest_check(corpus: dict) -> list[str]:
+    expected = (ROOT / "contracts/routing-policy.digest").read_text(encoding="utf-8").strip()
+    observed: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if "routing_policy_digest" in node:
+                observed.append(node["routing_policy_digest"])
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(corpus)
+    findings: list[str] = []
+    if not observed:
+        findings.append("scenarios/workflow-engine.v1.json: no routing_policy_digest reference found")
+    for value in observed:
+        if value != expected:
+            findings.append(
+                "scenarios/workflow-engine.v1.json: routing_policy_digest does not match contracts/routing-policy.digest"
+            )
+    return findings
+
 def _scenario_error_check(corpus: dict) -> list[str]:
     envelope = _load_json(ROOT / "contracts/agent-tool-envelope.schema.json")
     current = set(envelope["$defs"]["typedError"]["properties"]["kind"]["enum"])
@@ -316,6 +341,7 @@ def check_workflow_contracts() -> list[str]:
         if corpus_error:
             findings.append(f"scenarios/workflow-engine.v1.json: schema validation failed: {corpus_error}")
         findings.extend(_structured_scenario_check(corpus))
+        findings.extend(_routing_policy_digest_check(corpus))
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:

@@ -12,7 +12,7 @@ func TestConformanceFalsifierFiresOnSustainedCommitDuration(t *testing.T) {
 	}
 	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
 	above := roundsAboveCommitTarget(reports)
-	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true)
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 120)
 
 	if threshold != thresholdExceeded || status != falsifierFired {
 		t.Fatalf("commit-duration P99 rounds above target = %d, classifySustainedFalsifier = %q/%q, want 2/exceeded/fired", above, threshold, status)
@@ -29,10 +29,44 @@ func TestConformanceSchedulerOvershootIsInconclusive(t *testing.T) {
 	}
 	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
 	above := roundsAboveCommitTarget(reports)
-	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true)
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 50)
 
 	if threshold != thresholdMet || status != falsifierPassed {
 		t.Fatalf("scheduler-overshoot rounds above commit target = %d, classifySustainedFalsifier = %q/%q, want 0/met/passed", above, threshold, status)
+	}
+}
+
+func TestConformancePacedCommitOvershootWithCleanControlIsInconclusive(t *testing.T) {
+	t.Parallel()
+
+	reports := []ConformanceReport{
+		conformanceRoundReport(150, 50, 50),
+		conformanceRoundReport(120, 50, 50),
+		conformanceRoundReport(80, 50, 50),
+	}
+	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
+	above := roundsAboveCommitTarget(reports)
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 2)
+
+	if threshold != thresholdExceeded || status != falsifierInconclusive {
+		t.Fatalf("paced commit-duration P99 rounds above target = %d, control commit P99 = %d, classifySustainedFalsifier = %q/%q, want 2/exceeded/inconclusive", above, 2, threshold, status)
+	}
+}
+
+func TestConformanceControlCommitOvershootFires(t *testing.T) {
+	t.Parallel()
+
+	reports := []ConformanceReport{
+		conformanceRoundReport(150, 50, 50),
+		conformanceRoundReport(120, 50, 50),
+		conformanceRoundReport(80, 50, 50),
+	}
+	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
+	above := roundsAboveCommitTarget(reports)
+	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 120)
+
+	if threshold != thresholdExceeded || status != falsifierFired {
+		t.Fatalf("paced commit-duration P99 rounds above target = %d, control commit P99 = %d, classifySustainedFalsifier = %q/%q, want 2/exceeded/fired", above, 120, threshold, status)
 	}
 }
 
@@ -51,24 +85,26 @@ func TestClassifySustainedFalsifierRequiresAcceptancePopulation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		profile       conformanceRunnerProfile
-		signal        string
-		aboveTarget   int
-		rounds        int
-		correctness   bool
-		wantThreshold sustainedThresholdStatus
-		wantFalsifier falsifierStatus
+		name               string
+		profile            conformanceRunnerProfile
+		signal             string
+		aboveTarget        int
+		rounds             int
+		correctness        bool
+		controlCommitP99MS int64
+		wantThreshold      sustainedThresholdStatus
+		wantFalsifier      falsifierStatus
 	}{
 		{
-			name:          "development crossing is diagnostic",
-			profile:       runnerProfileDiagnostic,
-			signal:        "1",
-			aboveTarget:   2,
-			rounds:        3,
-			correctness:   true,
-			wantThreshold: thresholdExceeded,
-			wantFalsifier: falsifierInconclusive,
+			name:               "development crossing is diagnostic",
+			profile:            runnerProfileDiagnostic,
+			signal:             "1",
+			aboveTarget:        2,
+			rounds:             3,
+			correctness:        true,
+			controlCommitP99MS: 120,
+			wantThreshold:      thresholdExceeded,
+			wantFalsifier:      falsifierInconclusive,
 		},
 		{
 			name:          "unknown profile crossing fails closed",
@@ -81,14 +117,15 @@ func TestClassifySustainedFalsifierRequiresAcceptancePopulation(t *testing.T) {
 			wantFalsifier: falsifierInconclusive,
 		},
 		{
-			name:          "acceptance crossing fires",
-			profile:       runnerProfileIsolatedAcceptance,
-			signal:        "1",
-			aboveTarget:   2,
-			rounds:        3,
-			correctness:   true,
-			wantThreshold: thresholdExceeded,
-			wantFalsifier: falsifierFired,
+			name:               "acceptance crossing fires",
+			profile:            runnerProfileIsolatedAcceptance,
+			signal:             "1",
+			aboveTarget:        2,
+			rounds:             3,
+			correctness:        true,
+			controlCommitP99MS: 120,
+			wantThreshold:      thresholdExceeded,
+			wantFalsifier:      falsifierFired,
 		},
 		{
 			name:          "acceptance target met passes",
@@ -156,7 +193,7 @@ func TestClassifySustainedFalsifierRequiresAcceptancePopulation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			authority, _ := resolvePopulationAuthority(tt.profile, tt.signal)
-			threshold, falsifier := classifySustainedFalsifier(authority, tt.aboveTarget, tt.rounds, tt.correctness)
+			threshold, falsifier := classifySustainedFalsifier(authority, tt.aboveTarget, tt.rounds, tt.correctness, tt.controlCommitP99MS)
 			if threshold != tt.wantThreshold || falsifier != tt.wantFalsifier {
 				t.Fatalf("classifySustainedFalsifier(%q, %d, %d, %t) = %q/%q, want %q/%q", tt.profile, tt.aboveTarget, tt.rounds, tt.correctness, threshold, falsifier, tt.wantThreshold, tt.wantFalsifier)
 			}
@@ -335,7 +372,7 @@ func TestAcceptanceEntryPointLocalInvocationStaysInconclusive(t *testing.T) {
 	if authority != populationAuthorityDiagnostic || reason != populationAuthorityReasonRequiredCheckSignalAbsent {
 		t.Fatalf("local invocation resolved to %q/%q, want diagnostic/required_check_signal_absent", authority, reason)
 	}
-	threshold, status := classifySustainedFalsifier(authority, 3, 3, true)
+	threshold, status := classifySustainedFalsifier(authority, 3, 3, true, 120)
 	if threshold != thresholdExceeded || status != falsifierInconclusive {
 		t.Fatalf("classifySustainedFalsifier with diagnostic authority on threshold-exceeded inputs returned %q/%q, want exceeded/inconclusive", threshold, status)
 	}

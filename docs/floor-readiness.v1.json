@@ -251,8 +251,33 @@
       "condition": "fc2",
       "title": "Agents can read complete bounded Domain context",
       "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
-      "state": "outstanding",
-      "issue": 337
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainActiveWorkReturnsDomainBoundWorkWithCoverage"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
+        }
+      ]
     },
     {
       "id": "fc3-workflow-types",

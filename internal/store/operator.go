@@ -54,7 +54,14 @@ type ProductMembershipAddition struct {
 // EntityVersion reads the current aggregate version needed to chain operator
 // setup commands without maintaining a second version ledger outside SQLite.
 func (s *Store) EntityVersion(ctx context.Context, subjectType SubjectType, id string) (int64, error) {
-	if s == nil || s.db == nil || id == "" {
+	if s == nil || s.db == nil {
+		return 0, newFailure(KindInvalidOperation, "entity_version", "entity and ID are required", false, "supply a known entity")
+	}
+	return entityVersion(ctx, s.db, subjectType, id)
+}
+
+func entityVersion(ctx context.Context, q queryer, subjectType SubjectType, id string) (int64, error) {
+	if id == "" {
 		return 0, newFailure(KindInvalidOperation, "entity_version", "entity and ID are required", false, "supply a known entity")
 	}
 	table := ""
@@ -68,7 +75,7 @@ func (s *Store) EntityVersion(ctx context.Context, subjectType SubjectType, id s
 		return 0, newFailure(KindInvalidSubject, "entity_version", "entity type is not versioned by operator setup", false, "use product or project")
 	}
 	var version int64
-	if err := s.db.QueryRowContext(ctx, "SELECT version FROM "+table+" WHERE id=?", id).Scan(&version); err == sql.ErrNoRows {
+	if err := q.QueryRowContext(ctx, "SELECT version FROM "+table+" WHERE id=?", id).Scan(&version); err == sql.ErrNoRows {
 		return 0, newFailure(KindProjectionNotFound, "entity_version", label+" does not exist", false, "create the entity before reading its version")
 	} else if err != nil {
 		return 0, wrapFailure(KindUnavailable, "entity_version", "cannot read "+label+" version", true, "retry once the database is readable", err)

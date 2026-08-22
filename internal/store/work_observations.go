@@ -86,13 +86,17 @@ func (s *Store) ObservationsForWork(ctx context.Context, workID string, limit in
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "work_observations", "store is not open", false, "open the authority database")
 	}
+	return observationsForWork(ctx, s.db, workID, limit)
+}
+
+func observationsForWork(ctx context.Context, q queryer, workID string, limit int) ([]WorkObservation, error) {
 	if limit < 1 {
 		limit = 10
 	}
 	if limit > 64 {
 		limit = 64
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id LIMIT ?`, workID, limit)
+	rows, err := q.QueryContext(ctx, `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id LIMIT ?`, workID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_observations", "cannot read observations", true, "retry once the database is readable", err)
 	}

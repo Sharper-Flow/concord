@@ -43,10 +43,14 @@ func (s *Store) AwaitHealthForWork(ctx context.Context, workID string, now time.
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "await_health", "store is not open", false, "open the authority database")
 	}
+	return awaitHealthForWork(ctx, s.db, workID, now)
+}
+
+func awaitHealthForWork(ctx context.Context, q queryer, workID string, now time.Time) ([]AwaitHealth, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,recorded_at,coalesce(expected_within_seconds,0) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open' ORDER BY condition_id`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,recorded_at,coalesce(expected_within_seconds,0) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open' ORDER BY condition_id`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "await_health", "cannot read awaits", true, "retry once the database is readable", err)
 	}
@@ -82,6 +86,10 @@ func (s *Store) OverdueAwaitsInProduct(ctx context.Context, productID string, no
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "await_health", "store is not open", false, "open the authority database")
 	}
+	return overdueAwaitsInProduct(ctx, s.db, productID, now, limit)
+}
+
+func overdueAwaitsInProduct(ctx context.Context, q queryer, productID string, now time.Time, limit int) ([]AwaitHealth, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -91,7 +99,7 @@ func (s *Store) OverdueAwaitsInProduct(ctx context.Context, productID string, no
 	if limit > 100 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := q.QueryContext(ctx, `
 		SELECT c.condition_id, c.await_type, c.await_ref, c.resolution_authority, c.recorded_at, coalesce(c.expected_within_seconds,0), c.work_id
 		FROM workflow_external_conditions c
 		JOIN work_items w ON w.id = c.work_id

@@ -23,6 +23,7 @@
         "internal/store.AuthorizeWorkflowActionAtBoundary",
         "internal/store.CancelWorkflowCondition",
         "internal/store.CheckWorkflowDomainOverlap",
+    "internal/store.CheckWorkflowDomainOverlapTransactionTx",
         "internal/store.ClaimStep",
         "internal/store.CompareCheckResults",
         "internal/store.CompareOutcomeStrength",

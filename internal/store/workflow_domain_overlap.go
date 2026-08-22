@@ -349,6 +349,18 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 	return failure
 }
 
+// CheckWorkflowDomainOverlapTransactionTx adapts the overlap guard alone to a
+// caller-owned transaction. A consequential boundary owes both D7 halves and
+// uses CheckWorkflowConsequentialBoundaryTx instead; this is for callers that
+// want the overlap condition on its own.
+func CheckWorkflowDomainOverlapTransactionTx(ctx context.Context, transaction *Transaction, workID string) error {
+	tx, err := transactionSQL(transaction, "workflow_domain_overlap")
+	if err != nil {
+		return err
+	}
+	return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
+}
+
 func boundWorkflowDomainOverlapFailure(failure *DomainOverlapFailure) {
 	if failure == nil {
 		return

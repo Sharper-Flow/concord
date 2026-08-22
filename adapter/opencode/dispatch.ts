@@ -1,5 +1,5 @@
 import { sign as signBytes } from "node:crypto"
-import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, routingPolicies, routingPolicyManifestDigest, routingPolicyVersion, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 
 const MAX_OUTPUT_BYTES = 65_536
@@ -10,10 +10,9 @@ const MAX_CLI_INPUT_BYTES = 65_536
 const MAX_FAILURE_DETAIL_BYTES = 4_096
 const PACKET_SCHEMA_VERSION = "1.0"
 const REPORT_SCHEMA_VERSION = "1.0"
-const MODEL_PATTERN = /^[a-z][a-z0-9_.-]*\/[^/ ]+$/
 
 export interface DispatchRunner {
-  run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string; fallbackExhausted?: boolean }>
+  run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }>
 }
 
 export interface AgentLanePacket {
@@ -49,29 +48,22 @@ export interface AgentLaneReport {
 export interface SessionMetadata {
   readback_model: string
   session_id: string | null
-  fallback_reason: "rate_limit" | "provider_unavailable" | "budget_exhausted" | "other" | null
 }
 
 export interface RunSessionMetadata {
   session_id: string
-  fallback_reason: SessionMetadata["fallback_reason"]
 }
 
 export interface AgentResultEnvelope {
   schema_version: "1.0"
-  outcome: "ok" | "blocked" | "fallback" | "error"
+  outcome: "ok" | "blocked" | "error"
   lane: { id: string; version: number; digest: string }
   agent: string
-  routing_policy_version: string
-  routing_policy_digest: string
-  resolved_model: string
-  resolution_role: "preferred" | "fallback"
-  fallback_reason: "rate_limit" | "provider_unavailable" | "budget_exhausted" | "other" | ""
   readback_model: string | null
   session_id: string | null
   output?: string
   error?: {
-    kind: "invalid_input" | "blocked" | "fallback" | "error" | "invalid_report" | "model_identity_mismatch" | "routing_policy_invalid" | "routing_policy_model_unavailable"
+    kind: "invalid_input" | "blocked" | "error" | "invalid_report"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
     message: string
@@ -96,111 +88,10 @@ let runner: DispatchRunner = defaultRunner
 let evidenceRunner: DispatchRunner = defaultRunner
 let defaultCredentials: CredentialStore = new SecretToolCredentialStore()
 
-type RoutingPolicy = { capability_class: string; preferred_model: string; resolution_set: string[] }
-type LoadedRoutingPolicy = { version: string; digest: string; source: string; policies: RoutingPolicy[] }
-
-class RoutingPolicyLoadError extends Error {
-  constructor(readonly kind: "routing_policy_invalid" | "routing_policy_model_unavailable", message: string) {
-    super(message)
-  }
-}
-
-let routingPolicyPromise: Promise<LoadedRoutingPolicy> | null = null
-let modelsChecked = new WeakMap<object, Promise<void>>()
-
-export function resetRoutingPolicyForTesting(): void {
-  routingPolicyPromise = null
-  modelsChecked = new WeakMap<object, Promise<void>>()
-}
-
 export function configureWorkerDispatch(overrides: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; credentials?: CredentialStore } = {}): void {
   runner = overrides.runner ?? defaultRunner
   evidenceRunner = overrides.evidenceRunner ?? defaultRunner
   defaultCredentials = overrides.credentials ?? new SecretToolCredentialStore()
-}
-
-function sortedJSON(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortedJSON)
-  if (isRecord(value)) return Object.fromEntries(Object.keys(value).sort().map(key => [key, sortedJSON(value[key])]))
-  return value
-}
-
-function policyJSON(policy: { schema_version: string; registry: string; version: string; policies: RoutingPolicy[] }): string {
-  return JSON.stringify(sortedJSON(policy))
-}
-
-function policyDigest(policy: { schema_version: string; registry: string; version: string; policies: RoutingPolicy[] }): string {
-  return `sha256:${Bun.SHA256.hash(new TextEncoder().encode(policyJSON(policy)), "hex")}`
-}
-
-function policyFailure(error: unknown): RoutingPolicyLoadError {
-  if (error instanceof RoutingPolicyLoadError) return error
-  return new RoutingPolicyLoadError("routing_policy_invalid", String(error))
-}
-
-function validateRoutingPolicyDocument(value: unknown, source: string): LoadedRoutingPolicy {
-  if (!isRecord(value)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: policy must be an object`)
-  for (const field of ["schema_version", "registry", "version", "policies"]) if (!(field in value)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: missing field ${field}`)
-  if (value.schema_version !== "1.0" || value.registry !== "routing_policy" || typeof value.version !== "string" || !Array.isArray(value.policies)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid document shape`)
-  const policies: RoutingPolicy[] = []
-  for (let index = 0; index < value.policies.length; index++) {
-    const entry = value.policies[index]
-    if (!isRecord(entry)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: policies[${index}] must be an object`)
-    for (const field of ["capability_class", "preferred_model", "resolution_set"]) if (!(field in entry)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: missing field policies[${index}].${field}`)
-    if (typeof entry.capability_class !== "string" || typeof entry.preferred_model !== "string" || !Array.isArray(entry.resolution_set)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid field policies[${index}]`)
-    const resolutionSet = entry.resolution_set
-    if (resolutionSet.length === 0 || resolutionSet.some(model => typeof model !== "string" || !MODEL_PATTERN.test(model)) || new Set(resolutionSet).size !== resolutionSet.length) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid or duplicate resolution_set for ${entry.capability_class}`)
-    if (resolutionSet[0] !== entry.preferred_model || !MODEL_PATTERN.test(entry.preferred_model)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: preferred_model must be the first resolution_set member for ${entry.capability_class}`)
-    if (policies.some(policy => policy.capability_class === entry.capability_class)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: capability class ${entry.capability_class} appears more than once`)
-    policies.push({ capability_class: entry.capability_class, preferred_model: entry.preferred_model, resolution_set: [...resolutionSet] })
-  }
-  const laneClasses = new Set(agentLanes.map(lane => lane.capability_class))
-  for (const policy of policies) if (!laneClasses.has(policy.capability_class)) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: unknown capability class ${policy.capability_class}`)
-  for (const capabilityClass of laneClasses) if (policies.filter(policy => policy.capability_class === capabilityClass).length !== 1) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: missing capability class ${capabilityClass}`)
-  const document = { schema_version: "1.0", registry: "routing_policy", version: value.version, policies }
-  return { version: value.version, digest: policyDigest(document), source, policies }
-}
-
-async function loadRoutingPolicy(): Promise<LoadedRoutingPolicy> {
-  const configuredPath = process.env.CONCORD_ROUTING_POLICY
-  const source = configuredPath || "default routing-policy template"
-  let document: unknown = { schema_version: "1.0", registry: "routing_policy", version: routingPolicyVersion, policies: routingPolicies.map(policy => ({ ...policy, resolution_set: [...policy.resolution_set] })) }
-  if (configuredPath) {
-    if (!configuredPath.startsWith("/")) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: CONCORD_ROUTING_POLICY must be an absolute path`)
-    const file = Bun.file(configuredPath)
-    if (!(await file.exists())) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: routing policy path is unreadable`)
-    try { document = JSON.parse(await file.text()) } catch (error) { throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: invalid JSON: ${String(error)}`) }
-  }
-  const loaded = validateRoutingPolicyDocument(document, source)
-  if (!configuredPath && loaded.digest !== routingPolicyManifestDigest) throw new RoutingPolicyLoadError("routing_policy_invalid", `${source}: embedded policy digest does not match generated default`)
-  return loaded
-}
-
-function resolvedRoutingPolicy(): Promise<LoadedRoutingPolicy> {
-  routingPolicyPromise ??= loadRoutingPolicy()
-  return routingPolicyPromise
-}
-
-function availableModelIdentifiers(stdout: string): Set<string> {
-  const models = new Set<string>()
-  for (const token of stdout.split(/\s+/)) if (MODEL_PATTERN.test(token)) models.add(token)
-  return models
-}
-
-async function ensurePolicyModels(policy: LoadedRoutingPolicy, childRunner: DispatchRunner, binary: string, signal: AbortSignal): Promise<void> {
-  const key = childRunner as object
-  const existing = modelsChecked.get(key)
-  if (existing) return existing
-  const check = (async () => {
-    let result: { exitCode: number; stdout: string; stderr: string }
-    try { result = await childRunner.run([binary, "models"], "", signal) } catch (error) { throw new RoutingPolicyLoadError("routing_policy_model_unavailable", `${policy.source}: opencode models failed: ${String(error)}`) }
-    if (result.exitCode !== 0) throw new RoutingPolicyLoadError("routing_policy_model_unavailable", `${policy.source}: opencode models failed: ${(result.stderr || result.stdout).slice(0, MAX_ERROR_BYTES)}`)
-    const available = availableModelIdentifiers(result.stdout)
-    const missing = [...new Set(policy.policies.flatMap(entry => entry.resolution_set))].filter(model => !available.has(model))
-    if (missing.length > 0) throw new RoutingPolicyLoadError("routing_policy_model_unavailable", `${policy.source}: opencode models is missing ${missing.join(", ")}`)
-  })()
-  modelsChecked.set(key, check)
-  return check
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -296,26 +187,21 @@ export function validateAgainstSchema(schema: unknown, value: unknown, failures?
 
 const RUN_EVENT_TYPES = new Set(["step_start", "step_finish", "text", "reasoning", "tool_use", "error"])
 
-function typedFallbackReason(reason: unknown): SessionMetadata["fallback_reason"] {
-  if (reason === "account_rate_limit" || reason === "rate_limit") return "rate_limit"
-  if (reason === "provider_unavailable" || reason === "provider_error") return "provider_unavailable"
-  if (reason === "budget_exhausted" || reason === "quota_exhausted") return "budget_exhausted"
-  return typeof reason === "string" && reason.length > 0 ? "other" : null
-}
-
-function hostStatusMetadata(value: Record<string, unknown>): { sessionID: string; reason: unknown } | null {
+// hostStatusMetadata extracts a session identifier from a host plugin log
+// line that shares stdout with the run stream. The host plugin emits typed
+// message-updated events whose sessionID lets the adapter associate its log
+// with the dispatched run.
+function hostStatusMetadata(value: Record<string, unknown>): string | null {
   if (value.type !== "message.updated" || !isRecord(value.properties)) return null
   const properties = value.properties
-  const sessionID = typeof properties.sessionId === "string" ? properties.sessionId : typeof properties.sessionID === "string" ? properties.sessionID : null
-  if (!sessionID) return null
-  const reason = isRecord(properties.status) && isRecord(properties.status.action) ? properties.status.action.reason : null
-  return { sessionID, reason }
+  if (typeof properties.sessionId === "string") return properties.sessionId
+  if (typeof properties.sessionID === "string") return properties.sessionID
+  return null
 }
 
 export function readRunSessionMetadata(stdout: string): RunSessionMetadata | null {
   if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
   const sessions = new Set<string>()
-  const reasons = new Set<NonNullable<SessionMetadata["fallback_reason"]>>()
   let officialEvents = 0
   let completed = false
   for (const line of stdout.split("\n")) {
@@ -333,14 +219,12 @@ export function readRunSessionMetadata(stdout: string): RunSessionMetadata | nul
       if (value.type === "step_finish" && isRecord(value.part) && value.part.reason === "stop") completed = true
       continue
     }
-    const status = hostStatusMetadata(value)
-    if (!status) continue
-    sessions.add(status.sessionID)
-    const reason = typedFallbackReason(status.reason)
-    if (reason) reasons.add(reason)
+    const sessionID = hostStatusMetadata(value)
+    if (!sessionID) continue
+    sessions.add(sessionID)
   }
   if (officialEvents === 0 || !completed || sessions.size !== 1) return null
-  return { session_id: [...sessions][0], fallback_reason: reasons.size === 0 ? null : reasons.size === 1 ? [...reasons][0] : "other" }
+  return { session_id: [...sessions][0] }
 }
 
 export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "session_id"> | null {
@@ -357,9 +241,7 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
     seen.add(info.id)
     if (info.role === "user") continue
     if (info.role !== "assistant" || typeof info.providerID !== "string" || typeof info.modelID !== "string") return null
-    const model = `${info.providerID}/${info.modelID}`
-    if (!MODEL_PATTERN.test(model)) return null
-    assistants.push({ id: info.id, created: info.time.created, model })
+    assistants.push({ id: info.id, created: info.time.created, model: `${info.providerID}/${info.modelID}` })
   }
   assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
   const latest = assistants.at(-1)
@@ -460,31 +342,13 @@ function laneForPacket(packet: AgentLanePacket): AgentLane | null {
   return agentLanes.find((lane) => lane.id === packet.lane_id && lane.version === packet.lane_version && lane.digest === packet.lane_digest) ?? null
 }
 
-export function preferredModelForLane(lane: AgentLane): string {
-  return routingPolicies.find((policy) => policy.capability_class === lane.capability_class)?.preferred_model ?? ""
-}
-
-function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"], routing = { version: routingPolicyVersion, digest: routingPolicyManifestDigest }): AgentResultEnvelope {
+function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"]): AgentResultEnvelope {
   const id = lane?.id ?? String(packet.lane_id ?? "")
-  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, routing_policy_version: routing.version, routing_policy_digest: routing.digest, resolved_model: "", resolution_role: "preferred", fallback_reason: "", readback_model: null, session_id: null }
+  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
 }
 
-function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "fallback" | "error", kind: AgentResultEnvelope["error"]["kind"], message: string, recovery_action: AgentResultEnvelope["error"]["recovery_action"] = "contact_operator", routing?: { version: string; digest: string }): AgentResultEnvelope {
-  return { ...baseEnvelope(lane, packet, outcome, routing), error: { kind, retry_safe: outcome !== "fallback", recovery_action, message: message.slice(0, MAX_ERROR_BYTES) } }
-}
-
-function hostReportedFallbackExhausted(result: { stdout: string; fallbackExhausted?: boolean }): boolean {
-  if (result.fallbackExhausted === true) return true
-  for (const line of result.stdout.split("\n")) {
-    if (!line.trim()) continue
-    try {
-      const value = JSON.parse(line)
-      if (!isRecord(value)) return false
-      const status = hostStatusMetadata(value)
-      if (status?.reason === "fallback_exhausted") return true
-    } catch { return false }
-  }
-  return false
+function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: AgentResultEnvelope["error"]["kind"], message: string, recovery_action: AgentResultEnvelope["error"]["recovery_action"] = "contact_operator"): AgentResultEnvelope {
+  return { ...baseEnvelope(lane, packet, outcome), error: { kind, retry_safe: outcome !== "blocked", recovery_action, message: message.slice(0, MAX_ERROR_BYTES) } }
 }
 
 function concordBinaryPath(override?: string): string {
@@ -497,7 +361,7 @@ function concordBinaryPath(override?: string): string {
 // drift between the two encoders fails a test rather than weakening the
 // boundary. Field order is part of the contract.
 export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uint8Array {
-  const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "routing_policy_version", "routing_policy_digest", "resolved_model", "readback_model", "failure_kind", "host_provenance_digest", "issued_at", "nonce"]
+  const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "readback_model", "failure_kind", "host_provenance_digest", "issued_at", "nonce"]
   const body = names.map((key) => {
     const value = assertion[key]
     const text = value == null ? "" : typeof value === "number" ? String(value) : String(value)
@@ -596,28 +460,17 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const signal = options.signal ?? new AbortController().signal
   const childRunner = options.runner ?? runner
   const binary = options.binary ?? "opencode"
-  let loaded: LoadedRoutingPolicy
-  try { loaded = await resolvedRoutingPolicy() } catch (error) {
-    const failure = policyFailure(error)
-    return errorEnvelope(lane, packet, "error", failure.kind, failure.message, "contact_operator")
-  }
-  try { await ensurePolicyModels(loaded, childRunner, binary, signal) } catch (error) {
-    const failure = policyFailure(error)
-    return errorEnvelope(lane, packet, "error", failure.kind, failure.message, "contact_operator", loaded)
-  }
-  const policy = loaded.policies.find((entry) => entry.capability_class === lane.capability_class)
-  if (!policy || policy.resolution_set[0] !== policy.preferred_model) return errorEnvelope(lane, packet, "error", "routing_policy_invalid", "policy preferred model is not the first resolution-set member", "contact_operator", loaded)
-  if (!policy.preferred_model || !MODEL_PATTERN.test(policy.preferred_model)) return errorEnvelope(lane, packet, "error", "routing_policy_invalid", "policy preferred model is invalid", "contact_operator", loaded)
-  const argv = [binary, "run", "--agent", `concord-${lane.id}`, "--model", policy.preferred_model, "--format", "json", JSON.stringify(packet)]
-  let result: { exitCode: number; stdout: string; stderr: string; fallbackExhausted?: boolean }
+  // CD-0058: the adapter no longer asserts --model. OpenCode resolves the
+  // executing model from host configuration (agent.<name>.model or a routing
+  // plugin). Concord records what the host reports executed; it does not claim
+  // what was permitted to execute.
+  const argv = [binary, "run", "--agent", `concord-${lane.id}`, "--format", "json", JSON.stringify(packet)]
+  let result: { exitCode: number; stdout: string; stderr: string }
   try { result = await childRunner.run(argv, "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "blocked", "blocked", String(error), "retry_same_request")
   }
   if (Buffer.byteLength(result.stdout) > MAX_OUTPUT_BYTES) return errorEnvelope(lane, packet, "error", "error", "worker output exceeded the bounded adapter limit", "adjust_budget")
-  if (result.exitCode !== 0) {
-    if (hostReportedFallbackExhausted(result)) return errorEnvelope(lane, packet, "blocked", "blocked", result.stderr.slice(0, MAX_ERROR_BYTES) || "declared routing-policy resolution set was exhausted", "retry_same_request", loaded)
-    return errorEnvelope(lane, packet, "error", "error", result.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode worker spawn failed without fallback exhaustion evidence", "reconcile_operation")
-  }
+  if (result.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", result.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode worker spawn returned a non-zero exit code", "reconcile_operation")
   const runMetadata = readRunSessionMetadata(result.stdout)
   if (!runMetadata) return errorEnvelope(lane, packet, "error", "error", "worker output did not contain one typed session identity", "reconcile_operation")
   const readbackRunner = options.readbackRunner ?? options.runner ?? runner
@@ -628,24 +481,16 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (exported.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output", "reconcile_operation")
   const readback = readExportSessionMetadata(exported.stdout, runMetadata.session_id)
   if (!readback) return errorEnvelope(lane, packet, "error", "error", "OpenCode session export did not contain one typed executing-model readback", "reconcile_operation")
-  const metadata: SessionMetadata = { ...readback, fallback_reason: runMetadata.fallback_reason }
-  const resolutionIndex = policy.resolution_set.indexOf(metadata.readback_model)
-  if (resolutionIndex < 0) return errorEnvelope(lane, packet, "error", "model_identity_mismatch", "host readback model is outside the declared routing-policy resolution set", "reconcile_operation")
-  const isFallback = resolutionIndex > 0
-  const envelope = baseEnvelope(lane, packet, isFallback ? "fallback" : "ok", loaded)
-  envelope.readback_model = metadata.readback_model
-  envelope.session_id = metadata.session_id
+  const envelope = baseEnvelope(lane, packet, "ok")
+  envelope.readback_model = readback.readback_model
+  envelope.session_id = readback.session_id
   envelope.output = result.stdout
-  envelope.resolved_model = metadata.readback_model
-  envelope.resolution_role = isFallback ? "fallback" : "preferred"
-  envelope.fallback_reason = isFallback ? metadata.fallback_reason ?? "other" : ""
-  if (isFallback) envelope.error = { kind: "fallback", retry_safe: false, recovery_action: "reconcile_operation", message: "host resolved a declared fallback model" }
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
   // worker-complete binds to the dispatched attempt row, so the dispatch event
-  // must land first. resolved_model is taken from readback because the host
-  // expresses a fallback as a re-prompted message carrying the fallback model —
-  // there is one model signal, which D5 accepts as legal fallback evidence.
+  // must land first. Readback is recorded on both events because the host may
+  // surface a fallback via a re-prompted message, but D5 accepts one model
+  // signal — the readback — as the executing-model evidence.
   // A caller-injected runner controls process execution wholesale, so evidence
   // defaults to that same transport unless a distinct evidenceRunner is given.
   const cliRunner = options.evidenceRunner ?? options.runner ?? evidenceRunner
@@ -674,9 +519,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
       lane_id: lane.id,
       lane_version: lane.version,
       lane_digest: lane.digest,
-      routing_policy_version: routingPolicyVersion,
-      routing_policy_digest: routingPolicyManifestDigest,
-      resolved_model: envelope.resolved_model,
+      readback_model: readback.readback_model,
       host_provenance_digest: provenance.digest,
     })
     terminalAssertion = terminal.verb === "worker-complete"
@@ -687,9 +530,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
         lane_id: lane.id,
         lane_version: lane.version,
         lane_digest: lane.digest,
-        routing_policy_version: routingPolicyVersion,
-        routing_policy_digest: routingPolicyManifestDigest,
-        readback_model: metadata.readback_model,
+        readback_model: readback.readback_model,
       })
       // The worker-fail binding at the CLI boundary carries the attempt, the
       // readback model, and the failure kind only, so the assertion claims
@@ -698,7 +539,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
         verb: "worker-fail",
         work_id: packet.work_id,
         attempt_id: packet.attempt_id,
-        readback_model: metadata.readback_model,
+        readback_model: readback.readback_model,
         failure_kind: terminal.failure_kind,
       })
   } catch (error) {
@@ -713,11 +554,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     lane_id: lane.id,
     lane_version: lane.version,
     lane_digest: lane.digest,
-    routing_policy_version: routingPolicyVersion,
-    routing_policy_digest: routingPolicyManifestDigest,
-    resolved_model: envelope.resolved_model,
-    resolution_role: envelope.resolution_role,
-    fallback_reason: envelope.fallback_reason,
+    readback_model: readback.readback_model,
     packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION,
     host_provenance: provenance,
@@ -730,16 +567,15 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
       event_id: crypto.randomUUID(),
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
-      readback_model: metadata.readback_model,
+      readback_model: readback.readback_model,
       failure_kind: terminal.failure_kind,
       detail: terminal.detail,
       assertion: terminalAssertion,
     }, signal)
     if (failureRecordFailure) return errorEnvelope(lane, packet, "error", "error", failureRecordFailure, "reconcile_operation")
-    const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation", loaded)
-    failed.readback_model = metadata.readback_model
-    failed.session_id = metadata.session_id
-    failed.resolved_model = metadata.readback_model
+    const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation")
+    failed.readback_model = readback.readback_model
+    failed.session_id = readback.session_id
     failed.output = result.stdout
     return failed
   }
@@ -748,7 +584,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     event_id: crypto.randomUUID(),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
-    readback_model: metadata.readback_model,
+    readback_model: readback.readback_model,
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,

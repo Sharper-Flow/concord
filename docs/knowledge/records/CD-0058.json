@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-22T00:00:00Z",
+  "evidence": [
+    "internal/store/worker_lanes.go",
+    "adapter/opencode/dispatch.ts",
+    "internal/store/schema.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0058",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0058-no-model-routing.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:e1b2ae82feed7663205a659214cb694df70d6375a173a6393015d7397854d7de",
+  "status": "accepted",
+  "summary": "Concord performs no model resolution: the adapter omits --model from lane dispatch and OpenCode resolves the executing model from host configuration; readback_model is the sole model evidence feeding CD-0017 D6 distinctness; the routing-policy record, the CONCORD_ROUTING_POLICY host state, the load-time validation, and the five declared-side worker-attempt columns (routing_policy_version, routing_policy_digest, resolved_model, resolution_role, fallback_reason) are retired under a schema migration; CD-0017 D2's dispatch flag is dropped and D8/D9 retire.",
+  "tags": [
+    "routing",
+    "lanes",
+    "host-state",
+    "readback"
+  ],
+  "title": "Concord performs no model routing"
+}

@@ -11,4 +11,4 @@ Registry digest: `sha256:5f48747f41d89e8fc5883c8a1501509f627ec1fff75be227f051f04
 | `review` v1 | `review` | `agent-lane-packet.v1` | `agent-lane-report.v1` |
 | `verify` v1 | `verification` | `agent-lane-packet.v1` | `agent-lane-report.v1` |
 
-Every lane is closed and versioned. Host routing policy resolves capability classes at load time. Unknown lane identity or digest fails closed before work begins.
+Every lane is closed and versioned. Unknown lane identity or digest fails closed before work begins.

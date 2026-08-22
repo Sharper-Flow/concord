@@ -812,38 +812,6 @@
           "minLength": 2,
           "maxLength": 64
         },
-        "routing_policy_version": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64
-        },
-        "routing_policy_digest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "minLength": 71,
-          "maxLength": 71
-        },
-        "resolved_model": {
-          "type": "string",
-          "minLength": 0,
-          "maxLength": 128
-        },
-        "resolution_role": {
-          "enum": [
-            "preferred",
-            "fallback",
-            "undeclared"
-          ]
-        },
-        "fallback_reason": {
-          "enum": [
-            "",
-            "rate_limit",
-            "provider_unavailable",
-            "budget_exhausted",
-            "other"
-          ]
-        },
         "readback_model": {
           "type": "string",
           "minLength": 0,

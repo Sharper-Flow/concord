@@ -26,12 +26,12 @@ import (
 )
 
 func preferredLaneModel(lane store.LaneDefinition) string {
-	for _, policy := range store.BuiltinRoutingPolicies() {
-		if policy.CapabilityClass == lane.CapabilityClass {
-			return policy.PreferredModel
-		}
+	switch lane.CapabilityClass {
+	case "review":
+		return "zai-coding-plan/glm-5.3"
+	default:
+		return "openai/gpt-5.6-luna"
 	}
-	panic("missing lane routing policy")
 }
 
 func TestRunVersion(t *testing.T) {
@@ -539,7 +539,7 @@ func TestCommandRouterRejectsUnsupportedFormsCleanly(t *testing.T) {
 	}
 }
 
-func TestWorkerCLIRecordsLifecycleAndTypedModelMismatch(t *testing.T) {
+func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
 	workerKey := seedWorkerEvidenceClient(t)
@@ -565,15 +565,18 @@ func TestWorkerCLIRecordsLifecycleAndTypedModelMismatch(t *testing.T) {
 		t.Fatalf("worker-fail exit=%d stderr=%q", code, errOut.String())
 	}
 
-	mismatchDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch3")
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(mismatchDispatch), &out, &errOut); code != 0 {
-		t.Fatalf("mismatch worker-dispatch exit=%d stderr=%q", code, errOut.String())
+	// CD-0058: a completion whose readback differs from the dispatch readback
+	// is accepted as a normal completion. The readback is whatever the host
+	// reported, and the only model evidence Concord records.
+	divergentDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch3")
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(divergentDispatch), &out, &errOut); code != 0 {
+		t.Fatalf("divergent worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
-	mismatch := workerCompleteJSON(t, workerKey, "failed-3", "work-1", "attempt-3", "openai/fallback-model", "nonce-lifecycle-mismatch01", &lane)
+	divergent := workerCompleteJSON(t, workerKey, "complete-3", "work-1", "attempt-3", "openai/fallback-model", "nonce-lifecycle-mismatch01", &lane)
 	out.Reset()
 	errOut.Reset()
-	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(mismatch), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), string(store.KindModelIdentityMismatch)) {
-		t.Fatalf("mismatch worker-complete exit=%d stderr=%q, want typed mismatch", code, errOut.String())
+	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(divergent), &out, &errOut); code != 0 {
+		t.Fatalf("divergent worker-complete exit=%d stderr=%q", code, errOut.String())
 	}
 
 	s, err := store.Open(context.Background(), dbPath)
@@ -588,15 +591,15 @@ func TestWorkerCLIRecordsLifecycleAndTypedModelMismatch(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerFailed).Scan(&failed); err != nil {
 		t.Fatal(err)
 	}
-	if completed != 1 || failed != 2 {
-		t.Fatalf("worker lifecycle events = completed:%d failed:%d, want completed:1 failed:2", completed, failed)
+	if completed != 2 || failed != 1 {
+		t.Fatalf("worker lifecycle events = completed:%d failed:%d, want completed:2 failed:1", completed, failed)
 	}
-	var state, failureKind string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, "attempt-3").Scan(&state, &failureKind); err != nil {
+	var state, storedReadback string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, "attempt-3").Scan(&state, &storedReadback); err != nil {
 		t.Fatal(err)
 	}
-	if state != "failed" || failureKind != string(store.KindModelIdentityMismatch) {
-		t.Fatalf("mismatch projection = %s/%s", state, failureKind)
+	if state != "completed" || storedReadback != "openai/fallback-model" {
+		t.Fatalf("divergent projection = %s/%s, want completed/openai/fallback-model", state, storedReadback)
 	}
 }
 
@@ -609,7 +612,7 @@ func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
 	}{
 		{name: "unknown lane", mutate: func(value map[string]any) { value["lane_id"] = "unknown" }, want: string(store.KindLaneDefinitionNotRegistered)},
 		{name: "digest mismatch", mutate: func(value map[string]any) { value["lane_digest"] = "sha256:" + strings.Repeat("0", 64) }, want: string(store.KindLaneDefinitionDigestMismatch)},
-		{name: "unpinned model", mutate: func(value map[string]any) { value["resolved_model"] = "" }, want: string(store.KindLaneDefinitionInvalid)},
+		{name: "missing host provenance", mutate: func(value map[string]any) { delete(value, "host_provenance") }, want: "v3 evidence requires host_provenance"},
 		{name: "packet schema mismatch", mutate: func(value map[string]any) { value["packet_schema_version"] = "9.0" }, want: string(store.KindInvalidPayload)},
 	}
 	for _, testCase := range tests {
@@ -636,40 +639,28 @@ func TestWorkerCLIAcceptsRecordedFallbackAndCompletesOnMatchingReadback(t *testi
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
 	workerKey := seedWorkerEvidenceClient(t)
-	lane := store.BuiltinLaneDefinitions()[2]
-	policy, err := store.LookupRoutingPolicy(lane.CapabilityClass, store.RoutingPolicyVersion, store.RoutingPolicyManifestDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	value := map[string]any{}
-	if err := json.Unmarshal([]byte(workerDispatchJSON(t, workerKey, "fallback-dispatch", "work-fallback", "attempt-fallback", lane, policy.ResolutionSet[1], store.WorkerPacketSchemaVersion, "nonce-fallback-dispatch01")), &value); err != nil {
-		t.Fatal(err)
-	}
-	value["resolution_role"] = store.WorkerResolutionFallback
-	value["fallback_reason"] = "rate_limit"
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
+	lane := store.BuiltinLaneDefinitions()[0]
+	readback := "openai/gpt-5.6-luna"
+	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, readback, store.WorkerPacketSchemaVersion, "nonce-fallback-dispatch01")
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"worker-dispatch"}, bytes.NewReader(raw), &out, &errOut); code != 0 {
-		t.Fatalf("fallback dispatch exit=%d stderr=%q", code, errOut.String())
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
+		t.Fatalf("dispatch exit=%d stderr=%q", code, errOut.String())
 	}
-	complete := workerCompleteJSON(t, workerKey, "fallback-complete", "work-fallback", "attempt-fallback", policy.ResolutionSet[1], "nonce-fallback-complete01", &lane)
+	complete := workerCompleteJSON(t, workerKey, "complete-1", "work-1", "attempt-1", readback, "nonce-fallback-complete01", &lane)
 	if code := runWithInput([]string{"worker-complete"}, strings.NewReader(complete), &out, &errOut); code != 0 {
-		t.Fatalf("fallback complete exit=%d stderr=%q", code, errOut.String())
+		t.Fatalf("complete exit=%d stderr=%q", code, errOut.String())
 	}
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	var state, role, reason, resolved, readback string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,resolution_role,fallback_reason,resolved_model,readback_model FROM worker_attempts WHERE attempt_id=?`, "attempt-fallback").Scan(&state, &role, &reason, &resolved, &readback); err != nil {
+	var state, storedReadback string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, "attempt-1").Scan(&state, &storedReadback); err != nil {
 		t.Fatal(err)
 	}
-	if state != "completed" || role != store.WorkerResolutionFallback || reason != "rate_limit" || resolved != policy.ResolutionSet[1] || readback != resolved {
-		t.Fatalf("fallback CLI projection = %s/%s/%s/%s/%s", state, role, reason, resolved, readback)
+	if state != "completed" || storedReadback != readback {
+		t.Fatalf("CLI projection = %s/%s, want completed/%s", state, storedReadback, readback)
 	}
 }
 
@@ -683,22 +674,17 @@ func workerDispatchJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, a
 // workerDispatchJSONWith builds signed dispatch evidence and lets a caller
 // perturb the assertion before signing, so negative tests can prove that a
 // signature over the wrong identity is refused.
-func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workID, attemptID string, lane store.LaneDefinition, resolvedModel, nonce string, mutate func(agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion, packetVersion ...string) string {
+func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workID, attemptID string, lane store.LaneDefinition, readbackModel, nonce string, mutate func(agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion, packetVersion ...string) string {
 	t.Helper()
 	packet := store.WorkerPacketSchemaVersion
 	if len(packetVersion) == 1 {
 		packet = packetVersion[0]
 	}
 	provenanceDigest := "sha256:" + strings.Repeat("a", 64)
-	role := store.WorkerResolutionPreferred
-	if resolvedModel != preferredLaneModel(lane) {
-		role = store.WorkerResolutionFallback
-	}
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
 		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
-		RoutingPolicyVersion: "routing-v1", RoutingPolicyDigest: store.RoutingPolicyManifestDigest,
-		ResolvedModel: resolvedModel, HostProvenanceDigest: provenanceDigest, Nonce: nonce,
+		ReadbackModel: readbackModel, HostProvenanceDigest: provenanceDigest, Nonce: nonce,
 	}
 	if mutate != nil {
 		assertion = mutate(assertion)
@@ -706,8 +692,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 	value := map[string]any{
 		"event_id": eventID, "work_id": workID, "attempt_id": attemptID,
 		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-		"routing_policy_version": "routing-v1", "routing_policy_digest": store.RoutingPolicyManifestDigest,
-		"resolved_model": resolvedModel, "resolution_role": role, "fallback_reason": "",
+		"readback_model":        readbackModel,
 		"packet_schema_version": packet, "report_schema_version": store.WorkerReportSchemaVersion,
 		// CD-0032: v3 dispatch evidence requires declared host provenance.
 		"host_provenance": map[string]any{

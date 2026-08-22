@@ -91,13 +91,7 @@ def main() -> int:
     if tx_scope_checker.is_file():
         checked = subprocess.run([sys.executable, str(tx_scope_checker)], cwd=ROOT, capture_output=True, text=True)
         if checked.returncode:
-            findings.append(f"tx scope drift: {checked.stdout.strip() or checked.stderr.strip()}")
-
-    lane_eval_checker = ROOT / "scripts/check-lane-evals.py"
-    if lane_eval_checker.is_file():
-        checked = subprocess.run([sys.executable, str(lane_eval_checker)], cwd=ROOT, capture_output=True, text=True)
-        if checked.returncode:
-            findings.append(f"lane eval drift: {checked.stdout.strip() or checked.stderr.strip()}")
+            findings.append(f"tx scope drift: {checked.stderr.strip() or checked.stdout.strip()}")
 
     agent_jobs_checker = ROOT / "scripts/check-agent-jobs.py"
     if agent_jobs_checker.is_file():

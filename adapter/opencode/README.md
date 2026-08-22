@@ -102,22 +102,24 @@ JSON-stdin boundary but are not grant-gated agent tools and do not expand TS8.
 
 CD-0017 lane workers are dispatched by the hand-written `dispatch.ts` module,
 not by the TS8 tool surface. It resolves a packet's registered lane to the
-generated `concord-<lane>` agent and its host-loaded policy preferred model, validates the
-closed `agent-lane-packet.v1` shape before spawning, and invokes:
+generated `concord-<lane>` agent and validates the closed `agent-lane-packet.v1`
+shape before spawning, then invokes:
 
 ```text
-opencode run --agent concord-<lane> --model <provider/model> --format json <packet>
+opencode run --agent concord-<lane> --format json <packet>
 ```
 
+The adapter asserts no model identifier. OpenCode resolves the executing model
+from host configuration (`agent.<name>.model`, an OMR plugin entry, or an
+inheritance rule) — Concord does not read, validate, or carry that decision.
 The adapter reads one consistent session identity from the closed JSON event
 stream, then runs `opencode export <session> --sanitize` and reads the latest
-typed assistant `providerID`/`modelID` as executing-model evidence. It checks
-that exported model against the capability class's generated resolution set.
-A declared fallback emits `resolution_role: fallback` and a typed reason; an
-exhausted set emits blocked. An undeclared model or an ambiguous/malformed
-event or export shape fails closed. Worker lifecycle evidence is recorded by the internal
-`worker-dispatch`, `worker-complete`, and `worker-fail` CLI verbs; workers never
-record workflow transitions, verdicts, or completion.
+typed assistant `providerID`/`modelID` as `readback_model` evidence. Whatever
+the host reports is what Concord records; an undeclared model, an
+ambiguous/malformed event, or an ambiguous/malformed export shape fails
+closed. Worker lifecycle evidence is recorded by the internal
+`worker-dispatch`, `worker-complete`, and `worker-fail` CLI verbs; workers
+never record workflow transitions, verdicts, or completion.
 
 The adapter also admits the worker's `agent-lane-report.v1` report from that
 event stream (CD-0056 D7). The report is read from the text of a `text` event, at
@@ -145,8 +147,9 @@ permission:
     "concord-*": allow
 ```
 
-The lane agent definitions also deny nested task dispatch. Configure the OMR
-plugin's ordered fallback targets under its plugin tuple, for example:
+The lane agent definitions also deny nested task dispatch. If a host wants
+per-lane model fallback behavior, configure the OMR plugin's ordered fallback
+targets under its plugin tuple, for example:
 
 ```jsonc
 {
@@ -161,6 +164,7 @@ plugin's ordered fallback targets under its plugin tuple, for example:
 }
 ```
 
-Fallback configuration is host-owned. The adapter does not claim that a
-preferred model ran: fallback surfaces through session readback and the D5
-worker evidence, as required by CD-0017 D5/D8.
+This configuration is purely host-owned. Concord neither reads nor asserts it;
+the adapter does not pass `--model` on the spawn argv and does not carry a
+resolution set. What runs is whatever the host's routing chain selects, and
+the adapter records that selection only as `readback_model`. CD-0058.

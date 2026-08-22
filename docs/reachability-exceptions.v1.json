@@ -123,7 +123,6 @@
         "internal/agent.NewOKRead",
         "internal/store.AddManagedResourceConsumer",
         "internal/store.BuiltinLaneRegistry",
-        "internal/store.BuiltinRoutingPolicies",
         "internal/store.CheckSchemaCompatibility",
         "internal/store.CreateManagedResource",
         "internal/store.MigrateLegacyKnowledgeManifest",

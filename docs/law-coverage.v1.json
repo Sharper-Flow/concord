@@ -565,15 +565,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestRoutingPolicyHostOverrideBindsDigestAndDispatchValidation"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestRoutingPolicySetButMissingPathFailsTyped"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestRoutingPolicyMalformedAndIncompleteHostPoliciesNameFailures"
+          "value": "internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows"
         }
       ],
       "id": "CD-0054",
@@ -651,6 +643,32 @@
         }
       ],
       "id": "CD-0057",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerEventsRejectUnknownLanePacketAndPayloadFields"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkerCompletedAndFailedEventsRetainD5Evidence"
+        }
+      ],
+      "id": "CD-0058",
       "state": "satisfied"
     },
     {
@@ -742,16 +760,6 @@
       "id": "priorities",
       "reason": "The ranked priority order and the operating envelope govern how a design tradeoff is resolved and which capabilities belong in Concord at all. Both are judgements applied by a reader to a proposed change, not propositions about a running system, so no executable anchor can decide whether a given decision honoured the order. Coverage would have to be assessed per companion document rather than against this record, and that assessment has not been made.",
       "state": "unmeasured"
-    },
-    {
-      "evidence": [
-        {
-          "kind": "generated",
-          "value": "internal/store/generated_routing_policy.go#RoutingPolicyManifestDigest"
-        }
-      ],
-      "id": "routing-policy-contract",
-      "state": "satisfied"
     },
     {
       "evidence": [

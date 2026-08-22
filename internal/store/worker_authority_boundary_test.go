@@ -44,8 +44,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 		EventID: "dispatch-1", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "authority-work",
 		Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
 			AttemptID: "dispatch-1", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
-			CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest,
-			ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred,
+			CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane),
 			PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		}),
 	}
@@ -716,7 +715,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		seedWork(t, s, "authority-foreign-work")
 		attemptID := "attempt:authority-foreign-work"
 		lane := BuiltinLaneDefinitions()[0]
-		dispatch := Event{EventID: "dispatch-authority-foreign-work", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest, ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+		dispatch := Event{EventID: "dispatch-authority-foreign-work", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatal(err)
 		}
@@ -738,20 +737,26 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-wrong-epoch")
 		assertRejectedWorkerAcceptance(t, s, "authority-wrong-epoch", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantStep, wantVersion)
 	})
-	t.Run("model mismatch leaves failed identity state", func(t *testing.T) {
-		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-model-mismatch")
-		mismatch := Event{EventID: "completed-authority-model-mismatch", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-model-mismatch", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/other-model", ReportSchemaVersion: WorkerReportSchemaVersion})}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{mismatch}}); err != nil {
+	t.Run("divergent readback still completes the attempt", func(t *testing.T) {
+		// CD-0058: a completion whose readback differs from the dispatch
+		// readback is accepted as a normal completion. The attempt reaches
+		// 'completed' and the readback column records what the host reported.
+		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-divergent-readback")
+		divergent := Event{EventID: "completed-authority-divergent-readback", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-divergent-readback", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/other-model", ReportSchemaVersion: WorkerReportSchemaVersion})}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{divergent}}); err != nil {
 			t.Fatal(err)
 		}
-		var lifecycle string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&lifecycle); err != nil {
+		var lifecycle, readback string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&lifecycle, &readback); err != nil {
 			t.Fatal(err)
 		}
-		if lifecycle != "failed" {
-			t.Fatalf("model-mismatch worker lifecycle=%q, want failed", lifecycle)
+		if lifecycle != "completed" {
+			t.Fatalf("divergent readback worker lifecycle=%q, want completed", lifecycle)
 		}
-		assertRejectedWorkerAcceptance(t, s, "authority-model-mismatch", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantStep, wantVersion)
+		if readback != "openai/other-model" {
+			t.Fatalf("divergent readback readback=%q, want openai/other-model", readback)
+		}
+		_ = owner
 	})
 }
 
@@ -849,7 +854,7 @@ func seedWorkerAtExecution(t *testing.T, workID string) (*Store, string, Workflo
 		t.Fatal(err)
 	}
 	attemptID := "attempt:" + workID
-	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest, ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
@@ -890,8 +895,7 @@ func seedDispatchedWorkerAtExecution(t *testing.T, workID string) (*Store, strin
 		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
 			AttemptID: "dispatch-" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
-			CapabilityClass: lane.CapabilityClass, RoutingPolicyVersion: RoutingPolicyVersion, RoutingPolicyDigest: RoutingPolicyManifestDigest,
-			ResolvedModel: preferredModelForLane(lane), ResolutionRole: WorkerResolutionPreferred,
+			CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane),
 			PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		}),
 	}

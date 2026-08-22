@@ -2,7 +2,6 @@
   "date": "2026-08-21T00:00:00Z",
   "evidence": [
     "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
-    "internal/store/routing_policy.go",
     "adapter/opencode/dispatch.ts"
   ],
   "home_domain_id": "product-root:concord",

@@ -292,6 +292,19 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 	return failure
 }
 
+// CheckWorkflowConsequentialBoundaryTx is the CD-0041 D7 preflight for a
+// caller-owned mutation transaction. It validates both halves the boundary
+// owes — the contract's law revision pins and its active Domain overlaps — in
+// the transaction that owns the write, so neither can change between the check
+// and the effect. It is read-only and returns a typed refusal.
+func CheckWorkflowConsequentialBoundaryTx(ctx context.Context, transaction *Transaction, workID string) error {
+	tx, err := transactionSQL(transaction, "check_workflow_law_revision")
+	if err != nil {
+		return err
+	}
+	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
+}
+
 func checkWorkflowLawRevisionStalenessDB(ctx context.Context, db *sql.DB, workID string) error {
 	var contractVersion int64
 	var mandateJSON string

@@ -520,9 +520,19 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}
-	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, notes, laws, manifestMissing, manifest, domainProjectionData); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot commit the knowledge index rebuild", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, notes []VerifiedNote, laws []KnowledgeRecord, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
 	if err := enterFold(ctx, tx); err != nil {
-		return rollback(err)
+		return err
 	}
 	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_domains", "archived_work_tags", "archived_work"} {
 		deleteSQL := "DELETE FROM " + table + " WHERE home_project_id = ? AND home_locator_id = ?"
@@ -530,35 +540,35 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			deleteSQL = "DELETE FROM " + table + " WHERE work_id IN (SELECT id FROM archived_work WHERE home_project_id = ? AND home_locator_id = ?)"
 		}
 		if _, err := tx.ExecContext(ctx, deleteSQL, home.HomeProjectID, home.HomeLocatorID); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err))
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
 	for _, table := range []string{"law_relations", "law_subjects"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err))
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
 	for _, table := range []string{"domain_relation_governing_laws", "law_domain_applicability", "law_domain_homes", "domain_architecture_relations", "domains", "domain_registries"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear Domain projection "+table, true, "retry once the database is writable", err))
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear Domain projection "+table, true, "retry once the database is writable", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear the git knowledge watermark", true, "retry once the database is writable", err))
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear the git knowledge watermark", true, "retry once the database is writable", err)
 	}
 	for _, note := range notes {
 		if err := insertKnowledgeNote(ctx, tx, home, note); err != nil {
-			return rollback(err)
+			return err
 		}
 	}
 	for _, law := range laws {
 		if err := insertLawSubject(ctx, tx, home, law, commit); err != nil {
-			return rollback(err)
+			return err
 		}
 	}
 	if !manifestMissing && manifest.SchemaVersion == "1.2" {
 		if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
-			return rollback(err)
+			return err
 		}
 		for _, law := range laws {
 			homeDomain, hasHome := domainProjectionData.LawHomes[law.ID]
@@ -566,11 +576,11 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 				continue
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, homeDomain, law.SHA256, commit); err != nil {
-				return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain home", true, "retry once the database is writable", err))
+				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain home", true, "retry once the database is writable", err)
 			}
 			for _, domainID := range domainProjectionData.LawApplicability[law.ID] {
 				if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_applicability(home_project_id,home_locator_id,law_id,product_id,domain_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, domainID, commit); err != nil {
-					return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain applicability", true, "retry once the database is writable", err))
+					return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain applicability", true, "retry once the database is writable", err)
 				}
 			}
 		}
@@ -582,12 +592,12 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 				source, target = target, source
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, source, relation.Kind, target, commit); err != nil {
-				return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law relation", true, "retry once the database is writable", err))
+				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law relation", true, "retry once the database is writable", err)
 			}
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear knowledge kind coverage", true, "retry once the database is writable", err))
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear knowledge kind coverage", true, "retry once the database is writable", err)
 	}
 	coverage := map[string]string{
 		"work_note": "indexed",
@@ -611,20 +621,17 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			reason = "research has no accepted canonical manifest form"
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage (home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES (?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, kind, coverage[kind], reason, commit); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write knowledge kind coverage", true, "retry once the database is writable", err))
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write knowledge kind coverage", true, "retry once the database is writable", err)
 		}
 	}
 	// The commit identity is the deterministic observation value. It avoids
 	// rebuild-only wall-clock churn while the query result still exposes the
 	// current observation time in its transient envelope.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES (?,?,?,?,?,1)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, commit); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err))
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {
-		return rollback(err)
-	}
-	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot commit the knowledge index rebuild", true, "retry once the database is writable", err)
+		return err
 	}
 	return nil
 }

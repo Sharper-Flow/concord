@@ -111,6 +111,9 @@ func TestUnopenedStoreReturnsTypedFailure(t *testing.T) {
 			_, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "prod-1"})
 			return err
 		}},
+		{"RebuildKnowledgeIndex", func(s *Store) error {
+			return s.RebuildKnowledgeIndex(ctx, KnowledgeHome{})
+		}},
 	} {
 		for _, receiver := range []struct {
 			label string

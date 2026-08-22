@@ -79,6 +79,10 @@ type LauncherSearchResult struct {
 }
 
 func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchRequest) (LauncherSearchResult, error) {
+	return queryLauncherSearch(ctx, s.db, s, req)
+}
+
+func queryLauncherSearch(ctx context.Context, q queryer, s *Store, req LauncherSearchRequest) (LauncherSearchResult, error) {
 	var out LauncherSearchResult
 	limit, err := queryLimit(req.Limit)
 	if err != nil {
@@ -93,7 +97,7 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 	if len(req.Query) > 256 {
 		return out, newFailure(KindInvalidFilter, "launcher.search", "bounded search text is too long", false, "limit text to 256 characters")
 	}
-	home, homeErr := s.ResolveKnowledgeQueryHome(ctx, req.Product, "", KnowledgeHome{}, "launcher.search")
+	home, homeErr := resolveKnowledgeQueryHome(ctx, q, req.Product, "", KnowledgeHome{}, "launcher.search")
 	knowledgeWatermark, knowledgeAuthority := "unavailable", "unavailable"
 	knowledgeAvailable := homeErr == nil
 	if knowledgeAvailable {
@@ -499,12 +503,16 @@ type LauncherDomainsResult struct {
 }
 
 func (s *Store) QueryLauncherDomains(ctx context.Context, req LauncherProductRequest) (LauncherDomainsResult, error) {
+	return queryLauncherDomains(ctx, s.db, req)
+}
+
+func queryLauncherDomains(ctx context.Context, q queryer, req LauncherProductRequest) (LauncherDomainsResult, error) {
 	var out LauncherDomainsResult
-	list, err := s.QueryDomainList(ctx, DomainListRequest{Product: req.Product, Limit: domainListMaxLimit})
+	list, err := queryDomainList(ctx, q, DomainListRequest{Product: req.Product, Limit: domainListMaxLimit})
 	if err != nil {
 		return out, err
 	}
-	overlaps, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: req.Product})
+	overlaps, err := queryDomainOverlaps(ctx, q, DomainOverlapsRequest{Product: req.Product})
 	if err != nil {
 		return out, err
 	}
@@ -514,7 +522,7 @@ func (s *Store) QueryLauncherDomains(ctx context.Context, req LauncherProductReq
 	// Current law and active Domain-bound work render per Domain row without
 	// fan-out: two grouped bounded queries, matched in Go.
 	lawCounts := map[string]int{}
-	lawRows, err := s.db.QueryContext(ctx, `
+	lawRows, err := q.QueryContext(ctx, `
 		SELECT h.domain_id, count(*) FROM law_domain_homes h
 		JOIN law_subjects s ON s.home_project_id=h.home_project_id AND s.home_locator_id=h.home_locator_id AND s.law_id=h.law_id
 		WHERE h.product_id=? AND s.status='accepted'
@@ -537,7 +545,7 @@ func (s *Store) QueryLauncherDomains(ctx context.Context, req LauncherProductReq
 	}
 	lawRows.Close()
 	workCounts := map[string]int{}
-	workRows, err := s.db.QueryContext(ctx, `
+	workRows, err := q.QueryContext(ctx, `
 		SELECT b.home_domain_id, count(*) FROM workflow_contracts c
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
@@ -564,7 +572,7 @@ func (s *Store) QueryLauncherDomains(ctx context.Context, req LauncherProductReq
 		out.Domains[i].CurrentLawCount = lawCounts[out.Domains[i].DomainID]
 		out.Domains[i].ActiveWorkCount = workCounts[out.Domains[i].DomainID]
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT kind,source_domain_id,target_domain_id,state FROM domain_architecture_relations WHERE product_id=? ORDER BY kind,source_domain_id,target_domain_id LIMIT ?`, req.Product, domainListMaxLimit+1)
+	rows, err := q.QueryContext(ctx, `SELECT kind,source_domain_id,target_domain_id,state FROM domain_architecture_relations WHERE product_id=? ORDER BY kind,source_domain_id,target_domain_id LIMIT ?`, req.Product, domainListMaxLimit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot read Domain relations", true, "retry once the knowledge projection is readable", err)
 	}

@@ -50,6 +50,10 @@ const scopeEnvelope = (narrative: string = NARRATIVE, result: Record<string, unk
   },
 })
 
+// The two Product-truth flags are marshalled unconditionally by
+// store.WorkflowReadContract and declared required since #363, so a real
+// pinned contract always carries them. Omitting them here would prove the
+// builder against a shape the core cannot emit.
 function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD) {
   return {
     version: 1,
@@ -59,6 +63,8 @@ function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD) {
     required_evidence: [],
     route_conventions: [],
     spec_mandate: [],
+    changes_product_truth: false,
+    legacy_product_truth_compatibility: false,
   }
 }
 

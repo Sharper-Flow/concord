@@ -149,9 +149,9 @@ type DomainOverlapsResult struct {
 	Truncated bool                `json:"truncated"`
 }
 
-func readDomainRegistry(ctx context.Context, db *sql.DB, product string) (*DomainRegistryView, error) {
+func readDomainRegistry(ctx context.Context, q queryer, product string) (*DomainRegistryView, error) {
 	var view DomainRegistryView
-	err := db.QueryRowContext(ctx, `SELECT r.product_id,r.product_key,r.root_domain_id,r.content_hash,r.scanned_commit_oid FROM domain_registries r WHERE r.product_id=?`, product).Scan(&view.ProductID, &view.ProductKey, &view.RootDomainID, &view.ContentHash, &view.ScannedCommit)
+	err := q.QueryRowContext(ctx, `SELECT r.product_id,r.product_key,r.root_domain_id,r.content_hash,r.scanned_commit_oid FROM domain_registries r WHERE r.product_id=?`, product).Scan(&view.ProductID, &view.ProductKey, &view.RootDomainID, &view.ContentHash, &view.ScannedCommit)
 	if err == sql.ErrNoRows {
 		return nil, newFailure(KindDomainRegistryAbsent, "domain_read", "Product has no projected Domain registry", false, "rebuild the knowledge index from the Product Git home before reading Domains")
 	}
@@ -169,7 +169,12 @@ func (s *Store) QueryDomainList(ctx context.Context, req DomainListRequest) (Dom
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainList", "store is not open", false, "open a store before reading Domains")
 	}
-	registry, err := readDomainRegistry(ctx, s.db, req.Product)
+	return queryDomainList(ctx, s.db, req)
+}
+
+func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (DomainListResult, error) {
+	var out DomainListResult
+	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
 		return out, err
 	}
@@ -184,7 +189,7 @@ func (s *Store) QueryDomainList(ctx context.Context, req DomainListRequest) (Dom
 	if err != nil {
 		return out, err
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := q.QueryContext(ctx, `
 		SELECT domain_id,name,purpose,parent_domain_id,status FROM domains
 		WHERE product_id=? AND status='current' AND (name,domain_id) > (?,?)
 		ORDER BY name,domain_id LIMIT ?`, req.Product, cursorName, cursorID, limit+1)
@@ -244,11 +249,16 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainDetail", "store is not open", false, "open a store before reading Domains")
 	}
-	registry, err := readDomainRegistry(ctx, s.db, req.Product)
+	return queryDomainDetail(ctx, s.db, req)
+}
+
+func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) (DomainDetailResult, error) {
+	var out DomainDetailResult
+	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
 		return out, err
 	}
-	summary, err := s.domainExistsCurrent(ctx, req.Product, req.Domain)
+	summary, err := domainExistsCurrent(ctx, q, req.Product, req.Domain)
 	if err != nil {
 		return out, err
 	}
@@ -258,7 +268,7 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 	out.CurrentLaw = []DomainLawRecord{}
 	out.Relations = []DomainRelationView{}
 
-	lawRows, err := s.db.QueryContext(ctx, `
+	lawRows, err := q.QueryContext(ctx, `
 		SELECT s.law_id,s.kind,s.title,s.path,s.content_hash,s.scanned_commit_oid
 		FROM law_subjects s
 		JOIN law_domain_homes h ON h.home_project_id=s.home_project_id AND h.home_locator_id=s.home_locator_id AND h.law_id=s.law_id
@@ -280,7 +290,7 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 	}
 	lawRows.Close()
 	for i := range out.CurrentLaw {
-		appRows, err := s.db.QueryContext(ctx, `SELECT domain_id FROM law_domain_applicability WHERE product_id=? AND law_id=? ORDER BY domain_id`, req.Product, out.CurrentLaw[i].LawID)
+		appRows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_applicability WHERE product_id=? AND law_id=? ORDER BY domain_id`, req.Product, out.CurrentLaw[i].LawID)
 		if err != nil {
 			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot read law applicability", true, "retry once the knowledge projection is readable", err)
 		}
@@ -299,7 +309,7 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 		appRows.Close()
 	}
 
-	relRows, err := s.db.QueryContext(ctx, `
+	relRows, err := q.QueryContext(ctx, `
 		SELECT r.kind,r.source_domain_id,r.target_domain_id,r.state,
 			(SELECT group_concat(l.law_id, ',') FROM domain_relation_governing_laws l
 			 WHERE l.home_project_id=r.home_project_id AND l.home_locator_id=r.home_locator_id AND l.product_id=r.product_id
@@ -338,11 +348,16 @@ func (s *Store) QueryDomainActiveWork(ctx context.Context, req DomainActiveWorkR
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainActiveWork", "store is not open", false, "open a store before reading Domains")
 	}
-	registry, err := readDomainRegistry(ctx, s.db, req.Product)
+	return queryDomainActiveWork(ctx, s.db, req)
+}
+
+func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkRequest) (DomainActiveWorkResult, error) {
+	var out DomainActiveWorkResult
+	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
 		return out, err
 	}
-	if _, err := s.domainExistsCurrent(ctx, req.Product, req.Domain); err != nil {
+	if _, err := domainExistsCurrent(ctx, q, req.Product, req.Domain); err != nil {
 		return out, err
 	}
 	limit := req.Limit
@@ -365,7 +380,7 @@ func (s *Store) QueryDomainActiveWork(ctx context.Context, req DomainActiveWorkR
 		cursorPriorityInt = parsed
 	}
 	out.Work = []DomainActiveWorkItem{}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := q.QueryContext(ctx, `
 		SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,c.contract_version,
 			(b.home_domain_id=? AND c.contract_version=(SELECT MAX(c2.contract_version) FROM workflow_contracts c2 WHERE c2.work_id=c.work_id AND c2.superseded_by IS NULL)) AS is_home
 		FROM workflow_contracts c
@@ -410,24 +425,29 @@ func (s *Store) QueryDomainAttachments(ctx context.Context, req DomainAttachment
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainAttachments", "store is not open", false, "open a store before reading Domains")
 	}
-	registry, err := readDomainRegistry(ctx, s.db, req.Product)
+	return queryDomainAttachments(ctx, s.db, req)
+}
+
+func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachmentsRequest) (DomainAttachmentsResult, error) {
+	var out DomainAttachmentsResult
+	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
 		return out, err
 	}
-	summary, err := s.domainExistsCurrent(ctx, req.Product, req.Domain)
+	summary, err := domainExistsCurrent(ctx, q, req.Product, req.Domain)
 	if err != nil {
 		return out, err
 	}
 	summary.HomeDomain = summary.DomainID == registry.RootDomainID
 	out.Domain = summary
 	out.Registry = registry
-	if err := s.db.QueryRowContext(ctx, `SELECT version FROM domain_project_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ProjectVersion); err != nil && err != sql.ErrNoRows {
+	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_project_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ProjectVersion); err != nil && err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read Project attachments", true, "retry once the database is readable", err)
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT version FROM domain_resource_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ResourceVersion); err != nil && err != sql.ErrNoRows {
+	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_resource_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ResourceVersion); err != nil && err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
 	}
-	prows, err := s.db.QueryContext(ctx, `SELECT project_id,role FROM domain_project_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY role DESC,project_id`, req.Product, req.Domain)
+	prows, err := q.QueryContext(ctx, `SELECT project_id,role FROM domain_project_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY role DESC,project_id`, req.Product, req.Domain)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read Project attachments", true, "retry once the database is readable", err)
 	}
@@ -443,7 +463,7 @@ func (s *Store) QueryDomainAttachments(ctx context.Context, req DomainAttachment
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot enumerate Project attachments", true, "retry once the database is readable", err)
 	}
 	prows.Close()
-	rrows, err := s.db.QueryContext(ctx, `SELECT resource_id,purpose,environments FROM domain_resource_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY resource_id`, req.Product, req.Domain)
+	rrows, err := q.QueryContext(ctx, `SELECT resource_id,purpose,environments FROM domain_resource_attachment_edges WHERE product_id=? AND domain_id=? ORDER BY resource_id`, req.Product, req.Domain)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read resource attachments", true, "retry once the database is readable", err)
 	}
@@ -475,19 +495,24 @@ func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsReque
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainOverlaps", "store is not open", false, "open a store before reading Domains")
 	}
-	registry, err := readDomainRegistry(ctx, s.db, req.Product)
+	return queryDomainOverlaps(ctx, s.db, req)
+}
+
+func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsRequest) (DomainOverlapsResult, error) {
+	var out DomainOverlapsResult
+	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
 		return out, err
 	}
 	out.Pairs = []DomainOverlapPair{}
 	if req.Domain != "" {
-		if _, err := s.domainExistsCurrent(ctx, req.Product, req.Domain); err != nil {
+		if _, err := domainExistsCurrent(ctx, q, req.Product, req.Domain); err != nil {
 			return out, err
 		}
 	}
 	// Enumerate the nonterminal current contracts with their Domain footprint,
 	// mirroring the overlap check's authority join.
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := q.QueryContext(ctx, `
 		SELECT c.work_id,c.contract_version,b.home_domain_id
 		FROM workflow_contracts c
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
@@ -520,15 +545,15 @@ func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsReque
 	lawsByWork := map[string][]string{}
 	for _, f := range footprints {
 		list := []string{f.home}
-		if err := readOverlapString(ctx, s.db, `SELECT domain_id FROM workflow_contract_affected_domains WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &list, f.work, f.version); err != nil {
+		if err := readOverlapString(ctx, q, `SELECT domain_id FROM workflow_contract_affected_domains WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &list, f.work, f.version); err != nil {
 			return out, err
 		}
 		domainsByWork[f.work] = sortedStrings(uniqueStringsStable(list))
 		var laws []string
-		if err := readOverlapString(ctx, s.db, `SELECT law_id FROM workflow_contract_law_modifications WHERE work_id=? AND contract_version=?`, &laws, f.work, f.version); err != nil {
+		if err := readOverlapString(ctx, q, `SELECT law_id FROM workflow_contract_law_modifications WHERE work_id=? AND contract_version=?`, &laws, f.work, f.version); err != nil {
 			return out, err
 		}
-		if err := readOverlapString(ctx, s.db, `SELECT law_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=?`, &laws, f.work, f.version); err != nil {
+		if err := readOverlapString(ctx, q, `SELECT law_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=?`, &laws, f.work, f.version); err != nil {
 			return out, err
 		}
 		lawsByWork[f.work] = sortedStrings(uniqueStringsStable(laws))
@@ -552,7 +577,7 @@ func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsReque
 			overlap.ProductID = req.Product
 			overlap.FromWorkID, overlap.ToWorkID = left.work, right.work
 			overlap.FromContractVersion, overlap.ToContractVersion = left.version, right.version
-			state, kind, err := s.overlapResolutionState(ctx, overlap)
+			state, kind, err := overlapResolutionState(ctx, q, overlap)
 			if err != nil {
 				return out, err
 			}
@@ -565,10 +590,10 @@ func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsReque
 	return out, nil
 }
 
-func (s *Store) domainExistsCurrent(ctx context.Context, product, domain string) (DomainSummary, error) {
+func domainExistsCurrent(ctx context.Context, q queryer, product, domain string) (DomainSummary, error) {
 	var summary DomainSummary
 	var parent sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT domain_id,name,purpose,parent_domain_id,status FROM domains WHERE product_id=? AND domain_id=?`, product, domain).Scan(&summary.DomainID, &summary.Name, &summary.Purpose, &parent, &summary.Status)
+	err := q.QueryRowContext(ctx, `SELECT domain_id,name,purpose,parent_domain_id,status FROM domains WHERE product_id=? AND domain_id=?`, product, domain).Scan(&summary.DomainID, &summary.Name, &summary.Purpose, &parent, &summary.Status)
 	if err == sql.ErrNoRows {
 		return summary, newFailure(KindUnknownDomain, "domain_read", "Domain does not exist in the Product registry", false, "read the Domain list for the current registry before requesting detail")
 	}
@@ -582,8 +607,8 @@ func (s *Store) domainExistsCurrent(ctx context.Context, product, domain string)
 	return summary, nil
 }
 
-func readOverlapString(ctx context.Context, db *sql.DB, query string, target *[]string, args ...any) error {
-	rows, err := db.QueryContext(ctx, query, args...)
+func readOverlapString(ctx context.Context, q queryer, query string, target *[]string, args ...any) error {
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "domain_read", "cannot read Domain footprint", true, "retry once the workflow projection is readable", err)
 	}
@@ -598,9 +623,9 @@ func readOverlapString(ctx context.Context, db *sql.DB, query string, target *[]
 	return rows.Err()
 }
 
-func (s *Store) overlapResolutionState(ctx context.Context, overlap WorkflowDomainOverlap) (string, string, error) {
+func overlapResolutionState(ctx context.Context, q queryer, overlap WorkflowDomainOverlap) (string, string, error) {
 	var state, kind string
-	err := s.db.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=?) OR (from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=?)) AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`,
+	err := q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=?) OR (from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=?)) AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`,
 		overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.FromContractVersion, overlap.ToContractVersion, overlap.ToWorkID, overlap.FromWorkID, overlap.ToContractVersion, overlap.FromContractVersion).Scan(&state, &kind)
 	if err == sql.ErrNoRows {
 		return "absent", "", nil

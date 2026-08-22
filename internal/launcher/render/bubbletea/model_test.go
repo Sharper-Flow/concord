@@ -530,6 +530,124 @@ func TestS2AndS3RenderUnavailableForegroundReadState(t *testing.T) {
 	}
 }
 
+// authorityPort serves S1 rows until the authority is marked unreachable, then
+// returns the typed unavailable state the store port produces alongside its
+// error.
+type authorityPort struct {
+	rows        []launcher.ProductRow
+	unreachable bool
+}
+
+func (p *authorityPort) Read(_ context.Context, _ launcher.ReadRequest) (launcher.Snapshot, error) {
+	if p.unreachable {
+		return launcher.Snapshot{
+			Screen: launcher.ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable",
+			StatusMessage: "unreachable: database unavailable",
+		}, errors.New("database unavailable")
+	}
+	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: p.rows}, nil
+}
+
+func TestS1RendersNoCachedRowsAsCurrentWhenAuthorityIsUnreachable(t *testing.T) {
+	p := &authorityPort{rows: []launcher.ProductRow{
+		{ID: "p-1", Name: "Alpha", Stage: "production", Reliance: "authoritative", Actions: 2, Focus: "Ship the floor"},
+	}}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	if seeded := m.Render(); !strings.Contains(seeded, "Alpha") {
+		t.Fatalf("seeded S1 row never rendered: %q", seeded)
+	}
+
+	p.unreachable = true
+	m.UpdateKey("r")
+
+	if got := core.Snapshot(); len(got.Rows) != 0 || got.Coverage != "unreachable" || got.Reliance != "unreachable" {
+		t.Fatalf("unreachable S1 retained cached rows or coverage: %#v", got)
+	}
+	rendered := m.Render()
+	for _, cached := range []string{"Alpha", "production", "Ship the floor"} {
+		if strings.Contains(rendered, cached) {
+			t.Fatalf("S1 rendered cached value %q as current: %q", cached, rendered)
+		}
+	}
+	// A failed foreground read is reported as launch-time status text, so the
+	// visible reason is the port's error rather than the snapshot's own field.
+	for _, want := range []string{"RELIANCE: unreachable", "COVERAGE: unreachable", "STATUS: database unavailable"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("unreachable S1 hid %q: %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "PORTFOLIO: authoritative-empty") {
+		t.Fatalf("unreachable S1 is indistinguishable from an authoritative-empty portfolio: %q", rendered)
+	}
+}
+
+// refreshCountingPort records every request so a test can prove both how many
+// reads were issued and that none appeared between two of them.
+type refreshCountingPort struct {
+	requests []launcher.ReadRequest
+}
+
+func (p *refreshCountingPort) Read(_ context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
+	p.requests = append(p.requests, request)
+	return launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
+		Rows: []launcher.ProductRow{{ID: "p-1", Name: "Alpha"}, {ID: "p-2", Name: "Beta"}},
+	}, nil
+}
+
+func TestTwoConsecutiveRefreshKeysIssueTwoReadsAndNoneBetweenThem(t *testing.T) {
+	p := &refreshCountingPort{}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	if len(p.requests) != 1 {
+		t.Fatalf("entry requests=%#v, want exactly one", p.requests)
+	}
+	// Nothing the launcher schedules for itself can read; refresh is the
+	// operator's key alone.
+	if cmd := m.Init(); cmd != nil {
+		t.Fatal("launcher scheduled startup work, so a read could fire without a keypress")
+	}
+
+	if cmd := m.UpdateKey("r"); cmd != nil {
+		t.Fatal("first refresh scheduled a follow-up command")
+	}
+	if len(p.requests) != 2 {
+		t.Fatalf("first refresh requests=%#v, want two", p.requests)
+	}
+
+	// Between the two presses the launcher only redraws and answers local UI
+	// events. No navigation occurs, so no read may occur either.
+	m.Render()
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.UpdateKey("?")
+	m.UpdateKey("?")
+	m.Render()
+	if len(p.requests) != 2 {
+		t.Fatalf("a read was issued between two consecutive refreshes: %#v", p.requests)
+	}
+
+	if cmd := m.UpdateKey("r"); cmd != nil {
+		t.Fatal("second refresh scheduled a follow-up command")
+	}
+	if len(p.requests) != 3 {
+		t.Fatalf("two consecutive refreshes issued %d reads after entry, want two", len(p.requests)-1)
+	}
+	for i, request := range p.requests {
+		if request.Kind != launcher.ReadPortfolio {
+			t.Fatalf("request %d = %#v, want a portfolio read", i, request)
+		}
+	}
+}
+
 func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	p := &coordinationPort{}
 	core := launcher.New(p)

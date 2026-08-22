@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-16T00:00:00Z",
+  "evidence": [
+    "internal/store/worker_lanes.go",
+    "adapter/opencode/dispatch.ts"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0034",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0034-host-prompt-provenance.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:bfcbd7779f456c9c2b17b6443d4ccfe601787be0c84b8b8afc0d2339000fa1c4",
+  "status": "accepted",
+  "summary": "Host injection is permitted only when recorded: dispatch evidence v3 carries a provenance digest over enumerable prompt surfaces, unenumerable ones are named, and D7 evals are reproducible only when lane and provenance digests both match.",
+  "tags": [
+    "lanes",
+    "evidence",
+    "prompt-authority"
+  ],
+  "title": "Host prompt provenance is declared at dispatch"
+}

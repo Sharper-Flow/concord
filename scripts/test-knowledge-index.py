@@ -117,10 +117,14 @@ def test_successful_update_changes_hashes_only() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
         (root / "docs").mkdir()
+        (root / "docs/knowledge/records").mkdir(parents=True)
         document = root / "docs/lesson.md"
         document.write_text("lesson\n", encoding="utf-8")
         target = root / "manifest.json"
         value = fixture(digest="b" * 64)
+        (root / "docs/knowledge/records/lesson-1.json").write_text(
+            json.dumps(value["records"][0], indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         before = copy.deepcopy(value)
         with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", target):
             findings = checker.update_manifest(value)

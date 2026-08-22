@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-02T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0007",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0007-concord-repository-bootstrap.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7571c7cc3f34fb86674746850989cd14765c75e7389298053f3837d6b91c4221",
+  "status": "accepted",
+  "summary": "Defines the public repository, governance, and release boundary.",
+  "tags": [
+    "repository",
+    "governance"
+  ],
+  "title": "Concord repository bootstrap"
+}

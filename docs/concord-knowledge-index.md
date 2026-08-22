@@ -9,8 +9,8 @@ is the closed JSON Schema contract.
 
 ## Contract
 
-The manifest has only `schema_version`, `supported_kinds`, `indexed_kinds`, and
-`records`. Unknown fields, duplicate keys, duplicate IDs, and duplicate paths
+The manifest has `schema_version`, `supported_kinds`, `indexed_kinds`, optional
+registry metadata, and `records`. Unknown fields, duplicate keys, duplicate IDs, and duplicate paths
 are invalid. A record has an authored stable ID, closed kind, clean regular
 Markdown path below `docs/`, status, RFC3339 date, bounded title and summary,
 unique tags, closed scopes, and a required `sha256:` hash. It has no body or
@@ -56,7 +56,7 @@ The manifest and each referenced Markdown blob are one Git authority at the
 same scanned commit. SQLite stores only bounded metadata and locator/hash proof.
 The standard-library checker validates the authored registry, recomputes hashes,
 rejects dangling or generated/candidate entries, and proves every `CD-*.md`
-decision is included. `python3 scripts/check-knowledge-index.py --update`
+decision is included. `python3 scripts/check-knowledge-index.py --update` still
 updates hashes only; it never authors inclusion, metadata, or status.
 
 ## Authoring
@@ -64,6 +64,14 @@ updates hashes only; it never authors inclusion, metadata, or status.
 Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally; CI repeats this preflight against `origin/main`.
 
 Coverage records for indexed law are authored as shards under `docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to regenerate `docs/law-coverage.v1.json`; CI validates aggregate freshness through `scripts/check-json.py`.
+
+Knowledge records are authored as one sorted-key JSON object per file under
+`docs/knowledge/records/<id>.json`; the domain registry is authored at
+`docs/knowledge/domain-registry.json`. The tracked
+`docs/concord-knowledge-index.v1.json` is generated from those sources with
+`python3 scripts/generate-knowledge-index.py --update`. Use `--check` to prove
+the aggregate is current. `check-knowledge-index.py --update` refreshes only
+`sha256` values in record shards, then regenerates the aggregate.
 
 SQLite's `law_subjects` and `law_relations` tables are derived only by
 `RebuildKnowledgeIndex` for one home, inside the same transactional fold guard.

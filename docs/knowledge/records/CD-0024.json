@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-14T00:00:00Z",
+  "evidence": [
+    "internal/store/initiative.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0024",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0024-epic-agent-surface-and-ts9-exception.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:be2ff3010ee2a0a52bfbc851cd49717b326d32b150c1294e50e3478a928c30bc",
+  "status": "accepted",
+  "summary": "Historical record of the Epic reachability change and one-time TS9 exception; CD-0042 closes its pre-go-live version and model-trial policy without creating a current compatibility path.",
+  "tags": [
+    "epic",
+    "agent-surface",
+    "ts9",
+    "migration"
+  ],
+  "title": "Epic agent surface and narrow TS9 exception"
+}

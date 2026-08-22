@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-17T00:00:00Z",
+  "evidence": [
+    "internal/store/governing_requirements.go",
+    "internal/agent/mutations.go",
+    "internal/agent/envelope.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0035",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0035-governing-requirements-at-capture.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:037eceaed277b5f4c825621d4b78b15552ef9ebe0064387d0ad8ab5aa8ee4fb8",
+  "status": "accepted",
+  "summary": "Governing requirements bind to a Project rather than to a rule, and capture refuses by set difference against the requirements its target scope declares: invariant_violation naming the omitted requirements, typed operator options, no events, and a minted challenge the approved scope cut resolves against.",
+  "tags": [
+    "agent-surface",
+    "governing-law",
+    "capture"
+  ],
+  "title": "Governing requirements are scope-bound and refused at capture"
+}

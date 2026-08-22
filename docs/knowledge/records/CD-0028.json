@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-14T00:00:00Z",
+  "evidence": [
+    "internal/store/resource_claims.go",
+    "internal/agent/resource_claims_dispatch_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0028",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0028-resource-claims.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:9eb67612cb80c4cf2ef84c707e653e0ac6b0cae14c05fcb9b4d29c7b38e4aeec",
+  "status": "accepted",
+  "summary": "Claims are durable records of intent on typed resource keys: work-item holders survive session death, contention refuses with coordination, terminal transition releases, and no authority is granted.",
+  "tags": [
+    "claims",
+    "concurrency",
+    "agent-surface"
+  ],
+  "title": "Durable resource claims for concurrent agents"
+}

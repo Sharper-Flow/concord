@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-17T00:00:00Z",
+  "evidence": [
+    "internal/agent/authority.go",
+    "docs/agent-call-context-contract.md",
+    "scenarios/agent-jobs.v1.json"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0037",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:700c9184b4da80c3228dfb9f5fccf6714547f125b0562398de8b57a6fd01ec27",
+  "status": "accepted",
+  "summary": "Core-issued approval challenges carry a typed summary derived only from the exact operation, consequence, digest, scope, versions, and expiry the approval binds.",
+  "tags": [
+    "approval",
+    "agent-surface",
+    "authority"
+  ],
+  "title": "Approval consequence summaries are derived from validated facts"
+}

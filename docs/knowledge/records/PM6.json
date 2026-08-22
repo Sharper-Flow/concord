@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "PM6",
+  "kind": "spec",
+  "path": "docs/canonical-git-note-placement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:55e1755f5902a6b9776d61217b7581153d28cce4fba15b793d9628cab3966806",
+  "status": "accepted",
+  "summary": "Defines canonical home placement and git-first proof for durable notes.",
+  "tags": [
+    "pm6",
+    "git",
+    "proof"
+  ],
+  "title": "Canonical Git note placement"
+}

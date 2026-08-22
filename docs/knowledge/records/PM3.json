@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "PM3",
+  "kind": "spec",
+  "path": "docs/product-memory-domain-schema.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:efeb33a4f55362e61f1fdf6c05c67d475acc15c95c5c2a78a417fbac05ee1e53",
+  "status": "accepted",
+  "summary": "Defines the authoritative event log and typed Product-memory projections.",
+  "tags": [
+    "pm3",
+    "schema"
+  ],
+  "title": "Product memory domain schema"
+}

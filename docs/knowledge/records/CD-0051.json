@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-21T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0045-writer-admission-invariant.md",
+    "internal/store/conformance_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0051",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0051-conformance-falsifier-quantity.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6f5a1e9e5e146c2439518fe32667cb4f11fa9728cca4ea3b0f10ecc332b711ca",
+  "status": "accepted",
+  "summary": "The sustained conformance falsifier weighs commit-duration P99, the quantity CD-0045 names as Concord-owned, against the unchanged 100ms target; wall and writer-admission wait stay measured and diagnostic, correctness precedence and population authority are untouched, and scheduler-owned overshoot on a shared runner reports as inconclusive instead of a law-grade fired verdict.",
+  "tags": [
+    "conformance",
+    "concurrency",
+    "falsifier"
+  ],
+  "title": "The conformance falsifier weighs commit duration, not scheduler time"
+}

@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-11T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "agent-lanes-contract",
+  "kind": "spec",
+  "path": "docs/agent-lanes-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:68de0b63b1bdc0a07b14fbb72e8bdcf57638bd4527cddb4d802d07c2f603d2dc",
+  "status": "accepted",
+  "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, capability classes, budgets, lifecycle states, and evidence obligations.",
+  "tags": [
+    "typed-workers",
+    "lane-registry",
+    "agents"
+  ],
+  "title": "Agent lane contract"
+}

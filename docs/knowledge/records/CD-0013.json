@@ -1,0 +1,26 @@
+{
+  "date": "2026-08-08T00:00:00Z",
+  "evidence": [
+    "scenarios/workflow-engine.v1.json",
+    "internal/store/workflow_conformance_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0013",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0013-workflow-engine-mechanism.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:4de4819c5202a0367182fcec9f4e1f987f0a886e2e481178be9415718bd7844d",
+  "status": "accepted",
+  "summary": "Defines the versioned workflow registry, execution evidence, and completion gate.",
+  "tags": [
+    "workflow",
+    "evidence"
+  ],
+  "title": "Workflow engine mechanism"
+}

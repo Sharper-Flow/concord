@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-13T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0020",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0020-retain-knowledge-index-shape.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45",
+  "status": "accepted",
+  "summary": "Retains the Git-authoritative, SQLite-derived knowledge-index shape, bounded Q9/Q10 query boundary, independent code intelligence, and separate conformance repair path.",
+  "tags": [
+    "knowledge-index",
+    "query",
+    "authority",
+    "research"
+  ],
+  "title": "Retain the manifest-primary knowledge-index shape"
+}

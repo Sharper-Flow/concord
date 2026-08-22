@@ -1,0 +1,21 @@
+{
+  "date": "2026-08-05T00:00:00Z",
+  "id": "advance-predecessor-lessons",
+  "kind": "lesson",
+  "path": "docs/advance-predecessor-lessons.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:348ef42c5debee51f2870c477243ac9ef451cf98fb3d0d45f6f98494ccbc103d",
+  "status": "published",
+  "summary": "Records public predecessor lessons that inform Concord without becoming a second authority.",
+  "tags": [
+    "lessons",
+    "predecessor"
+  ],
+  "title": "Advance predecessor lessons"
+}

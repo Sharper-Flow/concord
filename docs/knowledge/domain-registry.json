@@ -1,0 +1,14 @@
+{
+  "domains": [
+    {
+      "architecture_relations": [],
+      "domain_id": "product-root:concord",
+      "name": "Concord",
+      "purpose": "Product-wide Concord law and architecture",
+      "status": "current"
+    }
+  ],
+  "product_key": "concord",
+  "root_domain_id": "product-root:concord",
+  "schema_version": "1.0"
+}

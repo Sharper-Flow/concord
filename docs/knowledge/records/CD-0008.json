@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-05T00:00:00Z",
+  "evidence": [
+    "internal/store/worktrees.go",
+    "internal/store/worktrees_test.go",
+    "internal/agent/trunk_firewall_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0008",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0008-concord-mechanism-hardening.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:24758757586b904377718a5ad7030f6e43e1ff96f1af18dfd3d8aaabb08b69fa",
+  "status": "accepted",
+  "summary": "Defines unreadable-record isolation and durable evidence hardening.",
+  "tags": [
+    "reliability",
+    "evidence",
+    "isolation"
+  ],
+  "title": "Concord mechanism hardening"
+}

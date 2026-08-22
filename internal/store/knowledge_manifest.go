@@ -52,8 +52,23 @@ type KnowledgeManifest struct {
 	SupportedKinds        []string                `json:"supported_kinds"`
 	IndexedKinds          []string                `json:"indexed_kinds"`
 	DomainRegistry        KnowledgeDomainRegistry `json:"domain_registry"`
+	KnowledgeRoots        []string                `json:"knowledge_roots,omitempty"`
+	Exclusions            []string                `json:"exclusions,omitempty"`
+	DocContract           *KnowledgeDocContract   `json:"doc_contract,omitempty"`
 	Records               []KnowledgeRecord       `json:"records"`
 	domainRegistryPresent bool
+}
+
+type KnowledgeDocContract struct {
+	Enforced      bool                      `json:"enforced"`
+	Spec          *KnowledgeDocContractSpec `json:"spec,omitempty"`
+	Decision      *KnowledgeDocContractSpec `json:"decision,omitempty"`
+	BannedPhrases []string                  `json:"banned_phrases,omitempty"`
+}
+
+type KnowledgeDocContractSpec struct {
+	RequiredSections []string `json:"required_sections"`
+	ACRequired       bool     `json:"ac_required"`
 }
 
 type KnowledgeDomainRegistry struct {
@@ -272,14 +287,68 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 		SupportedKinds []string                 `json:"supported_kinds"`
 		IndexedKinds   []string                 `json:"indexed_kinds"`
 		DomainRegistry *KnowledgeDomainRegistry `json:"domain_registry,omitempty"`
-		Records        []KnowledgeRecord        `json:"records"`
+		KnowledgeRoots []string                 `json:"knowledge_roots,omitempty"`
+		Exclusions     []string                 `json:"exclusions,omitempty"`
+		DocContract    *KnowledgeDocContract    `json:"doc_contract,omitempty"`
+		Records        []map[string]any         `json:"records"`
 	}
 	var registry *KnowledgeDomainRegistry
 	if manifest.SchemaVersion == "1.2" || manifest.domainRegistryPresent {
 		copy := manifest.DomainRegistry
 		registry = &copy
 	}
-	return json.Marshal(manifestJSON{SchemaVersion: manifest.SchemaVersion, SupportedKinds: manifest.SupportedKinds, IndexedKinds: manifest.IndexedKinds, DomainRegistry: registry, Records: manifest.Records})
+	records := make([]map[string]any, 0, len(manifest.Records))
+	for _, record := range manifest.Records {
+		records = append(records, manifestRecordEntry(record))
+	}
+	return json.Marshal(manifestJSON{
+		SchemaVersion: manifest.SchemaVersion, SupportedKinds: manifest.SupportedKinds,
+		IndexedKinds: manifest.IndexedKinds, DomainRegistry: registry,
+		KnowledgeRoots: manifest.KnowledgeRoots, Exclusions: manifest.Exclusions,
+		DocContract: manifest.DocContract, Records: records,
+	})
+}
+
+func manifestRecordEntry(record KnowledgeRecord) map[string]any {
+	entry := map[string]any{
+		"id": record.ID, "kind": record.Kind, "path": record.Path, "status": record.Status,
+		"date": record.Date, "title": record.Title, "summary": record.Summary,
+		"tags": record.Tags, "scopes": manifestScopeEntry(record.Scopes), "sha256": record.SHA256,
+	}
+	if record.Successor != "" {
+		entry["successor"] = record.Successor
+	}
+	if len(record.LawRelations) > 0 {
+		relations := make([]map[string]string, 0, len(record.LawRelations))
+		for _, relation := range record.LawRelations {
+			relations = append(relations, map[string]string{"kind": relation.Kind, "target_id": relation.TargetID})
+		}
+		entry["law_relations"] = relations
+	}
+	if len(record.Evidence) > 0 {
+		entry["evidence"] = record.Evidence
+	}
+	if record.HomeDomainID != "" {
+		entry["home_domain_id"] = record.HomeDomainID
+	}
+	if len(record.AppliesToDomainIDs) > 0 {
+		entry["applies_to_domain_ids"] = record.AppliesToDomainIDs
+	}
+	return entry
+}
+
+func manifestScopeEntry(scopes KnowledgeRecordScopes) map[string]any {
+	entry := map[string]any{
+		"mode": scopes.Mode, "product_ids": scopes.ProductIDs, "project_ids": scopes.ProjectIDs,
+		"tag_ids": scopes.TagIDs,
+	}
+	if scopes.componentIDsPresent || scopes.ComponentIDs != nil {
+		entry["component_ids"] = scopes.ComponentIDs
+	}
+	if scopes.domainIDsPresent || scopes.DomainIDs != nil {
+		entry["domain_ids"] = scopes.DomainIDs
+	}
+	return entry
 }
 
 func knowledgeDomainRegistryZero(registry KnowledgeDomainRegistry) bool {

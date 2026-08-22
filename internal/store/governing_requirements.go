@@ -78,6 +78,10 @@ func foldProjectGoverningRequirementWithdrawn(ctx context.Context, tx *sql.Tx, e
 // to the given Projects. The union is the applicable set a capture must cover;
 // CD-0035 D3 computes the refusal as a set difference against it.
 func (s *Store) GoverningRequirementsForProjectIDs(ctx context.Context, ids []string) ([]string, error) {
+	return governingRequirementsForProjectIDs(ctx, s.db, ids)
+}
+
+func governingRequirementsForProjectIDs(ctx context.Context, q queryer, ids []string) ([]string, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -86,7 +90,7 @@ func (s *Store) GoverningRequirementsForProjectIDs(ctx context.Context, ids []st
 	for i, id := range ids {
 		placeholders[i], args[i] = "?", id
 	}
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := q.QueryContext(ctx,
 		`SELECT DISTINCT requirement_ref FROM project_governing_requirements WHERE project_id IN (`+strings.Join(placeholders, ",")+") ORDER BY requirement_ref", args...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve governing requirements", true, "retry once the database is readable", err)

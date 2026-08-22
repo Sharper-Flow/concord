@@ -12,11 +12,15 @@ import (
 // projection over the product_projects fold output and lives in the store
 // package so operator verbs do not reach for raw database handles.
 func (s *Store) ProductMembership(ctx context.Context, productID string) ([]string, error) {
+	return productMembership(ctx, s.db, productID)
+}
+
+func productMembership(ctx context.Context, q queryer, productID string) ([]string, error) {
 	if productID == "" {
 		return nil, newFailure(KindInvalidOperation, "product_membership",
 			"product ID is empty", false, "supply a non-empty product id")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`, productID)
+	rows, err := q.QueryContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "product_membership",
 			"cannot read Product membership", true,
@@ -47,12 +51,16 @@ func (s *Store) ProductMembership(ctx context.Context, productID string) ([]stri
 // without paying for a doomed INSERT. The query is a single row read against
 // the event_id primary index.
 func (s *Store) EventIDExists(ctx context.Context, eventID string) (bool, error) {
+	return eventIDExists(ctx, s.db, eventID)
+}
+
+func eventIDExists(ctx context.Context, q queryer, eventID string) (bool, error) {
 	if eventID == "" {
 		return false, newFailure(KindInvalidOperation, "event_id_exists",
 			"event id is empty", false, "supply a non-empty event id")
 	}
 	var exists bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&exists); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}

@@ -130,6 +130,10 @@ func (s *Store) ResourceClaims(ctx context.Context, resourceKey string, productI
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "resource_claims", "store is not open", false, "open the authority database")
 	}
+	return resourceClaims(ctx, s.db, resourceKey, productID, limit)
+}
+
+func resourceClaims(ctx context.Context, q queryer, resourceKey string, productID string, limit int) ([]ResourceClaim, error) {
 	if limit < 1 {
 		limit = 20
 	}
@@ -142,11 +146,11 @@ func (s *Store) ResourceClaims(ctx context.Context, resourceKey string, productI
 		if !resourceKeyPattern.MatchString(resourceKey) {
 			return nil, newFailure(KindInvalidPayload, "resource_claims", "resource key is not a typed bounded identifier", false, "look up a typed resource key")
 		}
-		rows, err = s.db.QueryContext(ctx, `SELECT resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at,coalesce(released_at,'') FROM resource_claims WHERE resource_key=?`, resourceKey)
+		rows, err = q.QueryContext(ctx, `SELECT resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at,coalesce(released_at,'') FROM resource_claims WHERE resource_key=?`, resourceKey)
 	} else if productID != "" {
-		rows, err = s.db.QueryContext(ctx, `SELECT rc.resource_key,rc.holder_work_id,rc.holder_agent,rc.holder_session,rc.reason,rc.state,rc.claimed_at,coalesce(rc.released_at,'') FROM resource_claims rc JOIN work_projects wp ON wp.work_id=rc.holder_work_id JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=? ORDER BY rc.claimed_at DESC LIMIT ?`, productID, limit)
+		rows, err = q.QueryContext(ctx, `SELECT rc.resource_key,rc.holder_work_id,rc.holder_agent,rc.holder_session,rc.reason,rc.state,rc.claimed_at,coalesce(rc.released_at,'') FROM resource_claims rc JOIN work_projects wp ON wp.work_id=rc.holder_work_id JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=? ORDER BY rc.claimed_at DESC LIMIT ?`, productID, limit)
 	} else {
-		rows, err = s.db.QueryContext(ctx, `SELECT resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at,coalesce(released_at,'') FROM resource_claims WHERE state='held' ORDER BY claimed_at DESC LIMIT ?`, limit)
+		rows, err = q.QueryContext(ctx, `SELECT resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at,coalesce(released_at,'') FROM resource_claims WHERE state='held' ORDER BY claimed_at DESC LIMIT ?`, limit)
 	}
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "resource_claims", "cannot read resource claims", true, "retry once the database is readable", err)

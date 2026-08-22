@@ -31,13 +31,17 @@ import (
 // Call this only after the caller's transaction has committed, never inside
 // one. The call is not a transaction and holds no connection open afterwards.
 func (s *Store) SyncDurable(ctx context.Context) error {
-	const op = "sync_durable"
-	if s == nil {
-		return newFailure(KindUnavailable, op, "store is nil", false,
+	if s == nil || s.db == nil {
+		return newFailure(KindUnavailable, "sync_durable", "store is nil", false,
 			"open the store before syncing")
 	}
+	return syncDurable(ctx, s.db)
+}
+
+func syncDurable(ctx context.Context, q queryer) error {
+	const op = "sync_durable"
 	var busy, log, checkpointed int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
+	if err := q.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
 		return wrapFailure(KindUnavailable, op, "cannot run the durability checkpoint", true,
 			"retry once the database is writable; nothing is lost by retrying", err)
 	}

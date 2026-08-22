@@ -68,7 +68,11 @@ type ProjectResolution struct {
 // sorted Product↔Project authority changes, not when unrelated events append or
 // when a repository moves on disk.
 func (s *Store) ScopeVersion(ctx context.Context, projectID string) (string, []string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT product_id,role FROM product_projects WHERE project_id=? ORDER BY product_id,role`, projectID)
+	return scopeVersion(ctx, s.db, projectID)
+}
+
+func scopeVersion(ctx context.Context, q queryer, projectID string) (string, []string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT product_id,role FROM product_projects WHERE project_id=? ORDER BY product_id,role`, projectID)
 	if err != nil {
 		return "", nil, wrapFailure(KindUnavailable, "scope_version", "cannot read Product scope", true, "retry once the database is readable", err)
 	}
@@ -205,7 +209,11 @@ func NormalizeProjectLocator(kind LocatorKind, value string) (string, error) {
 }
 
 func (s *Store) ProjectLocators(ctx context.Context, projectID string) ([]ProjectLocator, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT locator_id,project_id,kind,locator_value,normalized_value FROM project_locators WHERE project_id=? ORDER BY kind,normalized_value,locator_id`, projectID)
+	return projectLocators(ctx, s.db, projectID)
+}
+
+func projectLocators(ctx context.Context, q queryer, projectID string) ([]ProjectLocator, error) {
+	rows, err := q.QueryContext(ctx, `SELECT locator_id,project_id,kind,locator_value,normalized_value FROM project_locators WHERE project_id=? ORDER BY kind,normalized_value,locator_id`, projectID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "project_locator", "cannot read Project locators", true, "retry once the database is readable", err)
 	}
@@ -226,6 +234,10 @@ func (s *Store) ResolveProject(ctx context.Context, directory, worktree string) 
 }
 
 func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktree string, runner GitRunner) (ProjectResolution, error) {
+	return resolveProjectWithRunner(ctx, s.db, directory, worktree, runner)
+}
+
+func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktree string, runner GitRunner) (ProjectResolution, error) {
 	if runner == nil {
 		return ProjectResolution{}, newFailure(KindInvalidOperation, "resolve_project", "git runner is nil", false, "provide a git runner")
 	}
@@ -263,12 +275,12 @@ func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktre
 	host := HostRepository{CanonicalPath: canonical, GitRemote: remote}
 	locators := []ProjectLocator{}
 	if remote != "" {
-		locators, err = s.matchProjectLocators(ctx, LocatorGitRemote, remote)
+		locators, err = matchProjectLocators(ctx, q, LocatorGitRemote, remote)
 		if err != nil {
 			return ProjectResolution{}, err
 		}
 	}
-	pathMatches, err := s.matchProjectLocators(ctx, LocatorCanonicalPath, canonical)
+	pathMatches, err := matchProjectLocators(ctx, q, LocatorCanonicalPath, canonical)
 	if err != nil {
 		return ProjectResolution{}, err
 	}
@@ -335,8 +347,8 @@ func resolveMainWorktree(ctx context.Context, runner GitRunner, root string) (bo
 	return gitDir == commonDir, nil
 }
 
-func (s *Store) matchProjectLocators(ctx context.Context, kind LocatorKind, normalized string) ([]ProjectLocator, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT locator_id,project_id,kind,locator_value,normalized_value FROM project_locators WHERE kind=? AND normalized_value=? ORDER BY project_id`, kind, normalized)
+func matchProjectLocators(ctx context.Context, q queryer, kind LocatorKind, normalized string) ([]ProjectLocator, error) {
+	rows, err := q.QueryContext(ctx, `SELECT locator_id,project_id,kind,locator_value,normalized_value FROM project_locators WHERE kind=? AND normalized_value=? ORDER BY project_id`, kind, normalized)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "resolve_project", "cannot read Project locators", true, "retry once the database is readable", err)
 	}

@@ -9,22 +9,35 @@
 // wording; behavioural judgement belongs to the llm-rubric assertion, and
 // registry/dispatch/evidence authority belongs to the Go tests.
 
-const REPORT_REQUIRED = [
-  "schema_version",
-  "attempt_id",
-  "lane_id",
-  "lane_version",
-  "lane_digest",
-  "readback_model",
-  "status",
-  "evidence",
-];
+import { readFileSync } from "node:fs";
 
-const DIGEST = /^sha256:[0-9a-f]{64}$/;
-const MODEL = /^[a-z][a-z0-9_.-]*\/[^/ ]+$/;
+// CD-0056 D2: the obligation vocabulary and the report's required shape are read
+// from the contract rather than restated here. Two copies of a closed vocabulary
+// are an unvalidated join, and this assertion is not the authority for either. A
+// missing or malformed contract throws at load, which fails the harness loudly.
+const CONTRACT = JSON.parse(
+  readFileSync(new URL("../../../../contracts/agent-lane-report.schema.json", import.meta.url), "utf8"),
+);
 
-function candidates(output) {
-  const found = [];
+const REPORT_REQUIRED = CONTRACT.required;
+const STATUSES = CONTRACT.properties.status.enum;
+const DIGEST = new RegExp(CONTRACT.properties.lane_digest.pattern);
+const MODEL = new RegExp(CONTRACT.properties.readback_model.pattern);
+const EVIDENCE_MIN = CONTRACT.properties.evidence.minItems;
+const EVIDENCE_MAX = CONTRACT.properties.evidence.maxItems;
+const ENTRY = CONTRACT.$defs.evidence_entry;
+const ENTRY_KEYS = [...ENTRY.required].sort().join(",");
+const DETAIL_MIN = ENTRY.properties.detail.minLength;
+const DETAIL_MAX = ENTRY.properties.detail.maxLength;
+const OBLIGATIONS = new Set(CONTRACT.$defs.evidence_obligation.enum);
+
+// The host writes one JSON run event per stdout line and carries the model's
+// message text only on `text` events, at `part.text`. This mirrors
+// readWorkerReport in adapter/opencode/dispatch.ts, which is the enforcing
+// implementation; the shape comes from a real `opencode run --format json`
+// capture.
+function textParts(output) {
+  const texts = [];
   for (const line of String(output).split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
@@ -34,22 +47,40 @@ function candidates(output) {
     } catch {
       continue;
     }
-    const nested = [parsed];
-    for (const key of ["report", "result", "output", "data"]) {
-      if (parsed && typeof parsed[key] === "object" && parsed[key] !== null) nested.push(parsed[key]);
-      if (typeof parsed?.[key] === "string") {
-        try {
-          nested.push(JSON.parse(parsed[key]));
-        } catch {
-          // A non-JSON string on a known key is ordinary host chatter.
-        }
-      }
+    if (!parsed || typeof parsed !== "object" || parsed.type !== "text") continue;
+    const part = parsed.part;
+    if (!part || typeof part !== "object" || part.type !== "text" || typeof part.text !== "string") continue;
+    texts.push(part.text);
+  }
+  return texts;
+}
+
+// One enclosing Markdown fence is unwrapped. Anything further would be heuristic
+// salvage out of prose, and a report needing salvage should fail closed.
+function stripFence(text) {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("```") || !trimmed.endsWith("```") || trimmed.length < 6) return trimmed;
+  const firstBreak = trimmed.indexOf("\n");
+  if (firstBreak < 0) return trimmed;
+  const info = trimmed.slice(3, firstBreak).trim();
+  if (info.length > 0 && !/^[A-Za-z0-9_-]+$/.test(info)) return trimmed;
+  return trimmed.slice(firstBreak + 1, trimmed.length - 3).trim();
+}
+
+// A worker emits several text parts. The last one that parses as a JSON object
+// is its final answer; earlier parts are working prose it superseded.
+function candidates(output) {
+  const found = [];
+  for (const text of textParts(output)) {
+    const candidate = stripFence(text);
+    if (!candidate.startsWith("{")) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
     }
-    for (const value of nested) {
-      if (value && typeof value === "object" && value.schema_version === "1.0" && value.lane_id) {
-        found.push(value);
-      }
-    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) found.push(parsed);
   }
   return found;
 }
@@ -65,20 +96,31 @@ export default function (output, context) {
   if (missing.length > 0) {
     return { pass: false, score: 0, reason: `report is missing required field(s): ${missing.join(", ")}` };
   }
-  if (!["completed", "failed"].includes(report.status)) {
+  if (!STATUSES.includes(report.status)) {
     return { pass: false, score: 0, reason: `report status ${JSON.stringify(report.status)} is outside the declared lifecycle` };
   }
-  if (!DIGEST.test(report.lane_digest)) {
+  if (typeof report.lane_digest !== "string" || !DIGEST.test(report.lane_digest)) {
     return { pass: false, score: 0, reason: "report lane_digest is not a sha256 digest" };
   }
-  if (!MODEL.test(report.readback_model)) {
+  if (typeof report.readback_model !== "string" || !MODEL.test(report.readback_model)) {
     return { pass: false, score: 0, reason: `report readback_model ${JSON.stringify(report.readback_model)} is not a provider/model identifier` };
   }
-  if (!Array.isArray(report.evidence) || report.evidence.length < 1 || report.evidence.length > 64) {
-    return { pass: false, score: 0, reason: "report evidence must carry between 1 and 64 entries" };
+  if (!Array.isArray(report.evidence) || report.evidence.length < EVIDENCE_MIN || report.evidence.length > EVIDENCE_MAX) {
+    return { pass: false, score: 0, reason: `report evidence must carry between ${EVIDENCE_MIN} and ${EVIDENCE_MAX} entries` };
   }
-  if (report.evidence.some((entry) => typeof entry !== "string" || entry.length < 1 || entry.length > 512)) {
-    return { pass: false, score: 0, reason: "report evidence entries must be strings of 1 to 512 characters" };
+  for (const entry of report.evidence) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return { pass: false, score: 0, reason: "report evidence entries must be objects" };
+    }
+    if (Object.keys(entry).sort().join(",") !== ENTRY_KEYS) {
+      return { pass: false, score: 0, reason: `report evidence entries carry exactly ${ENTRY.required.join(" and ")}` };
+    }
+    if (!OBLIGATIONS.has(entry.obligation)) {
+      return { pass: false, score: 0, reason: `report evidence obligation ${JSON.stringify(entry.obligation)} is outside the closed vocabulary` };
+    }
+    if (typeof entry.detail !== "string" || entry.detail.length < DETAIL_MIN || entry.detail.length > DETAIL_MAX) {
+      return { pass: false, score: 0, reason: `report evidence detail must be a string of ${DETAIL_MIN} to ${DETAIL_MAX} characters` };
+    }
   }
 
   // The report must answer the packet it was dispatched for. promptfoo hands

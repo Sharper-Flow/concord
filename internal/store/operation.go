@@ -219,7 +219,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRequirednessChanged, nil),
 	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeNarrativeRevised, nil),
 	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](3, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
-	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
+	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](2, 1, map[int]Upcaster{1: upcastWorkerCompletedV1}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              registerEventKind[WorkerFailedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
 	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
 	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](3, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2}, foldWorkflowContractApproved),

@@ -25,9 +25,12 @@
         "packet_schema_ref": {"type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]*$"},
         "report_schema_ref": {"type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]*$"},
         "budgets": {"$ref": "#/$defs/budgets"},
-        "evidence_obligations": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_-]*$"}},
+        "evidence_obligations": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/evidence_obligation"}},
         "lifecycle_states": {"type": "array", "minItems": 3, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["dispatched", "completed", "failed"]}}
       }
+    },
+    "evidence_obligation": {
+      "enum": ["bounded_findings", "commands", "contract_findings", "exit_codes", "failure_classification", "files_touched", "severity", "source_citations", "uncertainties", "unresolved_issues", "verification_commands"]
     },
     "budgets": {
       "type": "object",

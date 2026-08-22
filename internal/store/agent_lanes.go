@@ -49,6 +49,41 @@ var legacyLaneDigests = map[string]string{
 
 func laneKey(id string, version int64) string { return fmt.Sprintf("%s:%d", id, version) }
 
+// laneEvidenceObligationVocabulary is the closed obligation vocabulary shared
+// by contracts/agent-lanes.schema.json and
+// contracts/agent-lane-report.schema.json (CD-0056 D2). A lane declares its
+// obligations from this set and a worker report discharges them by name, so
+// the two sides join on a proved vocabulary rather than on free strings.
+// It is ordered for stable enumeration.
+var laneEvidenceObligationVocabulary = []string{
+	"bounded_findings",
+	"commands",
+	"contract_findings",
+	"exit_codes",
+	"failure_classification",
+	"files_touched",
+	"severity",
+	"source_citations",
+	"uncertainties",
+	"unresolved_issues",
+	"verification_commands",
+}
+
+var laneEvidenceObligationSet = func() map[string]struct{} {
+	set := make(map[string]struct{}, len(laneEvidenceObligationVocabulary))
+	for _, obligation := range laneEvidenceObligationVocabulary {
+		set[obligation] = struct{}{}
+	}
+	return set
+}()
+
+// ValidLaneEvidenceObligation reports whether value is a member of the closed
+// lane evidence obligation vocabulary.
+func ValidLaneEvidenceObligation(value string) bool {
+	_, ok := laneEvidenceObligationSet[value]
+	return ok
+}
+
 // NewBuiltinLaneRegistry validates and loads only generated definitions.
 func NewBuiltinLaneRegistry() LaneRegistry {
 	entries := make(map[string]LaneDefinition, len(generatedLaneDefinitions))
@@ -106,6 +141,11 @@ func ValidateLaneDefinition(definition LaneDefinition) error {
 	}
 	if len(definition.EvidenceObligations) < 1 || len(definition.EvidenceObligations) > 16 || !uniqueBoundedLaneStrings(definition.EvidenceObligations, 64) || len(definition.LifecycleStates) < 3 || len(definition.LifecycleStates) > 4 || !sameLaneStrings(definition.LifecycleStates, []string{"dispatched", "completed", "failed"}) {
 		return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane evidence or lifecycle contract is invalid", false, "repair the generated lane manifest")
+	}
+	for _, obligation := range definition.EvidenceObligations {
+		if !ValidLaneEvidenceObligation(obligation) {
+			return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane declares an evidence obligation outside the agent-lane-report.v1 obligation vocabulary", false, "declare obligations from the closed evidence obligation contract")
+		}
 	}
 	computed, err := LaneDefinitionDigest(definition)
 	if err != nil || computed != definition.Digest {

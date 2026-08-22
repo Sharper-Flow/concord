@@ -14,9 +14,18 @@ function packet(): AgentLanePacket {
   }
 }
 
+// A completion is only reachable when the worker returns an admissible
+// agent-lane-report.v1 report (CD-0056 D7), so the fixture stream carries one.
+const laneReport = () => ({
+  schema_version: "1.0", attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
+  lane_digest: lane.digest, readback_model: preferredModelForLane(lane), status: "completed",
+  evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
+})
+
 const runOutput = () => [
   JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
-  JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
+  JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-1", part: { type: "text", text: JSON.stringify(laneReport()) } }),
+  JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
 ].join("\n")
 
 const exportedSession = (model = preferredModelForLane(lane)) => JSON.stringify({

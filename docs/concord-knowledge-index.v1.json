@@ -1468,6 +1468,35 @@
       "title": "Repository checks are structural first, and textual guards are declared exceptions"
     },
     {
+      "date": "2026-08-22T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+        "contracts/agent-lane-report.schema.json",
+        "internal/store/worker_lanes.go",
+        "adapter/opencode/dispatch.ts"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0056",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0056-lane-evidence-obligations-bind.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:8c25d11950c0ff5f3bec9cddbfe668788b1aa8607e54e2cfd261f0e4b7d78dc3",
+      "status": "accepted",
+      "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
+      "tags": [
+        "lanes",
+        "evidence",
+        "workers"
+      ],
+      "title": "A lane report discharges its lane's evidence obligations"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-root:concord",
       "id": "PM1",

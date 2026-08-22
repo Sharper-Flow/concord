@@ -20,6 +20,11 @@ type migration struct {
 	SQL     string
 }
 
+// routingPolicyManifestDigestAtV25 is the default template digest recorded by
+// migration v25. Applied migration text is immutable; this historical value is
+// intentionally independent from the current generated routing policy digest.
+const routingPolicyManifestDigestAtV25 = "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736"
+
 // migrations is the ordered manifest. Append new steps; never rewrite applied
 // ones.
 var migrations = []migration{
@@ -1721,7 +1726,7 @@ CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, att
 CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-`,
+	`,
 	},
 
 	{
@@ -2246,7 +2251,73 @@ CREATE TRIGGER external_observations_guard_delete BEFORE DELETE ON external_obse
 -- verification state a verification event folds into it.
 ALTER TABLE workflow_native_runs ADD COLUMN observation_id TEXT;
 ALTER TABLE workflow_native_runs ADD COLUMN verification_state TEXT NOT NULL DEFAULT 'unverified';
-        `,
+		`,
+	},
+	{
+		Version: 43,
+		Name:    "routing_policy_manifest_digest_default",
+		SQL: `
+-- Keep the applied v35 definition immutable while making the current default
+-- resolve through the generated routing-policy digest at insert time.
+DROP TRIGGER IF EXISTS worker_attempts_guard_insert;
+DROP TRIGGER IF EXISTS worker_attempts_guard_update;
+DROP TRIGGER IF EXISTS worker_attempts_guard_delete;
+ALTER TABLE worker_attempts RENAME TO worker_attempts_v43;
+CREATE TABLE worker_attempts (
+    work_id TEXT NOT NULL,
+    attempt_id TEXT PRIMARY KEY,
+    lane_id TEXT NOT NULL,
+    lane_version INTEGER NOT NULL,
+    lane_digest TEXT NOT NULL,
+    capability_class TEXT NOT NULL,
+    routing_policy_version TEXT NOT NULL,
+    routing_policy_digest TEXT NOT NULL
+        DEFAULT (concord_routing_policy_manifest_digest()),
+    resolved_model TEXT NOT NULL,
+    resolution_role TEXT NOT NULL DEFAULT 'preferred',
+    fallback_reason TEXT NOT NULL DEFAULT '',
+    readback_model TEXT NOT NULL,
+    packet_schema_version TEXT NOT NULL,
+    report_schema_version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state IN ('dispatched','completed','failed')),
+    failure_kind TEXT NOT NULL DEFAULT '',
+    failure_detail TEXT NOT NULL DEFAULT '',
+    dispatched_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    CHECK(length(work_id) > 0),
+    CHECK(length(attempt_id) BETWEEN 2 AND 128),
+    CHECK(length(lane_id) BETWEEN 2 AND 32),
+    CHECK(lane_version > 0),
+    CHECK(length(lane_digest) = 71 AND substr(lane_digest,1,7)='sha256:'),
+    CHECK(length(capability_class) BETWEEN 2 AND 64),
+    CHECK(length(routing_policy_version) BETWEEN 1 AND 64),
+    CHECK(length(routing_policy_digest) = 71 AND substr(routing_policy_digest,1,7)='sha256:'),
+    CHECK(resolution_role IN ('preferred','fallback','undeclared')),
+    CHECK((resolution_role='preferred' AND fallback_reason='') OR
+          (resolution_role='fallback' AND fallback_reason IN ('rate_limit','provider_unavailable','budget_exhausted','other')) OR
+          (resolution_role='undeclared' AND fallback_reason='')),
+    CHECK((resolution_role != 'undeclared' AND length(resolved_model) BETWEEN 3 AND 128) OR
+          (resolution_role='undeclared' AND length(resolved_model) <= 128)),
+    CHECK(length(readback_model) <= 128),
+    CHECK(packet_schema_version = '1.0'),
+    CHECK(report_schema_version = '1.0'),
+    CHECK((lifecycle_state='dispatched' AND completed_at IS NULL AND failed_at IS NULL) OR
+          (lifecycle_state='completed' AND completed_at IS NOT NULL AND failed_at IS NULL AND length(readback_model) >= 3 AND failure_kind='') OR
+          (lifecycle_state='failed' AND failed_at IS NOT NULL AND completed_at IS NULL AND length(failure_kind) > 0 AND
+            ((resolution_role != 'undeclared' AND length(readback_model) >= 3) OR resolution_role='undeclared'))),
+    CHECK(resolution_role != 'undeclared' OR lifecycle_state='failed')
+);
+INSERT INTO worker_attempts
+    (work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, routing_policy_version, routing_policy_digest, resolved_model, resolution_role, fallback_reason, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at)
+    SELECT work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, routing_policy_version, routing_policy_digest, resolved_model, resolution_role, fallback_reason, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at
+    FROM worker_attempts_v43;
+DROP TABLE worker_attempts_v43;
+CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
 	},
 }
 

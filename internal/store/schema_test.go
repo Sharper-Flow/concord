@@ -325,11 +325,42 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT routing_policy_digest,resolution_role,fallback_reason FROM worker_attempts WHERE attempt_id='attempt'`).Scan(&digest, &role, &reason); err != nil {
 		t.Fatal(err)
 	}
-	if digest != RoutingPolicyManifestDigest || role != WorkerResolutionPreferred || reason != "" {
+	if digest != routingPolicyManifestDigestAtV25 || role != WorkerResolutionPreferred || reason != "" {
 		t.Fatalf("migration defaults = %s/%s/%s", digest, role, reason)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET resolution_role='fallback', fallback_reason='' WHERE attempt_id='attempt'`); err == nil {
 		t.Fatal("fallback without typed reason bypassed CHECK")
+	}
+}
+
+func TestCurrentWorkerAttemptsDefaultUsesRoutingPolicyManifestDigest(t *testing.T) {
+	s := openTemp(t)
+	var defaultValue string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `
+		SELECT dflt_value FROM pragma_table_info('worker_attempts')
+		WHERE name='routing_policy_digest'
+	`).Scan(&defaultValue); err != nil {
+		t.Fatal(err)
+	}
+	if defaultValue != "concord_routing_policy_manifest_digest()" {
+		t.Fatalf("current worker_attempts default = %q, want generated digest function", defaultValue)
+	}
+	if migrations[24].SQL == "" || !strings.Contains(migrations[24].SQL, routingPolicyManifestDigestAtV25) {
+		t.Fatal("migration v25 no longer carries its frozen historical digest")
+	}
+	if _, err := s.DatabaseForTesting().ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer s.DatabaseForTesting().ExecContext(context.Background(), `DELETE FROM fold_guard`)
+	if _, err := s.DatabaseForTesting().ExecContext(context.Background(), `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,resolved_model,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work','attempt-current','research',1,?,'research','routing-v1','openai/gpt-5.6-luna','', '1.0','1.0','dispatched','now')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	var digest string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT routing_policy_digest FROM worker_attempts WHERE attempt_id='attempt-current'`).Scan(&digest); err != nil {
+		t.Fatal(err)
+	}
+	if digest != RoutingPolicyManifestDigest {
+		t.Fatalf("current worker_attempts inserted default = %q, want %q", digest, RoutingPolicyManifestDigest)
 	}
 }
 

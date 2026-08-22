@@ -119,8 +119,21 @@
       "condition": "fc1",
       "title": "Product detail is navigated through canonical Domains",
       "requirement": "The launcher opens Product detail through a bounded Domain hierarchy and shows current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap before subordinate work or Initiative views.",
-      "state": "outstanding",
-      "issue": 337
+      "state": "satisfied",
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestSelectingProductOpensOnDomainSection"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable"
+        }
+      ]
     },
     {
       "id": "fc2-read-tools",

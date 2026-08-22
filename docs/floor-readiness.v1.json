@@ -119,21 +119,8 @@
       "condition": "fc1",
       "title": "Product detail is navigated through canonical Domains",
       "requirement": "The launcher opens Product detail through a bounded Domain hierarchy and shows current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap before subordinate work or Initiative views.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/launcher.TestSelectingProductOpensOnDomainSection"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/launcher.TestS2NoUnresolvedOverlapIsDistinctFromUnavailable"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/launcher/storeport.TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection"
-        }
-      ]
+      "state": "outstanding",
+      "issue": 337
     },
     {
       "id": "fc2-read-tools",
@@ -264,17 +251,8 @@
       "condition": "fc2",
       "title": "Agents can read complete bounded Domain context",
       "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/launcher/storeport.TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/launcher/storeport.TestRelationTreeResolvesSupersessionChainOnce"
-        }
-      ]
+      "state": "outstanding",
+      "issue": 337
     },
     {
       "id": "fc3-workflow-types",

@@ -80,76 +80,61 @@ type ApprovalAuthorityRecord struct {
 
 func (s *Store) RegisterTrustedClient(ctx context.Context, client TrustedClientRecord, key TrustedClientKeyRecord, now string) error {
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "agent_register_client")
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES(?,?,?,?,?,?,?)`, client.ClientRef, client.Status, client.PrincipalRef, client.CapabilitiesJSON, client.ProductScopeJSON, client.ProjectScopeJSON, now); err != nil {
-			return wrapFailure(KindProjectionConflict, "agent_register_client", "cannot persist trusted client", false, "choose an unused client reference", err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_client_keys(client_ref,key_id,public_key,status,created_at) VALUES(?,?,?,?,?)`, key.ClientRef, key.KeyID, key.PublicKey, key.Status, now); err != nil {
-			return wrapFailure(KindProjectionConflict, "agent_register_client", "cannot persist trusted client key", false, "choose an unused key identifier", err)
-		}
-		return nil
+		return registerTrustedClientTx(ctx, transaction, client, key, now)
 	})
 	if err != nil {
 		return err
 	}
 	// committed; the durability barrier must hold before acknowledging
 	return s.SyncDurable(ctx)
+}
+
+func registerTrustedClientTx(ctx context.Context, transaction *Transaction, client TrustedClientRecord, key TrustedClientKeyRecord, now string) error {
+	tx, err := transactionSQL(transaction, "agent_register_client")
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES(?,?,?,?,?,?,?)`, client.ClientRef, client.Status, client.PrincipalRef, client.CapabilitiesJSON, client.ProductScopeJSON, client.ProjectScopeJSON, now); err != nil {
+		return wrapFailure(KindProjectionConflict, "agent_register_client", "cannot persist trusted client", false, "choose an unused client reference", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_client_keys(client_ref,key_id,public_key,status,created_at) VALUES(?,?,?,?,?)`, key.ClientRef, key.KeyID, key.PublicKey, key.Status, now); err != nil {
+		return wrapFailure(KindProjectionConflict, "agent_register_client", "cannot persist trusted client key", false, "choose an unused key identifier", err)
+	}
+	return nil
 }
 
 func (s *Store) UpdateTrustedClientPolicy(ctx context.Context, clientRef string, policy TrustedClientRecord, now string) error {
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "agent_update_policy")
-		if err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET principal_ref=?,capabilities_json=?,product_scope_json=?,project_scope_json=? WHERE client_ref=? AND status='active'`, policy.PrincipalRef, policy.CapabilitiesJSON, policy.ProductScopeJSON, policy.ProjectScopeJSON, clientRef)
-		if err != nil {
-			return wrapFailure(KindUnavailable, "agent_update_policy", "cannot update trusted client policy", true, "retry the policy update", err)
-		}
-		if n, _ := result.RowsAffected(); n != 1 {
-			return newFailure(KindProjectionNotFound, "agent_update_policy", "trusted client not found or revoked", false, "reread the trusted client")
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE client_ref=? AND revoked_at IS NULL`, now, clientRef); err != nil {
-			return wrapFailure(KindUnavailable, "agent_update_policy", "cannot revoke prior grants", true, "retry the policy update", err)
-		}
-		return nil
+		return updateTrustedClientPolicyTx(ctx, transaction, clientRef, policy, now)
 	})
 	if err != nil {
 		return err
 	}
 	// committed; the durability barrier must hold before acknowledging
 	return s.SyncDurable(ctx)
+}
+
+func updateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, clientRef string, policy TrustedClientRecord, now string) error {
+	tx, err := transactionSQL(transaction, "agent_update_policy")
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET principal_ref=?,capabilities_json=?,product_scope_json=?,project_scope_json=? WHERE client_ref=? AND status='active'`, policy.PrincipalRef, policy.CapabilitiesJSON, policy.ProductScopeJSON, policy.ProjectScopeJSON, clientRef)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "agent_update_policy", "cannot update trusted client policy", true, "retry the policy update", err)
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return newFailure(KindProjectionNotFound, "agent_update_policy", "trusted client not found or revoked", false, "reread the trusted client")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE client_ref=? AND revoked_at IS NULL`, now, clientRef); err != nil {
+		return wrapFailure(KindUnavailable, "agent_update_policy", "cannot revoke prior grants", true, "retry the policy update", err)
+	}
+	return nil
 }
 
 func (s *Store) RotateTrustedClientKey(ctx context.Context, clientRef string, key TrustedClientKeyRecord, now string) error {
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "agent_rotate_key")
-		if err != nil {
-			return err
-		}
-		var status string
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM agent_clients WHERE client_ref=?`, clientRef).Scan(&status); err != nil {
-			return wrapFailure(KindProjectionNotFound, "agent_rotate_key", "client is not recorded", false, "reread the trusted client", err)
-		}
-		if status != "active" {
-			return newFailure(KindInvalidOperation, "agent_rotate_key", "client is revoked", false, "restore the client before rotating its key")
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_client_keys SET status='revoked',revoked_at=? WHERE client_ref=? AND status='active'`, now, clientRef); err != nil {
-			return wrapFailure(KindUnavailable, "agent_rotate_key", "cannot revoke the prior client key", true, "retry key rotation", err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE client_ref=? AND revoked_at IS NULL`, now, clientRef); err != nil {
-			return wrapFailure(KindUnavailable, "agent_rotate_key", "cannot revoke prior grants", true, "retry key rotation", err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_client_keys(client_ref,key_id,public_key,status,created_at) VALUES(?,?,?,?,?)`, clientRef, key.KeyID, key.PublicKey, key.Status, now); err != nil {
-			return wrapFailure(KindProjectionConflict, "agent_rotate_key", "cannot persist the new client key", false, "choose an unused key identifier", err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_clients SET rotated_at=? WHERE client_ref=?`, now, clientRef); err != nil {
-			return wrapFailure(KindUnavailable, "agent_rotate_key", "cannot record key rotation", true, "retry key rotation", err)
-		}
-		return nil
+		return rotateTrustedClientKeyTx(ctx, transaction, clientRef, key, now)
 	})
 	if err != nil {
 		return err
@@ -158,36 +143,67 @@ func (s *Store) RotateTrustedClientKey(ctx context.Context, clientRef string, ke
 	return s.SyncDurable(ctx)
 }
 
+func rotateTrustedClientKeyTx(ctx context.Context, transaction *Transaction, clientRef string, key TrustedClientKeyRecord, now string) error {
+	tx, err := transactionSQL(transaction, "agent_rotate_key")
+	if err != nil {
+		return err
+	}
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM agent_clients WHERE client_ref=?`, clientRef).Scan(&status); err != nil {
+		return wrapFailure(KindProjectionNotFound, "agent_rotate_key", "client is not recorded", false, "reread the trusted client", err)
+	}
+	if status != "active" {
+		return newFailure(KindInvalidOperation, "agent_rotate_key", "client is revoked", false, "restore the client before rotating its key")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_client_keys SET status='revoked',revoked_at=? WHERE client_ref=? AND status='active'`, now, clientRef); err != nil {
+		return wrapFailure(KindUnavailable, "agent_rotate_key", "cannot revoke the prior client key", true, "retry key rotation", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE client_ref=? AND revoked_at IS NULL`, now, clientRef); err != nil {
+		return wrapFailure(KindUnavailable, "agent_rotate_key", "cannot revoke prior grants", true, "retry key rotation", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_client_keys(client_ref,key_id,public_key,status,created_at) VALUES(?,?,?,?,?)`, clientRef, key.KeyID, key.PublicKey, key.Status, now); err != nil {
+		return wrapFailure(KindProjectionConflict, "agent_rotate_key", "cannot persist the new client key", false, "choose an unused key identifier", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_clients SET rotated_at=? WHERE client_ref=?`, now, clientRef); err != nil {
+		return wrapFailure(KindUnavailable, "agent_rotate_key", "cannot record key rotation", true, "retry key rotation", err)
+	}
+	return nil
+}
+
 func (s *Store) RevokeTrustedClient(ctx context.Context, clientRef, now string) error {
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "agent_revoke_client")
-		if err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET status='revoked',revoked_at=? WHERE client_ref=? AND status='active'`, now, clientRef)
-		if err != nil {
-			return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot revoke client", true, "retry client revocation", err)
-		}
-		n, err := result.RowsAffected()
-		if err != nil {
-			return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot verify client revocation", true, "retry client revocation", err)
-		}
-		if n != 1 {
-			return newFailure(KindProjectionNotFound, "agent_revoke_client", "trusted client not found or already revoked", false, "reread the trusted client")
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_client_keys SET status='revoked',revoked_at=? WHERE client_ref=? AND status='active'`, now, clientRef); err != nil {
-			return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot revoke client keys", true, "retry client revocation", err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE client_ref=? AND revoked_at IS NULL`, now, clientRef); err != nil {
-			return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot revoke client grants", true, "retry client revocation", err)
-		}
-		return nil
+		return revokeTrustedClientTx(ctx, transaction, clientRef, now)
 	})
 	if err != nil {
 		return err
 	}
 	// committed; the durability barrier must hold before acknowledging
 	return s.SyncDurable(ctx)
+}
+
+func revokeTrustedClientTx(ctx context.Context, transaction *Transaction, clientRef, now string) error {
+	tx, err := transactionSQL(transaction, "agent_revoke_client")
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET status='revoked',revoked_at=? WHERE client_ref=? AND status='active'`, now, clientRef)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot revoke client", true, "retry client revocation", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot verify client revocation", true, "retry client revocation", err)
+	}
+	if n != 1 {
+		return newFailure(KindProjectionNotFound, "agent_revoke_client", "trusted client not found or already revoked", false, "reread the trusted client")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_client_keys SET status='revoked',revoked_at=? WHERE client_ref=? AND status='active'`, now, clientRef); err != nil {
+		return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot revoke client keys", true, "retry client revocation", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE client_ref=? AND revoked_at IS NULL`, now, clientRef); err != nil {
+		return wrapFailure(KindUnavailable, "agent_revoke_client", "cannot revoke client grants", true, "retry client revocation", err)
+	}
+	return nil
 }
 
 func (s *Store) TrustedClientForGrant(ctx context.Context, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
@@ -205,9 +221,7 @@ func TrustedClientForGrantTx(ctx context.Context, transaction *Transaction, clie
 	return trustedClientForGrant(ctx, tx, clientRef)
 }
 
-func trustedClientForGrant(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
+func trustedClientForGrant(ctx context.Context, q queryer, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
 	var client TrustedClientRecord
 	var key TrustedClientKeyRecord
 	if err := q.QueryRowContext(ctx, `SELECT c.client_ref,c.status,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json,k.key_id,k.public_key,k.status FROM agent_clients c JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=?`, clientRef).Scan(&client.ClientRef, &client.Status, &client.PrincipalRef, &client.CapabilitiesJSON, &client.ProductScopeJSON, &client.ProjectScopeJSON, &key.KeyID, &key.PublicKey, &key.Status); err != nil {
@@ -222,11 +236,7 @@ func (s *Store) PersistGrant(ctx context.Context, input GrantInsert) error {
 		return newFailure(KindUnavailable, "agent_issue_grant", "database is not open", true, "open the authority database")
 	}
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "agent_issue_grant")
-		if err != nil {
-			return err
-		}
-		return persistNonceAndGrant(ctx, tx, input)
+		return PersistGrantTx(ctx, transaction, input)
 	})
 	if err != nil {
 		return err
@@ -274,9 +284,7 @@ func GrantTx(ctx context.Context, transaction *Transaction, tokenHash []byte) (G
 	return grant(ctx, tx, tokenHash)
 }
 
-func grant(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, tokenHash []byte) (GrantRecord, error) {
+func grant(ctx context.Context, q queryer, tokenHash []byte) (GrantRecord, error) {
 	var g GrantRecord
 	if err := q.QueryRowContext(ctx, `SELECT g.grant_ref,g.principal_ref,g.client_ref,g.session_ref,g.agent_ref,g.directory,g.worktree,g.client_key_id,g.manifest_digest,g.capabilities_json,g.product_scope_json,g.project_scope_json,g.issued_at,g.expires_at,COALESCE(g.revoked_at,''),g.max_uses,g.used_count,g.scope_version,g.scope_snapshot_json,g.candidate_products_json,c.status,k.key_id FROM agent_grants g JOIN agent_clients c ON c.client_ref=g.client_ref JOIN agent_client_keys k ON k.client_ref=g.client_ref AND k.status='active' WHERE g.grant_hash=?`, tokenHash).Scan(&g.RecordID, &g.PrincipalRef, &g.ClientRef, &g.SessionRef, &g.AgentRef, &g.Directory, &g.Worktree, &g.ClientKeyID, &g.ManifestDigest, &g.CapabilitiesJSON, &g.ProductScopeJSON, &g.ProjectScopeJSON, &g.IssuedAt, &g.ExpiresAt, &g.RevokedAt, &g.MaxUses, &g.UsedCount, &g.ScopeVersion, &g.ScopeSnapshotJSON, &g.CandidateProductsJSON, &g.ClientStatus, &g.ActiveKeyID); err != nil {
 		return g, wrapFailure(KindProjectionNotFound, "agent_grant_read", "unknown grant", false, "issue a valid grant", err)
@@ -462,30 +470,34 @@ func (s *Store) RevokeGrant(ctx context.Context, tokenHash []byte, token, now st
 		return newFailure(KindUnavailable, "agent_revoke_grant", "database is not open", true, "open the authority database")
 	}
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "agent_revoke_grant")
-		if err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE grant_hash=? AND revoked_at IS NULL`, now, tokenHash)
-		if err != nil {
-			return wrapFailure(KindUnavailable, "agent_revoke_grant", "cannot revoke grant", true, "retry grant revocation", err)
-		}
-		if n, _ := result.RowsAffected(); n == 0 {
-			result, err = tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE grant_ref=? AND revoked_at IS NULL`, now, token)
-			if err != nil {
-				return wrapFailure(KindUnavailable, "agent_revoke_grant", "cannot revoke grant", true, "retry grant revocation", err)
-			}
-			if n, _ := result.RowsAffected(); n != 1 {
-				return newFailure(KindProjectionNotFound, "agent_revoke_grant", "grant not found or already revoked", false, "reread the grant")
-			}
-		}
-		return nil
+		return revokeGrantTx(ctx, transaction, tokenHash, token, now)
 	})
 	if err != nil {
 		return err
 	}
 	// committed; the durability barrier must hold before acknowledging
 	return s.SyncDurable(ctx)
+}
+
+func revokeGrantTx(ctx context.Context, transaction *Transaction, tokenHash []byte, token, now string) error {
+	tx, err := transactionSQL(transaction, "agent_revoke_grant")
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE grant_hash=? AND revoked_at IS NULL`, now, tokenHash)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "agent_revoke_grant", "cannot revoke grant", true, "retry grant revocation", err)
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		result, err = tx.ExecContext(ctx, `UPDATE agent_grants SET revoked_at=? WHERE grant_ref=? AND revoked_at IS NULL`, now, token)
+		if err != nil {
+			return wrapFailure(KindUnavailable, "agent_revoke_grant", "cannot revoke grant", true, "retry grant revocation", err)
+		}
+		if n, _ := result.RowsAffected(); n != 1 {
+			return newFailure(KindProjectionNotFound, "agent_revoke_grant", "grant not found or already revoked", false, "reread the grant")
+		}
+	}
+	return nil
 }
 
 func (s *Store) RevokeApproval(ctx context.Context, ref, now string) error {
@@ -499,26 +511,30 @@ func (s *Store) revoke(ctx context.Context, query string, args ...string) error 
 		return newFailure(KindUnavailable, "agent_revoke", "database is not open", true, "open the authority database")
 	}
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "agent_revoke")
-		if err != nil {
-			return err
-		}
-		values := make([]any, len(args))
-		for i, value := range args {
-			values[i] = value
-		}
-		result, err := tx.ExecContext(ctx, query, values...)
-		if err != nil {
-			return wrapFailure(KindUnavailable, "agent_revoke", "cannot persist revocation", true, "retry revocation", err)
-		}
-		if n, _ := result.RowsAffected(); n != 1 {
-			return newFailure(KindProjectionNotFound, "agent_revoke", args[len(args)-1], false, "reread the authority record")
-		}
-		return nil
+		return revokeTx(ctx, transaction, query, args...)
 	})
 	if err != nil {
 		return err
 	}
 	// committed; the durability barrier must hold before acknowledging
 	return s.SyncDurable(ctx)
+}
+
+func revokeTx(ctx context.Context, transaction *Transaction, query string, args ...string) error {
+	tx, err := transactionSQL(transaction, "agent_revoke")
+	if err != nil {
+		return err
+	}
+	values := make([]any, len(args))
+	for i, value := range args {
+		values[i] = value
+	}
+	result, err := tx.ExecContext(ctx, query, values...)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "agent_revoke", "cannot persist revocation", true, "retry revocation", err)
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return newFailure(KindProjectionNotFound, "agent_revoke", args[len(args)-1], false, "reread the authority record")
+	}
+	return nil
 }

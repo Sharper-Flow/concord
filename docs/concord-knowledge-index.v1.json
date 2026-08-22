@@ -27,6 +27,32 @@
       }
     ]
   },
+  "knowledge_roots": [
+    "docs/"
+  ],
+  "exclusions": [
+    "docs/research/"
+  ],
+  "doc_contract": {
+    "enforced": false,
+    "spec": {
+      "required_sections": [
+        "Context",
+        "Contract",
+        "Acceptance criteria",
+        "Verification"
+      ],
+      "ac_required": true
+    },
+    "banned_phrases": [
+      "in order to",
+      "utilize",
+      "leverage",
+      "it is important to note",
+      "needless to say",
+      "at the end of the day"
+    ]
+  },
   "records": [
     {
       "id": "CD-0002",
@@ -494,7 +520,7 @@
       "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
       "title": "Active research findings carry applies-to scope",
-      "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+      "summary": "Active research findings reuse durable knowledge\u2019s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
         "scope",
@@ -1412,7 +1438,7 @@
       "status": "accepted",
       "date": "2026-08-20T00:00:00Z",
       "title": "S2 composes the answers the store already materialized",
-      "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order — governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
+      "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order \u2014 governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
       "tags": [
         "launcher",
         "terminal-contract"
@@ -1609,7 +1635,7 @@
       "status": "accepted",
       "date": "2026-08-21T00:00:00Z",
       "title": "Repository checks are structural first, and textual guards are declared exceptions",
-      "summary": "Repository checks name one authority class — structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py retained as the declared textual exception.",
+      "summary": "Repository checks name one authority class \u2014 structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py retained as the declared textual exception.",
       "tags": [
         "validators",
         "policy",

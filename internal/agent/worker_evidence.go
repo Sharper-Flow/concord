@@ -28,6 +28,12 @@ const (
 	WorkerEvidenceVerbFail     = "worker-fail"
 )
 
+// WorkerEvidenceVerbs enumerates every verb an assertion may claim. Validation
+// reads this list, and so does the shared vector at
+// adapter/opencode/worker-evidence-vector.json, so a verb cannot become
+// acceptable without a case that pins the field set its binding populates.
+var WorkerEvidenceVerbs = []string{WorkerEvidenceVerbDispatch, WorkerEvidenceVerbComplete, WorkerEvidenceVerbFail}
+
 // WorkerEvidenceAssertion is the proof a registered client presents when it
 // records worker evidence. It authenticates the caller and binds the exact
 // attempt, lane, and readback model the evidence claims. It carries no
@@ -116,7 +122,7 @@ type WorkerEvidenceBinding struct {
 }
 
 func validWorkerEvidenceAssertion(a WorkerEvidenceAssertion) bool {
-	if !oneOf(a.Verb, WorkerEvidenceVerbDispatch, WorkerEvidenceVerbComplete, WorkerEvidenceVerbFail) {
+	if !oneOf(a.Verb, WorkerEvidenceVerbs...) {
 		return false
 	}
 	if !bounded(a.ClientRef, 1, 128) || !bounded(a.WorkID, 1, 128) || !bounded(a.AttemptID, 1, 128) {

@@ -1,15 +1,87 @@
 {
-  "attempt_id": "attempt-1",
-  "canonical_base64": "d29ya2VyLWV2aWRlbmNlLXYxAGNsaWVudF9yZWY9ODpjbGllbnQtMXx2ZXJiPTE1Ondvcmtlci1jb21wbGV0ZXx3b3JrX2lkPTY6d29yay0xfGF0dGVtcHRfaWQ9OTphdHRlbXB0LTF8bGFuZV9pZD02OnJldmlld3xsYW5lX3ZlcnNpb249MToxfGxhbmVfZGlnZXN0PTcxOnNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhfHJlYWRiYWNrX21vZGVsPTIzOnphaS1jb2RpbmctcGxhbi9nbG0tNS4yfGZhaWx1cmVfa2luZD0wOnxob3N0X3Byb3ZlbmFuY2VfZGlnZXN0PTcxOnNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjfGlzc3VlZF9hdD0yNDoyMDI2LTA4LTIwVDEyOjAwOjAwLjAwMFp8bm9uY2U9MjY6bm9uY2Utd29ya2VyLWV2aWRlbmNlLTAwMDF8",
-  "client_ref": "client-1",
-  "failure_kind": "",
-  "host_provenance_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "issued_at": "2026-08-20T12:00:00.000Z",
-  "lane_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "lane_id": "review",
-  "lane_version": 1,
-  "nonce": "nonce-worker-evidence-0001",
-  "readback_model": "zai-coding-plan/glm-5.2",
-  "verb": "worker-complete",
-  "work_id": "work-1"
+  "cases": [
+    {
+      "assertion": {
+        "attempt_id": "attempt-1",
+        "client_ref": "client-1",
+        "failure_kind": "",
+        "host_provenance_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": "2026-08-20T12:00:00.000Z",
+        "lane_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lane_id": "review",
+        "lane_version": 1,
+        "nonce": "nonce-worker-evidence-0002",
+        "readback_model": "zai-coding-plan/glm-5.2",
+        "verb": "worker-dispatch",
+        "work_id": "work-1"
+      },
+      "bound_fields": [
+        "verb",
+        "work_id",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "readback_model",
+        "host_provenance_digest"
+      ],
+      "canonical_base64": "d29ya2VyLWV2aWRlbmNlLXYxAGNsaWVudF9yZWY9ODpjbGllbnQtMXx2ZXJiPTE1Ondvcmtlci1kaXNwYXRjaHx3b3JrX2lkPTY6d29yay0xfGF0dGVtcHRfaWQ9OTphdHRlbXB0LTF8bGFuZV9pZD02OnJldmlld3xsYW5lX3ZlcnNpb249MToxfGxhbmVfZGlnZXN0PTcxOnNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhfHJlYWRiYWNrX21vZGVsPTIzOnphaS1jb2RpbmctcGxhbi9nbG0tNS4yfGZhaWx1cmVfa2luZD0wOnxob3N0X3Byb3ZlbmFuY2VfZGlnZXN0PTcxOnNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjfGlzc3VlZF9hdD0yNDoyMDI2LTA4LTIwVDEyOjAwOjAwLjAwMFp8bm9uY2U9MjY6bm9uY2Utd29ya2VyLWV2aWRlbmNlLTAwMDJ8",
+      "verb": "worker-dispatch"
+    },
+    {
+      "assertion": {
+        "attempt_id": "attempt-1",
+        "client_ref": "client-1",
+        "failure_kind": "",
+        "host_provenance_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": "2026-08-20T12:00:00.000Z",
+        "lane_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lane_id": "review",
+        "lane_version": 1,
+        "nonce": "nonce-worker-evidence-0001",
+        "readback_model": "zai-coding-plan/glm-5.2",
+        "verb": "worker-complete",
+        "work_id": "work-1"
+      },
+      "bound_fields": [
+        "verb",
+        "work_id",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "readback_model"
+      ],
+      "canonical_base64": "d29ya2VyLWV2aWRlbmNlLXYxAGNsaWVudF9yZWY9ODpjbGllbnQtMXx2ZXJiPTE1Ondvcmtlci1jb21wbGV0ZXx3b3JrX2lkPTY6d29yay0xfGF0dGVtcHRfaWQ9OTphdHRlbXB0LTF8bGFuZV9pZD02OnJldmlld3xsYW5lX3ZlcnNpb249MToxfGxhbmVfZGlnZXN0PTcxOnNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhfHJlYWRiYWNrX21vZGVsPTIzOnphaS1jb2RpbmctcGxhbi9nbG0tNS4yfGZhaWx1cmVfa2luZD0wOnxob3N0X3Byb3ZlbmFuY2VfZGlnZXN0PTcxOnNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjfGlzc3VlZF9hdD0yNDoyMDI2LTA4LTIwVDEyOjAwOjAwLjAwMFp8bm9uY2U9MjY6bm9uY2Utd29ya2VyLWV2aWRlbmNlLTAwMDF8",
+      "verb": "worker-complete"
+    },
+    {
+      "assertion": {
+        "attempt_id": "attempt-1",
+        "client_ref": "client-1",
+        "failure_kind": "worker_error",
+        "host_provenance_digest": "",
+        "issued_at": "2026-08-20T12:00:00.000Z",
+        "lane_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lane_id": "review",
+        "lane_version": 1,
+        "nonce": "nonce-worker-evidence-0003",
+        "readback_model": "zai-coding-plan/glm-5.2",
+        "verb": "worker-fail",
+        "work_id": "work-1"
+      },
+      "bound_fields": [
+        "verb",
+        "work_id",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "readback_model",
+        "failure_kind"
+      ],
+      "canonical_base64": "d29ya2VyLWV2aWRlbmNlLXYxAGNsaWVudF9yZWY9ODpjbGllbnQtMXx2ZXJiPTExOndvcmtlci1mYWlsfHdvcmtfaWQ9Njp3b3JrLTF8YXR0ZW1wdF9pZD05OmF0dGVtcHQtMXxsYW5lX2lkPTY6cmV2aWV3fGxhbmVfdmVyc2lvbj0xOjF8bGFuZV9kaWdlc3Q9NzE6c2hhMjU2OmFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWF8cmVhZGJhY2tfbW9kZWw9MjM6emFpLWNvZGluZy1wbGFuL2dsbS01LjJ8ZmFpbHVyZV9raW5kPTEyOndvcmtlcl9lcnJvcnxob3N0X3Byb3ZlbmFuY2VfZGlnZXN0PTA6fGlzc3VlZF9hdD0yNDoyMDI2LTA4LTIwVDEyOjAwOjAwLjAwMFp8bm9uY2U9MjY6bm9uY2Utd29ya2VyLWV2aWRlbmNlLTAwMDN8",
+      "verb": "worker-fail"
+    }
+  ]
 }

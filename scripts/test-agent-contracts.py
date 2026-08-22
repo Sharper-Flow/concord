@@ -12,6 +12,7 @@ lane_checker = importlib.util.module_from_spec(checker_spec); checker_spec.loade
 lanes_schema = json.loads((ROOT / "contracts/agent-lanes.schema.json").read_text())
 report_schema = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text())
 lane_registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
+envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
 
 class ManifestTamperTests(unittest.TestCase):
     def assert_rejected(self, value):
@@ -67,5 +68,64 @@ class EvidenceObligationVocabularyTests(unittest.TestCase):
     def test_duplicated_token_is_rejected(self):
         value = copy.deepcopy(lanes_schema); value["$defs"]["evidence_obligation"]["enum"].append("severity")
         self.assertTrue(any("duplicate-free" in f for f in self.findings(lanes=value)))
+
+class EnvelopeOperationVocabularyTests(unittest.TestCase):
+    """Issue #352: every tool/operation pair the envelope declares must be satisfiable."""
+
+    def findings(self, envelope=None):
+        return lane_checker.envelope_operation_findings(
+            copy.deepcopy(envelope if envelope is not None else envelope_schema),
+        )
+
+    def test_shipped_contracts_agree(self):
+        self.assertEqual(self.findings(), [])
+
+    def test_operation_removed_from_the_base_enum_is_rejected(self):
+        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].remove("continuity")
+        found = self.findings(value)
+        self.assertTrue(any("unsatisfiable" in f and "concord_work_trace.continuity" in f for f in found), found)
+
+    def test_operation_removed_from_the_next_intent_enum_is_rejected(self):
+        value = copy.deepcopy(envelope_schema); value["$defs"]["nextIntent"]["properties"]["operation"]["enum"].remove("messages")
+        found = self.findings(value)
+        self.assertTrue(any("nextIntent" in f and "concord_work_browse.messages" in f for f in found), found)
+
+    def test_new_tool_operation_pair_without_an_enum_entry_is_rejected(self):
+        value = copy.deepcopy(envelope_schema)
+        value["$defs"]["toolOperation"]["oneOf"].append({
+            "required": ["tool", "operation"], "not": {"required": ["query_id"]},
+            "properties": {"tool": {"const": "concord_work_browse"}, "operation": {"const": "forecast"}},
+        })
+        found = self.findings(value)
+        self.assertTrue(any("concord_work_browse.forecast" in f for f in found), found)
+        self.assertEqual(len([f for f in found if "concord_work_browse.forecast" in f]), 2, found)
+
+    def test_new_pair_whose_query_id_the_pattern_rejects_is_rejected(self):
+        value = copy.deepcopy(envelope_schema)
+        value["$defs"]["toolOperation"]["oneOf"].append({
+            "required": ["tool", "operation", "query_id"],
+            "properties": {"tool": {"const": "concord_work_browse"}, "operation": {"const": "scope"}, "query_id": {"const": "PM1.Q99"}},
+        })
+        found = self.findings(value)
+        self.assertTrue(any("query_id" in f and "PM1.Q99" in f for f in found), found)
+
+    def test_write_operations_absent_from_tool_operation_are_not_findings(self):
+        # Containment is one-way: the enum may name operations no read branch pairs.
+        value = copy.deepcopy(envelope_schema)
+        for definition in ("base", "nextIntent"):
+            value["$defs"][definition]["properties"]["operation"]["enum"].append("unpaired_write")
+        self.assertEqual(self.findings(value), [])
+
+    def test_missing_tool_operation_definition_is_rejected(self):
+        value = copy.deepcopy(envelope_schema); del value["$defs"]["toolOperation"]["oneOf"]
+        self.assertTrue(any("missing $defs/toolOperation/oneOf" in f for f in self.findings(value)))
+
+    def test_duplicated_enum_token_is_rejected(self):
+        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].append("scope")
+        self.assertTrue(any("duplicate-free" in f for f in self.findings(value)))
+
+    def test_uncompilable_query_id_pattern_is_rejected(self):
+        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["query_id"]["pattern"] = "^(PM1"
+        self.assertTrue(any("not a valid regular expression" in f for f in self.findings(value)))
 
 if __name__ == "__main__": unittest.main()

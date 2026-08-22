@@ -13,9 +13,13 @@ is in scope, gating hard-fail mode behind a manifest-level flag so the
 existing corpus can dogfood the rule before it blocks CI.
 
   outline       exact-case headings under the kind's required_sections list
-  ac grammar    under "Acceptance criteria", every criterion parses as
-                Given/When/Then (Given optional; Then required; exactly one
-                When, because a second trigger is a second criterion)
+  ac grammar    ac_required true requires an "Acceptance criteria" section
+                whose every criterion parses as Given/When/Then (Given
+                optional; Then required; exactly one When, because a second
+                trigger is a second criterion). ac_required false forbids the
+                section outright: only a spec carries acceptance criteria, so
+                any other kind that grows one is claiming a testable contract
+                its kind cannot hold.
   ac coverage   the "Verification" section states at least as many entries as
                 there are criteria, so no criterion is left unproven
   ste subset    sentence length ≤ 40 words, banned phrases absent,
@@ -39,6 +43,11 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_FINDINGS = 1000
 MAX_SENTENCE_WORDS = 40
+# The record kinds a doc contract may address, in taxonomy order. A kind absent
+# from the manifest's doc_contract is not checked at all; a kind present is
+# checked against its outline, its acceptance-criteria rule, and the STE subset.
+DOC_CONTRACT_KINDS = ("constitution", "decision", "spec", "lesson", "reference", "research")
+DOC_CONTRACT_FIELDS = {"enforced", *DOC_CONTRACT_KINDS, "banned_phrases"}
 DEFAULT_ABBREVIATION_ALLOWLIST = frozenset(
     {
         "JSON", "API", "CLI", "TUI", "SQL", "WAL", "CI", "PR", "ADV", "TS",
@@ -96,11 +105,16 @@ def load_manifest(findings: list[str]) -> object:
 
 
 def bounded_text_list(value: object, maximum: int, minimum: int = 0) -> bool:
+    """A bounded array of trimmed, non-empty strings.
+
+    `minimum` bounds the array, not its members: an empty section name is
+    never a section name, whatever the array's own lower bound is.
+    """
     if not isinstance(value, list):
         return False
     if not (minimum <= len(value) <= maximum):
         return False
-    return all(isinstance(item, str) and minimum <= len(item.strip()) <= 256 for item in value)
+    return all(isinstance(item, str) and 0 < len(item.strip()) <= 256 for item in value)
 
 
 def unique_string_list(value: object, maximum: int, minimum: int = 0) -> bool:
@@ -121,7 +135,7 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
     if not isinstance(contract, dict):
         findings.append("manifest: doc_contract must be an object")
         return None
-    unknown = set(contract) - {"enforced", "spec", "decision", "banned_phrases"}
+    unknown = set(contract) - DOC_CONTRACT_FIELDS
     if unknown:
         findings.append(f"manifest.doc_contract: unknown fields: {sorted(unknown)}")
 
@@ -129,7 +143,7 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
         findings.append("manifest.doc_contract: enforced must be a boolean")
         contract["enforced"] = False
 
-    for kind in ("spec", "decision"):
+    for kind in DOC_CONTRACT_KINDS:
         body = contract.get(kind)
         if body is None:
             continue
@@ -141,9 +155,9 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
             findings.append(
                 f"manifest.doc_contract.{kind}: unknown fields: {sorted(body_unknown)}"
             )
-        if not unique_string_list(body.get("required_sections"), 32, minimum=0 if kind == "decision" else 1):
+        if not unique_string_list(body.get("required_sections"), 32, minimum=1 if kind == "spec" else 0):
             findings.append(
-                f"manifest.doc_contract.{kind}: required_sections must be a unique array of 1-32 trimmed strings (decision may be empty)"
+                f"manifest.doc_contract.{kind}: required_sections must be a unique array of 1-32 trimmed strings (only spec must be non-empty)"
             )
         if "ac_required" in body and not isinstance(body["ac_required"], bool):
             findings.append(f"manifest.doc_contract.{kind}: ac_required must be a boolean")
@@ -360,6 +374,24 @@ def check_gherkin(
     return parse_gherkin_criteria(lines, section[0], section[1], path, findings)
 
 
+def check_no_gherkin(lines: list[str], path: Path, findings: list[str]) -> None:
+    """ac_required false means an acceptance-criteria section is forbidden.
+
+    Only spec records carry acceptance criteria. A decision, a constitution, a
+    lesson, a reference, or a research document that grows an Acceptance
+    criteria section is claiming a testable contract its kind cannot hold, so
+    the section is a finding rather than an unchecked extra.
+
+    The boundary is find_section, the same heading scan the required half uses.
+    Prose that happens to say "when X, then Y" is untouched; only a real section
+    counts.
+    """
+    section = find_section(lines, "Acceptance criteria")
+    if section is None:
+        return
+    findings.append(f"ac-forbidden: {path.relative_to(ROOT)}#{section[0]}")
+
+
 def strip_html_comments(lines: list[str]) -> list[str]:
     """Replace HTML comments with blank lines to preserve line numbering.
 
@@ -548,7 +580,7 @@ def check_record(
     findings: list[str],
 ) -> None:
     kind = record.get("kind")
-    if kind not in contract:
+    if kind not in DOC_CONTRACT_KINDS or kind not in contract:
         return
     path_value = record.get("path")
     if not isinstance(path_value, str) or not path_value.endswith(".md"):
@@ -570,6 +602,8 @@ def check_record(
     if spec.get("ac_required", False):
         criteria_count = check_gherkin(lines, absolute, findings)
         check_verification_coverage(lines, criteria_count, absolute, findings)
+    else:
+        check_no_gherkin(lines, absolute, findings)
 
     segments, line_text = split_into_segments(lines)
     # Replace lines with the scrubbed content for content checks so HTML

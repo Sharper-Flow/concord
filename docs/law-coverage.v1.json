@@ -642,6 +642,11 @@
       "state": "outstanding"
     },
     {
+      "id": "README",
+      "reason": "Navigation material with status published, not law. It states a reading order and names companion documents; it asserts no rule an implementation could satisfy or violate. Link integrity, the one property it does carry, is proved by scripts/check-doc-links.py rather than by a coverage anchor on this record.",
+      "state": "out_of_scope"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",
@@ -675,6 +680,21 @@
       ],
       "id": "agent-lanes-contract",
       "state": "satisfied"
+    },
+    {
+      "id": "knowledge-formalization-procedure",
+      "issue": 295,
+      "state": "outstanding"
+    },
+    {
+      "id": "market-landscape",
+      "reason": "Investigation findings about an external market, with status published and no authority over Concord. Its claims are about other products and are explicitly caveated in its own unverified section, so they are not propositions this repository can prove by executable evidence. Where a finding influenced Concord's direction, the decision record that adopted it carries the coverage obligation.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "priorities",
+      "reason": "The ranked priority order and the operating envelope govern how a design tradeoff is resolved and which capabilities belong in Concord at all. Both are judgements applied by a reader to a proposed change, not propositions about a running system, so no executable anchor can decide whether a given decision honoured the order. Coverage would have to be assessed per companion document rather than against this record, and that assessment has not been made.",
+      "state": "unmeasured"
     },
     {
       "evidence": [

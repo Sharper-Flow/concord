@@ -1,0 +1,5 @@
+{
+  "id": "README",
+  "reason": "Navigation material with status published, not law. It states a reading order and names companion documents; it asserts no rule an implementation could satisfy or violate. Link integrity, the one property it does carry, is proved by scripts/check-doc-links.py rather than by a coverage anchor on this record.",
+  "state": "out_of_scope"
+}

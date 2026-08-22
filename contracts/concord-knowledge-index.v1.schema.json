@@ -7,11 +7,12 @@
   "required": ["schema_version", "supported_kinds", "indexed_kinds", "records"],
   "properties": {
     "schema_version": {"enum": ["1.0", "1.1", "1.2"]},
-    "supported_kinds": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec", "research"]}},
-    "indexed_kinds": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec"]}},
+    "supported_kinds": {"type": "array", "maxItems": 7, "uniqueItems": true, "items": {"enum": ["work_note", "constitution", "decision", "spec", "lesson", "reference", "research"]}},
+    "indexed_kinds": {"type": "array", "maxItems": 7, "uniqueItems": true, "items": {"enum": ["work_note", "constitution", "decision", "spec", "lesson", "reference", "research"]}},
     "domain_registry": {"$ref": "#/$defs/domainRegistry"},
     "knowledge_roots": {"$ref": "#/$defs/knowledgeRoots"},
     "exclusions": {"$ref": "#/$defs/knowledgeExclusions"},
+    "dispositions": {"$ref": "#/$defs/dispositions"},
     "doc_contract": {"$ref": "#/$defs/docContract"},
     "records": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/record"}}
   },
@@ -40,6 +41,7 @@
   ],
   "$defs": {
     "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S(?:.*\\S)?$"},
+    "evidencePath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?![\\s\\S]*\\.\\.)[\\s\\S]+$"},
     "ids": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
     "scopeCommon": {
       "type": "object",
@@ -77,8 +79,8 @@
       "required": ["id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "sha256"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "kind": {"enum": ["lesson", "decision", "spec"]},
-        "path": {"type": "string", "pattern": "^docs/(?!work/|research/|.*generated|product-coordination-view\\.md$|terminal-launcher-contract\\.md$).*\\.md$", "maxLength": 512},
+        "kind": {"enum": ["constitution", "decision", "spec", "lesson", "reference", "research"]},
+        "path": {"type": "string", "pattern": "^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$", "maxLength": 512},
         "status": {"enum": ["accepted", "published", "superseded"]},
         "date": {"type": "string", "format": "date-time"},
         "title": {"type": "string", "minLength": 1, "maxLength": 256},
@@ -88,12 +90,13 @@
         "successor": {"$ref": "#/$defs/id"},
         "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "law_relations": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/lawRelation"}},
+        "evidence": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/evidencePath"}},
         "home_domain_id": {"$ref": "#/$defs/id"},
         "applies_to_domain_ids": {"$ref": "#/$defs/ids"}
       },
       "allOf": [
-        {"if": {"properties": {"kind": {"const": "lesson"}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["published", "superseded"]}}}},
-        {"if": {"properties": {"kind": {"enum": ["decision", "spec"]}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["accepted", "superseded"]}}}},
+        {"if": {"properties": {"kind": {"enum": ["lesson", "reference", "research"]}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["published", "superseded"]}}}},
+        {"if": {"properties": {"kind": {"enum": ["constitution", "decision", "spec"]}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["accepted", "superseded"]}}}},
         {"if": {"properties": {"kind": {"const": "decision"}}, "required": ["kind"]}, "then": {"properties": {"path": {"pattern": "^docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"}}}},
         {"if": {"properties": {"status": {"const": "superseded"}}, "required": ["status"]}, "then": {"required": ["successor"]}},
         {"if": {"properties": {"status": {"enum": ["accepted", "published"]}}, "required": ["status"]}, "then": {"not": {"required": ["successor"]}}},
@@ -111,8 +114,8 @@
       "allOf": [
         {"$ref": "#/$defs/record"},
         {"properties": {"scopes": {"$ref": "#/$defs/scopeV12"}}},
-        {"if": {"properties": {"kind": {"enum": ["decision", "spec"]}, "status": {"const": "accepted"}}, "required": ["kind", "status"]}, "then": {"required": ["home_domain_id"]}},
-        {"if": {"properties": {"kind": {"const": "lesson"}}, "required": ["kind"]}, "then": {"not": {"anyOf": [{"required": ["home_domain_id"]}, {"required": ["applies_to_domain_ids"]}]}}},
+        {"if": {"properties": {"kind": {"enum": ["constitution", "decision", "spec"]}, "status": {"const": "accepted"}}, "required": ["kind", "status"]}, "then": {"required": ["home_domain_id"]}},
+        {"if": {"properties": {"kind": {"enum": ["lesson", "reference", "research"]}}, "required": ["kind"]}, "then": {"not": {"anyOf": [{"required": ["home_domain_id"]}, {"required": ["applies_to_domain_ids"]}]}}},
         {"if": {"required": ["applies_to_domain_ids"]}, "then": {"required": ["home_domain_id"]}}
       ]
     },
@@ -178,8 +181,24 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "pattern": "^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*/$",
+        "pattern": "^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\\.md)$",
         "maxLength": 256
+      }
+    },
+    "dispositions": {
+      "type": "array",
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/disposition"}
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "disposition", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?![\\s\\S]*\\.\\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\\.md$"},
+        "disposition": {"enum": ["archived"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 4096}
       }
     },
     "docContract": {
@@ -187,6 +206,8 @@
       "additionalProperties": false,
       "properties": {
         "enforced": {"type": "boolean", "default": false},
+        "constitution": {"$ref": "#/$defs/docContractKind"},
+        "decision": {"$ref": "#/$defs/docContractKind"},
         "spec": {
           "type": "object",
           "additionalProperties": false,
@@ -196,15 +217,9 @@
             "ac_required": {"type": "boolean"}
           }
         },
-        "decision": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["required_sections", "ac_required"],
-          "properties": {
-            "required_sections": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
-            "ac_required": {"type": "boolean"}
-          }
-        },
+        "lesson": {"$ref": "#/$defs/docContractKind"},
+        "reference": {"$ref": "#/$defs/docContractKind"},
+        "research": {"$ref": "#/$defs/docContractKind"},
         "banned_phrases": {
           "type": "array",
           "default": [
@@ -219,6 +234,15 @@
           "uniqueItems": true,
           "items": {"type": "string", "minLength": 1, "maxLength": 128}
         }
+      }
+    },
+    "docContractKind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_sections", "ac_required"],
+      "properties": {
+        "required_sections": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "ac_required": {"type": "boolean"}
       }
     }
   }

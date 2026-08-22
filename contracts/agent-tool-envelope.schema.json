@@ -471,7 +471,11 @@
             "blocked",
             "scope",
             "history",
+            "continuity",
             "relations",
+            "research",
+            "resource_claims",
+            "messages",
             "search",
             "resolve_note",
             "capture",
@@ -497,7 +501,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$"
+          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries)$"
         },
         "outcome": {
           "enum": [
@@ -879,7 +883,11 @@
             "blocked",
             "scope",
             "history",
+            "continuity",
             "relations",
+            "research",
+            "resource_claims",
+            "messages",
             "search",
             "resolve_note",
             "capture",
@@ -905,7 +913,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|10)|C19\\.Continuity|C21\\.InitiativeEntries)$"
+          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries)$"
         },
         "reason_code": {
           "type": "string",

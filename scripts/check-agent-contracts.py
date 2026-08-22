@@ -519,6 +519,86 @@ def evidence_obligation_findings(lanes_schema: object, report_schema: object, re
             )
     return findings
 
+def _check_envelope_operation_vocabulary() -> list[str]:
+    """Prove the envelope tool/operation join (issue #352).
+
+    `$defs/base` and `$defs/nextIntent` each conjoin `$defs/toolOperation` with
+    their own `operation` enum and `query_id` pattern. A conjunction is only
+    satisfiable where the terms agree, so a pair declared in `toolOperation`
+    whose operation the enum omits — or whose query_id the pattern rejects — is
+    dead on arrival: no envelope naming it can ever validate, and the adapter
+    turns every core response for it into `malformed_response`.
+    """
+    return envelope_operation_findings(
+        json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text(encoding="utf-8")),
+    )
+
+def _declared_tool_operations(envelope: object, findings: list[str]) -> list[tuple[str, str, str | None]] | None:
+    """Flatten `$defs/toolOperation` into (tool, operation, query_id) triples."""
+    branches = envelope.get("$defs", {}).get("toolOperation", {}).get("oneOf") if isinstance(envelope, dict) else None
+    if not isinstance(branches, list) or not branches:
+        findings.append("contracts/agent-tool-envelope.schema.json: missing $defs/toolOperation/oneOf")
+        return None
+    declared: list[tuple[str, str, str | None]] = []
+    for index, branch in enumerate(branches):
+        properties = branch.get("properties") if isinstance(branch, dict) else None
+        if not isinstance(properties, dict) or "tool" not in properties or "operation" not in properties:
+            findings.append(f"contracts/agent-tool-envelope.schema.json: $defs/toolOperation/oneOf[{index}] must constrain tool and operation")
+            return None
+        tool = properties["tool"].get("const")
+        operation = properties["operation"]
+        operations = [operation["const"]] if "const" in operation else operation.get("enum")
+        query_id = properties.get("query_id", {}).get("const")
+        if not isinstance(tool, str) or not isinstance(operations, list) or not operations:
+            findings.append(f"contracts/agent-tool-envelope.schema.json: $defs/toolOperation/oneOf[{index}] must name one tool const and at least one operation")
+            return None
+        declared.extend((tool, name, query_id) for name in operations)
+    return declared
+
+def envelope_operation_findings(envelope: object) -> list[str]:
+    """Pure form of the issue #352 check, over an already-parsed envelope schema.
+
+    Containment is one-way. Every operation `toolOperation` pairs must appear in
+    the conjoined enum, but the enum legitimately carries operations that no
+    read branch pairs, so this asserts a subset rather than equality.
+    """
+    findings: list[str] = []
+    label = "contracts/agent-tool-envelope.schema.json"
+    declared = _declared_tool_operations(envelope, findings)
+    if declared is None:
+        return findings
+    for definition in ("base", "nextIntent"):
+        properties = envelope.get("$defs", {}).get(definition, {}).get("properties")
+        if not isinstance(properties, dict):
+            findings.append(f"{label}: missing $defs/{definition}/properties")
+            continue
+        enum = properties.get("operation", {}).get("enum")
+        if not isinstance(enum, list) or not enum or len(set(enum)) != len(enum):
+            findings.append(f"{label}: $defs/{definition}/properties/operation/enum must be a nonempty duplicate-free array")
+            continue
+        unsatisfiable = sorted({f"{tool}.{operation}" for tool, operation, _ in declared if operation not in set(enum)})
+        if unsatisfiable:
+            findings.append(
+                f"{label}: $defs/{definition}/properties/operation/enum omits operation(s) that "
+                f"$defs/toolOperation declares, making them unsatisfiable: {unsatisfiable}"
+            )
+        pattern = properties.get("query_id", {}).get("pattern")
+        if not isinstance(pattern, str) or not pattern:
+            findings.append(f"{label}: $defs/{definition}/properties/query_id/pattern must be a nonempty string")
+            continue
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            findings.append(f"{label}: $defs/{definition}/properties/query_id/pattern is not a valid regular expression: {exc}")
+            continue
+        rejected = sorted({f"{tool}.{operation} ({query_id})" for tool, operation, query_id in declared if query_id is not None and not compiled.fullmatch(query_id)})
+        if rejected:
+            findings.append(
+                f"{label}: $defs/{definition}/properties/query_id/pattern rejects query_id(s) that "
+                f"$defs/toolOperation declares, making them unsatisfiable: {rejected}"
+            )
+    return findings
+
 def main() -> int:
     workflow_findings = check_workflow_contracts()
     if workflow_findings:
@@ -539,6 +619,7 @@ def main() -> int:
     for path, required in lane_schema_expectations.items():
         lane_findings.extend(_check_closed_schema(path, required))
     lane_findings.extend(_check_evidence_obligation_vocabulary())
+    lane_findings.extend(_check_envelope_operation_vocabulary())
     lane_generator = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-lanes.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
     if lane_generator.returncode:
         lane_findings.append(lane_generator.stderr.strip() or lane_generator.stdout.strip() or "lane generator failed")
@@ -586,7 +667,7 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             # The whole adapter suite, not one file: dispatch.test.ts and
             # dispatch_identity.test.ts cover the CD-0017 worker-evidence
             # append path, which no Go test reaches.
-            expected_suites = {"concord.test.ts", "dispatch.test.ts", "dispatch_identity.test.ts"}
+            expected_suites = {"concord.test.ts", "dispatch.test.ts", "dispatch_identity.test.ts", "envelope_operation.test.ts"}
             present_suites = {path.name for path in (ROOT / "adapter/opencode").glob("*.test.ts")}
             if not expected_suites.issubset(present_suites):
                 print(f"adapter test suite missing: {sorted(expected_suites - present_suites)}", file=sys.stderr); return 1

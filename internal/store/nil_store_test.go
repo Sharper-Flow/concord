@@ -87,6 +87,10 @@ func TestUnopenedStoreReturnsTypedFailure(t *testing.T) {
 			_, err := s.BlockedSessions(ctx, time.Time{}, nil, 10)
 			return err
 		}},
+		{"ResolveKnowledgeQueryHome", func(s *Store) error {
+			_, err := s.ResolveKnowledgeQueryHome(ctx, "", "", KnowledgeHome{}, "knowledge_home")
+			return err
+		}},
 	} {
 		for _, receiver := range []struct {
 			label string

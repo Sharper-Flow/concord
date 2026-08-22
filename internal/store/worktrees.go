@@ -493,11 +493,7 @@ func worktreeRepoRootTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReques
 	return normalized, nil
 }
 
-type worktreeQueryer interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-func worktreeEntryByClaim(ctx context.Context, q worktreeQueryer, opID string) (WorktreeEntry, error) {
+func worktreeEntryByClaim(ctx context.Context, q queryer, opID string) (WorktreeEntry, error) {
 	var e WorktreeEntry
 	var facts string
 	var reclaimed sql.NullString

@@ -317,10 +317,6 @@ func validateMembershipInvariantsTx(ctx context.Context, tx *sql.Tx) error {
 	return validateMembershipInvariantQueries(ctx, tx)
 }
 
-type queryer interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
 func validateMembershipInvariantQueries(ctx context.Context, q queryer) error {
 	checks := []struct {
 		name  string

@@ -59,6 +59,10 @@ rejects dangling or generated/candidate entries, and proves every `CD-*.md`
 decision is included. `python3 scripts/check-knowledge-index.py --update`
 updates hashes only; it never authors inclusion, metadata, or status.
 
+## Authoring
+
+Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally; CI repeats this preflight against `origin/main`.
+
 SQLite's `law_subjects` and `law_relations` tables are derived only by
 `RebuildKnowledgeIndex` for one home, inside the same transactional fold guard.
 Failed validation or rollback leaves the previous derived law projection

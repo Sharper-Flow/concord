@@ -83,6 +83,26 @@ the tx. Raising the pool size is not the fix — a second connection would read 
 pre-transaction snapshot and silently miss uncommitted writes.
 [`scripts/check-tx-scope.py`](scripts/check-tx-scope.py) enforces this textually.
 
+## Knowledge closure
+
+[Issue #295](https://github.com/Sharper-Flow/concord/issues/295) splits
+knowledge into four states: unprocessed, law, out of date, and out of spec.
+An unprocessed document has no manifest record and is **not law** for this
+Product regardless of how much it reads like a spec; treat it as source
+material awaiting formalization. `scripts/check-knowledge-closure.py` is
+the inverse-coverage validator: it walks every `*.md` under the manifest's
+`knowledge_roots`, lists paths the manifest does not acknowledge, and exits
+0 in warn mode (with per-file `unprocessed: <path>` lines) or 1 under
+`--strict` for cutover checks. `scripts/check-doc-contract.py` applies the
+required outline, Gherkin AC grammar, and STE subset (sentence length,
+banned phrases, abbreviation discipline) to records whose kind is in scope;
+hard-fail mode is gated by `doc_contract.enforced` in the manifest
+(seeded `false` so the existing corpus dogfoods as findings rather than
+build-breakers). The anti-conflation rule for agents: a document not
+resovable through `concord_knowledge` is not law — `resolve_note` returning
+`knowledge_missing` is the authoritative negative, never text-grep for law
+state when a record exists.
+
 ## Go style
 
 Go 1.26 with the pinned toolchain from [`go.mod`](go.mod). Keep behavior, types,
@@ -96,6 +116,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 |---|---|
 | What the CLI accepts, and its JSON-stdin rules | `commandSpecs` in [`cmd/concord/main.go`](cmd/concord/main.go); `concord --help` |
 | The verification contract a branch must satisfy | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| Knowledge manifest, unprocessed enumeration, and doc contract | [`docs/concord-knowledge-index.v1.json`](docs/concord-knowledge-index.v1.json); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json); [`scripts/check-knowledge-closure.py`](scripts/check-knowledge-closure.py); [`scripts/check-doc-contract.py`](scripts/check-doc-contract.py) |
 | Local verification tiers and their throttling | header comment in [`bin/oc-test`](bin/oc-test) |
 | Adapter layout, tests, and the `worker-*` boundary | [`adapter/opencode/README.md`](adapter/opencode/README.md) |
 | Which files are generated, from which inputs | [`scripts/generate-agent-contracts.py`](scripts/generate-agent-contracts.py); [`scripts/generate-agent-lanes.py`](scripts/generate-agent-lanes.py) |

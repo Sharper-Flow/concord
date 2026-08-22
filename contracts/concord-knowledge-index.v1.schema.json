@@ -10,6 +10,9 @@
     "supported_kinds": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec", "research"]}},
     "indexed_kinds": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["work_note", "lesson", "decision", "spec"]}},
     "domain_registry": {"$ref": "#/$defs/domainRegistry"},
+    "knowledge_roots": {"$ref": "#/$defs/knowledgeRoots"},
+    "exclusions": {"$ref": "#/$defs/knowledgeExclusions"},
+    "doc_contract": {"$ref": "#/$defs/docContract"},
     "records": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/record"}}
   },
   "allOf": [
@@ -157,6 +160,66 @@
       "additionalProperties": false,
       "required": ["kind", "target_id"],
       "properties": {"kind": {"enum": ["supersedes", "refines", "subordinate_to", "conflicts_with"]}, "target_id": {"$ref": "#/$defs/id"}}
+    },
+    "knowledgeRoots": {
+      "type": "array",
+      "default": ["docs/"],
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*/$",
+        "maxLength": 256
+      }
+    },
+    "knowledgeExclusions": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*/$",
+        "maxLength": 256
+      }
+    },
+    "docContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enforced": {"type": "boolean", "default": false},
+        "spec": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_sections", "ac_required"],
+          "properties": {
+            "required_sections": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "ac_required": {"type": "boolean"}
+          }
+        },
+        "decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_sections", "ac_required"],
+          "properties": {
+            "required_sections": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "ac_required": {"type": "boolean"}
+          }
+        },
+        "banned_phrases": {
+          "type": "array",
+          "default": [
+            "in order to",
+            "utilize",
+            "leverage",
+            "it is important to note",
+            "needless to say",
+            "at the end of the day"
+          ],
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
     }
   }
 }

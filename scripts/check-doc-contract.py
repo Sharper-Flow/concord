@@ -57,6 +57,7 @@ HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+(.*)")
 TABLE_ROW_RE = re.compile(r"^\s*\|")
 CODE_FENCE_RE = re.compile(r"^\s{0,3}```")
+INLINE_CODE_RE = re.compile(r"``[^`]+``|`[^`]+`")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ABBR_RE = re.compile(r"\b([A-Z]{2,})\b")
 # Keyword counting is word-bounded so "Whenever" and "Thenceforth" do not
@@ -375,6 +376,29 @@ def strip_html_comments(lines: list[str]) -> list[str]:
     return HTML_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text).splitlines()
 
 
+def strip_inline_code(lines: list[str]) -> list[str]:
+    """Blank inline code spans, preserving line length and numbering.
+
+    A backtick span is a code quotation, not prose. Scanned as prose it
+    reports SQL keywords and command names as unexpanded abbreviations and
+    counts identifiers as sentence words, which is noise the checks are not
+    meant to catch. Fenced blocks are already excluded as segments; this
+    closes the same hole for inline spans.
+
+    Spans become spaces rather than disappearing, so line length and
+    indentation stay put and reported line numbers keep pointing at the
+    original line. Fence lines are left alone: they open and close a block
+    that is excluded wholesale, and rewriting them would break detection.
+    """
+    scrubbed: list[str] = []
+    for line in lines:
+        if CODE_FENCE_RE.match(line):
+            scrubbed.append(line)
+            continue
+        scrubbed.append(INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), line))
+    return scrubbed
+
+
 def split_into_segments(lines: list[str]) -> list[tuple[str, list[int]]]:
     """Group lines into STE-scannable segments: prose, code, table, heading.
 
@@ -394,7 +418,7 @@ def split_into_segments(lines: list[str]) -> list[tuple[str, list[int]]]:
         if line_numbers:
             segments.append((kind, line_numbers))
 
-    scrubbed = strip_html_comments(lines)
+    scrubbed = strip_inline_code(strip_html_comments(lines))
     line_text: dict[int, str] = {}
     for index, line in enumerate(scrubbed, start=1):
         line_text[index] = line

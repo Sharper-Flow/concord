@@ -760,6 +760,108 @@ Body.
 
 
 # ---------------------------------------------------------------------------
+# Inline code span exclusion
+#
+# Every exclusion is tested on both sides: the token is ignored inside a
+# backtick span, and the same token is still reported when it appears as
+# prose on the same document.
+# ---------------------------------------------------------------------------
+
+
+def _inline_code_body(context: str) -> str:
+    return f"""# Spec
+
+## Context
+
+{context}
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+
+
+def test_abbreviation_inside_inline_code_is_not_flagged() -> None:
+    root = sandbox()
+    body = _inline_code_body("Run `EXPLAIN QUERY PLAN` before merging.")
+    path = "docs/inline-abbr.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i1")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_abbreviation_outside_inline_code_is_still_flagged() -> None:
+    """The true-positive side of the exclusion.
+
+    Without this, blanking spans could silence the abbreviation check
+    entirely and the test above would still pass.
+    """
+    root = sandbox()
+    body = _inline_code_body("Run `EXPLAIN QUERY PLAN` before merging the RPC.")
+    path = "docs/inline-abbr-mixed.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i2")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ABBR=RPC" in line for line in stdout.splitlines()), stdout
+    assert not any("ABBR=QUERY" in line for line in stdout.splitlines()), stdout
+
+
+def test_double_backtick_span_is_excluded() -> None:
+    root = sandbox()
+    body = _inline_code_body("Write ``SELECT COUNT(*)`` in the query.")
+    path = "docs/double-backtick.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i3")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_banned_phrase_inside_inline_code_is_not_flagged() -> None:
+    root = sandbox()
+    body = _inline_code_body("Call `utilize_backend()` to start.")
+    path = "docs/inline-banned.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i4")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_banned_phrase_outside_inline_code_is_still_flagged() -> None:
+    root = sandbox()
+    body = _inline_code_body("Call `utilize_backend()` and utilize the result.")
+    path = "docs/inline-banned-mixed.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i5")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ste-banned-phrase" in line for line in stdout.splitlines()), stdout
+
+
+def test_inline_code_words_do_not_count_toward_sentence_length() -> None:
+    root = sandbox()
+    span = "`" + " ".join(f"token{i}" for i in range(30)) + "`"
+    sentence = "This sentence has " + span + " and stays short."
+    body = _inline_code_body(sentence)
+    path = "docs/inline-sentence.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i6")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+# ---------------------------------------------------------------------------
 # Criterion granularity and verification coverage
 # ---------------------------------------------------------------------------
 

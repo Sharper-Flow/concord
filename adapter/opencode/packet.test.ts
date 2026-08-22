@@ -1,6 +1,6 @@
 import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
-import { validateGeneratedEnvelope } from "./generated-contract-tests"
+import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { validateAgentLanePacket } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
 
@@ -29,6 +29,10 @@ const NARRATIVE = "The dispatched worker goal is retyped prose today; project it
 const OUTCOME_KIND = "capability_available"
 const OUTCOME_PAYLOAD = "A host-side builder projects work narrative, pinned contract, and lane obligations into agent-lane-packet.v1."
 const WORKFLOW_STEP = "implement"
+// The single string internal/store/workflow_continuity.go assigns to
+// RestartUnavailableReason. A fixture that invents its own value would let the
+// builder be proved against a response the core never emits.
+const RESTART_UNAVAILABLE_REASON = "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call"
 
 const grantResponse = () => ({ manifest_digest: manifestDigest, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", scope_version: "1" })
 
@@ -72,7 +76,7 @@ const continuityEnvelope = (contract: unknown = pinnedContract()) => coreEnvelop
     },
     latest_checkpoint: null,
     boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
-    typed_availability: { restart: "unavailable", reason: "no_restart_recorded" },
+    typed_availability: { restart: "unavailable", reason: RESTART_UNAVAILABLE_REASON },
     pending_messages: 0,
     observations: [],
   },
@@ -123,8 +127,34 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   }
 })
 
-test("the scope read this builder projects from satisfies the generated envelope contract", () => {
-  expect(validateGeneratedEnvelope(scopeEnvelope())).toBe(true)
+// Every fixture below is a hand-written response shape. contractProofs binds
+// each one to the generated contract by tool.operation: the envelope schema for
+// the whole response and the operation's declared result schema for its payload.
+// A fixture that drifts from what internal/agent emits would otherwise let the
+// whole builder suite pass against a shape the core never produces.
+const contractProofs: Record<string, { envelope: Record<string, unknown>; resultSchema: string }> = {
+  "concord_work_browse.scope": { envelope: scopeEnvelope(), resultSchema: "work_scope" },
+  "concord_work_trace.continuity": { envelope: continuityEnvelope(), resultSchema: "continuity_snapshot" },
+}
+
+test("every core read this builder performs satisfies the generated envelope and result contract", async () => {
+  // The read list comes from the builder itself rather than from a literal, so
+  // a third read is covered by construction: it appears in seen() and fails
+  // here until its own contract proof is declared.
+  const invoke = scriptedInvoke(defaultScript())
+  const built = await buildAgentLanePacket(
+    { workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" },
+    { context: contextFor(), invoke: invoke as any },
+  )
+  expect(built.failure).toBeUndefined()
+  const performed = invoke.seen()
+  expect(performed.length).toBeGreaterThan(0)
+  for (const read of performed) {
+    const proof = contractProofs[read]
+    expect(proof, `${read} is projected from but has no contract proof`).toBeDefined()
+    expect(validateGeneratedEnvelope(proof.envelope), `${read} envelope`).toBe(true)
+    expect(validateGeneratedPayload(proof.resultSchema, proof.envelope.result), `${read} result payload`).toBe(true)
+  }
 })
 
 test("every registered lane projects its own obligation set and nothing else", async () => {

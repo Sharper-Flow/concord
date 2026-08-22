@@ -2,21 +2,18 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 // singleDomainRootID mirrors the accepted registry shape: Concord is a
 // single-Domain Product whose one root Domain has no children, so the
 // architecture relation set is legitimately empty.
-const singleDomainRootID = "product-root:concord"
+const singleDomainRootID = pm1fixture.SingleDomainRootID
 
 // domainEvidenceFixture seeds a store carrying the real single-Domain registry
 // shape: one root Domain projected from a committed knowledge manifest, one
@@ -29,37 +26,12 @@ func domainEvidenceFixture(t *testing.T) (*store.Store, *Service, CallEnvelope) 
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
 
-	events := []store.Event{
-		{EventID: "domain-evidence-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Second work","priority":2}`)},
-		{EventID: "domain-evidence-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-2", "Second work", 2); err != nil {
 		t.Fatal(err)
 	}
-
-	repo := domainEvidenceRepo(t)
-	home := store.KnowledgeHome{HomeProjectID: "project-1", HomeLocatorID: "domain-evidence-locator", RepoPath: repo, HeadRef: "HEAD"}
-	execFold(t, s,
-		fixtureStatement{"locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('domain-evidence-locator','project-1','canonical_path',?,?,'now','now')`, []any{repo, repo}},
-		fixtureStatement{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','domain-evidence-locator')`, nil},
-	)
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatalf("rebuild knowledge index: %v", err)
-	}
-
-	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1")
-	contract := `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'domain evidence','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','["CD-0041"]',1,'prototype_internal')`
-	execFold(t, s,
-		fixtureStatement{"actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
-		fixtureStatement{"work-1 contract", contract, []any{"work-1", actorRef}},
-		fixtureStatement{"work-2 contract", contract, []any{"work-2", actorRef}},
-		fixtureStatement{"bindings", `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT 'work-1',1,'product-1',content_hash,?,content_hash FROM domain_registries WHERE product_id='product-1' UNION ALL SELECT 'work-2',1,'product-1',content_hash,?,content_hash FROM domain_registries WHERE product_id='product-1'`, []any{singleDomainRootID, singleDomainRootID}},
-		fixtureStatement{"affected domains", `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES('work-1',1,?),('work-2',1,?)`, []any{singleDomainRootID, singleDomainRootID}},
-		fixtureStatement{"law modifications", `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES('work-1',1,'CD-0041'),('work-2',1,'CD-0041')`, nil},
-	)
-
-	if err := store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{EventID: "domain-evidence-project-edges", ProductID: "product-1", DomainID: singleDomainRootID, ExpectedVersion: 0, Attachments: []store.DomainProjectAttachment{{ProjectID: "project-1", Role: "primary"}}, Actor: "operator", OccurredAt: fixedTime()}); err != nil {
-		t.Fatalf("seed Project attachments: %v", err)
+	options := pm1fixture.DomainEvidenceOptions{Dir: t.TempDir(), ProductID: "product-1", ProjectID: "project-1", LocatorID: "domain-evidence-locator", WorkIDs: []string{"work-1", "work-2"}}
+	if err := pm1fixture.SeedDomainEvidence(ctx, s, options); err != nil {
+		t.Fatal(err)
 	}
 
 	return s, service, mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
@@ -72,121 +44,6 @@ func domainRegistryAbsentFixture(t *testing.T) (*store.Store, *Service, CallEnve
 	t.Helper()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
 	return s, service, mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
-}
-
-type fixtureStatement struct {
-	name  string
-	query string
-	args  []any
-}
-
-// execFold applies raw projection seeding inside one fold-guarded transaction.
-// The guard is what the projection tables require for direct writes.
-func execFold(t *testing.T, s *store.Store, statements ...fixtureStatement) {
-	t.Helper()
-	ctx := context.Background()
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	all := append([]fixtureStatement{{"fold guard", `INSERT INTO fold_guard(active) VALUES(1)`, nil}}, statements...)
-	all = append(all, fixtureStatement{"leave fold", `DELETE FROM fold_guard`, nil})
-	for _, statement := range all {
-		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
-			tx.Rollback()
-			t.Fatalf("seed %s: %v", statement.name, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// domainEvidenceRepo commits a knowledge manifest declaring exactly one root
-// Domain with an empty architecture relation set, plus an accepted decision
-// homed to that Domain and the superseded decision it replaced.
-func domainEvidenceRepo(t *testing.T) string {
-	t.Helper()
-	repo := t.TempDir()
-	runRuntimeGit(t, repo, "init", "--quiet", "--initial-branch=main")
-	runRuntimeGit(t, repo, "config", "user.email", "test@example.invalid")
-	runRuntimeGit(t, repo, "config", "user.name", "Concord Test")
-
-	accepted := "Domains are the only architecture authority.\n"
-	superseded := "Components were the prior architecture authority.\n"
-	writeRepoFile(t, repo, "docs/decisions/CD-0041.md", accepted)
-	writeRepoFile(t, repo, "docs/decisions/CD-0002.md", superseded)
-
-	manifest := store.KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"decision"},
-		IndexedKinds:   []string{"decision"},
-		DomainRegistry: store.KnowledgeDomainRegistry{
-			SchemaVersion: "1.0",
-			ProductKey:    "concord",
-			RootDomainID:  singleDomainRootID,
-			Domains: []store.KnowledgeDomain{
-				{DomainID: singleDomainRootID, Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
-			},
-		},
-		Records: []store.KnowledgeRecord{
-			{
-				ID: "CD-0041", Kind: "decision", Path: "docs/decisions/CD-0041.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
-				Title: "Domain authority", Summary: "Domains carry architecture authority", Tags: []string{},
-				LawRelations: []store.KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0002"}},
-				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{singleDomainRootID}, TagIDs: []string{}},
-				HomeDomainID: singleDomainRootID, SHA256: contentDigest(accepted),
-			},
-			{
-				ID: "CD-0002", Kind: "decision", Path: "docs/decisions/CD-0002.md", Status: "superseded", Date: "2026-08-17T00:00:00Z",
-				Title: "Component authority", Summary: "Retired architecture authority", Tags: []string{}, Successor: "CD-0041",
-				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{singleDomainRootID}, TagIDs: []string{}},
-				HomeDomainID: singleDomainRootID, SHA256: contentDigest(superseded),
-			},
-		},
-	}
-	writeRepoFile(t, repo, "docs/concord-knowledge-index.v1.json", encodeDomainManifest(t, manifest))
-	runRuntimeGit(t, repo, "add", "--", ".")
-	runRuntimeGit(t, repo, "commit", "--quiet", "-m", "domain evidence knowledge")
-	return repo
-}
-
-// encodeDomainManifest drops the retired component_ids scope key, which the
-// v1.2 manifest schema rejects, from the marshalled record scopes.
-func encodeDomainManifest(t *testing.T, manifest store.KnowledgeManifest) string {
-	t.Helper()
-	raw, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var object map[string]any
-	if err := json.Unmarshal(raw, &object); err != nil {
-		t.Fatal(err)
-	}
-	for _, record := range object["records"].([]any) {
-		delete(record.(map[string]any)["scopes"].(map[string]any), "component_ids")
-	}
-	encoded, err := json.Marshal(object)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(encoded) + "\n"
-}
-
-func writeRepoFile(t *testing.T, repo, path, content string) {
-	t.Helper()
-	full := filepath.Join(repo, filepath.FromSlash(path))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func contentDigest(content string) string {
-	sum := sha256.Sum256([]byte(content))
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // domainRead dispatches one concord_domain read across the agent plane and
@@ -287,7 +144,7 @@ func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T)
 	if law.Path != "docs/decisions/CD-0041.md" {
 		t.Fatalf("law path = %q", law.Path)
 	}
-	if law.ContentHash != contentDigest("Domains are the only architecture authority.\n") {
+	if law.ContentHash != pm1fixture.ContentDigest(pm1fixture.DomainEvidenceLawBody) {
 		t.Fatalf("law evidence hash does not match the committed blob: %#v", law)
 	}
 	if law.ScannedCommit == "" || law.ScannedCommit != registry.ScannedCommit {

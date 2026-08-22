@@ -1726,7 +1726,7 @@ CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, att
 CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-	`,
+`,
 	},
 
 	{
@@ -2251,7 +2251,7 @@ CREATE TRIGGER external_observations_guard_delete BEFORE DELETE ON external_obse
 -- verification state a verification event folds into it.
 ALTER TABLE workflow_native_runs ADD COLUMN observation_id TEXT;
 ALTER TABLE workflow_native_runs ADD COLUMN verification_state TEXT NOT NULL DEFAULT 'unverified';
-		`,
+        `,
 	},
 	{
 		Version: 43,

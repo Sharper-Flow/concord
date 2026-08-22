@@ -7,9 +7,9 @@
     "adapter/opencode/dispatch.ts"
   ],
   "home_domain_id": "product-root:concord",
-  "id": "CD-0057",
+  "id": "CD-0056",
   "kind": "decision",
-  "path": "docs/decisions/CD-0057-conformance-control-round.md",
+  "path": "docs/decisions/CD-0056-lane-evidence-obligations-bind.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9f509a2e9e15ad5f4ed73520c74b1db5b7440342ff579bdd6db2ad59047d53c3",
+  "sha256": "sha256:8c25d11950c0ff5f3bec9cddbfe668788b1aa8607e54e2cfd261f0e4b7d78dc3",
   "status": "accepted",
   "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
   "tags": [

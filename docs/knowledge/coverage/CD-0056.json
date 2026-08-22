@@ -1,0 +1,34 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnchanged"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerCompletionNamingObligationOutsideItsLaneIsRefused"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerCompletionEvidenceShapeIsClosedInBothDirections"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBuiltinLaneObligationsAreClosedAndLaneDigestsAreUnchanged"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    }
+  ],
+  "id": "CD-0056",
+  "state": "satisfied"
+}

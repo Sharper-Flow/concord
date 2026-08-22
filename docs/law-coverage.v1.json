@@ -605,7 +605,6 @@
       "evidence": [
         {
           "kind": "go_test",
-<<<<<<< HEAD
           "value": "internal/store.TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence"
         },
         {
@@ -631,12 +630,16 @@
         {
           "kind": "validator",
           "value": "scripts/check-agent-contracts.py"
-=======
-          "value": "internal/store.TestConformanceFalsifierFiresOnSustainedCommitDuration"
-        },
+        }
+      ],
+      "id": "CD-0056",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestConformanceSchedulerOvershootIsInconclusive"
+          "value": "internal/store.TestConformanceFalsifierFiresOnSustainedCommitDuration"
         },
         {
           "kind": "go_test",
@@ -645,10 +648,9 @@
         {
           "kind": "go_test",
           "value": "internal/store.TestConformanceControlCommitOvershootFires"
->>>>>>> 6b90cc8 (fix(store): require a clean unpaced control for the commit-duration verdict (#341))
         }
       ],
-      "id": "CD-0056",
+      "id": "CD-0057",
       "state": "satisfied"
     },
     {

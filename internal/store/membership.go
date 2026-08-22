@@ -394,7 +394,11 @@ func membershipImpact(ctx context.Context, tx *sql.Tx, operation Operation) (Mem
 }
 
 func (s *Store) ProjectsForProduct(ctx context.Context, productID string) ([]ProjectMembership, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return projectsForProduct(ctx, s.db, productID)
+}
+
+func projectsForProduct(ctx context.Context, q queryer, productID string) ([]ProjectMembership, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT projects.id, projects.display_name, product_projects.role
 		FROM product_projects JOIN projects ON projects.id = product_projects.project_id
 		WHERE product_projects.product_id = ?
@@ -417,7 +421,11 @@ func (s *Store) ProjectsForProduct(ctx context.Context, productID string) ([]Pro
 }
 
 func (s *Store) ProductsForProject(ctx context.Context, projectID string) ([]ProductMembership, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return productsForProject(ctx, s.db, projectID)
+}
+
+func productsForProject(ctx context.Context, q queryer, projectID string) ([]ProductMembership, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT products.id, products.display_name, product_projects.role
 		FROM product_projects JOIN products ON products.id = product_projects.product_id
 		WHERE product_projects.project_id = ?
@@ -440,7 +448,11 @@ func (s *Store) ProductsForProject(ctx context.Context, projectID string) ([]Pro
 }
 
 func (s *Store) ProjectsForWork(ctx context.Context, workID string) ([]ProjectMembership, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return projectsForWork(ctx, s.db, workID)
+}
+
+func projectsForWork(ctx context.Context, q queryer, workID string) ([]ProjectMembership, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT projects.id, projects.display_name, work_projects.role
 		FROM work_projects JOIN projects ON projects.id = work_projects.project_id
 		WHERE work_projects.work_id = ?
@@ -463,7 +475,11 @@ func (s *Store) ProjectsForWork(ctx context.Context, workID string) ([]ProjectMe
 }
 
 func (s *Store) ProductsForWork(ctx context.Context, workID string) (ProductScope, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return productsForWork(ctx, s.db, workID)
+}
+
+func productsForWork(ctx context.Context, q queryer, workID string) (ProductScope, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT DISTINCT products.id, products.display_name
 		FROM work_projects
 		JOIN product_projects ON product_projects.project_id = work_projects.project_id

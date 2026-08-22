@@ -13,8 +13,15 @@ is in scope, gating hard-fail mode behind a manifest-level flag so the
 existing corpus can dogfood the rule before it blocks CI.
 
   outline       exact-case headings under the kind's required_sections list
-  ac grammar    under "Acceptance criteria", every criterion parses as
-                Given/When/Then (Given optional; When and Then required)
+  ac grammar    ac_required true requires an "Acceptance criteria" section
+                whose every criterion parses as Given/When/Then (Given
+                optional; Then required; exactly one When, because a second
+                trigger is a second criterion). ac_required false forbids the
+                section outright: only a spec carries acceptance criteria, so
+                any other kind that grows one is claiming a testable contract
+                its kind cannot hold.
+  ac coverage   the "Verification" section states at least as many entries as
+                there are criteria, so no criterion is left unproven
   ste subset    sentence length ≤ 40 words, banned phrases absent,
                 abbreviation discipline on first use
 
@@ -36,6 +43,11 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_FINDINGS = 1000
 MAX_SENTENCE_WORDS = 40
+# The record kinds a doc contract may address, in taxonomy order. A kind absent
+# from the manifest's doc_contract is not checked at all; a kind present is
+# checked against its outline, its acceptance-criteria rule, and the STE subset.
+DOC_CONTRACT_KINDS = ("constitution", "decision", "spec", "lesson", "reference", "research")
+DOC_CONTRACT_FIELDS = {"enforced", *DOC_CONTRACT_KINDS, "banned_phrases"}
 DEFAULT_ABBREVIATION_ALLOWLIST = frozenset(
     {
         "JSON", "API", "CLI", "TUI", "SQL", "WAL", "CI", "PR", "ADV", "TS",
@@ -54,8 +66,16 @@ HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+(.*)")
 TABLE_ROW_RE = re.compile(r"^\s*\|")
 CODE_FENCE_RE = re.compile(r"^\s{0,3}```")
+INLINE_CODE_RE = re.compile(r"``[^`]+``|`[^`]+`")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ABBR_RE = re.compile(r"\b([A-Z]{2,})\b")
+# Keyword counting is word-bounded so "Whenever" and "Thenceforth" do not
+# register as clauses. A raw substring count makes the clause tally unusable
+# as a granularity signal, because prose that merely starts with the keyword
+# letters inflates it.
+GHERKIN_KEYWORD_RE = {
+    keyword: re.compile(rf"\b{keyword}\b") for keyword in ("Given", "When", "Then")
+}
 SENTENCE_SPLIT_RE = re.compile(r"[.!?]+\s+")
 WORD_RE = re.compile(r"\b\w+\b", re.UNICODE)
 
@@ -85,11 +105,16 @@ def load_manifest(findings: list[str]) -> object:
 
 
 def bounded_text_list(value: object, maximum: int, minimum: int = 0) -> bool:
+    """A bounded array of trimmed, non-empty strings.
+
+    `minimum` bounds the array, not its members: an empty section name is
+    never a section name, whatever the array's own lower bound is.
+    """
     if not isinstance(value, list):
         return False
     if not (minimum <= len(value) <= maximum):
         return False
-    return all(isinstance(item, str) and minimum <= len(item.strip()) <= 256 for item in value)
+    return all(isinstance(item, str) and 0 < len(item.strip()) <= 256 for item in value)
 
 
 def unique_string_list(value: object, maximum: int, minimum: int = 0) -> bool:
@@ -110,7 +135,7 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
     if not isinstance(contract, dict):
         findings.append("manifest: doc_contract must be an object")
         return None
-    unknown = set(contract) - {"enforced", "spec", "decision", "banned_phrases"}
+    unknown = set(contract) - DOC_CONTRACT_FIELDS
     if unknown:
         findings.append(f"manifest.doc_contract: unknown fields: {sorted(unknown)}")
 
@@ -118,7 +143,7 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
         findings.append("manifest.doc_contract: enforced must be a boolean")
         contract["enforced"] = False
 
-    for kind in ("spec", "decision"):
+    for kind in DOC_CONTRACT_KINDS:
         body = contract.get(kind)
         if body is None:
             continue
@@ -130,9 +155,9 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
             findings.append(
                 f"manifest.doc_contract.{kind}: unknown fields: {sorted(body_unknown)}"
             )
-        if not unique_string_list(body.get("required_sections"), 32, minimum=0 if kind == "decision" else 1):
+        if not unique_string_list(body.get("required_sections"), 32, minimum=1 if kind == "spec" else 0):
             findings.append(
-                f"manifest.doc_contract.{kind}: required_sections must be a unique array of 1-32 trimmed strings (decision may be empty)"
+                f"manifest.doc_contract.{kind}: required_sections must be a unique array of 1-32 trimmed strings (only spec must be non-empty)"
             )
         if "ac_required" in body and not isinstance(body["ac_required"], bool):
             findings.append(f"manifest.doc_contract.{kind}: ac_required must be a boolean")
@@ -176,16 +201,16 @@ def check_required_sections(
             findings.append(f"missing-section: {path.relative_to(ROOT)} ({section})")
 
 
-def find_acceptance_criteria_section(
-    lines: list[str], start_after: int = 0
+def find_section(
+    lines: list[str], title: str, start_after: int = 0
 ) -> tuple[int, int] | None:
-    """Return (start, end) 1-based line range of the Acceptance criteria section.
+    """Return (start, end) 1-based line range of the named section.
 
     `start` is the line of the heading itself; `end` is the line *after* the
     next heading at the same or higher level, or len(lines) + 1 when the
     section runs to EOF.
     """
-    ac_level: int | None = None
+    section_level: int | None = None
     start_line = 0
     for index, line in enumerate(lines, start=1):
         if index <= start_after:
@@ -195,17 +220,73 @@ def find_acceptance_criteria_section(
             continue
         text = match.group(2).strip()
         level = len(match.group(1))
-        if text == "Acceptance criteria":
-            ac_level = level
+        if text == title:
+            section_level = level
             start_line = index
             break
-    if ac_level is None:
+    if section_level is None:
         return None
     for index, line in enumerate(lines[start_line:], start=start_line + 1):
         match = HEADING_RE.match(line)
-        if match and len(match.group(1)) <= ac_level:
+        if match and len(match.group(1)) <= section_level:
             return start_line, index - 1
     return start_line, len(lines)
+
+
+def iter_section_blocks(
+    lines: list[str], section_start: int, section_end: int
+) -> list[tuple[int, list[str]]]:
+    """Split a section into blocks, returning (start_line, text_lines) pairs.
+
+    A block is a list item, numbered item, or paragraph (a run of consecutive
+    non-blank, non-heading, non-code lines). Indented continuation lines join
+    the parent block. Both the acceptance-criteria grammar and the
+    verification join count the same block shape, so the split lives here
+    rather than in either caller.
+    """
+    blocks: list[tuple[int, list[str]]] = []
+    in_code = False
+    current: list[str] = []
+    block_start = 0
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            blocks.append((block_start, current))
+            current = []
+
+    for index in range(section_start + 1, section_end + 1):
+        line = lines[index - 1]
+        if CODE_FENCE_RE.match(line):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        if HEADING_RE.match(line):
+            flush()
+            continue
+        list_match = LIST_ITEM_RE.match(line)
+        if list_match:
+            flush()
+            block_start = index
+            current = [list_match.group(1).rstrip()]
+            continue
+        if not line.strip():
+            flush()
+            continue
+        if current:
+            parent = lines[block_start - 1]
+            parent_indent = len(parent) - len(parent.lstrip())
+            if len(line) - len(line.lstrip()) > parent_indent:
+                current.append(line.strip())
+                continue
+        # Paragraph-level block: a non-blank, non-list, non-heading line.
+        if not current:
+            block_start = index
+        current.append(line.strip())
+
+    flush()
+    return blocks
 
 
 def parse_gherkin_criteria(
@@ -215,26 +296,17 @@ def parse_gherkin_criteria(
     path: Path,
     findings: list[str],
 ) -> int:
-    """Parse the acceptance-criteria section, return the number of criteria seen.
+    """Validate the acceptance-criteria section, return the number of criteria.
 
-    Each criterion is a list item, numbered item, or paragraph (block of
-    consecutive non-blank non-heading non-code lines). Indented continuation
-    lines join the parent criterion. A criterion's first keyword must be
-    Given/When/Then; the criterion is well-formed iff it contains at least
-    one When and one Then (Given is optional per the recorded amendment).
+    A criterion's first keyword must be Given/When/Then. It is well-formed iff
+    it contains at least one When and one Then (Given is optional per the
+    recorded amendment) and states exactly one When. A criterion with two
+    triggers is two criteria: the single-When rule is the granularity test.
     """
     keywords = ("Given", "When", "Then")
-    seen_criteria = 0
-    in_code = False
-    current: list[tuple[int, str]] = []
-    block_start = 0
+    blocks = iter_section_blocks(lines, section_start, section_end)
 
-    def commit(start_line: int, body: list[tuple[int, str]]) -> None:
-        nonlocal seen_criteria
-        if not body:
-            return
-        seen_criteria += 1
-        text_lines = [line for _, line in body]
+    for start_line, text_lines in blocks:
         first = text_lines[0].lstrip()
         first_word = first.split(None, 1)[0] if first else ""
         if first_word not in keywords:
@@ -242,75 +314,82 @@ def parse_gherkin_criteria(
                 f"ac-not-gherkin: {path.relative_to(ROOT)}#{start_line} "
                 f"(first token must be one of {list(keywords)}, got {first_word!r})"
             )
-            return
+            continue
         joined = " ".join(text_lines)
-        seen = {kw: joined.count(kw) for kw in keywords}
+        seen = {kw: len(GHERKIN_KEYWORD_RE[kw].findall(joined)) for kw in keywords}
         if seen["When"] < 1 or seen["Then"] < 1:
             findings.append(
                 f"ac-not-gherkin: {path.relative_to(ROOT)}#{start_line} "
                 f"(must contain at least one When and one Then, got {seen})"
             )
-
-    def is_continuation(line: str, indent: int) -> bool:
-        stripped = line.strip()
-        if not stripped:
-            return False
-        return len(line) - len(line.lstrip()) > indent
-
-    for index in range(section_start + 1, section_end + 1):
-        line = lines[index - 1]
-        if CODE_FENCE_RE.match(line):
-            in_code = not in_code
             continue
-        if in_code:
-            continue
-        match = HEADING_RE.match(line)
-        if match:
-            if current:
-                commit(block_start, current)
-                current = []
-            continue
-        list_match = LIST_ITEM_RE.match(line)
-        if list_match:
-            if current:
-                commit(block_start, current)
-            block_start = index
-            current = [(index, list_match.group(1).rstrip())]
-            indent = len(line) - len(line.lstrip())
-            continue
-        if not line.strip():
-            if current:
-                commit(block_start, current)
-                current = []
-            continue
-        if current:
-            parent_indent = len(lines[block_start - 1]) - len(
-                lines[block_start - 1].lstrip()
+        if seen["When"] > 1:
+            findings.append(
+                f"ac-multiple-when: {path.relative_to(ROOT)}#{start_line} "
+                f"(a criterion states one trigger; got {seen['When']} When clauses, "
+                f"split it into one criterion per trigger)"
             )
-            if is_continuation(line, parent_indent):
-                current.append((index, line.strip()))
-                continue
-        # Paragraph-level criterion: a non-blank, non-list, non-heading line.
-        if not current:
-            block_start = index
-            current = [(index, line.strip())]
-        else:
-            current.append((index, line.strip()))
 
-    if current:
-        commit(block_start, current)
-    return seen_criteria
+    return len(blocks)
+
+
+def check_verification_coverage(
+    lines: list[str], criteria_count: int, path: Path, findings: list[str]
+) -> None:
+    """Join the acceptance criteria to the Verification section.
+
+    The contract already requires both sections, so the join needs no
+    identifier syntax inside the Gherkin sentence: a record that states more
+    criteria than it verifies has left criteria unproven. This is a necessary
+    condition only. Proving that a named artifact actually exercises a given
+    criterion is the typed scenario-resolution work on issue #319.
+    """
+    if criteria_count == 0:
+        return
+    section = find_section(lines, "Verification")
+    if section is None:
+        # check_required_sections already reports the absent section.
+        return
+    entries = iter_section_blocks(lines, section[0], section[1])
+    if not entries:
+        findings.append(
+            f"verification-empty: {path.relative_to(ROOT)} "
+            f"({criteria_count} criteria, no verification entries)"
+        )
+        return
+    if len(entries) < criteria_count:
+        findings.append(
+            f"verification-underspecified: {path.relative_to(ROOT)} "
+            f"({criteria_count} criteria, {len(entries)} verification entries)"
+        )
 
 
 def check_gherkin(
     lines: list[str], path: Path, findings: list[str]
 ) -> int:
-    section = find_acceptance_criteria_section(lines)
+    section = find_section(lines, "Acceptance criteria")
     if section is None:
         findings.append(f"ac-missing: {path.relative_to(ROOT)}")
         return 0
-    _, end = section
-    return parse_gherkin_criteria(lines, section[0], end, path, findings)
+    return parse_gherkin_criteria(lines, section[0], section[1], path, findings)
+
+
+def check_no_gherkin(lines: list[str], path: Path, findings: list[str]) -> None:
+    """ac_required false means an acceptance-criteria section is forbidden.
+
+    Only spec records carry acceptance criteria. A decision, a constitution, a
+    lesson, a reference, or a research document that grows an Acceptance
+    criteria section is claiming a testable contract its kind cannot hold, so
+    the section is a finding rather than an unchecked extra.
+
+    The boundary is find_section, the same heading scan the required half uses.
+    Prose that happens to say "when X, then Y" is untouched; only a real section
+    counts.
+    """
+    section = find_section(lines, "Acceptance criteria")
+    if section is None:
+        return
+    findings.append(f"ac-forbidden: {path.relative_to(ROOT)}#{section[0]}")
 
 
 def strip_html_comments(lines: list[str]) -> list[str]:
@@ -327,6 +406,29 @@ def strip_html_comments(lines: list[str]) -> list[str]:
     """
     text = "\n".join(lines)
     return HTML_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text).splitlines()
+
+
+def strip_inline_code(lines: list[str]) -> list[str]:
+    """Blank inline code spans, preserving line length and numbering.
+
+    A backtick span is a code quotation, not prose. Scanned as prose it
+    reports SQL keywords and command names as unexpanded abbreviations and
+    counts identifiers as sentence words, which is noise the checks are not
+    meant to catch. Fenced blocks are already excluded as segments; this
+    closes the same hole for inline spans.
+
+    Spans become spaces rather than disappearing, so line length and
+    indentation stay put and reported line numbers keep pointing at the
+    original line. Fence lines are left alone: they open and close a block
+    that is excluded wholesale, and rewriting them would break detection.
+    """
+    scrubbed: list[str] = []
+    for line in lines:
+        if CODE_FENCE_RE.match(line):
+            scrubbed.append(line)
+            continue
+        scrubbed.append(INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), line))
+    return scrubbed
 
 
 def split_into_segments(lines: list[str]) -> list[tuple[str, list[int]]]:
@@ -348,7 +450,7 @@ def split_into_segments(lines: list[str]) -> list[tuple[str, list[int]]]:
         if line_numbers:
             segments.append((kind, line_numbers))
 
-    scrubbed = strip_html_comments(lines)
+    scrubbed = strip_inline_code(strip_html_comments(lines))
     line_text: dict[int, str] = {}
     for index, line in enumerate(scrubbed, start=1):
         line_text[index] = line
@@ -478,7 +580,7 @@ def check_record(
     findings: list[str],
 ) -> None:
     kind = record.get("kind")
-    if kind not in contract:
+    if kind not in DOC_CONTRACT_KINDS or kind not in contract:
         return
     path_value = record.get("path")
     if not isinstance(path_value, str) or not path_value.endswith(".md"):
@@ -498,7 +600,10 @@ def check_record(
     check_required_sections(headings, required, absolute, findings)
 
     if spec.get("ac_required", False):
-        check_gherkin(lines, absolute, findings)
+        criteria_count = check_gherkin(lines, absolute, findings)
+        check_verification_coverage(lines, criteria_count, absolute, findings)
+    else:
+        check_no_gherkin(lines, absolute, findings)
 
     segments, line_text = split_into_segments(lines)
     # Replace lines with the scrubbed content for content checks so HTML

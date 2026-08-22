@@ -1,10 +1,13 @@
 import { sign as signBytes } from "node:crypto"
-import { agentLanePacketSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 
 const MAX_OUTPUT_BYTES = 65_536
 const MAX_ERROR_BYTES = 8_192
 const MAX_CLI_INPUT_BYTES = 65_536
+// worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
+// internal/store/worker_lanes.go; a longer detail would be refused at the fold.
+const MAX_FAILURE_DETAIL_BYTES = 4_096
 const PACKET_SCHEMA_VERSION = "1.0"
 const REPORT_SCHEMA_VERSION = "1.0"
 
@@ -21,6 +24,25 @@ export interface AgentLanePacket {
   work_id: string
   step_id: string
   inputs: { task: string; context?: string; constraints?: string[] }
+}
+
+// AgentLaneReport mirrors contracts/agent-lane-report.schema.json, which the
+// generator embeds as agentLaneReportSchema. The schema, not this type, is what
+// a worker's output is validated against (CD-0056 D7).
+export interface AgentLaneReportEvidence {
+  obligation: string
+  detail: string
+}
+
+export interface AgentLaneReport {
+  schema_version: "1.0"
+  attempt_id: string
+  lane_id: string
+  lane_version: number
+  lane_digest: string
+  readback_model: string
+  status: "completed" | "failed"
+  evidence: AgentLaneReportEvidence[]
 }
 
 export interface SessionMetadata {
@@ -41,7 +63,7 @@ export interface AgentResultEnvelope {
   session_id: string | null
   output?: string
   error?: {
-    kind: "invalid_input" | "blocked" | "error"
+    kind: "invalid_input" | "blocked" | "error" | "invalid_report"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
     message: string
@@ -75,31 +97,76 @@ export function configureWorkerDispatch(overrides: { runner?: DispatchRunner; ev
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
+// resolveSchemaRef walks a same-document JSON pointer. Only local pointers are
+// supported: the contracts are self-contained, and an unresolvable pointer is a
+// validation failure rather than a silently skipped keyword.
+function resolveSchemaRef(root: any, ref: string): any {
+  if (typeof ref !== "string" || !ref.startsWith("#")) return undefined
+  if (ref === "#") return root
+  if (!ref.startsWith("#/")) return undefined
+  let node = root
+  for (const raw of ref.slice(2).split("/")) {
+    if (!node || typeof node !== "object") return undefined
+    node = node[raw.replace(/~1/g, "/").replace(/~0/g, "~")]
+  }
+  return node
+}
 
-function validateSchema(schema: any, value: unknown, root: any): boolean {
-  if (!schema || typeof schema !== "object") return false
-  if (schema.$ref) return validateSchema(root[schema.$ref.replace("#/$defs/", "")], value, root)
-  if (schema.const !== undefined && JSON.stringify(schema.const) !== JSON.stringify(value)) return false
+// validateSchema is the adapter's closed validator for the generated lane
+// contracts. It is deliberately a subset of JSON Schema 2020-12 — only the
+// keywords those contracts use — and it fails closed on anything it cannot
+// resolve. `failures` collects the first failure on each branch so a caller can
+// name the field that broke rather than reporting a bare boolean.
+function validateSchema(schema: any, value: unknown, root: any, path = "", failures?: string[]): boolean {
+  const fail = (reason: string): false => {
+    failures?.push(path ? `${path}: ${reason}` : reason)
+    return false
+  }
+  if (!schema || typeof schema !== "object") return fail("no schema to validate against")
+  if (schema.$ref !== undefined) {
+    const target = resolveSchemaRef(root, schema.$ref)
+    if (!target || typeof target !== "object") return fail(`unresolvable $ref ${String(schema.$ref)}`)
+    if (!validateSchema(target, value, root, path, failures)) return false
+  }
+  if (schema.const !== undefined && JSON.stringify(schema.const) !== JSON.stringify(value)) return fail(`must equal ${JSON.stringify(schema.const)}`)
+  if (schema.enum !== undefined) {
+    if (!Array.isArray(schema.enum)) return fail("enum keyword is not a list")
+    const encoded = JSON.stringify(value)
+    if (!schema.enum.some((member: unknown) => JSON.stringify(member) === encoded)) return fail(`${encoded} is outside the closed enum`)
+  }
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type]
     const valid = types.some((type: string) => type === "object" ? isRecord(value) : type === "array" ? Array.isArray(value) : type === "integer" ? typeof value === "number" && Number.isInteger(value) : type === "number" ? typeof value === "number" : typeof value === type)
-    if (!valid) return false
+    if (!valid) return fail(`is not of type ${types.join(" | ")}`)
   }
   if (typeof value === "string") {
-    if (schema.minLength !== undefined && value.length < schema.minLength || schema.maxLength !== undefined && value.length > schema.maxLength) return false
-    if (schema.pattern && !new RegExp(schema.pattern).test(value)) return false
+    if (schema.minLength !== undefined && value.length < schema.minLength) return fail(`is shorter than ${schema.minLength} characters`)
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) return fail(`is longer than ${schema.maxLength} characters`)
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) return fail(`does not match ${schema.pattern}`)
   }
-  if (typeof value === "number" && (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum)) return false
+  if (typeof value === "number") {
+    if (schema.minimum !== undefined && value < schema.minimum) return fail(`is below the minimum ${schema.minimum}`)
+    if (schema.maximum !== undefined && value > schema.maximum) return fail(`is above the maximum ${schema.maximum}`)
+  }
   if (isRecord(value)) {
     const properties = schema.properties ?? {}
-    if ((schema.required ?? []).some((key: string) => !(key in value))) return false
-    for (const [key, child] of Object.entries(properties)) if (key in value && !validateSchema(child, value[key], root)) return false
-    if (schema.additionalProperties === false && Object.keys(value).some((key) => !(key in properties))) return false
+    const missing = (schema.required ?? []).filter((key: string) => !(key in value))
+    if (missing.length > 0) return fail(`is missing required propert${missing.length === 1 ? "y" : "ies"} ${missing.join(", ")}`)
+    for (const [key, child] of Object.entries(properties)) if (key in value && !validateSchema(child, value[key], root, path ? `${path}.${key}` : key, failures)) return false
+    if (schema.additionalProperties === false) {
+      const extra = Object.keys(value).filter((key) => !(key in properties))
+      if (extra.length > 0) return fail(`carries undeclared propert${extra.length === 1 ? "y" : "ies"} ${extra.join(", ")}`)
+    }
   }
   if (Array.isArray(value)) {
-    if (schema.minItems !== undefined && value.length < schema.minItems || schema.maxItems !== undefined && value.length > schema.maxItems) return false
-    if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item)).filter((s) => s !== undefined)).size !== value.length) return false
-    if (schema.items && value.some((item) => !validateSchema(schema.items, item, root))) return false
+    if (schema.minItems !== undefined && value.length < schema.minItems) return fail(`carries fewer than ${schema.minItems} item(s)`)
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) return fail(`carries more than ${schema.maxItems} item(s)`)
+    if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail("carries duplicate items")
+    if (schema.items) {
+      for (let index = 0; index < value.length; index++) {
+        if (!validateSchema(schema.items, value[index], root, `${path}[${index}]`, failures)) return false
+      }
+    }
   }
   return true
 }
@@ -108,7 +175,29 @@ export function validateAgentLanePacket(value: unknown): value is AgentLanePacke
   return validateSchema(agentLanePacketSchema, value, agentLanePacketSchema)
 }
 
+export function validateAgentLaneReport(value: unknown, failures?: string[]): value is AgentLaneReport {
+  return validateSchema(agentLaneReportSchema, value, agentLaneReportSchema, "", failures)
+}
+
+// validateAgainstSchema validates a value against a self-contained schema
+// document, resolving any `$ref` inside that same document.
+export function validateAgainstSchema(schema: unknown, value: unknown, failures?: string[]): boolean {
+  return validateSchema(schema, value, schema, "", failures)
+}
+
 const RUN_EVENT_TYPES = new Set(["step_start", "step_finish", "text", "reasoning", "tool_use", "error"])
+
+// hostStatusMetadata extracts a session identifier from a host plugin log
+// line that shares stdout with the run stream. The host plugin emits typed
+// message-updated events whose sessionID lets the adapter associate its log
+// with the dispatched run.
+function hostStatusMetadata(value: Record<string, unknown>): string | null {
+  if (value.type !== "message.updated" || !isRecord(value.properties)) return null
+  const properties = value.properties
+  if (typeof properties.sessionId === "string") return properties.sessionId
+  if (typeof properties.sessionID === "string") return properties.sessionID
+  return null
+}
 
 export function readRunSessionMetadata(stdout: string): RunSessionMetadata | null {
   if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
@@ -118,13 +207,21 @@ export function readRunSessionMetadata(stdout: string): RunSessionMetadata | nul
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue
     let value: unknown
-    try { value = JSON.parse(line) } catch { return null }
-    if (!isRecord(value) || typeof value.type !== "string") return null
-    if (!RUN_EVENT_TYPES.has(value.type)) return null
-    if (typeof value.timestamp !== "number" || typeof value.sessionID !== "string" || value.sessionID.length === 0) return null
-    officialEvents++
-    sessions.add(value.sessionID)
-    if (value.type === "step_finish" && isRecord(value.part) && value.part.reason === "stop") completed = true
+    // Host plugins log their own JSON lines to the same stdout, so a line that
+    // is not a typed run event carries no session identity and is ignored. The
+    // identity invariant is enforced below over the run events themselves.
+    try { value = JSON.parse(line) } catch { continue }
+    if (!isRecord(value) || typeof value.type !== "string") continue
+    if (RUN_EVENT_TYPES.has(value.type)) {
+      if (typeof value.timestamp !== "number" || typeof value.sessionID !== "string" || value.sessionID.length === 0) return null
+      officialEvents++
+      sessions.add(value.sessionID)
+      if (value.type === "step_finish" && isRecord(value.part) && value.part.reason === "stop") completed = true
+      continue
+    }
+    const sessionID = hostStatusMetadata(value)
+    if (!sessionID) continue
+    sessions.add(sessionID)
   }
   if (officialEvents === 0 || !completed || sessions.size !== 1) return null
   return { session_id: [...sessions][0] }
@@ -149,6 +246,96 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
   assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
   const latest = assistants.at(-1)
   return latest ? { readback_model: latest.model, session_id: expectedSessionID } : null
+}
+
+// readRunTextParts returns the model's message text in emission order. The host
+// writes one JSON run event per stdout line, and the assistant's text is carried
+// only by `text` events, at `part.text`. No other event or key on the stream
+// carries it.
+function readRunTextParts(stdout: string): string[] {
+  const texts: string[] = []
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith("{")) continue
+    let parsed: unknown
+    try { parsed = JSON.parse(trimmed) } catch { continue }
+    if (!isRecord(parsed) || parsed.type !== "text" || !isRecord(parsed.part)) continue
+    const part = parsed.part
+    if (part.type !== "text" || typeof part.text !== "string") continue
+    texts.push(part.text)
+  }
+  return texts
+}
+
+// stripReportFence removes one Markdown code fence wrapping the whole text. A
+// model instructed to return only JSON frequently fences it. Nothing beyond a
+// single enclosing fence is unwrapped: extracting JSON out of surrounding prose
+// is heuristic salvage, and a report that needs salvaging fails closed.
+function stripReportFence(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith("```") || !trimmed.endsWith("```") || trimmed.length < 6) return trimmed
+  const firstBreak = trimmed.indexOf("\n")
+  if (firstBreak < 0) return trimmed
+  const info = trimmed.slice(3, firstBreak).trim()
+  if (info.length > 0 && !/^[A-Za-z0-9_-]+$/.test(info)) return trimmed
+  return trimmed.slice(firstBreak + 1, trimmed.length - 3).trim()
+}
+
+export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: boolean }
+
+// readWorkerReport locates the worker's report in the host run stream. A worker
+// emits several text parts, so neither the first nor a concatenation is the
+// report: the last text part that parses as a JSON object is, because that is
+// the worker's final answer and every earlier part is working prose it
+// superseded. `malformed` records that a part that announced itself as JSON did
+// not parse, which distinguishes a worker that returned nothing from one that
+// returned something broken.
+export function readWorkerReport(stdout: string): WorkerReportScan {
+  let malformed = false
+  const found: Record<string, unknown>[] = []
+  for (const text of readRunTextParts(stdout)) {
+    const candidate = stripReportFence(text)
+    if (!candidate.startsWith("{")) continue
+    let parsed: unknown
+    try { parsed = JSON.parse(candidate) } catch { malformed = true; continue }
+    if (isRecord(parsed)) found.push(parsed)
+    else malformed = true
+  }
+  return { report: found.at(-1) ?? null, malformed }
+}
+
+const REPORT_IDENTITY_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest"] as const
+
+// resolveWorkerReport is the CD-0056 D7 admission boundary: a report is admitted
+// only when it is present, parses, satisfies the closed report schema, and
+// echoes the identity of the packet it was dispatched for. Anything else returns
+// a bounded detail that names what was wrong, and the caller records
+// worker.failed with the invalid_report kind rather than a completion.
+export function resolveWorkerReport(stdout: string, packet: AgentLanePacket): { report: AgentLaneReport } | { detail: string } {
+  const scan = readWorkerReport(stdout)
+  if (!scan.report) {
+    return { detail: scan.malformed
+      ? "worker output carried a malformed JSON document and no agent-lane-report.v1 report"
+      : "worker output carried no agent-lane-report.v1 report" }
+  }
+  const failures: string[] = []
+  if (!validateAgentLaneReport(scan.report, failures)) {
+    return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
+  }
+  for (const field of REPORT_IDENTITY_FIELDS) {
+    if (scan.report[field] !== packet[field]) {
+      return { detail: `worker report ${field} ${JSON.stringify(scan.report[field])} does not match dispatched packet ${JSON.stringify(packet[field])}` }
+    }
+  }
+  return { report: scan.report }
+}
+
+// workerReportedFailureDetail renders a `failed` report's own evidence as the
+// bounded failure detail. The worker's failure is recorded as the worker's, not
+// reclassified as an invalid report.
+function workerReportedFailureDetail(report: AgentLaneReport): string {
+  const rendered = report.evidence.map((entry) => `${entry.obligation}: ${entry.detail}`).join("; ")
+  return `worker reported failure: ${rendered}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
 }
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
@@ -310,8 +497,20 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const provenance = await computeHostPromptProvenance(lane.id)
+
+  // CD-0056 D7: the adapter is the only component that sees worker output, so
+  // the report is admitted here. A report that is absent, unparseable, invalid,
+  // or bound to another packet is a typed failure, never a completion.
+  const resolution = resolveWorkerReport(result.stdout, packet)
+  const terminal: { verb: "worker-complete"; report: AgentLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
+    "detail" in resolution
+      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: resolution.detail.slice(0, MAX_FAILURE_DETAIL_BYTES) }
+      : resolution.report.status === "failed"
+        ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report) }
+        : { verb: "worker-complete", report: resolution.report }
+
   let dispatchAssertion: Record<string, unknown>
-  let completionAssertion: Record<string, unknown>
+  let terminalAssertion: Record<string, unknown>
   try {
     dispatchAssertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch",
@@ -323,15 +522,26 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
       readback_model: readback.readback_model,
       host_provenance_digest: provenance.digest,
     })
-    completionAssertion = await signWorkerEvidence(credentials, {
-      verb: "worker-complete",
-      work_id: packet.work_id,
-      attempt_id: packet.attempt_id,
-      lane_id: lane.id,
-      lane_version: lane.version,
-      lane_digest: lane.digest,
-      readback_model: readback.readback_model,
-    })
+    terminalAssertion = terminal.verb === "worker-complete"
+      ? await signWorkerEvidence(credentials, {
+        verb: "worker-complete",
+        work_id: packet.work_id,
+        attempt_id: packet.attempt_id,
+        lane_id: lane.id,
+        lane_version: lane.version,
+        lane_digest: lane.digest,
+        readback_model: readback.readback_model,
+      })
+      // The worker-fail binding at the CLI boundary carries the attempt, the
+      // readback model, and the failure kind only, so the assertion claims
+      // exactly those (internal/agent/worker_evidence.go).
+      : await signWorkerEvidence(credentials, {
+        verb: "worker-fail",
+        work_id: packet.work_id,
+        attempt_id: packet.attempt_id,
+        readback_model: readback.readback_model,
+        failure_kind: terminal.failure_kind,
+      })
   } catch (error) {
     // Without a credential the adapter cannot authorize evidence, and evidence
     // that cannot be recorded is never reported as a successful run.
@@ -352,13 +562,33 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   }, signal)
   if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
 
+  if (terminal.verb === "worker-fail") {
+    const failureRecordFailure = await recordWorkerEvent(cliRunner, cli, "worker-fail", {
+      event_id: crypto.randomUUID(),
+      work_id: packet.work_id,
+      attempt_id: packet.attempt_id,
+      readback_model: readback.readback_model,
+      failure_kind: terminal.failure_kind,
+      detail: terminal.detail,
+      assertion: terminalAssertion,
+    }, signal)
+    if (failureRecordFailure) return errorEnvelope(lane, packet, "error", "error", failureRecordFailure, "reconcile_operation")
+    const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation")
+    failed.readback_model = readback.readback_model
+    failed.session_id = readback.session_id
+    failed.output = result.stdout
+    return failed
+  }
+
   const completionFailure = await recordWorkerEvent(cliRunner, cli, "worker-complete", {
     event_id: crypto.randomUUID(),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     readback_model: readback.readback_model,
     report_schema_version: REPORT_SCHEMA_VERSION,
-    assertion: completionAssertion,
+    evidence_origin: "reported",
+    evidence: terminal.report.evidence,
+    assertion: terminalAssertion,
   }, signal)
   if (completionFailure) return errorEnvelope(lane, packet, "error", "error", completionFailure, "reconcile_operation")
 

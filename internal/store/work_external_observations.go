@@ -134,13 +134,17 @@ func (s *Store) ExternalObservationsForWork(ctx context.Context, workID string, 
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "external_observations", "store is not open", false, "open the authority database")
 	}
+	return externalObservationsForWork(ctx, s.db, workID, now, limit)
+}
+
+func externalObservationsForWork(ctx context.Context, q queryer, workID string, now time.Time, limit int) ([]ExternalObservationRow, error) {
 	if limit < 1 {
 		limit = 10
 	}
 	if limit > 64 {
 		limit = 64
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT observation_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,subject_digest,observed_universe,freshness_policy_ref,divergence_policy_ref,verification_state,verification_method,verified_at,verifying_authority_ref FROM external_observations WHERE work_id=? ORDER BY created_event_seq DESC, observation_id LIMIT ?`, workID, limit)
+	rows, err := q.QueryContext(ctx, `SELECT observation_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,subject_digest,observed_universe,freshness_policy_ref,divergence_policy_ref,verification_state,verification_method,verified_at,verifying_authority_ref FROM external_observations WHERE work_id=? ORDER BY created_event_seq DESC, observation_id LIMIT ?`, workID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "external_observations", "cannot read external observations", true, "retry once the database is readable", err)
 	}

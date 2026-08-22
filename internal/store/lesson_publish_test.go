@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -320,4 +322,142 @@ func TestMarshalKnowledgeManifestMatchesKnowledgeIndexGenerator(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generator rejected Go serialization: %v\n%s", err, output)
 	}
+}
+
+// eightKeyLessonRepoFixture seeds a git knowledge home whose manifest carries
+// every top-level key the v1 contract declares, including the three the Go
+// model does not project onto a field: knowledge_roots, exclusions, and
+// doc_contract. Those three carry live policy — the doc contract gate and the
+// research exclusion — so a publication that drops them disables repository
+// law.
+func eightKeyLessonRepoFixture(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "--quiet", "-b", "main")
+	run("config", "user.email", "concord@example.invalid")
+	run("config", "user.name", "Concord Lesson Test")
+	if err := os.MkdirAll(filepath.Join(repo, "docs/lessons"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+  "schema_version": "1.2",
+  "supported_kinds": ["work_note", "decision", "spec", "lesson", "research"],
+  "indexed_kinds": ["work_note", "decision", "spec", "lesson"],
+  "domain_registry": {
+    "schema_version": "1.0",
+    "product_key": "fixture-product",
+    "root_domain_id": "product-root:fixture-product",
+    "domains": [
+      {"domain_id": "product-root:fixture-product", "name": "Fixture product", "purpose": "Fixture registry root.", "status": "current", "architecture_relations": []}
+    ]
+  },
+  "knowledge_roots": ["docs/"],
+  "exclusions": ["docs/research/"],
+  "doc_contract": {
+    "enforced": true,
+    "spec": {"required_sections": ["Purpose"], "ac_required": true},
+    "banned_phrases": ["utilize"]
+  },
+  "records": [
+    {
+      "id": "seed-lesson",
+      "kind": "lesson",
+      "path": "docs/lessons/2026-08-01-seed.md",
+      "status": "published",
+      "date": "2026-08-01T00:00:00Z",
+      "title": "Seed lesson",
+      "summary": "Seed record proving the manifest format.",
+      "tags": ["seed"],
+      "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}
+`
+	if err := os.WriteFile(filepath.Join(repo, lessonManifestPath), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "docs/lessons/2026-08-01-seed.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "--quiet", "-m", "seed manifest")
+	return repo
+}
+
+func TestPublishLessonRecordPreservesEveryTopLevelManifestKey(t *testing.T) {
+	repo := eightKeyLessonRepoFixture(t)
+	manifestFile := filepath.Join(repo, lessonManifestPath)
+	before := map[string]json.RawMessage{}
+	raw, err := os.ReadFile(manifestFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &before); err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 8 {
+		t.Fatalf("fixture must carry all eight top-level keys, got %d: %v", len(before), sortedKeys(before))
+	}
+
+	published, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, LessonPublication{
+		LessonID: "lesson-manifest-round-trip", Title: "Manifest round trip is lossless",
+		Summary: "Publishing a lesson preserves every top-level manifest key.",
+		Content: "# Manifest round trip is lossless\n\nPreserve the whole manifest.\n",
+		Tags:    []string{"knowledge"},
+		Scopes:  KnowledgeRecordScopes{Mode: "home"},
+		Now:     time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if published.CommitOID == "" {
+		t.Fatal("publication produced no commit")
+	}
+
+	after := map[string]json.RawMessage{}
+	raw, err = os.ReadFile(manifestFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &after); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range sortedKeys(before) {
+		if _, ok := after[key]; !ok {
+			t.Fatalf("publication dropped top-level manifest key %q; survivors: %v", key, sortedKeys(after))
+		}
+	}
+	if len(after) != len(before) {
+		t.Fatalf("top-level key count changed: before %v, after %v", sortedKeys(before), sortedKeys(after))
+	}
+	// The three unmodeled keys must survive byte-identical: the publication
+	// owns records, not policy.
+	for _, key := range []string{"knowledge_roots", "exclusions", "doc_contract"} {
+		var want, got any
+		if err := json.Unmarshal(before[key], &want); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(after[key], &got); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(want, got) {
+			t.Fatalf("publication mutated %q: before %s, after %s", key, before[key], after[key])
+		}
+	}
+}
+
+func sortedKeys(value map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

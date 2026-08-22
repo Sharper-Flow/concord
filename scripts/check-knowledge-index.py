@@ -16,16 +16,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
-ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "doc_contract", "records"}
+ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "dispositions", "doc_contract", "records"}
+ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
 ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids"}
 ALLOWED_SCOPES_V10 = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 ALLOWED_SCOPES_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 ALLOWED_DOMAIN_REGISTRY = {"schema_version", "product_key", "root_domain_id", "domains"}
 ALLOWED_DOMAIN = {"domain_id", "name", "purpose", "parent_domain_id", "status", "architecture_relations"}
 ALLOWED_ARCHITECTURE_RELATION = {"kind", "target_domain_id", "governing_law_ids", "state"}
-KINDS = {"work_note", "lesson", "decision", "spec", "research"}
-RECORD_KINDS = {"lesson", "decision", "spec"}
+KINDS = {"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"}
+RECORD_KINDS = {"constitution", "decision", "spec", "lesson", "reference", "research"}
+# The record kinds split into two status tiers. A law-bearing record is accepted
+# or superseded; every other kind is published or superseded. `reference` covers
+# navigation and reference material, so there is no separate navigation kind.
+LAW_BEARING_KINDS = {"constitution", "decision", "spec"}
+# The law-relation graph, the domain registry's governing_law_ids, and the
+# supersedes symmetry rule are defined over decisions and specs alone. A
+# constitution is law-bearing for status purposes without joining that graph.
+LAW_RELATION_SUBJECTS = {"decision", "spec"}
 LAW_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with"}
+DISPOSITIONS = {"archived"}
+MAX_DISPOSITIONS = 1000
+MAX_DISPOSITION_REASON = 4096
+DISPOSITION_PATH_RE = re.compile(r"^(?![\s\S]*\.\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\.md$")
+# Which authored docs paths may carry a record is declared once, as the
+# $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
+# Python re carries the lookahead that JSON Schema uses, so this restates the
+# pattern verbatim rather than decomposing it; check-knowledge-vocabulary.py
+# binds the two texts. `generated` is spelled as per-letter character classes
+# because the Go model matches it ASCII case-insensitively.
+RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
 
 
 class DuplicateKeyError(ValueError):
@@ -180,6 +200,45 @@ def has_cycle(graph: dict[str, list[str]]) -> bool:
     return any(visit(node) for node in graph)
 
 
+def validate_dispositions(dispositions: object, record_paths: set[str], findings: list[str]) -> None:
+    """Enforce the record/disposition exclusion over the manifest.
+
+    A disposition is the opposite of a record: a record makes a document
+    knowledge, a disposition states that the document will never become
+    knowledge and why. A path claimed by both has no answer to give, so the
+    manifest is rejected rather than resolved by precedence.
+    """
+    if dispositions is None:
+        return
+    if not isinstance(dispositions, list) or len(dispositions) > MAX_DISPOSITIONS:
+        fail(findings, "manifest: dispositions must be a bounded array")
+        return
+    seen: set[str] = set()
+    for number, entry in enumerate(dispositions):
+        prefix = f"manifest.dispositions[{number}]"
+        if not isinstance(entry, dict) or set(entry) != ALLOWED_DISPOSITION:
+            fail(findings, f"{prefix}: disposition must carry exactly path, disposition, and reason")
+            continue
+        path = entry["path"]
+        if (
+            not isinstance(path, str)
+            or len(path) > MAX_MANIFEST_PATH
+            or not DISPOSITION_PATH_RE.fullmatch(path)
+        ):
+            fail(findings, f"{prefix}: forbidden or unsafe path: {path}")
+            continue
+        if entry["disposition"] not in DISPOSITIONS:
+            fail(findings, f"{prefix}: disposition is not closed: {entry['disposition']}")
+        reason = entry["reason"]
+        if not isinstance(reason, str) or not 0 < len(reason) <= MAX_DISPOSITION_REASON or reason != reason.strip():
+            fail(findings, f"{prefix}: reason must be a bounded non-empty statement")
+        if path in seen:
+            fail(findings, f"{prefix}: duplicate disposition path {path}")
+        seen.add(path)
+        if path in record_paths:
+            fail(findings, f"{prefix}: path is both a record and a disposition: {path}")
+
+
 def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     findings: list[str] = []
     if not isinstance(data, dict):
@@ -193,10 +252,10 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     supported = data.get("supported_kinds")
     indexed = data.get("indexed_kinds")
     records = data.get("records")
-    if not unique_string_list(supported, 5) or not all(kind in KINDS for kind in supported):
+    if not unique_string_list(supported, len(KINDS)) or not all(kind in KINDS for kind in supported):
         fail(findings, "manifest: supported_kinds is not a unique closed bounded array")
         supported = []
-    if not unique_string_list(indexed, 4) or not all(kind in {"work_note", "lesson", "decision", "spec"} for kind in indexed):
+    if not unique_string_list(indexed, len(KINDS)) or not all(kind in KINDS for kind in indexed):
         fail(findings, "manifest: indexed_kinds is not a unique closed bounded array")
         indexed = []
     if not set(indexed).issubset(supported):
@@ -237,7 +296,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         relations = record.get("law_relations", [])
         if not isinstance(relations, list) or len(relations) > 32:
             fail(findings, f"{prefix}: law_relations must be a bounded array")
-        elif not isinstance(record.get("kind"), str) or record.get("kind") not in {"decision", "spec"}:
+        elif not isinstance(record.get("kind"), str) or record.get("kind") not in LAW_RELATION_SUBJECTS:
             if relations:
                 fail(findings, f"{prefix}: law_relations are only allowed on decision/spec records")
         else:
@@ -262,12 +321,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             or len(path) > MAX_MANIFEST_PATH
             or (isinstance(path, str) and "\x00" in path)
             or path in {"docs/concord-knowledge-index.v1.json"}
-            or not path.startswith("docs/")
-            or not path.endswith(".md")
-            or path.startswith("docs/work/")
-            or path.startswith("docs/research/")
-            or "generated" in path.lower()
-            or path in {"docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"}
+            or not RECORD_PATH_RE.fullmatch(path)
         ):
             fail(findings, f"{prefix}: forbidden or unsafe path: {path}")
             continue
@@ -282,7 +336,13 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: decision is outside the canonical CD decision path")
 
         status = record["status"]
-        if not isinstance(status, str) or status not in {"accepted", "published", "superseded"} or (status == "published" and kind != "lesson") or (status == "accepted" and kind == "lesson"):
+        law_bearing = kind in LAW_BEARING_KINDS
+        if (
+            not isinstance(status, str)
+            or status not in {"accepted", "published", "superseded"}
+            or (status == "published" and law_bearing)
+            or (status == "accepted" and not law_bearing)
+        ):
             fail(findings, f"{prefix}: invalid status/kind combination")
         successor = record.get("successor")
         if status == "superseded" and not valid_id(successor):
@@ -317,10 +377,10 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         if schema_version != "1.2" and ("home_domain_id" in record or "applies_to_domain_ids" in record):
             fail(findings, f"{prefix}: law-home fields require schema_version 1.2")
         elif schema_version == "1.2":
-            if kind == "lesson" and ("home_domain_id" in record or "applies_to_domain_ids" in record):
-                fail(findings, f"{prefix}: lessons cannot author law-home fields")
-            if kind in {"decision", "spec"} and status == "accepted" and ("home_domain_id" not in record or not valid_id(record.get("home_domain_id"))):
-                fail(findings, f"{prefix}: accepted decision/spec requires one clean home_domain_id")
+            if not law_bearing and ("home_domain_id" in record or "applies_to_domain_ids" in record):
+                fail(findings, f"{prefix}: non-law records cannot author law-home fields")
+            if law_bearing and status == "accepted" and ("home_domain_id" not in record or not valid_id(record.get("home_domain_id"))):
+                fail(findings, f"{prefix}: an accepted law-bearing record requires one clean home_domain_id")
             if "home_domain_id" in record and (not valid_id(record["home_domain_id"]) or record["home_domain_id"] not in domain_ids):
                 fail(findings, f"{prefix}: home domain is dangling or invalid")
             if "applies_to_domain_ids" in record:
@@ -358,12 +418,14 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if actual != record["sha256"]:
                 fail(findings, f"{prefix}: hash drift for {path}")
 
+    validate_dispositions(data.get("dispositions"), paths, findings)
+
     by_id = {record.get("id"): record for record in records if isinstance(record, dict) and isinstance(record.get("id"), str)}
     if schema_version == "1.2" and isinstance(registry, dict):
         accepted_laws = {
             record.get("id")
             for record in records
-            if isinstance(record, dict) and record.get("kind") in {"decision", "spec"} and record.get("status") == "accepted"
+            if isinstance(record, dict) and record.get("kind") in LAW_RELATION_SUBJECTS and record.get("status") == "accepted"
         }
         for domain in registry.get("domains", []) if isinstance(registry.get("domains"), list) else []:
             if not isinstance(domain, dict):
@@ -384,7 +446,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if not isinstance(relation, dict) or relation.get("kind") not in LAW_KINDS:
                 continue
             target = by_id.get(relation.get("target_id"))
-            if target is None or target.get("kind") not in {"decision", "spec"}:
+            if target is None or target.get("kind") not in LAW_RELATION_SUBJECTS:
                 fail(findings, f"{prefix}: law relation target is not a declared decision/spec record")
                 continue
             kind = relation["kind"]
@@ -442,7 +504,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             continue
         if target.get("kind") != record.get("kind"):
             fail(findings, f"{prefix}: successor kind does not match")
-        expected_status = "published" if record.get("kind") == "lesson" else "accepted"
+        expected_status = "accepted" if record.get("kind") in LAW_BEARING_KINDS else "published"
         if target.get("status") != expected_status:
             fail(findings, f"{prefix}: successor status is incompatible")
 

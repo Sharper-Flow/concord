@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -198,7 +199,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	}
 
 	record := req.record(contentSHA, date, notePath, manifest.SchemaVersion)
-	if err := validateKnowledgeRecordForSchema(record, map[string]bool{"work_note": true, "decision": true, "spec": true, "lesson": true, "research": true}, map[string]bool{"work_note": true, "decision": true, "spec": true, "lesson": true}, manifest.SchemaVersion); err != nil {
+	if err := validateKnowledgeRecordForSchema(record, knowledgeKindsClosed, knowledgeKindsClosed, manifest.SchemaVersion); err != nil {
 		return out, err
 	}
 
@@ -219,8 +220,9 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson record shard", true, "restore write access to the git home", err)
 	}
 
-	// Append the record and rewrite the manifest preserving its canonical
-	// formatting: root order as authored, record keys sorted, indent two.
+	// Append the record and rewrite the manifest preserving the generator's
+	// canonical formatting: root order as authored, records sorted by ID,
+	// record keys sorted, indent two.
 	manifest.Records = append(manifest.Records, record)
 	sort.SliceStable(manifest.Records, func(i, j int) bool { return manifest.Records[i].ID < manifest.Records[j].ID })
 	if err := validateKnowledgeManifest(manifest); err != nil {
@@ -251,15 +253,44 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	return out, nil
 }
 
-// marshalKnowledgeManifest renders the manifest with the formatting the
-// offline validator and authored file already use: two-space indent, record
-// keys sorted, one trailing newline.
+// marshalKnowledgeManifest renders the manifest with two-space indent, root
+// keys in the authored order, canonical record key order, and one trailing
+// newline — the same bytes scripts/generate-knowledge-index.py derives from the
+// record shards. It is lossless: every top-level key the parsed manifest
+// carried is present in the output, whether or not this package models it.
 func marshalKnowledgeManifest(manifest KnowledgeManifest) ([]byte, error) {
-	out, err := json.MarshalIndent(manifest, "", "  ")
+	// Start from the keys this package does not interpret so they survive the
+	// rewrite, then overwrite the ones it owns. A top-level key added to the
+	// contract later is carried here, not enumerated; only its position comes
+	// from canonicalManifestRootOrder.
+	values := make(map[string]any, len(manifest.uninterpreted)+len(manifestRootKeys))
+	for key, value := range manifest.uninterpreted {
+		values[key] = value
+	}
+	values["schema_version"] = manifest.SchemaVersion
+	values["supported_kinds"] = manifest.SupportedKinds
+	values["indexed_kinds"] = manifest.IndexedKinds
+	if manifest.SchemaVersion == "1.2" {
+		values["domain_registry"] = manifest.DomainRegistry
+	}
+	records := make([]any, 0, len(manifest.Records))
+	for _, record := range manifest.Records {
+		records = append(records, manifestRecordEntry(record))
+	}
+	values["records"] = records
+	if manifest.dispositionsPresent || len(manifest.Dispositions) > 0 {
+		values["dispositions"] = manifest.Dispositions
+	}
+	root := orderManifestFields(values, canonicalManifestRootOrder)
+	compact, err := marshalManifestValue(root)
 	if err != nil {
 		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the knowledge manifest", false, "repair the manifest record", err)
 	}
-	return append(out, '\n'), nil
+	indented := bytes.Buffer{}
+	if err := json.Indent(&indented, compact, "", "  "); err != nil {
+		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the knowledge manifest", false, "repair the manifest record", err)
+	}
+	return append(indented.Bytes(), '\n'), nil
 }
 
 func marshalKnowledgeRecord(record KnowledgeRecord) ([]byte, error) {

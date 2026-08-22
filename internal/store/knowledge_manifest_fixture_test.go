@@ -47,7 +47,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 			Date: fixture.Date, Title: fixture.Title, Summary: fixture.Summary, Tags: append([]string{}, fixture.Tags...),
 			Scopes: scopes, Successor: fixture.Successor, SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 		}
-		if (record.Kind == "decision" || record.Kind == "spec") && record.Status == "accepted" && record.HomeDomainID == "" {
+		if manifestLawBearingKinds[record.Kind] && record.Status == "accepted" && record.HomeDomainID == "" {
 			record.HomeDomainID = fixtureRootDomain
 		}
 		records = append(records, record)

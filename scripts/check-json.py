@@ -75,6 +75,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"knowledge index drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    knowledge_vocabulary_checker = ROOT / "scripts/check-knowledge-vocabulary.py"
+    if knowledge_vocabulary_checker.is_file():
+        checked = subprocess.run([sys.executable, str(knowledge_vocabulary_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"knowledge vocabulary drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     floor_checker = ROOT / "scripts/check-floor-readiness.py"
     if floor_checker.is_file():
         checked = subprocess.run([sys.executable, str(floor_checker)], cwd=ROOT, capture_output=True, text=True)

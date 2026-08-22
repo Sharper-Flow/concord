@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ ALLOWED_ROOT = {
     "domain_registry",
     "knowledge_roots",
     "exclusions",
+    "dispositions",
     "doc_contract",
     "records",
 }
@@ -49,8 +51,19 @@ REQUIRED_RECORD = ALLOWED_RECORD - {
     "home_domain_id",
     "applies_to_domain_ids",
 }
-KINDS = {"lesson", "decision", "spec"}
+SUPPORTED_KINDS = {"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"}
+KINDS = {"constitution", "decision", "spec", "lesson", "reference", "research"}
+# A law-bearing record takes status accepted or superseded; every other record
+# kind takes published or superseded. The law-relation graph is narrower still:
+# it is defined over decisions and specs, so a constitution is law-bearing for
+# status purposes without joining that graph.
+LAW_BEARING_KINDS = {"constitution", "decision", "spec"}
+LAW_RELATION_SUBJECTS = {"decision", "spec"}
 LAW_RELATION_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with"}
+# Which authored docs path may carry a record is declared once, as the
+# $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
+# check-knowledge-vocabulary.py binds this restatement to that pattern text.
+RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
 SCOPE_FIELDS_V10 = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 SCOPE_FIELDS_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 
@@ -128,7 +141,8 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
     if kind not in KINDS:
         findings.append(f"{prefix}: invalid kind")
     status = record["status"]
-    expected_statuses = {"published", "superseded"} if kind == "lesson" else {"accepted", "superseded"}
+    law_bearing = kind in LAW_BEARING_KINDS
+    expected_statuses = {"accepted", "superseded"} if law_bearing else {"published", "superseded"}
     if status not in expected_statuses:
         findings.append(f"{prefix}: invalid status/kind combination")
     if status == "superseded" and not clean_text(record.get("successor"), 256):
@@ -140,13 +154,8 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         not isinstance(path, str)
         or len(path) > 512
         or "\x00" in path
-        or not path.startswith("docs/")
-        or not path.endswith(".md")
         or ".." in Path(path).parts
-        or path.startswith("docs/work/")
-        or path.startswith("docs/research/")
-        or "generated" in path.lower()
-        or path in {"docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"}
+        or not RECORD_PATH_RE.fullmatch(path)
     ):
         findings.append(f"{prefix}: forbidden or unsafe path: {path}")
     try:
@@ -164,7 +173,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         findings.append(f"{prefix}: invalid sha256 proof")
     if "law_relations" in record:
         relations = record["law_relations"]
-        if kind not in {"decision", "spec"} or not isinstance(relations, list) or len(relations) > 32:
+        if kind not in LAW_RELATION_SUBJECTS or not isinstance(relations, list) or len(relations) > 32:
             findings.append(f"{prefix}: invalid law_relations")
         elif any(not isinstance(item, dict) or set(item) != {"kind", "target_id"} or item["kind"] not in LAW_RELATION_KINDS or not clean_text(item["target_id"], 256) for item in relations):
             findings.append(f"{prefix}: invalid law relation")
@@ -173,10 +182,10 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
     if schema_version != "1.2" and ({"home_domain_id", "applies_to_domain_ids"} & set(record)):
         findings.append(f"{prefix}: law-home fields require schema_version 1.2")
     if schema_version == "1.2":
-        if kind == "lesson" and ({"home_domain_id", "applies_to_domain_ids"} & set(record)):
-            findings.append(f"{prefix}: lessons cannot author law-home fields")
-        if kind in {"decision", "spec"} and status == "accepted" and not clean_text(record.get("home_domain_id"), 256):
-            findings.append(f"{prefix}: accepted decision/spec requires one home domain")
+        if not law_bearing and ({"home_domain_id", "applies_to_domain_ids"} & set(record)):
+            findings.append(f"{prefix}: non-law records cannot author law-home fields")
+        if law_bearing and status == "accepted" and not clean_text(record.get("home_domain_id"), 256):
+            findings.append(f"{prefix}: an accepted law-bearing record requires one home domain")
         for field in ("home_domain_id",):
             if field in record and record[field] not in domain_ids:
                 findings.append(f"{prefix}: home domain is dangling")
@@ -268,8 +277,8 @@ def template_for(root: Path, findings: list[str], template: dict[str, object] | 
         else:
             template = {
                 "schema_version": "1.2",
-                "supported_kinds": ["work_note", "decision", "spec", "lesson", "research"],
-                "indexed_kinds": ["work_note", "decision", "spec", "lesson"],
+                "supported_kinds": sorted(SUPPORTED_KINDS),
+                "indexed_kinds": sorted(SUPPORTED_KINDS),
             }
     unknown = set(template) - ALLOWED_ROOT
     if unknown:

@@ -2,16 +2,21 @@
   "schema_version": "1.2",
   "supported_kinds": [
     "work_note",
+    "constitution",
     "decision",
     "spec",
     "lesson",
+    "reference",
     "research"
   ],
   "indexed_kinds": [
     "work_note",
+    "constitution",
     "decision",
     "spec",
-    "lesson"
+    "lesson",
+    "reference",
+    "research"
   ],
   "domain_registry": {
     "schema_version": "1.0",
@@ -31,10 +36,28 @@
     "docs/"
   ],
   "exclusions": [
-    "docs/research/"
+    "docs/research/",
+    "docs/generated-agent-tool-surface.md"
+  ],
+  "dispositions": [
+    {
+      "path": "docs/pane-title-ownership-note.md",
+      "disposition": "archived",
+      "reason": "The note records observations from building the zlauncher and Advance pane-title surfaces, and it states in its own body that it carries no requirements. Its durable content is a set of constraints on a launcher surface Concord has not yet built: the title-writer precedence chain, the projection fields a title needs, and the terminal capability limits. Those constraints bind whichever change implements the CD-0014 launcher title surface, and they belong in that change's spec and its acceptance criteria, where they can be tested. Registering the note as reference would create a second, untestable statement of the same constraints beside the spec that will own them, and registering it as law would grant accepted authority to observations drawn from a predecessor product rather than from an accepted Concord decision."
+    }
   ],
   "doc_contract": {
     "enforced": false,
+    "constitution": {
+      "required_sections": [
+        "Purpose"
+      ],
+      "ac_required": false
+    },
+    "decision": {
+      "required_sections": [],
+      "ac_required": false
+    },
     "spec": {
       "required_sections": [
         "Context",
@@ -43,6 +66,20 @@
         "Verification"
       ],
       "ac_required": true
+    },
+    "lesson": {
+      "required_sections": [],
+      "ac_required": false
+    },
+    "reference": {
+      "required_sections": [],
+      "ac_required": false
+    },
+    "research": {
+      "required_sections": [
+        "Findings"
+      ],
+      "ac_required": false
     },
     "banned_phrases": [
       "in order to",
@@ -1432,6 +1469,35 @@
     {
       "date": "2026-08-22T00:00:00Z",
       "evidence": [
+        "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+        "contracts/agent-lane-report.schema.json",
+        "internal/store/worker_lanes.go",
+        "adapter/opencode/dispatch.ts"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0056",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0056-lane-evidence-obligations-bind.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:8c25d11950c0ff5f3bec9cddbfe668788b1aa8607e54e2cfd261f0e4b7d78dc3",
+      "status": "accepted",
+      "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
+      "tags": [
+        "lanes",
+        "evidence",
+        "workers"
+      ],
+      "title": "A lane report discharges its lane's evidence obligations"
+    },
+    {
+      "date": "2026-08-22T00:00:00Z",
+      "evidence": [
         "internal/store/worker_lanes.go",
         "adapter/opencode/dispatch.ts",
         "internal/store/schema.go"
@@ -1549,6 +1615,27 @@
       "title": "Compaction retention policy"
     },
     {
+      "date": "2026-08-22T00:00:00Z",
+      "id": "README",
+      "kind": "reference",
+      "path": "docs/README.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:402eed45dd9ace778169dc37df0e4eb31a17c1464c6de9c71a3256f4b0d9a96d",
+      "status": "published",
+      "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
+      "tags": [
+        "navigation",
+        "documentation"
+      ],
+      "title": "Concord documentation set"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-root:concord",
       "id": "TS3",
@@ -1637,6 +1724,74 @@
         "agents"
       ],
       "title": "Agent lane contract"
+    },
+    {
+      "date": "2026-08-22T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "knowledge-formalization-procedure",
+      "kind": "constitution",
+      "path": "docs/knowledge-formalization-procedure.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:5963e0e8c8536bdf324caebb8652b666cb064a649f2e6e7ade529cfa04b32b34",
+      "status": "accepted",
+      "summary": "Defines how a document becomes accepted Product law, becomes registered non-law, or is dispositioned. Declares the four knowledge states, the three destinations for an unprocessed document, the two-tier kind taxonomy, the ordered kind-selection path, the acceptance-criteria rule, and the atomicity requirement binding a document edit to its recorded hash.",
+      "tags": [
+        "knowledge",
+        "formalization",
+        "procedure"
+      ],
+      "title": "Knowledge formalization procedure"
+    },
+    {
+      "date": "2026-08-22T00:00:00Z",
+      "id": "market-landscape",
+      "kind": "research",
+      "path": "docs/market-landscape.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:37dd9d429c08ee809990c8b201598dce1682a4a3b0cce44dc8955269b4074956",
+      "status": "published",
+      "summary": "Reports an investigation of the agentic engineering and coordination landscape, the adjacent Clay and PostHog patterns, and the resulting positioning options. Carries its own unverified-claims section; it informs Concord's direction without becoming a second authority over the priorities.",
+      "tags": [
+        "market",
+        "landscape",
+        "competitive"
+      ],
+      "title": "Concord market landscape"
+    },
+    {
+      "date": "2026-08-22T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "priorities",
+      "kind": "constitution",
+      "path": "docs/priorities.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:447220bc95ee0ebed48a22d44282b21652eedf71a78320df2577bda1998b6856",
+      "status": "accepted",
+      "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
+      "tags": [
+        "priorities",
+        "envelope",
+        "governance"
+      ],
+      "title": "Concord priorities"
     },
     {
       "date": "2026-08-08T00:00:00Z",

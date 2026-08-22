@@ -669,6 +669,111 @@ def test_manifest_unknown_doc_contract_field_is_rejected() -> None:
     assert any("unknown fields" in line for line in stdout.splitlines()), stdout
 
 
+# ---------------------------------------------------------------------------
+# ac_required false forbids an acceptance-criteria section.
+# ---------------------------------------------------------------------------
+
+
+def non_spec_record(kind: str, path: str, sha_digest: str = "a") -> dict:
+    entry = record(path, sha_digest)
+    entry["id"], entry["kind"], entry["status"] = f"{kind}-1", kind, "published"
+    entry.pop("home_domain_id", None)
+    return entry
+
+
+def kind_contract(kind: str, required_sections: list[str]) -> dict:
+    return {
+        "enforced": True,
+        kind: {"required_sections": required_sections, "ac_required": False},
+        "banned_phrases": list(checker.DEFAULT_BANNED_PHRASES),
+    }
+
+
+def test_non_spec_kind_without_acceptance_criteria_passes() -> None:
+    root = sandbox()
+    path = "docs/reference.md"
+    write_spec(root, path, "# Reference\n\nBody.\n")
+    manifest = manifest_with(root, [non_spec_record("reference", path)], kind_contract("reference", []))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_non_spec_kind_with_acceptance_criteria_is_a_finding() -> None:
+    root = sandbox()
+    body = """# Reference
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+"""
+    path = "docs/reference.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [non_spec_record("reference", path, "b")], kind_contract("reference", []))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ac-forbidden: docs/reference.md#5" in line for line in stdout.splitlines()), stdout
+
+
+def test_prose_that_says_when_and_then_is_not_an_acceptance_section() -> None:
+    """The boundary is the heading scan, not the presence of Gherkin words."""
+    root = sandbox()
+    body = """# Research
+
+## Findings
+
+When the cache is cold, then the first read pays the index build.
+"""
+    path = "docs/research-note.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [non_spec_record("research", path, "c")], kind_contract("research", ["Findings"]))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_new_kind_required_sections_are_enforced() -> None:
+    root = sandbox()
+    path = "docs/constitution.md"
+    write_spec(root, path, "# Constitution\n\nBody.\n")
+    contract = kind_contract("constitution", ["Purpose"])
+    manifest = manifest_with(root, [non_spec_record("constitution", path, "d")], contract)
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("missing-section: docs/constitution.md (Purpose)" in line for line in stdout.splitlines()), stdout
+
+    root = sandbox()
+    write_spec(root, path, "# Constitution\n\n## Purpose\n\nBody.\n")
+    manifest = manifest_with(root, [non_spec_record("constitution", path, "e")], contract)
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_empty_section_name_is_rejected_for_a_kind_whose_list_may_be_empty() -> None:
+    """An empty array of sections is allowed; an empty section name is not."""
+    root = sandbox()
+    path = "docs/reference.md"
+    write_spec(root, path, "# Reference\n\nBody.\n")
+    manifest = manifest_with(root, [non_spec_record("reference", path, "f")], kind_contract("reference", [""]))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("required_sections must be a unique array" in line for line in stdout.splitlines()), stdout
+
+
+def test_live_manifest_declares_a_contract_for_every_new_kind() -> None:
+    """The taxonomy's non-law kinds must forbid acceptance criteria, not ignore them."""
+    live = json.loads(
+        (Path(checker.ROOT) / "docs/concord-knowledge-index.v1.json").read_text(encoding="utf-8")
+    )
+    contract = live["doc_contract"]
+    for kind in ("constitution", "reference", "research"):
+        assert kind in contract, kind
+        assert contract[kind]["ac_required"] is False, kind
+    assert contract["spec"]["ac_required"] is True
+
+
 def test_decision_records_are_skipped_when_not_in_contract() -> None:
     root = sandbox()
     path = "docs/decision.md"
@@ -757,6 +862,220 @@ Body.
     manifest = manifest_with(root, [record(path, sha_digest="c1")])
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+# ---------------------------------------------------------------------------
+# Inline code span exclusion
+#
+# Every exclusion is tested on both sides: the token is ignored inside a
+# backtick span, and the same token is still reported when it appears as
+# prose on the same document.
+# ---------------------------------------------------------------------------
+
+
+def _inline_code_body(context: str) -> str:
+    return f"""# Spec
+
+## Context
+
+{context}
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+
+
+def test_abbreviation_inside_inline_code_is_not_flagged() -> None:
+    root = sandbox()
+    body = _inline_code_body("Run `EXPLAIN QUERY PLAN` before merging.")
+    path = "docs/inline-abbr.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i1")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_abbreviation_outside_inline_code_is_still_flagged() -> None:
+    """The true-positive side of the exclusion.
+
+    Without this, blanking spans could silence the abbreviation check
+    entirely and the test above would still pass.
+    """
+    root = sandbox()
+    body = _inline_code_body("Run `EXPLAIN QUERY PLAN` before merging the RPC.")
+    path = "docs/inline-abbr-mixed.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i2")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ABBR=RPC" in line for line in stdout.splitlines()), stdout
+    assert not any("ABBR=QUERY" in line for line in stdout.splitlines()), stdout
+
+
+def test_double_backtick_span_is_excluded() -> None:
+    root = sandbox()
+    body = _inline_code_body("Write ``SELECT COUNT(*)`` in the query.")
+    path = "docs/double-backtick.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i3")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_banned_phrase_inside_inline_code_is_not_flagged() -> None:
+    root = sandbox()
+    body = _inline_code_body("Call `utilize_backend()` to start.")
+    path = "docs/inline-banned.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i4")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_banned_phrase_outside_inline_code_is_still_flagged() -> None:
+    root = sandbox()
+    body = _inline_code_body("Call `utilize_backend()` and utilize the result.")
+    path = "docs/inline-banned-mixed.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i5")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ste-banned-phrase" in line for line in stdout.splitlines()), stdout
+
+
+def test_inline_code_words_do_not_count_toward_sentence_length() -> None:
+    root = sandbox()
+    span = "`" + " ".join(f"token{i}" for i in range(30)) + "`"
+    sentence = "This sentence has " + span + " and stays short."
+    body = _inline_code_body(sentence)
+    path = "docs/inline-sentence.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="i6")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+# ---------------------------------------------------------------------------
+# Criterion granularity and verification coverage
+# ---------------------------------------------------------------------------
+
+
+def _granularity_body(criteria: str, verification: str) -> str:
+    return f"""# Spec
+
+## Context
+
+Body.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+{criteria}
+
+## Verification
+
+{verification}
+"""
+
+
+def test_ac_multiple_when_fails() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- Given a precondition\n"
+        "  When an action happens\n"
+        "  When a second action happens\n"
+        "  Then an outcome follows.",
+        "Body.",
+    )
+    path = "docs/two-triggers.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g1")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("ac-multiple-when" in line for line in stdout.splitlines()), stdout
+
+
+def test_ac_split_triggers_pass() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- When an action happens\n"
+        "  Then an outcome follows.\n"
+        "- When a second action happens\n"
+        "  Then a second outcome follows.",
+        "- One check.\n- A second check.",
+    )
+    path = "docs/split-triggers.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g2")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_when_prefixed_word_is_not_a_second_trigger() -> None:
+    """A raw substring count reads "Whenever" as a When clause.
+
+    Without word-bounded matching this criterion tallies two triggers and is
+    wrongly reported as too coarse, so this is the non-vacuity check for the
+    keyword regex rather than a restatement of the single-When rule.
+    """
+    root = sandbox()
+    body = _granularity_body(
+        "- When a request arrives\n"
+        "  Then the system responds. Whenever load is high it queues first.",
+        "Body.",
+    )
+    path = "docs/whenever.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g3")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_underspecified_when_entries_fewer_than_criteria() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- When an action happens\n"
+        "  Then an outcome follows.\n"
+        "- When a second action happens\n"
+        "  Then a second outcome follows.",
+        "One check only.",
+    )
+    path = "docs/underspecified.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g4")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any(
+        "verification-underspecified" in line for line in stdout.splitlines()
+    ), stdout
+
+
+def test_verification_empty_section_fails() -> None:
+    root = sandbox()
+    body = _granularity_body(
+        "- When an action happens\n  Then an outcome follows.",
+        "",
+    )
+    path = "docs/empty-verification.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="g5")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("verification-empty" in line for line in stdout.splitlines()), stdout
 
 
 def main() -> int:

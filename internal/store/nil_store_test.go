@@ -56,6 +56,37 @@ func TestUnopenedStoreReturnsTypedFailure(t *testing.T) {
 		{"SyncDurable", func(s *Store) error {
 			return s.SyncDurable(ctx)
 		}},
+		{"MessagesForWork", func(s *Store) error {
+			_, err := s.MessagesForWork(ctx, "work-1", 10)
+			return err
+		}},
+		{"UnreadMessageCount", func(s *Store) error {
+			_, err := s.UnreadMessageCount(ctx, "work-1")
+			return err
+		}},
+		{"ActiveWorkInProduct", func(s *Store) error {
+			_, err := s.ActiveWorkInProduct(ctx, "prod-1", 10)
+			return err
+		}},
+		{"ExternalObservationsForWork", func(s *Store) error {
+			_, err := s.ExternalObservationsForWork(ctx, "work-1", time.Time{}, 10)
+			return err
+		}},
+		{"WorkerAttemptByID", func(s *Store) error {
+			_, err := s.WorkerAttemptByID(ctx, "attempt-1")
+			return err
+		}},
+		{"QueryLawConflictsAtHome", func(s *Store) error {
+			_, err := s.QueryLawConflictsAtHome(ctx, "proj-1", "loc-1", []string{"law-1"})
+			return err
+		}},
+		{"CheckMandatedLawsAtHome", func(s *Store) error {
+			return s.CheckMandatedLawsAtHome(ctx, "proj-1", "loc-1", []string{"law-1"}, nil, false)
+		}},
+		{"BlockedSessions", func(s *Store) error {
+			_, err := s.BlockedSessions(ctx, time.Time{}, nil, 10)
+			return err
+		}},
 	} {
 		for _, receiver := range []struct {
 			label string

@@ -1,0 +1,21 @@
+{
+  "date": "2026-08-22T00:00:00Z",
+  "id": "README",
+  "kind": "reference",
+  "path": "docs/README.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:402eed45dd9ace778169dc37df0e4eb31a17c1464c6de9c71a3256f4b0d9a96d",
+  "status": "published",
+  "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
+  "tags": [
+    "navigation",
+    "documentation"
+  ],
+  "title": "Concord documentation set"
+}

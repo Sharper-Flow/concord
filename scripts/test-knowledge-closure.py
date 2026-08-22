@@ -170,6 +170,103 @@ def test_exclusions_suppress_listed_paths() -> None:
     assert not any("docs/sub/" in line for line in lines), lines
 
 
+def test_file_path_exclusion_suppresses_exactly_one_file() -> None:
+    """Generated build output is excluded by path, not by hiding its directory."""
+    root = build_sandbox()
+    (root / "docs" / "generated-surface.md").write_text("generated\n", encoding="utf-8")
+    manifest_path = root / "manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["exclusions"] = ["docs/generated-surface.md"]
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    exit_code, stdout, stderr = run_with_sandbox(root)
+    assert exit_code == 0, stderr
+    lines = stdout.splitlines()
+    assert "unprocessed: docs/generated-surface.md" not in lines, lines
+    # The sibling documents in the same directory stay visible.
+    assert "unprocessed: docs/orphan.md" in lines, lines
+    assert "unprocessed: docs/sub/nested.md" in lines, lines
+
+
+def test_directory_exclusion_still_suppresses_a_whole_subtree() -> None:
+    root = build_sandbox()
+    manifest_path = root / "manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["exclusions"] = ["docs/sub/"]
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    exit_code, stdout, stderr = run_with_sandbox(root)
+    assert exit_code == 0, stderr
+    assert "unprocessed: docs/sub/nested.md" not in stdout.splitlines(), stdout
+
+
+def test_exclusion_without_slash_or_markdown_suffix_is_rejected() -> None:
+    root = build_sandbox()
+    manifest_path = root / "manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["exclusions"] = ["docs/orphan"]
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    exit_code, stdout, stderr = run_with_sandbox(root)
+    assert exit_code == 1, (exit_code, stderr)
+    assert any(
+        "a relative directory prefix with trailing slash, or a relative markdown file path" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_disposition_subtracts_a_file_and_is_counted_separately() -> None:
+    """A disposed document leaves the unprocessed set and enters its own count."""
+    root = build_sandbox()
+    manifest_path = root / "manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["dispositions"] = [{
+        "path": "docs/orphan.md",
+        "disposition": "archived",
+        "reason": "Superseded working note kept for provenance only.",
+    }]
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    exit_code, stdout, stderr = run_with_sandbox(root)
+    assert exit_code == 0, stderr
+    lines = stdout.splitlines()
+    assert "unprocessed: docs/orphan.md" not in lines, lines
+    assert "disposition: docs/orphan.md" in lines, lines
+    assert "disposition summary: 1 file(s) recorded as deliberately not formalized" in stderr, stderr
+    # The subtraction must not be folded into the unprocessed count.
+    assert "unprocessed summary: 2 file(s)" in stderr, stderr
+
+
+def test_disposition_count_is_reported_even_when_zero() -> None:
+    root = build_sandbox()
+    exit_code, stdout, stderr = run_with_sandbox(root)
+    assert exit_code == 0, stderr
+    assert "disposition summary: 0 file(s) recorded as deliberately not formalized" in stderr, stderr
+
+
+def test_strict_mode_passes_when_the_remainder_is_disposed() -> None:
+    """Strict cutover accepts a corpus whose remainder is explicitly disposed."""
+    root = build_sandbox()
+    manifest_path = root / "manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["exclusions"] = ["docs/research/"]
+    data["dispositions"] = [
+        {"path": "docs/orphan.md", "disposition": "archived", "reason": "Not formalized."},
+        {"path": "docs/sub/nested.md", "disposition": "archived", "reason": "Not formalized."},
+    ]
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    exit_code, stdout, stderr = run_with_sandbox(root, ["--strict"])
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "disposition summary: 2 file(s)" in stderr, stderr
+
+
+def test_malformed_disposition_is_reported_not_silently_dropped() -> None:
+    root = build_sandbox()
+    manifest_path = root / "manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["dispositions"] = [{"disposition": "archived", "reason": "No path at all."}]
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    exit_code, stdout, stderr = run_with_sandbox(root)
+    assert exit_code == 1, (exit_code, stderr)
+    assert any("malformed disposition skipped" in line for line in stdout.splitlines()), stdout
+
+
 def test_missing_record_file_is_warned() -> None:
     root = build_sandbox()
     manifest_path = root / "manifest.json"

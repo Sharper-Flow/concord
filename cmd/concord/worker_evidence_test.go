@@ -65,9 +65,14 @@ func workerCompleteJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, a
 		LaneID: resolved.ID, LaneVersion: resolved.Version, LaneDigest: resolved.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
+	evidence := make([]map[string]any, 0, len(resolved.EvidenceObligations))
+	for _, obligation := range resolved.EvidenceObligations {
+		evidence = append(evidence, map[string]any{"obligation": obligation, "detail": "discharged " + obligation})
+	}
 	value := map[string]any{
 		"event_id": eventID, "work_id": workID, "attempt_id": attemptID,
 		"readback_model": readback, "report_schema_version": store.WorkerReportSchemaVersion,
+		"evidence_origin": store.WorkerEvidenceReported, "evidence": evidence,
 		"assertion": signWorkerEvidence(t, key, assertion),
 	}
 	return mustJSON(t, value)
@@ -219,6 +224,53 @@ func TestWorkerEvidenceAssertionCannotBeReplayed(t *testing.T) {
 	errOut.Reset()
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "replayed") {
 		t.Fatalf("replayed worker-dispatch exit=%d stderr=%q, want replay refusal", code, errOut.String())
+	}
+}
+
+// TestWorkerCompleteCLIRefusesAnOmittedEvidenceOriginAndUndischargedObligations
+// covers the CD-0056 operator boundary: the CLI names the missing origin
+// itself, and the store refuses a report that leaves a declared obligation
+// undischarged.
+func TestWorkerCompleteCLIRefusesAnOmittedEvidenceOriginAndUndischargedObligations(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	key := seedWorkerEvidenceClient(t)
+	lane := store.BuiltinLaneDefinitions()[0]
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-origin", "work-origin", "attempt-origin", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-origin001")), &out, &errOut); code != 0 {
+		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
+	}
+
+	value := map[string]any{}
+	if err := json.Unmarshal([]byte(workerCompleteJSON(t, key, "complete-origin", "work-origin", "attempt-origin", preferredLaneModel(lane), "nonce-complete-origin001", &lane)), &value); err != nil {
+		t.Fatal(err)
+	}
+	delete(value, "evidence_origin")
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"worker-complete"}, bytes.NewReader([]byte(mustJSON(t, value))), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "evidence_origin") {
+		t.Fatalf("omitted evidence_origin exit=%d stderr=%q, want an evidence_origin diagnostic", code, errOut.String())
+	}
+
+	value["evidence_origin"] = store.WorkerEvidenceReported
+	value["evidence"] = []map[string]any{{"obligation": lane.EvidenceObligations[0], "detail": "only one obligation discharged"}}
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"worker-complete"}, bytes.NewReader([]byte(mustJSON(t, value))), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), lane.EvidenceObligations[1]) {
+		t.Fatalf("undischarged completion exit=%d stderr=%q, want the missing obligation named", code, errOut.String())
+	}
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, "attempt-origin").Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "dispatched" {
+		t.Fatalf("lifecycle_state = %q, want dispatched", state)
 	}
 }
 

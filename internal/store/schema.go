@@ -2633,7 +2633,44 @@ func readAppliedMigrations(ctx context.Context, db *sql.DB) (map[int]string, err
 	return applied, nil
 }
 
-// checkManifest compares the recorded manifest against this binary's
+// migrationShippedVariantChecksums lists, per migration version, the SHA-256
+// checksums of SQL texts that differ from this binary's definition but shipped
+// in published releases. Thirteen migrations had their text edited after
+// first release (digest corrections, reformatting, comment edits), so
+// databases created by those releases recorded checksums no later binary
+// reproduced. The manifest check accepts exactly these recorded variants and
+// no others: a fresh edit to an applied migration still fails, and the table
+// is closed — extending it requires naming the release range that shipped
+// the new variant.
+var migrationShippedVariantChecksums = map[int][]string{
+	3:  {"c8ca3aa3d712044cab66d22184c20cae39472401fd2ea778f29b3c50dee94b90"},
+	7:  {"5c5d5aa28ef3d5bac4a345a860d700410c81821dc7a68ddb6930205f99c1b60d"},
+	8:  {"27f8a3b16b6f91cd9426c1ac2ebf8ca740f97c2384831bb5af435c9da917ce45"},
+	9:  {"3259fafb1a03e42c9bf517c7bd7944dc878dc8b2141ea4377bde096e1c340caa", "cca4181d6aab84794437c6a1af2c17699464bd91669de267e62e87a1bd2083dc"},
+	15: {"35bd6711599c74b0706803c5bd573e5f3f77d021f8d67ce1c4899de3528519a7"},
+	16: {"0a2320b819cb1ddde64959f35706626585d886814362f211890017231c798824"},
+	18: {"e9c11ac13ccec24c316cb4f1c01424e6a41532dcc7cdb016f15abe7e87aed844"},
+	20: {"8b7c75bf900d33d78877080b5072460bffd52038101881757ffb6144d4e498cc"},
+	22: {"25ad36500176b287b84f68452da329835b9e813b9357a424e9f2ece6b79fe8c1"},
+	25: {"d9aa7f0af4181da194cc2628f811efb89291c1e44039a420efa06fbec4e04f95"},
+	26: {"d67c0de98eb09bd893c4eaaa09ddb6457ddfaef39834dca138eed2a95f5c99e4"},
+	35: {"d56ac4ee075336870ce89a117d23fda2b5252dfb561362f293730d243fc1c154"},
+	36: {"36fbfca75d718d656bba2d8b81dcbe372ad0a025b44239672ed2e3de2f25d129"},
+	37: {"680277cff79364bdfcaae1cf518a3939079cfc9154b8a338a41d6f6237ecdbec"},
+	39: {"51a509c1cda0d1d992b205944c2758eac0aef5c87ca88f15df9b19f8b0d3060a"},
+	40: {"95793496a0186de993c15950c3209cada38fe6d5e00985e53edab54d0a75519d", "c0da41426b30025a1e2c2ec3e1d6276b6964e074a39fba1678ac8f8b59bf89ff"},
+}
+
+func shippedVariantAccepted(version int, checksum string) bool {
+	for _, variant := range migrationShippedVariantChecksums[version] {
+		if variant == checksum {
+			return true
+		}
+	}
+	return false
+}
+
+// checkManifest compares manifest against this binary's
 // definition. Both directions matter: an edited historical step means the live
 // schema no longer matches the code, and an unknown newer step means the
 // database was written by a binary that knows more than this one.
@@ -2650,7 +2687,7 @@ func checkManifest(applied map[int]string) error {
 				fmt.Sprintf("the database records migration %d, which this binary does not define", version),
 				true, "upgrade to a binary that defines this schema version and retry")
 		}
-		if m.checksum() != checksum {
+		if m.checksum() != checksum && !shippedVariantAccepted(version, checksum) {
 			return newFailure(KindSchemaDrift, "migrate",
 				fmt.Sprintf("migration %d (%s) no longer matches its recorded checksum", version, m.Name),
 				false, "restore the original migration definition; applied migrations are immutable")

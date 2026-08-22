@@ -87,9 +87,7 @@ func LookupMutationIdempotencyTx(ctx context.Context, transaction *Transaction, 
 	return lookupMutationIdempotency(ctx, tx, key)
 }
 
-func lookupMutationIdempotency(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, key MutationIdempotencyKey) (MutationIdempotencyRecord, bool, error) {
+func lookupMutationIdempotency(ctx context.Context, q queryer, key MutationIdempotencyKey) (MutationIdempotencyRecord, bool, error) {
 	var record MutationIdempotencyRecord
 	err := q.QueryRowContext(ctx, `SELECT canonical_digest,op_id,COALESCE(result_payload,''),changed_refs,authorized_scope_snapshot FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, key.PrincipalRef, key.Tool, key.OperationKind, key.IdempotencyKey).
 		Scan(&record.CanonicalDigest, &record.OperationID, &record.ResultPayload, &record.ChangedRefs, &record.AuthorizedScopeSnapshot)
@@ -167,9 +165,7 @@ func (s *Store) AcceptedInputsDigest(ctx context.Context, operationID string) (s
 	return acceptedInputsDigest(ctx, s.db, operationID)
 }
 
-func acceptedInputsDigest(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, operationID string) (string, error) {
+func acceptedInputsDigest(ctx context.Context, q queryer, operationID string) (string, error) {
 	var digest string
 	if err := q.QueryRowContext(ctx, `SELECT accepted_inputs_digest FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, operationID).Scan(&digest); err != nil {
 		if err == sql.ErrNoRows {
@@ -184,8 +180,12 @@ func (s *Store) LatestWorkflowContractVersion(ctx context.Context, workID string
 	if s == nil || s.db == nil {
 		return 0, newFailure(KindUnavailable, "workflow_contract", "store is not open", false, "open the authority database")
 	}
+	return latestWorkflowContractVersion(ctx, s.db, workID)
+}
+
+func latestWorkflowContractVersion(ctx context.Context, q queryer, workID string) (int64, error) {
 	var version int64
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1),0)`, workID).Scan(&version)
+	err := q.QueryRowContext(ctx, `SELECT COALESCE((SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1),0)`, workID).Scan(&version)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "workflow_contract", "cannot read active workflow contract version", true, "retry once the database is readable", err)
 	}
@@ -199,9 +199,7 @@ func (s *Store) ActiveWorkflowContract(ctx context.Context, workID string) (Work
 	return activeWorkflowContract(ctx, s.db, workID)
 }
 
-func activeWorkflowContract(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, workID string) (WorkflowContractSnapshot, error) {
+func activeWorkflowContract(ctx context.Context, q queryer, workID string) (WorkflowContractSnapshot, error) {
 	var contract WorkflowContractSnapshot
 	err := q.QueryRowContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise)
 	if err == sql.ErrNoRows {
@@ -233,8 +231,12 @@ func (s *Store) WorkVersion(ctx context.Context, workID string) (int64, error) {
 	if s == nil || s.db == nil {
 		return 0, newFailure(KindUnavailable, "work_version", "store is not open", false, "open the authority database")
 	}
+	return mutationWorkVersion(ctx, s.db, workID)
+}
+
+func mutationWorkVersion(ctx context.Context, q queryer, workID string) (int64, error) {
 	var version int64
-	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, newFailure(KindProjectionNotFound, "work_version", "work item does not exist", false, "reread the work item")
 		}
@@ -247,8 +249,12 @@ func (s *Store) TerminalWorkVersion(ctx context.Context, workID string) (int64, 
 	if s == nil || s.db == nil {
 		return 0, newFailure(KindUnavailable, "terminal_work", "store is not open", false, "open the authority database")
 	}
+	return terminalWorkVersion(ctx, s.db, workID)
+}
+
+func terminalWorkVersion(ctx context.Context, q queryer, workID string) (int64, error) {
 	var version int64
-	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=? AND lifecycle IN ('completed','cancelled','superseded')`, workID).Scan(&version); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=? AND lifecycle IN ('completed','cancelled','superseded')`, workID).Scan(&version); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, newFailure(KindProjectionNotFound, "terminal_work", "terminal work item does not exist", false, "reread the work item")
 		}
@@ -264,9 +270,7 @@ func (s *Store) PendingOperationForWork(ctx context.Context, workID string) (Dur
 	return pendingOperationForWork(ctx, s.db, workID)
 }
 
-func pendingOperationForWork(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, workID string) (DurableOperationRecord, error) {
+func pendingOperationForWork(ctx context.Context, q queryer, workID string) (DurableOperationRecord, error) {
 	var operation DurableOperationRecord
 	err := q.QueryRowContext(ctx, `SELECT op_id FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial')) ORDER BY attempt_epoch DESC LIMIT 1`, workID).Scan(&operation.OperationID)
 	if err == sql.ErrNoRows {

@@ -202,3 +202,72 @@ func TestSelectingProductOpensOnDomainSection(t *testing.T) {
 		t.Fatal("Snapshot leaked Domain rows by reference")
 	}
 }
+
+// ambientPort answers every read from one fixed corpus, so two Models can share
+// a single authority without either one supplying the other's state.
+type ambientPort struct{}
+
+func (p *ambientPort) Read(_ context.Context, request ReadRequest) (Snapshot, error) {
+	switch request.Kind {
+	case ReadPortfolio:
+		return Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative", Rows: []ProductRow{{ID: "p-1", Name: "One"}, {ID: "p-2", Name: "Two"}}}, nil
+	case ReadKnowledge:
+		return Snapshot{Screen: ScreenProduct, AmbientProduct: request.Product, Section: SectionKnowledge, Coverage: "authoritative", Knowledge: KnowledgeSection{Read: true, State: "authoritative-empty"}}, nil
+	default:
+		return Snapshot{Screen: ScreenProduct, AmbientProduct: request.Product, Section: SectionDomains, Coverage: "authoritative", Domains: DomainSection{Read: true, State: "authoritative"}}, nil
+	}
+}
+
+func TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther(t *testing.T) {
+	ctx := context.Background()
+	port := &ambientPort{}
+	first, second := New(port), New(port)
+	for _, model := range []*Model{first, second} {
+		if err := model.Enter(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := first.SelectProduct(ctx, "p-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := second.Snapshot(); got.Screen != ScreenPortfolio || got.AmbientProduct != "" {
+		t.Fatalf("second instance observed the first instance's selection: %#v", got)
+	}
+
+	if err := second.SelectProduct(ctx, "p-2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := first.Snapshot(); got.AmbientProduct != "p-1" {
+		t.Fatalf("first ambient Product = %q, want p-1", got.AmbientProduct)
+	}
+	if got := second.Snapshot(); got.AmbientProduct != "p-2" {
+		t.Fatalf("second ambient Product = %q, want p-2", got.AmbientProduct)
+	}
+	if first.Handoff().ProductID != "p-1" || second.Handoff().ProductID != "p-2" {
+		t.Fatalf("session handoffs crossed: first=%#v second=%#v", first.Handoff(), second.Handoff())
+	}
+
+	// A read on one instance resolves that instance's own ambient Product and
+	// leaves the other instance's ambient Product untouched.
+	if err := first.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := first.Snapshot(); got.AmbientProduct != "p-1" {
+		t.Fatalf("refresh changed the first ambient Product to %q", got.AmbientProduct)
+	}
+	if got := second.Snapshot(); got.AmbientProduct != "p-2" {
+		t.Fatalf("the first instance's refresh changed the second ambient Product to %q", got.AmbientProduct)
+	}
+
+	// Leaving the Product on one instance does not leave it on the other.
+	if err := second.Back(); err != nil {
+		t.Fatal(err)
+	}
+	if got := second.Snapshot(); got.Screen != ScreenPortfolio || got.AmbientProduct != "" {
+		t.Fatalf("second instance after Back = %#v", got)
+	}
+	if got := first.Snapshot(); got.Screen != ScreenProduct || got.AmbientProduct != "p-1" {
+		t.Fatalf("the second instance's Back changed the first instance: %#v", got)
+	}
+}

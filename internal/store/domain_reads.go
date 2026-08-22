@@ -441,6 +441,10 @@ func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachment
 	summary.HomeDomain = summary.DomainID == registry.RootDomainID
 	out.Domain = summary
 	out.Registry = registry
+	// An unattached Domain is an authoritative empty edge set, so both edge
+	// collections serialize as arrays rather than null.
+	out.Attachments.ProjectEdges = []DomainProjectAttachment{}
+	out.Attachments.ResourceEdges = []DomainResourceAttachment{}
 	if err := q.QueryRowContext(ctx, `SELECT version FROM domain_project_attachment_sets WHERE product_id=? AND domain_id=?`, req.Product, req.Domain).Scan(&out.Attachments.ProjectVersion); err != nil && err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot read Project attachments", true, "retry once the database is readable", err)
 	}

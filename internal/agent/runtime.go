@@ -1231,18 +1231,18 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if product == "" {
 			return coreError(base, "unknown_scope", "Domain reads require a resolved Product", "reread_entities", false), nil
 		}
-		switch queryID {
-		case "concord_domain.list":
+		switch r.Operation {
+		case "list":
 			result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: r.boundedLimit(in.Page.Limit), Cursor: deref(in.Page.Cursor)})
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "domains": result.Domains})
 			if err != nil {
 				return response, err
 			}
 			return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product, "domains")
-		case "concord_domain.detail":
+		case "detail":
 			if in.DomainID == "" {
 				return coreError(base, "invalid_input", "Domain detail requires domain_id", "reread_entities", false), nil
 			}
@@ -1250,8 +1250,8 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
-		case "concord_domain.active_work":
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "domain": result.Domain, "current_law": result.CurrentLaw, "relations": result.Relations})
+		case "active_work":
 			if in.DomainID == "" {
 				return coreError(base, "invalid_input", "active Domain work requires domain_id", "reread_entities", false), nil
 			}
@@ -1259,12 +1259,12 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "work": result.Work})
 			if err != nil {
 				return response, err
 			}
 			return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product+":"+in.DomainID, "work")
-		case "concord_domain.attachments":
+		case "attachments":
 			if in.DomainID == "" {
 				return coreError(base, "invalid_input", "Domain attachments require domain_id", "reread_entities", false), nil
 			}
@@ -1272,13 +1272,18 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
-		default:
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "domain": result.Domain, "attachments": result.Attachments})
+		case "overlaps":
 			result, err := r.Store.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: product, Domain: in.DomainID})
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), result)
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "pairs": result.Pairs, "truncated": result.Truncated})
+		default:
+			// Every Domain operation names its own read. Refusing an unmatched
+			// operation keeps a new one from silently answering with another
+			// Domain read's payload.
+			return base, errors.New("unsupported Domain read operation")
 		}
 	default:
 		return base, errors.New("unsupported read operation")

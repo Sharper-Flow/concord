@@ -565,7 +565,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows"
+          "value": "internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows"
         }
       ],
       "id": "CD-0054",
@@ -631,7 +631,25 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows"
+          "value": "internal/store.TestConformanceFalsifierFiresOnSustainedCommitDuration"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestConformancePacedCommitOvershootWithCleanControlIsInconclusive"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestConformanceControlCommitOvershootFires"
+        }
+      ],
+      "id": "CD-0057",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows"
         },
         {
           "kind": "go_test",

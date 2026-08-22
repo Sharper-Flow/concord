@@ -306,8 +306,10 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 		}
 	}
 	// Migrations beyond 25 are applied manually through 42 so the routing
-	// columns (which migration 43 drops) remain visible to this v25-shape
-	// test. Migration 43's own coverage lives in TestMigrateV42ToV43.
+	// columns (which migration 44 drops) and v25's hardcoded DEFAULT literal
+	// (which migration 43 rewrites to a function call) remain visible to
+	// this v25-shape test. Migrations 43 and 44 have their own coverage in
+	// TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows.
 	for _, migration := range migrations[25:42] {
 		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
@@ -333,7 +335,7 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT routing_policy_digest,resolution_role,fallback_reason FROM worker_attempts WHERE attempt_id='attempt'`).Scan(&digest, &role, &reason); err != nil {
 		t.Fatal(err)
 	}
-	if digest != historicalRoutingPolicyDigest || role != "preferred" || reason != "" {
+	if digest != RoutingPolicyManifestDigest || role != "preferred" || reason != "" {
 		t.Fatalf("migration defaults = %s/%s/%s", digest, role, reason)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET resolution_role='fallback', fallback_reason='' WHERE attempt_id='attempt'`); err == nil {
@@ -341,18 +343,12 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	}
 }
 
-// historicalRoutingPolicyDigest is the DEFAULT literal frozen into migration
-// 25's DDL. A database created before migration 43 carries this value, so the
-// migration-history tests assert against the literal rather than a live
-// constant.
-const historicalRoutingPolicyDigest = "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736"
-
-// TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows covers CD-0058
+// TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows covers CD-0058
 // D4: the declared-side worker attempt columns are removed under a rename +
 // recreate + copy + drop, every pre-existing row survives, and the lifecycle
 // CHECK that references readback_model is preserved.
-func TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "concord-v42.db")
+func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v43.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
 	if err != nil {
@@ -363,7 +359,7 @@ func TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:42] {
+	for _, migration := range migrations[:43] {
 		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -374,8 +370,8 @@ func TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('pre-existing-work','pre-existing','research',1,?,'research','routing-v1',?,'openai/gpt-5.6-luna','preferred','','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64), historicalRoutingPolicyDigest); err != nil {
-		t.Fatalf("seed v42 worker attempt: %v", err)
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('pre-existing-work','pre-existing','research',1,?,'research','routing-v1',?,'openai/gpt-5.6-luna','preferred','','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64), RoutingPolicyManifestDigest); err != nil {
+		t.Fatalf("seed v43 worker attempt: %v", err)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
@@ -393,7 +389,7 @@ func TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	}
 	var readback, lifecycle, capability string
 	if err := db.QueryRowContext(ctx, `SELECT readback_model,lifecycle_state,capability_class FROM worker_attempts WHERE attempt_id='pre-existing'`).Scan(&readback, &lifecycle, &capability); err != nil {
-		t.Fatalf("pre-existing row missing after migration 43: %v", err)
+		t.Fatalf("pre-existing row missing after migration 44: %v", err)
 	}
 	if readback != "openai/gpt-5.6-luna" || lifecycle != "dispatched" || capability != "research" {
 		t.Fatalf("pre-existing row projection = %q/%q/%q, want preserved readback/lifecycle/capability", readback, lifecycle, capability)
@@ -922,5 +918,112 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?`, table+"_guard_insert").Scan(&count); err != nil || count != 1 {
 			t.Fatalf("fold guard for %s count=%d err=%v", table, count, err)
 		}
+	}
+}
+
+// TestMigrationReplayFromScratchDropsWorkerRoutingEvidence proves the
+// migrations are replayable from an empty database: every step runs in order,
+// migration 43's worker_attempts DEFAULT resolves through the
+// concord_routing_policy_manifest_digest() SQLite function during the replay,
+// and migration 44 leaves worker_attempts without the five CD-0058 columns.
+func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-replay.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatalf("schema manifest DDL: %v", err)
+	}
+	appliedAt := "2026-08-22T00:00:00Z"
+	// Stop after migration 43 so the concord_routing_policy_manifest_digest()
+	// DEFAULT is live and the column is still present.
+	for _, migration := range migrations[:43] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d (%s): %v", migration.Version, migration.Name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+			migration.Version, migration.Name, migration.checksum(), appliedAt,
+		); err != nil {
+			t.Fatalf("manifest record for migration %d: %v", migration.Version, err)
+		}
+	}
+	// Migration 43's DEFAULT invoked concord_routing_policy_manifest_digest().
+	// Exercise it now while the column still exists: an INSERT that omits
+	// routing_policy_digest must succeed and store RoutingPolicyManifestDigest.
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatalf("fold guard: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,resolved_model,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		"replay-work", "replay-43-attempt", "research", 1,
+		"sha256:"+strings.Repeat("a", 64), "research", "routing-v1",
+		"openai/gpt-5.6-luna", "openai/gpt-5.6-luna",
+		"1.0", "1.0", "dispatched", appliedAt,
+	); err != nil {
+		t.Fatalf("migration 43 default failed to resolve: %v", err)
+	}
+	var replayDigest string
+	if err := db.QueryRowContext(ctx,
+		`SELECT routing_policy_digest FROM worker_attempts WHERE attempt_id='replay-43-attempt'`,
+	).Scan(&replayDigest); err != nil {
+		t.Fatalf("read replay digest: %v", err)
+	}
+	if replayDigest != RoutingPolicyManifestDigest {
+		t.Fatalf("replay routing_policy_digest = %q, want %q", replayDigest, RoutingPolicyManifestDigest)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("release fold guard: %v", err)
+	}
+	// Apply migration 44 and confirm the five CD-0058 columns are gone, the
+	// pre-existing row survives with its readback_model intact, and the
+	// fold triggers are reinstalled.
+	if _, err := db.ExecContext(ctx, migrations[43].SQL); err != nil {
+		t.Fatalf("migration %d (%s): %v", migrations[43].Version, migrations[43].Name, err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+		migrations[43].Version, migrations[43].Name, migrations[43].checksum(), appliedAt,
+	); err != nil {
+		t.Fatalf("manifest record for migration 44: %v", err)
+	}
+	var latest int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if want := migrations[len(migrations)-1].Version; latest != want {
+		t.Fatalf("replay ended at version %d, want %d", latest, want)
+	}
+	for _, column := range []string{"routing_policy_version", "routing_policy_digest", "resolved_model", "resolution_role", "fallback_reason"} {
+		var count int
+		if err := db.QueryRowContext(ctx,
+			`SELECT count(*) FROM pragma_table_info('worker_attempts') WHERE name=?`,
+			column,
+		).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("column %s count=%d err=%v after replay, want 0", column, count, err)
+		}
+	}
+	var replayReadback string
+	if err := db.QueryRowContext(ctx,
+		`SELECT readback_model FROM worker_attempts WHERE attempt_id='replay-43-attempt'`,
+	).Scan(&replayReadback); err != nil {
+		t.Fatalf("read replay readback_model: %v", err)
+	}
+	if replayReadback != "openai/gpt-5.6-luna" {
+		t.Fatalf("replay readback_model = %q, want openai/gpt-5.6-luna", replayReadback)
+	}
+	// The fold triggers must be reinstalled by migration 44: a direct INSERT
+	// with no fold_guard row active must be rejected.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		"replay-work", "replay-44-attempt", "research", 1,
+		"sha256:"+strings.Repeat("a", 64), "research",
+		"openai/gpt-5.6-luna", "1.0", "1.0", "dispatched", appliedAt,
+	); err == nil {
+		t.Fatal("post-migration-44 INSERT bypassed the fold guard")
 	}
 }

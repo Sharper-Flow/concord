@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ MANIFEST = ROOT / "contracts/agent-lanes.v1.json"
 SCHEMA = ROOT / "contracts/agent-lanes.schema.json"
 PACKET_SCHEMA = ROOT / "contracts/agent-lane-packet.schema.json"
 REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
+EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
 if spec is None or spec.loader is None:
@@ -139,6 +141,27 @@ def docs_projection(manifest: dict, manifest_digest: str) -> str:
     return "\n".join(lines)
 
 
+def eval_packet_projection(path: Path, lane_digests: dict[str, str]) -> str:
+    packet = json.loads(path.read_text(encoding="utf-8"))
+    lane_id = packet.get("lane_id")
+    if lane_id not in lane_digests:
+        raise ValueError(f"eval packet {path.relative_to(ROOT)} references unknown lane {lane_id!r}")
+    packet["lane_digest"] = lane_digests[lane_id]
+    return json.dumps(packet, ensure_ascii=False, indent=2) + "\n"
+
+
+def refresh_knowledge_index() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/check-knowledge-index.py"), "--update"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown knowledge-index failure"
+        raise ValueError(f"knowledge-index cascade failed: {detail}")
+
+
 def main() -> int:
     check = "--check" in sys.argv[1:]
     try:
@@ -152,6 +175,9 @@ def main() -> int:
             ROOT / "docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
         }
         expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane) for lane in manifest["lanes"]})
+        lane_digests = {lane["id"]: lane["digest"] for lane in manifest["lanes"]}
+        if EVAL_PACKETS.is_dir():
+            expected.update({path: eval_packet_projection(path, lane_digests) for path in sorted(EVAL_PACKETS.glob("*.json"))})
         if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text(encoding="utf-8") != content:
@@ -160,6 +186,7 @@ def main() -> int:
             for path, content in expected.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
+            refresh_knowledge_index()
         print(manifest_digest)
         return 0
     except (OSError, json.JSONDecodeError, ValueError) as exc:

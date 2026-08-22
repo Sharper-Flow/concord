@@ -223,7 +223,6 @@ type Snapshot struct {
 	OrderingKeys           []string
 	NextCursor             *string
 	Rows                   []ProductRow
-	Query                  string
 	StatusMessage          string
 	FirstRun               bool
 	Section                Section
@@ -268,9 +267,10 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 				m.snapshot = Snapshot{Screen: ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 				return err
 			}
-			// The Domain panel is focused on entry, so load its bounded knowledge
-			// section through the existing lazy read path. A failed knowledge read
-			// remains typed in the Product snapshot without losing navigation.
+			// The Domain panel is focused on entry, so its bounded knowledge
+			// section reads here. A failed knowledge read stays typed in the
+			// Product snapshot rather than costing navigation, which is why the
+			// error is discarded.
 			_ = m.EnsureKnowledge(ctx)
 			m.snapshot.Session = SessionHandoff{ProductID: product}
 			m.snapshot.PanelFocus = S2PanelDomain
@@ -302,8 +302,10 @@ func (m *Model) SelectWork(ctx context.Context, work string) error {
 }
 
 func (m *Model) SubmitQuery(ctx context.Context, query string) error {
+	// S1 carries no semantic-query binding, so a query submitted against the
+	// portfolio issues no read. The ambient guard below is not a substitute: an
+	// S1 snapshot with a non-empty ambient Product is representable.
 	if m.snapshot.Screen == ScreenPortfolio {
-		m.snapshot.Query = query
 		return nil
 	}
 	if m.snapshot.AmbientProduct == "" {

@@ -122,20 +122,21 @@ func (m *Model) OpenFilter() tea.Cmd {
 	return m.input.Focus()
 }
 
-// OpenQuery remains a compatibility name from the renderer spike. It opens
-// only the S1 local filter; no semantic query read is available on S1.
-func (m *Model) OpenQuery() tea.Cmd {
-	if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
-		m.queryBase = m.core.Snapshot()
-		m.queryCursor, m.queryScroll = m.cursor, m.scroll
-		m.queryMode = true
-		m.filterMode = false
-		m.input.Prompt = "QUERY: "
-		m.queryValue = ""
-		m.input.SetValue("")
-		return m.input.Focus()
+// openQuery enters the S2/S3 semantic query input. S1 has no semantic-query
+// binding, so the portfolio screen opens no query mode.
+func (m *Model) openQuery() tea.Cmd {
+	screen := m.core.Snapshot().Screen
+	if screen != launcher.ScreenProduct && screen != launcher.ScreenWork {
+		return nil
 	}
-	return m.OpenFilter()
+	m.queryBase = m.core.Snapshot()
+	m.queryCursor, m.queryScroll = m.cursor, m.scroll
+	m.queryMode = true
+	m.filterMode = false
+	m.input.Prompt = "QUERY: "
+	m.queryValue = ""
+	m.input.SetValue("")
+	return m.input.Focus()
 }
 
 func (m *Model) SetSessionLauncher(fn func(launcher.SessionHandoff) tea.Cmd) {
@@ -273,9 +274,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		return m, m.OpenFilter()
 	case "s":
-		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
-			return m, m.OpenQuery()
-		}
+		return m, m.openQuery()
 	case "tab":
 		if m.core.Snapshot().Screen == launcher.ScreenProduct {
 			_ = m.core.CyclePanelFocus()

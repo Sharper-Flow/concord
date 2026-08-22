@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestConformanceFalsifierFiresOnSustainedCommitDuration"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestConformancePacedCommitOvershootWithCleanControlIsInconclusive"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestConformanceControlCommitOvershootFires"
+    }
+  ],
+  "id": "CD-0057",
+  "state": "satisfied"
+}

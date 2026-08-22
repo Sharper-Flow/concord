@@ -1498,6 +1498,35 @@
     {
       "date": "2026-08-22T00:00:00Z",
       "evidence": [
+        "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+        "contracts/agent-lane-report.schema.json",
+        "internal/store/worker_lanes.go",
+        "adapter/opencode/dispatch.ts"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0057",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0057-conformance-control-round.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:9f509a2e9e15ad5f4ed73520c74b1db5b7440342ff579bdd6db2ad59047d53c3",
+      "status": "accepted",
+      "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
+      "tags": [
+        "lanes",
+        "evidence",
+        "workers"
+      ],
+      "title": "A lane report discharges its lane's evidence obligations"
+    },
+    {
+      "date": "2026-08-22T00:00:00Z",
+      "evidence": [
         "internal/store/worker_lanes.go",
         "adapter/opencode/dispatch.ts",
         "internal/store/schema.go"
@@ -1626,7 +1655,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:402eed45dd9ace778169dc37df0e4eb31a17c1464c6de9c71a3256f4b0d9a96d",
+      "sha256": "sha256:e49b028c566c63df1074d8fbb60ab2d10e8d8319187fc26601a5075a90621b89",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [

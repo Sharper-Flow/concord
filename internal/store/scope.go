@@ -8,12 +8,16 @@ import (
 )
 
 func (s *Store) RelationEndpoints(ctx context.Context, relationID string) ([]string, error) {
+	return relationEndpoints(ctx, s.db, relationID)
+}
+
+func relationEndpoints(ctx context.Context, q queryer, relationID string) ([]string, error) {
 	id, err := strconv.ParseInt(relationID, 10, 64)
 	if err != nil || id < 1 {
 		return nil, newFailure(KindRelationNotFound, "relation_scope", "relation ID is invalid", false, "supply a known relation ID")
 	}
 	var from, to string
-	err = s.db.QueryRowContext(ctx, `SELECT r.work_id_from,r.work_id_to FROM relations r JOIN work_items wf ON wf.id=r.work_id_from JOIN work_items wt ON wt.id=r.work_id_to WHERE r.id=?`, id).Scan(&from, &to)
+	err = q.QueryRowContext(ctx, `SELECT r.work_id_from,r.work_id_to FROM relations r JOIN work_items wf ON wf.id=r.work_id_from JOIN work_items wt ON wt.id=r.work_id_to WHERE r.id=?`, id).Scan(&from, &to)
 	if err == sql.ErrNoRows {
 		return nil, newFailure(KindRelationNotFound, "relation_scope", "relation or one of its work endpoints does not exist", false, "reread the relation graph")
 	}
@@ -24,6 +28,10 @@ func (s *Store) RelationEndpoints(ctx context.Context, relationID string) ([]str
 }
 
 func (s *Store) ProductsForWorkIDs(ctx context.Context, ids []string) (map[string][]string, error) {
+	return productsForWorkIDs(ctx, s.db, ids)
+}
+
+func productsForWorkIDs(ctx context.Context, q queryer, ids []string) (map[string][]string, error) {
 	out := make(map[string][]string)
 	if len(ids) == 0 {
 		return out, nil
@@ -34,7 +42,7 @@ func (s *Store) ProductsForWorkIDs(ctx context.Context, ids []string) (map[strin
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT wp.work_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`+strings.Join(placeholders, ",")+") ORDER BY wp.work_id,pp.product_id", args...)
+	rows, err := q.QueryContext(ctx, `SELECT wp.work_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`+strings.Join(placeholders, ",")+") ORDER BY wp.work_id,pp.product_id", args...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve work Product scope", true, "retry once the database is readable", err)
 	}
@@ -50,7 +58,11 @@ func (s *Store) ProductsForWorkIDs(ctx context.Context, ids []string) (map[strin
 }
 
 func (s *Store) ProductsForKnowledgeID(ctx context.Context, id string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT product_id FROM archived_work_products WHERE work_id=? ORDER BY product_id`, id)
+	return productsForKnowledgeID(ctx, s.db, id)
+}
+
+func productsForKnowledgeID(ctx context.Context, q queryer, id string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT product_id FROM archived_work_products WHERE work_id=? ORDER BY product_id`, id)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve knowledge Product scope", true, "retry once the database is readable", err)
 	}
@@ -67,6 +79,10 @@ func (s *Store) ProductsForKnowledgeID(ctx context.Context, id string) ([]string
 }
 
 func (s *Store) ProductsForProjectIDs(ctx context.Context, ids []string) (map[string][]string, error) {
+	return productsForProjectIDs(ctx, s.db, ids)
+}
+
+func productsForProjectIDs(ctx context.Context, q queryer, ids []string) (map[string][]string, error) {
 	out := make(map[string][]string)
 	if len(ids) == 0 {
 		return out, nil
@@ -76,7 +92,7 @@ func (s *Store) ProductsForProjectIDs(ctx context.Context, ids []string) (map[st
 	for i, id := range ids {
 		placeholders[i], args[i] = "?", id
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT project_id,product_id FROM product_projects WHERE project_id IN (`+strings.Join(placeholders, ",")+") ORDER BY project_id,product_id", args...)
+	rows, err := q.QueryContext(ctx, `SELECT project_id,product_id FROM product_projects WHERE project_id IN (`+strings.Join(placeholders, ",")+") ORDER BY project_id,product_id", args...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve Project Product scope", true, "retry once the database is readable", err)
 	}
@@ -92,13 +108,21 @@ func (s *Store) ProductsForProjectIDs(ctx context.Context, ids []string) (map[st
 }
 
 func (s *Store) WorkExists(ctx context.Context, id string) (bool, error) {
+	return workExistsCore(ctx, s.db, id)
+}
+
+func workExistsCore(ctx context.Context, q queryer, id string) (bool, error) {
 	var exists bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items WHERE id=?)`, id).Scan(&exists)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items WHERE id=?)`, id).Scan(&exists)
 	return exists, err
 }
 func (s *Store) KnowledgeExists(ctx context.Context, id string) (bool, error) {
+	return knowledgeExists(ctx, s.db, id)
+}
+
+func knowledgeExists(ctx context.Context, q queryer, id string) (bool, error) {
 	var exists bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM archived_work WHERE id=?)`, id).Scan(&exists)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM archived_work WHERE id=?)`, id).Scan(&exists)
 	return exists, err
 }
 
@@ -107,12 +131,16 @@ func (s *Store) KnowledgeExists(ctx context.Context, id string) (bool, error) {
 // canonical path locator is used. Multiple candidates are ambiguous and never
 // silently selected.
 func (s *Store) ResolveCompactionHome(ctx context.Context, workID string) (KnowledgeHome, error) {
+	return resolveCompactionHome(ctx, s.db, workID)
+}
+
+func resolveCompactionHome(ctx context.Context, q queryer, workID string) (KnowledgeHome, error) {
 	if workID == "" {
 		return KnowledgeHome{}, newFailure(KindInvalidOperation, "compaction_home", "work ID is empty", false, "supply a terminal work ID")
 	}
 	type candidate struct{ project, locator, value string }
 	var productHomes []candidate
-	rows, err := s.db.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id,pl.locator_value FROM product_knowledge_homes ph JOIN project_locators pl ON pl.locator_id=ph.locator_id AND pl.kind='canonical_path' WHERE ph.product_id IN (SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=?) ORDER BY ph.project_id,ph.locator_id`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id,pl.locator_value FROM product_knowledge_homes ph JOIN project_locators pl ON pl.locator_id=ph.locator_id AND pl.kind='canonical_path' WHERE ph.product_id IN (SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=?) ORDER BY ph.project_id,ph.locator_id`, workID)
 	if err != nil {
 		return KnowledgeHome{}, wrapFailure(KindUnavailable, "compaction_home", "cannot resolve Product knowledge homes", true, "retry once the database is readable", err)
 	}
@@ -136,7 +164,7 @@ func (s *Store) ResolveCompactionHome(ctx context.Context, workID string) (Knowl
 	}
 	var primary candidate
 	var count int
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&count)
+	err = q.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&count)
 	if err != nil {
 		return KnowledgeHome{}, err
 	}
@@ -146,7 +174,7 @@ func (s *Store) ResolveCompactionHome(ctx context.Context, workID string) (Knowl
 	if count > 1 {
 		return KnowledgeHome{}, newFailure(KindAmbiguousScope, "compaction_home", "primary work membership has multiple canonical locators", false, "leave exactly one eligible primary Project locator")
 	}
-	err = s.db.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id,pl.locator_value FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&primary.project, &primary.locator, &primary.value)
+	err = q.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id,pl.locator_value FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&primary.project, &primary.locator, &primary.value)
 	if err == sql.ErrNoRows {
 		return KnowledgeHome{}, newFailure(KindUnknownScope, "compaction_home", "primary Project locator disappeared", false, "restore the canonical Project locator")
 	}
@@ -157,8 +185,12 @@ func (s *Store) ResolveCompactionHome(ctx context.Context, workID string) (Knowl
 }
 
 func (s *Store) KnowledgeHomeForLocator(ctx context.Context, projectID, locatorID, headRef string) (KnowledgeHome, error) {
+	return knowledgeHomeForLocator(ctx, s.db, projectID, locatorID, headRef)
+}
+
+func knowledgeHomeForLocator(ctx context.Context, q queryer, projectID, locatorID, headRef string) (KnowledgeHome, error) {
 	var value string
-	if err := s.db.QueryRowContext(ctx, `SELECT locator_value FROM project_locators WHERE project_id=? AND locator_id=? AND kind='canonical_path'`, projectID, locatorID).Scan(&value); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT locator_value FROM project_locators WHERE project_id=? AND locator_id=? AND kind='canonical_path'`, projectID, locatorID).Scan(&value); err != nil {
 		if err == sql.ErrNoRows {
 			return KnowledgeHome{}, newFailure(KindUnknownScope, "compaction_home", "recorded knowledge locator no longer exists", false, "restore the recorded canonical Project locator")
 		}
@@ -178,9 +210,13 @@ func (s *Store) ResolveKnowledgeQueryHome(ctx context.Context, productID, projec
 	if s == nil || s.db == nil {
 		return KnowledgeHome{}, newFailure(KindUnavailable, op, "store is not open", false, "open a store before resolving knowledge authority")
 	}
+	return resolveKnowledgeQueryHome(ctx, s.db, productID, projectID, supplied, op)
+}
+
+func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projectID string, supplied KnowledgeHome, op string) (KnowledgeHome, error) {
 	var resolved KnowledgeHome
 	if productID != "" {
-		candidates, err := s.productKnowledgeHomeCandidates(ctx, productID)
+		candidates, err := productKnowledgeHomeCandidates(ctx, q, productID)
 		if err != nil {
 			return KnowledgeHome{}, err
 		}
@@ -193,7 +229,7 @@ func (s *Store) ResolveKnowledgeQueryHome(ctx context.Context, productID, projec
 		resolved = candidates[0]
 		if projectID != "" {
 			var member bool
-			if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, productID, projectID).Scan(&member); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, productID, projectID).Scan(&member); err != nil {
 				return KnowledgeHome{}, wrapFailure(KindUnavailable, op, "cannot validate Product/Project membership", true, "retry once the database is readable", err)
 			}
 			if !member {
@@ -201,7 +237,7 @@ func (s *Store) ResolveKnowledgeQueryHome(ctx context.Context, productID, projec
 			}
 		}
 	} else if projectID != "" {
-		candidates, err := s.projectCanonicalHomeCandidates(ctx, projectID)
+		candidates, err := projectCanonicalHomeCandidates(ctx, q, projectID)
 		if err != nil {
 			return KnowledgeHome{}, err
 		}
@@ -217,7 +253,7 @@ func (s *Store) ResolveKnowledgeQueryHome(ctx context.Context, productID, projec
 			return KnowledgeHome{}, newFailure(KindInvalidFilter, op, "unscoped knowledge query requires a complete explicit home", false, "supply a Project, Product, or a locator-verified KnowledgeHome")
 		}
 		var err error
-		resolved, err = s.KnowledgeHomeForLocator(ctx, supplied.HomeProjectID, supplied.HomeLocatorID, supplied.HeadRef)
+		resolved, err = knowledgeHomeForLocator(ctx, q, supplied.HomeProjectID, supplied.HomeLocatorID, supplied.HeadRef)
 		if err != nil {
 			return KnowledgeHome{}, knowledgeHomeResolutionFailure(err, op)
 		}
@@ -238,8 +274,8 @@ func knowledgeHomeResolutionFailure(err error, op string) error {
 	return wrapFailure(KindUnavailable, op, "cannot verify the canonical knowledge locator", true, "retry once the database is readable", err)
 }
 
-func (s *Store) productKnowledgeHomeCandidates(ctx context.Context, productID string) ([]KnowledgeHome, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id,pl.locator_value FROM product_knowledge_homes ph JOIN project_locators pl ON pl.locator_id=ph.locator_id AND pl.project_id=ph.project_id AND pl.kind='canonical_path' WHERE ph.product_id=? ORDER BY ph.project_id,ph.locator_id`, productID)
+func productKnowledgeHomeCandidates(ctx context.Context, q queryer, productID string) ([]KnowledgeHome, error) {
+	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id,pl.locator_value FROM product_knowledge_homes ph JOIN project_locators pl ON pl.locator_id=ph.locator_id AND pl.project_id=ph.project_id AND pl.kind='canonical_path' WHERE ph.product_id=? ORDER BY ph.project_id,ph.locator_id`, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "knowledge_home", "cannot resolve Product knowledge homes", true, "retry once the database is readable", err)
 	}
@@ -259,8 +295,8 @@ func (s *Store) productKnowledgeHomeCandidates(ctx context.Context, productID st
 	return homes, nil
 }
 
-func (s *Store) projectCanonicalHomeCandidates(ctx context.Context, projectID string) ([]KnowledgeHome, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT project_id,locator_id,locator_value FROM project_locators WHERE project_id=? AND kind='canonical_path' ORDER BY locator_id`, projectID)
+func projectCanonicalHomeCandidates(ctx context.Context, q queryer, projectID string) ([]KnowledgeHome, error) {
+	rows, err := q.QueryContext(ctx, `SELECT project_id,locator_id,locator_value FROM project_locators WHERE project_id=? AND kind='canonical_path' ORDER BY locator_id`, projectID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "knowledge_home", "cannot resolve Project canonical locators", true, "retry once the database is readable", err)
 	}

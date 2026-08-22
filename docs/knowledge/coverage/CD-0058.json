@@ -2,7 +2,7 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows"
+      "value": "internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows"
     },
     {
       "kind": "go_test",

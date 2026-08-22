@@ -213,11 +213,17 @@ closing the session.
 | `n` / `p` | Next / previous page | S1, S2 |
 | `/` | Filter the current screen's already-fetched result set | S1, S2 |
 | `s` | Query — submit a bounded semantic search and render its results | S2, S3 only; requires ambient Product |
+| `Ctrl-l` | Clear the text input | All, while a filter or query input is open |
 | `Tab` | Cycle panel focus within S2's answer stack (CD-0048); on S3 cycle sections — knowledge | S2, S3 |
 | `l` | Launch a session for the current scope (§6) | S2, S3 |
 | `r` | Explicit refresh (§7) | All |
 | `?` | Help overlay listing the active keymap | All |
 | `q` | Quit; on S1 exits, elsewhere behaves as back | All |
+
+`Ctrl-l` is free to carry clear on this surface. The launcher owes the terminal no
+explicit redraw, because the rendering framework owns redraw (§11), so the key's
+conventional terminal meaning has no work to do here. `Ctrl-u`, the other common
+clear-line convention, is unavailable: the table above binds it to half-page up.
 
 The help overlay is generated from the active keymap rather than maintained as prose,
 so a keymap change cannot drift from its documentation.
@@ -393,9 +399,20 @@ The launcher inherits C14 §4 wholesale and adds container-level rules.
   for the entity already on screen, with typed coverage and no per-row fan-out.
 - No screen issues per-row or per-work fan-out. The knowledge section is one bounded
   read for the entity already on screen, not a read per row.
-- The knowledge section renders lazily: it is read when the section is first focused
-  on that screen entry, not on every screen entry, so the common status-checking path
-  pays for one query.
+- The knowledge section is read when it is first focused on that screen entry, never
+  again on that entry. What that costs differs by screen, because the section is not
+  focusable in the same way on both:
+  - **S2:** knowledge is part of the Domain panel, and the Domain panel is focused on
+    entry. First-focused and on-entry are therefore the same moment, and entering S2
+    costs two reads — the Domain read and the Product-scoped knowledge read. Panel
+    focus cycles Domain → blocked → next and never lands on a separate knowledge
+    section, so there is no later moment to defer the read to.
+  - **S3:** knowledge is its own focusable section, cycled after Domains, relations,
+    and ranked work. It is read when the operator first focuses it, so entering S3
+    costs one read and an operator who never opens the section never pays for it.
+- The rule exists so the common status-checking path does not pay for queries it does
+  not use. S1 issues no knowledge read at all, and S3 defers its read until asked. Two
+  reads is the floor for S2, which renders knowledge in the panel it opens on.
 - P99 ≤ 100 ms locally at 10× measured dataset, matching the PM1 implementation
   target carried by C14 §8.
 - All reads go through the accepted CD-0005 read tools or their in-process Go

@@ -34,7 +34,7 @@ Providers wrap the same argv shape that
 [`dispatch.ts`](../dispatch.ts) uses, so a run exercises the real lane through
 the real host path rather than a paraphrase of it. Each lane is evaluated
 through whatever model the host selects — Concord no longer asserts a model
-identifier on dispatch (CD-0057).
+identifier on dispatch (CD-0058).
 
 ## Running
 
@@ -54,7 +54,7 @@ npx promptfoo@0.122.0 validate config -c adapter/opencode/evals/promptfooconfig.
 ## What CI enforces
 
 CI never runs the evals — it has no model access, and eval verdicts carry no
-authority. Under CD-0057 there is no longer an in-repo drift validator for the
+authority. Under CD-0058 there is no longer an in-repo drift validator for the
 harness, so a lane addition, retirement, or digest change can drift from the
 configuration without failing CI. The harness itself is updated by hand and is
 treated as advisory infrastructure rather than a Concord machine check.

@@ -738,7 +738,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		assertRejectedWorkerAcceptance(t, s, "authority-wrong-epoch", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantStep, wantVersion)
 	})
 	t.Run("divergent readback still completes the attempt", func(t *testing.T) {
-		// CD-0057: a completion whose readback differs from the dispatch
+		// CD-0058: a completion whose readback differs from the dispatch
 		// readback is accepted as a normal completion. The attempt reaches
 		// 'completed' and the readback column records what the host reported.
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-divergent-readback")

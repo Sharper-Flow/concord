@@ -2252,7 +2252,7 @@ ALTER TABLE workflow_native_runs ADD COLUMN verification_state TEXT NOT NULL DEF
 		Version: 43,
 		Name:    "drop_worker_routing_evidence",
 		SQL: `
--- CD-0057: Concord performs no model resolution. The declared-side attempt
+-- CD-0058: Concord performs no model resolution. The declared-side attempt
 -- columns (routing_policy_version, routing_policy_digest, resolved_model,
 -- resolution_role, fallback_reason) describe a decision the system no longer
 -- makes, so the table is rebuilt without them. Every existing row is

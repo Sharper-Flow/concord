@@ -340,9 +340,9 @@
       "id": "fc3-lane-behavioral-evals",
       "condition": "fc3",
       "title": "Lane prompt behaviour is measured by an evaluation harness",
-      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness exercises every registered lane; under CD-0057 the harness no longer pins a preferred model and no in-repo validator enforces drift, so the harness is advisory infrastructure rather than a Concord machine check.",
+      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness exercises every registered lane; under CD-0058 the harness no longer pins a preferred model and no in-repo validator enforces drift, so the harness is advisory infrastructure rather than a Concord machine check.",
       "state": "out_of_scope",
-      "reason": "CD-0057 retired the routing-policy preferred model and the in-repo drift validator alongside it. The promptfoo harness remains as external advisory infrastructure; its drift against the lane registry is no longer a Concord authority check."
+      "reason": "CD-0058 retired the routing-policy preferred model and the in-repo drift validator alongside it. The promptfoo harness remains as external advisory infrastructure; its drift against the lane registry is no longer a Concord authority check."
     },
     {
       "id": "fc3-worker-authority-boundary",

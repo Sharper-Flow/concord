@@ -290,7 +290,7 @@ type workerDispatchRequest struct {
 	PacketSchemaVersion string `json:"packet_schema_version"`
 	ReportSchemaVersion string `json:"report_schema_version"`
 	// ReadbackModel records the model the host reports as having executed
-	// the attempt (CD-0057 D2). Concord asserts nothing about which model
+	// the attempt (CD-0058 D2). Concord asserts nothing about which model
 	// should have run; this is the sole model evidence the store retains.
 	ReadbackModel string `json:"readback_model"`
 	// HostProvenance is the declared record of host prompt-injection
@@ -428,7 +428,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			binding.LaneID = attempt.LaneID
 			binding.LaneVersion = attempt.LaneVersion
 			binding.LaneDigest = attempt.LaneDigest
-			// CD-0057: the terminal verb's readback is what the host reports
+			// CD-0058: the terminal verb's readback is what the host reports
 			// NOW, not the dispatch-time readback. The CLI cannot overwrite
 			// the binding from the stored attempt because that would make
 			// the assertion mismatch when the terminal verb reports a

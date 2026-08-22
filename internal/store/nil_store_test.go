@@ -91,6 +91,26 @@ func TestUnopenedStoreReturnsTypedFailure(t *testing.T) {
 			_, err := s.ResolveKnowledgeQueryHome(ctx, "", "", KnowledgeHome{}, "knowledge_home")
 			return err
 		}},
+		{"QueryDomainList", func(s *Store) error {
+			_, err := s.QueryDomainList(ctx, DomainListRequest{Product: "prod-1"})
+			return err
+		}},
+		{"QueryDomainDetail", func(s *Store) error {
+			_, err := s.QueryDomainDetail(ctx, DomainDetailRequest{Product: "prod-1", Domain: "domain-1"})
+			return err
+		}},
+		{"QueryDomainActiveWork", func(s *Store) error {
+			_, err := s.QueryDomainActiveWork(ctx, DomainActiveWorkRequest{Product: "prod-1", Domain: "domain-1"})
+			return err
+		}},
+		{"QueryDomainAttachments", func(s *Store) error {
+			_, err := s.QueryDomainAttachments(ctx, DomainAttachmentsRequest{Product: "prod-1", Domain: "domain-1"})
+			return err
+		}},
+		{"QueryDomainOverlaps", func(s *Store) error {
+			_, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "prod-1"})
+			return err
+		}},
 	} {
 		for _, receiver := range []struct {
 			label string

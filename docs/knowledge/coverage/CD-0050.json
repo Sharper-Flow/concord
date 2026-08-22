@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDurableBarrierAfterPersistGrantTruncatesWal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDurableSyncCheckpoint"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDurableBarrierLeavesStoreUsable"
+    }
+  ],
+  "id": "CD-0050",
+  "state": "satisfied"
+}

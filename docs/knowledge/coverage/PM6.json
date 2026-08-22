@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact"
+    }
+  ],
+  "id": "PM6",
+  "state": "satisfied"
+}

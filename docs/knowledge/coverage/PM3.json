@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOpenAppliesSchemaManifest"
+    }
+  ],
+  "id": "PM3",
+  "state": "satisfied"
+}

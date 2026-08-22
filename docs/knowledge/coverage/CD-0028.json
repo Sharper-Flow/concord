@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestResourceClaimLifecycle"
+    }
+  ],
+  "id": "CD-0028",
+  "state": "satisfied"
+}

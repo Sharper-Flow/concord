@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestCanonicalWorkerEvidenceVector"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkerEvidenceCapabilityIsNotGrantRequestable"
+    }
+  ],
+  "id": "CD-0044",
+  "state": "satisfied"
+}

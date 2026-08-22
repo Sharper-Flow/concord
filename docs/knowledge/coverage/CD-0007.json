@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-public-content.py"
+    }
+  ],
+  "id": "CD-0007",
+  "state": "satisfied"
+}

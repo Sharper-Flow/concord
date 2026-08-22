@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestConformanceFalsifierFiresOnSustainedCommitDuration"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestConformanceSchedulerOvershootIsInconclusive"
+    }
+  ],
+  "id": "CD-0051",
+  "state": "satisfied"
+}

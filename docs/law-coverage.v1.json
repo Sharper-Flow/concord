@@ -6,23 +6,21 @@
   },
   "records": [
     {
-      "id": "CD-0002",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestOpenAppliesRequiredPragmas"
         }
-      ]
+      ],
+      "id": "CD-0002",
+      "state": "satisfied"
     },
     {
       "id": "CD-0003",
-      "state": "outstanding",
-      "issue": 219
+      "issue": 219,
+      "state": "outstanding"
     },
     {
-      "id": "CD-0005",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "validator",
@@ -36,291 +34,291 @@
           "kind": "go_test",
           "value": "internal/agent.TestEveryDispatchArmNamesAContractOperation"
         }
-      ]
+      ],
+      "id": "CD-0005",
+      "state": "satisfied"
     },
     {
       "id": "CD-0006",
-      "state": "outstanding",
-      "issue": 219
+      "issue": 219,
+      "state": "outstanding"
     },
     {
-      "id": "CD-0007",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "validator",
           "value": "scripts/check-public-content.py"
         }
-      ]
+      ],
+      "id": "CD-0007",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0008",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestIssueGrantRefusesMutationOnMainWorktree"
         }
-      ]
+      ],
+      "id": "CD-0008",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0009",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestActiveResearchRevisionAndIdempotencyBoundary"
         }
-      ]
+      ],
+      "id": "CD-0009",
+      "state": "satisfied"
     },
     {
       "id": "CD-0010",
-      "state": "out_of_scope",
-      "reason": "Development authority is process law about who owns planned work and merge evidence. It governs how humans and agents use GitHub, not runtime behaviour, so no executable surface exists to bind. It is declared prose-only rather than left undeclared."
+      "reason": "Development authority is process law about who owns planned work and merge evidence. It governs how humans and agents use GitHub, not runtime behaviour, so no executable surface exists to bind. It is declared prose-only rather than left undeclared.",
+      "state": "out_of_scope"
     },
     {
-      "id": "CD-0011",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestTenProcessAcceptanceConformance"
         }
-      ]
+      ],
+      "id": "CD-0011",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0012",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "scenario",
           "value": "WF04-weaker-delivery"
         }
-      ]
+      ],
+      "id": "CD-0012",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0013",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
         }
-      ]
+      ],
+      "id": "CD-0013",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0014",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/launcher.TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures"
         }
-      ]
+      ],
+      "id": "CD-0014",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0015",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestKnowledgeManifestV11RelationsAndV10Compatibility"
         }
-      ]
+      ],
+      "id": "CD-0015",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0016",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestContextContinuityCheckpointBoundaryAndCanonicalRead"
         }
-      ]
+      ],
+      "id": "CD-0016",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0017",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestLaneRegistryIsGeneratedClosedAndDigestPinned"
         }
-      ]
+      ],
+      "id": "CD-0017",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0018",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestCD0018UrgencyOrderingExpediteAboveStandard"
         }
-      ]
+      ],
+      "id": "CD-0018",
+      "state": "satisfied"
     },
     {
       "id": "CD-0019",
-      "state": "outstanding",
-      "issue": 219
+      "issue": 219,
+      "state": "outstanding"
     },
     {
-      "id": "CD-0020",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "validator",
           "value": "scripts/check-knowledge-index.py"
         }
-      ]
+      ],
+      "id": "CD-0020",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0021",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "validator",
           "value": "scripts/check-floor-readiness.py"
         }
-      ]
+      ],
+      "id": "CD-0021",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0022",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestResearchFindingScopesAreValidatedReadBackAndCopied"
         }
-      ]
+      ],
+      "id": "CD-0022",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0023",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestExecutingSessionCannotReadItsOwnVerdict"
         }
-      ]
+      ],
+      "id": "CD-0023",
+      "state": "satisfied"
     },
     {
       "id": "CD-0024",
-      "state": "out_of_scope",
-      "reason": "Closed historical evidence. CD-0042 retired the pre-go-live surface path this record scoped, so binding it would assert a rule the repository has deliberately superseded."
+      "reason": "Closed historical evidence. CD-0042 retired the pre-go-live surface path this record scoped, so binding it would assert a rule the repository has deliberately superseded.",
+      "state": "out_of_scope"
     },
     {
-      "id": "CD-0025",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestResearchAuthorBindProveAndRead"
         }
-      ]
+      ],
+      "id": "CD-0025",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0026",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"
         }
-      ]
+      ],
+      "id": "CD-0026",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0027",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestContextContinuityRejectsRestartAndPendingDecisionBoundary"
         }
-      ]
+      ],
+      "id": "CD-0027",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0028",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestResourceClaimLifecycle"
         }
-      ]
+      ],
+      "id": "CD-0028",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0029",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestMessagesDirectBroadcastWithdrawAndRestartSurvival"
         }
-      ]
+      ],
+      "id": "CD-0029",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0030",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestObservationRecordDispatchContinuityAndNonAuthority"
         }
-      ]
+      ],
+      "id": "CD-0030",
+      "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestSupersessionInvalidatesPriorPremiseConfirmation"
+        }
+      ],
       "id": "CD-0031",
-      "state": "satisfied",
+      "state": "satisfied"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestSupersessionInvalidatesPriorPremiseConfirmation"
         }
-      ]
-    },
-    {
+      ],
       "id": "CD-0033",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestSupersessionInvalidatesPriorPremiseConfirmation"
-        }
-      ]
+      "state": "satisfied"
     },
     {
-      "id": "CD-0034",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestWorkerHostProvenanceValidation"
         }
-      ]
+      ],
+      "id": "CD-0034",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0035",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestGoverningRequirementsAreScopeBoundAndCorrectForward"
         }
-      ]
+      ],
+      "id": "CD-0035",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0036",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible"
         }
-      ]
+      ],
+      "id": "CD-0036",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0037",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "scenario",
@@ -334,11 +332,11 @@
           "kind": "go_test",
           "value": "internal/agent.TestConsequenceSummaryDerivesFromTheChallengeSpec"
         }
-      ]
+      ],
+      "id": "CD-0037",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0038",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "scenario",
@@ -352,11 +350,11 @@
           "kind": "go_test",
           "value": "internal/agent.TestBudgetRefusalCarriesTheTypedCeiling"
         }
-      ]
+      ],
+      "id": "CD-0038",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0039",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "scenario",
@@ -366,11 +364,11 @@
           "kind": "go_test",
           "value": "internal/agent.TestAgentJobsCorpus"
         }
-      ]
+      ],
+      "id": "CD-0039",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0040",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -392,36 +390,36 @@
           "kind": "go_test",
           "value": "internal/store.TestNativeRunVerificationParticipationAndEvidenceGate"
         }
-      ]
+      ],
+      "id": "CD-0040",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0041",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/agent.TestComponentInputsAreProhibitedOnTheAgentSurface"
         }
-      ]
+      ],
+      "id": "CD-0041",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0042",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "scenario",
           "value": "AJ5-resolve-domain-overlap"
         }
-      ]
+      ],
+      "id": "CD-0042",
+      "state": "satisfied"
     },
     {
       "id": "CD-0043",
-      "state": "outstanding",
-      "issue": 219
+      "issue": 219,
+      "state": "outstanding"
     },
     {
-      "id": "CD-0044",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -431,21 +429,21 @@
           "kind": "go_test",
           "value": "internal/agent.TestWorkerEvidenceCapabilityIsNotGrantRequestable"
         }
-      ]
+      ],
+      "id": "CD-0044",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0045",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestTenProcessAcceptanceConformance"
         }
-      ]
+      ],
+      "id": "CD-0045",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0046",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -455,11 +453,11 @@
           "kind": "go_test",
           "value": "internal/store.TestResolveCIRunnerTripwire"
         }
-      ]
+      ],
+      "id": "CD-0046",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0047",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "validator",
@@ -469,101 +467,11 @@
           "kind": "validator",
           "value": "scripts/check-reachability.py"
         }
-      ]
+      ],
+      "id": "CD-0047",
+      "state": "satisfied"
     },
     {
-      "id": "PM1",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestAcceptedQ1ToQ10Corpus"
-        }
-      ]
-    },
-    {
-      "id": "PM3",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestOpenAppliesSchemaManifest"
-        }
-      ]
-    },
-    {
-      "id": "PM6",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact"
-        }
-      ]
-    },
-    {
-      "id": "PM7",
-      "state": "outstanding",
-      "issue": 219
-    },
-    {
-      "id": "TS3",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestQueryQ10ContainsKnowledgeInSelectedProduct"
-        }
-      ]
-    },
-    {
-      "id": "TS7",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestEnvelopeGoldenOutcomes"
-        }
-      ]
-    },
-    {
-      "id": "advance-predecessor-lessons",
-      "state": "out_of_scope",
-      "reason": "Public predecessor design evidence, explicitly non-authorizing. It records what Concord must prevent and is bound by the mechanisms named in the decisions it informed, not by itself."
-    },
-    {
-      "id": "agent-lanes-contract",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "generated",
-          "value": "internal/store/generated_agent_lanes.go#LaneRegistryManifestDigest"
-        }
-      ]
-    },
-    {
-      "id": "routing-policy-contract",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "generated",
-          "value": "internal/store/generated_routing_policy.go#RoutingPolicyManifestDigest"
-        }
-      ]
-    },
-    {
-      "id": "workflow-engine-contract",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
-        }
-      ]
-    },
-    {
-      "id": "CD-0048",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -585,16 +493,16 @@
           "kind": "go_test",
           "value": "internal/launcher.TestS2PanelFocusCyclesAndS3SectionsRemainSeparate"
         }
-      ]
+      ],
+      "id": "CD-0048",
+      "state": "satisfied"
     },
     {
       "id": "CD-0049",
-      "state": "outstanding",
-      "issue": 257
+      "issue": 257,
+      "state": "outstanding"
     },
     {
-      "id": "CD-0050",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -608,11 +516,11 @@
           "kind": "go_test",
           "value": "internal/store.TestDurableBarrierLeavesStoreUsable"
         }
-      ]
+      ],
+      "id": "CD-0050",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0051",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -622,21 +530,21 @@
           "kind": "go_test",
           "value": "internal/store.TestConformanceSchedulerOvershootIsInconclusive"
         }
-      ]
+      ],
+      "id": "CD-0051",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0052",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
           "value": "internal/store.TestRelationKindsEnforceTheirOwnGraphRules"
         }
-      ]
+      ],
+      "id": "CD-0052",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0053",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "scenario",
@@ -654,11 +562,11 @@
           "kind": "go_test",
           "value": "internal/store.TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof"
         }
-      ]
+      ],
+      "id": "CD-0053",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0054",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -672,11 +580,11 @@
           "kind": "go_test",
           "value": "internal/store.TestRoutingPolicyMalformedAndIncompleteHostPoliciesNameFailures"
         }
-      ]
+      ],
+      "id": "CD-0054",
+      "state": "satisfied"
     },
     {
-      "id": "CD-0055",
-      "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
@@ -694,7 +602,99 @@
           "kind": "validator",
           "value": "scripts/check-reachability.py"
         }
-      ]
+      ],
+      "id": "CD-0055",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestAcceptedQ1ToQ10Corpus"
+        }
+      ],
+      "id": "PM1",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestOpenAppliesSchemaManifest"
+        }
+      ],
+      "id": "PM3",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact"
+        }
+      ],
+      "id": "PM6",
+      "state": "satisfied"
+    },
+    {
+      "id": "PM7",
+      "issue": 219,
+      "state": "outstanding"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestQueryQ10ContainsKnowledgeInSelectedProduct"
+        }
+      ],
+      "id": "TS3",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestEnvelopeGoldenOutcomes"
+        }
+      ],
+      "id": "TS7",
+      "state": "satisfied"
+    },
+    {
+      "id": "advance-predecessor-lessons",
+      "reason": "Public predecessor design evidence, explicitly non-authorizing. It records what Concord must prevent and is bound by the mechanisms named in the decisions it informed, not by itself.",
+      "state": "out_of_scope"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "generated",
+          "value": "internal/store/generated_agent_lanes.go#LaneRegistryManifestDigest"
+        }
+      ],
+      "id": "agent-lanes-contract",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "generated",
+          "value": "internal/store/generated_routing_policy.go#RoutingPolicyManifestDigest"
+        }
+      ],
+      "id": "routing-policy-contract",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
+        }
+      ],
+      "id": "workflow-engine-contract",
+      "state": "satisfied"
     }
   ]
 }

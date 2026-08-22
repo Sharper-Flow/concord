@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestEnvelopeGoldenOutcomes"
+    }
+  ],
+  "id": "TS7",
+  "state": "satisfied"
+}

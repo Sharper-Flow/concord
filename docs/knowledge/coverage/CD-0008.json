@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestIssueGrantRefusesMutationOnMainWorktree"
+    }
+  ],
+  "id": "CD-0008",
+  "state": "satisfied"
+}

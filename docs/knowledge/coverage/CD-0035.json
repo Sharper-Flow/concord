@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestGoverningRequirementsAreScopeBoundAndCorrectForward"
+    }
+  ],
+  "id": "CD-0035",
+  "state": "satisfied"
+}

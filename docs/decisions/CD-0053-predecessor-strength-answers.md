@@ -168,6 +168,7 @@ Answering after shadow would mean shadow evaluated an unspecified system.
   manifest rebuild tests (go_test anchors) — all already bound in
   `docs/floor-readiness.v1.json` and `docs/law-coverage.v1.json`.
 - `docs/concord-knowledge-index.v1.json` records CD-0053 once;
-  `docs/law-coverage.v1.json` declares its coverage.
+  `docs/law-coverage.v1.json` (generated from shards under `docs/knowledge/coverage/`)
+  declares its coverage.
 - `python3 scripts/check-json.py`, `check-doc-links.py`,
   `check-knowledge-index.py`, `check-floor-readiness.py` pass.

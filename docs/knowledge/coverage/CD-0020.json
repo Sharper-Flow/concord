@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    }
+  ],
+  "id": "CD-0020",
+  "state": "satisfied"
+}

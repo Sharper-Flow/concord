@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestExecutingSessionCannotReadItsOwnVerdict"
+    }
+  ],
+  "id": "CD-0023",
+  "state": "satisfied"
+}

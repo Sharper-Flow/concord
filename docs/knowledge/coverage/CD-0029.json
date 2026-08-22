@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestMessagesDirectBroadcastWithdrawAndRestartSurvival"
+    }
+  ],
+  "id": "CD-0029",
+  "state": "satisfied"
+}

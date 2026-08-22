@@ -51,6 +51,42 @@ ALLOWED_ROOT = {"schema_version", "source", "records"}
 ALLOWED_RECORD = {"id", "state", "evidence", "issue", "reason"}
 
 
+def _load_generator() -> object:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_law_coverage", ROOT / "scripts/generate-law-coverage.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("unable to load generate-law-coverage.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_aggregate_freshness(findings: list[str]) -> None:
+    shard_dir = ROOT / "docs/knowledge/coverage"
+    if not shard_dir.is_dir():
+        return
+    try:
+        generator = _load_generator()
+        derived = generator.derive_aggregate(ROOT, [])
+    except (OSError, ValueError, RuntimeError) as exc:
+        findings.append(f"law coverage aggregate freshness: {exc}")
+        return
+    if derived is None:
+        findings.append(
+            "law coverage aggregate freshness: generator rejected shards; see above"
+        )
+        return
+    actual = MANIFEST.read_bytes()
+    if derived != actual:
+        findings.append(
+            "law coverage aggregate is stale relative to shards; "
+            "run python3 scripts/generate-law-coverage.py --update"
+        )
+
+
 def indexed_record_ids(findings: list[str]) -> list[str]:
     index = load_json(INDEX, findings)
     if not isinstance(index, dict):
@@ -135,6 +171,7 @@ def main() -> int:
                     check_anchor(anchor, f"{prefix} anchor {position}", findings)
 
     check_subject_set(declared, indexed_record_ids(findings), "law record", findings)
+    check_aggregate_freshness(findings)
     return report(findings, "law coverage")
 
 

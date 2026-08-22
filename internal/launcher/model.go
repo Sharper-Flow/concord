@@ -223,7 +223,6 @@ type Snapshot struct {
 	OrderingKeys           []string
 	NextCursor             *string
 	Rows                   []ProductRow
-	Query                  string
 	StatusMessage          string
 	FirstRun               bool
 	Section                Section
@@ -303,8 +302,10 @@ func (m *Model) SelectWork(ctx context.Context, work string) error {
 }
 
 func (m *Model) SubmitQuery(ctx context.Context, query string) error {
+	// S1 carries no semantic-query binding, so a query submitted against the
+	// portfolio issues no read. The ambient guard below is not a substitute: an
+	// S1 snapshot with a non-empty ambient Product is representable.
 	if m.snapshot.Screen == ScreenPortfolio {
-		m.snapshot.Query = query
 		return nil
 	}
 	if m.snapshot.AmbientProduct == "" {

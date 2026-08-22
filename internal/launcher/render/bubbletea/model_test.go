@@ -30,29 +30,29 @@ func keyPress(code rune, text string, mod tea.KeyMod) tea.KeyPressMsg {
 func TestTextInputUsesBubblesForEditingPasteAndClear(t *testing.T) {
 	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
-	m.OpenQuery()
+	m.OpenFilter()
 	for _, msg := range []tea.KeyPressMsg{keyPress('a', "a", 0), keyPress('b', "b", 0), keyPress(tea.KeyLeft, "", 0), keyPress('X', "X", 0)} {
 		m.Update(msg)
 	}
-	if got := m.QueryValue(); got != "aXb" {
+	if got := m.FilterValue(); got != "aXb" {
 		t.Fatalf("mid-string insertion=%q", got)
 	}
 	m.Update(keyPress(tea.KeyBackspace, "", 0))
-	if got := m.QueryValue(); got != "ab" {
+	if got := m.FilterValue(); got != "ab" {
 		t.Fatalf("backspace=%q", got)
 	}
 	m.Update(tea.PasteMsg{Content: " pasted"})
-	if got := m.QueryValue(); got != "a pastedb" {
+	if got := m.FilterValue(); got != "a pastedb" {
 		t.Fatalf("bracketed paste=%q", got)
 	}
 	m.input.CursorStart()
 	m.Update(keyPress(tea.KeyRight, "", 0))
 	m.Update(keyPress(tea.KeyDelete, "", 0))
-	if got := m.QueryValue(); got != "apastedb" {
+	if got := m.FilterValue(); got != "apastedb" {
 		t.Fatalf("delete=%q", got)
 	}
 	m.Update(keyPress('l', "", tea.ModCtrl))
-	if got := m.QueryValue(); got != "" {
+	if got := m.FilterValue(); got != "" {
 		t.Fatalf("clear=%q", got)
 	}
 }
@@ -209,7 +209,7 @@ func TestNoOpAndResizeReturnNoCommandAndDoNotRead(t *testing.T) {
 func TestBubblesUICommandsAreReadFreeAndOnlyExplicitPathsRead(t *testing.T) {
 	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
-	if cmd := m.OpenQuery(); cmd != nil {
+	if cmd := m.OpenFilter(); cmd != nil {
 		_ = cmd() // Bubbles cursor blink; UI-only command, never a Concord read.
 	}
 	_, cmd := m.Update(keyPress('a', "a", 0))
@@ -232,7 +232,7 @@ func TestBubblesUICommandsAreReadFreeAndOnlyExplicitPathsRead(t *testing.T) {
 func TestSubmitCallsReadOnceAndNoTimerOrPolling(t *testing.T) {
 	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
-	m.OpenQuery()
+	m.OpenFilter()
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if p.reads != 0 {
 		t.Fatalf("filter submit reads=%d", p.reads)

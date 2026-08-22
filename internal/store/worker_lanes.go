@@ -453,7 +453,7 @@ func (s *Store) WorkerAttemptByID(ctx context.Context, attemptID string) (Worker
 	if s == nil || s.db == nil {
 		return WorkerAttempt{}, newFailure(KindUnavailable, "worker_attempt_read", "database is not open", true, "open the authority database")
 	}
-	return workerAttemptByID(ctx, s.db, attemptID)
+	return workerAttemptByIDCore(ctx, s.db, attemptID)
 }
 
 // WorkerAttemptByIDTx is the transaction-scoped lookup. Authenticating a worker
@@ -466,7 +466,7 @@ func WorkerAttemptByIDTx(ctx context.Context, transaction *Transaction, attemptI
 	if err != nil {
 		return WorkerAttempt{}, err
 	}
-	return workerAttemptByID(ctx, tx, attemptID)
+	return workerAttemptByIDCore(ctx, tx, attemptID)
 }
 
 // WorkerAttemptIsTerminal reports whether an attempt already reached a recorded
@@ -476,9 +476,7 @@ func WorkerAttemptIsTerminal(attempt WorkerAttempt) bool {
 	return attempt.LifecycleState == "completed" || attempt.LifecycleState == "failed"
 }
 
-func workerAttemptByID(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, attemptID string) (WorkerAttempt, error) {
+func workerAttemptByIDCore(ctx context.Context, q queryer, attemptID string) (WorkerAttempt, error) {
 	var attempt WorkerAttempt
 	err := q.QueryRowContext(ctx, `SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,COALESCE(failure_kind,''),COALESCE(failure_detail,''),dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(
 		&attempt.WorkID, &attempt.AttemptID, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.CapabilityClass, &attempt.RoutingPolicyVersion, &attempt.RoutingPolicyDigest, &attempt.ResolvedModel, &attempt.ResolutionRole, &attempt.FallbackReason, &attempt.ReadbackModel, &attempt.PacketSchemaVersion, &attempt.ReportSchemaVersion, &attempt.LifecycleState, &attempt.FailureKind, &attempt.FailureDetail, &attempt.DispatchedAt, &attempt.CompletedAt, &attempt.FailedAt,

@@ -119,13 +119,17 @@ func (s *Store) MessagesForWork(ctx context.Context, workID string, limit int) (
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "work_messages", "store is not open", false, "open the authority database")
 	}
+	return messagesForWork(ctx, s.db, workID, limit)
+}
+
+func messagesForWork(ctx context.Context, q queryer, workID string, limit int) ([]PeerMessage, error) {
 	if limit < 1 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT message_id,sender_work_id,recipient_work_id,body,state,sent_at,coalesce(withdrawn_at,'') FROM work_messages WHERE recipient_work_id=? ORDER BY sent_at DESC, message_id LIMIT ?`, workID, limit)
+	rows, err := q.QueryContext(ctx, `SELECT message_id,sender_work_id,recipient_work_id,body,state,sent_at,coalesce(withdrawn_at,'') FROM work_messages WHERE recipient_work_id=? ORDER BY sent_at DESC, message_id LIMIT ?`, workID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_messages", "cannot read messages", true, "retry once the database is readable", err)
 	}
@@ -147,8 +151,12 @@ func (s *Store) UnreadMessageCount(ctx context.Context, workID string) (int64, e
 	if s == nil || s.db == nil {
 		return 0, newFailure(KindUnavailable, "work_messages", "store is not open", false, "open the authority database")
 	}
+	return unreadMessageCount(ctx, s.db, workID)
+}
+
+func unreadMessageCount(ctx context.Context, q queryer, workID string) (int64, error) {
 	var count int64
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, workID).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, workID).Scan(&count); err != nil {
 		return 0, wrapFailure(KindUnavailable, "work_messages", "cannot count messages", true, "retry once the database is readable", err)
 	}
 	return count, nil
@@ -161,13 +169,17 @@ func (s *Store) ActiveWorkInProduct(ctx context.Context, productID string, limit
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "work_messages", "store is not open", false, "open the authority database")
 	}
+	return activeWorkInProduct(ctx, s.db, productID, limit)
+}
+
+func activeWorkInProduct(ctx context.Context, q queryer, productID string, limit int) ([]string, error) {
 	if limit < 1 {
 		limit = 100
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT ?`, productID, limit)
+	rows, err := q.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT ?`, productID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_messages", "cannot list active work", true, "retry once the database is readable", err)
 	}

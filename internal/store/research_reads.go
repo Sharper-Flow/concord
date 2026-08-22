@@ -116,11 +116,15 @@ func ResearchPacksByOwner(ctx context.Context, s *Store, ownerWorkID string, lim
 }
 
 func (s *Store) RequiredResearchFreshness(ctx context.Context, packID, consumerWorkID string) (ResearchFreshness, error) {
+	return requiredResearchFreshness(ctx, s.db, packID, consumerWorkID)
+}
+
+func requiredResearchFreshness(ctx context.Context, q queryer, packID, consumerWorkID string) (ResearchFreshness, error) {
 	var status string
 	// The freshness verdict is the pinned revision's, not the pack summary
 	// (issue #122): pack-level churn must not clear or poison a consumer's
 	// check for content it never changed.
-	err := s.db.QueryRowContext(ctx, `SELECT CASE WHEN c.required=0 THEN 'current' WHEN r.freshness IS NULL THEN 'unknown' WHEN r.freshness='stale' THEN 'stale' WHEN r.freshness='unknown' THEN 'unknown' ELSE 'current' END FROM active_research_consumers c LEFT JOIN active_research_revisions r ON r.pack_id=c.pack_id AND r.revision=c.revision JOIN work_items w ON w.id=c.consumer_work_id WHERE c.pack_id=? AND c.consumer_work_id=? AND w.lifecycle NOT IN ('completed','cancelled','superseded')`, packID, consumerWorkID).Scan(&status)
+	err := q.QueryRowContext(ctx, `SELECT CASE WHEN c.required=0 THEN 'current' WHEN r.freshness IS NULL THEN 'unknown' WHEN r.freshness='stale' THEN 'stale' WHEN r.freshness='unknown' THEN 'unknown' ELSE 'current' END FROM active_research_consumers c LEFT JOIN active_research_revisions r ON r.pack_id=c.pack_id AND r.revision=c.revision JOIN work_items w ON w.id=c.consumer_work_id WHERE c.pack_id=? AND c.consumer_work_id=? AND w.lifecycle NOT IN ('completed','cancelled','superseded')`, packID, consumerWorkID).Scan(&status)
 	if err == sql.ErrNoRows {
 		return ResearchUnknown, researchNotFound("active research consumer binding does not exist")
 	}

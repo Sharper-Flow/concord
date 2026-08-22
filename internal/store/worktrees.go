@@ -145,7 +145,11 @@ func WorktreeSetID(workID string) string { return worktreeSetPrefix + workID }
 
 // WorktreeEntries lists folded entries for a work item's set.
 func (s *Store) WorktreeEntries(ctx context.Context, workID string) ([]WorktreeEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE set_id=? ORDER BY project_id`, WorktreeSetID(workID))
+	return worktreeEntriesCore(ctx, s.db, workID)
+}
+
+func worktreeEntriesCore(ctx context.Context, q queryer, workID string) ([]WorktreeEntry, error) {
+	rows, err := q.QueryContext(ctx, `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE set_id=? ORDER BY project_id`, WorktreeSetID(workID))
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worktree_entries", "cannot read worktree entries", true, "retry once the database is readable", err)
 	}
@@ -166,24 +170,7 @@ func (s *Store) WorktreeEntries(ctx context.Context, workID string) ([]WorktreeE
 }
 
 func worktreeEntriesTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorktreeEntry, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE set_id=? ORDER BY project_id`, WorktreeSetID(workID))
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worktree_entries", "cannot read worktree entries", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var out []WorktreeEntry
-	for rows.Next() {
-		var e WorktreeEntry
-		var facts string
-		var reclaimed sql.NullString
-		if err := rows.Scan(&e.SetID, &e.ProjectID, &e.ClaimOpID, &e.Branch, &e.BaseSHA, &e.Path, &e.RepositoryID, &e.State, &e.VerifiedAt, &reclaimed, &facts); err != nil {
-			return nil, err
-		}
-		e.ReclaimedAt = reclaimed.String
-		e.GitFacts = json.RawMessage(facts)
-		out = append(out, e)
-	}
-	return out, rows.Err()
+	return worktreeEntriesCore(ctx, tx, workID)
 }
 
 // WorktreeClaimRequest drives the durable claim operation. The claim is

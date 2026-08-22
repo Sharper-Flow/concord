@@ -37,6 +37,8 @@ jobs:
         run: python3 scripts/check-doc-links.py
       - name: Validate agent instructions
         run: python3 scripts/check-agents-md.py
+      - name: Validate CD allocation
+        run: python3 scripts/check-cd-allocation.py
       - name: Validate JSON
         run: python3 scripts/check-json.py
       - name: Validate predecessor operational coverage

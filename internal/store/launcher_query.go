@@ -79,11 +79,10 @@ type LauncherSearchResult struct {
 }
 
 func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchRequest) (LauncherSearchResult, error) {
-	return queryLauncherSearch(ctx, s.db, s, req)
-}
-
-func queryLauncherSearch(ctx context.Context, q queryer, s *Store, req LauncherSearchRequest) (LauncherSearchResult, error) {
 	var out LauncherSearchResult
+	if s == nil || s.db == nil {
+		return out, newFailure(KindUnavailable, "launcher.search", "store is not open", false, "open the authority database")
+	}
 	limit, err := queryLimit(req.Limit)
 	if err != nil {
 		return out, err
@@ -97,7 +96,7 @@ func queryLauncherSearch(ctx context.Context, q queryer, s *Store, req LauncherS
 	if len(req.Query) > 256 {
 		return out, newFailure(KindInvalidFilter, "launcher.search", "bounded search text is too long", false, "limit text to 256 characters")
 	}
-	home, homeErr := resolveKnowledgeQueryHome(ctx, q, req.Product, "", KnowledgeHome{}, "launcher.search")
+	home, homeErr := resolveKnowledgeQueryHome(ctx, s.db, req.Product, "", KnowledgeHome{}, "launcher.search")
 	knowledgeWatermark, knowledgeAuthority := "unavailable", "unavailable"
 	knowledgeAvailable := homeErr == nil
 	if knowledgeAvailable {

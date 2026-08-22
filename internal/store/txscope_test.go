@@ -39,9 +39,41 @@ const (
 
 func TestTxScope(t *testing.T) {
 	root := txScopeRepoRoot()
-	findings := scanTxScope(root)
+	findings, analyzed := scanTxScope(root)
+	// A scan that reaches no files reports no findings, which would let this
+	// assertion pass while proving nothing. The package holds dozens of
+	// non-test files; a count this low means discovery broke, not that the
+	// package shrank.
+	if analyzed < 30 {
+		t.Fatalf("transaction scope analysis reached %d files in internal/store; discovery is broken", analyzed)
+	}
 	for _, finding := range findings {
 		t.Errorf("%s", finding)
+	}
+}
+
+func TestTxScopePropertiesBite(t *testing.T) {
+	tests := []struct {
+		name     string
+		property int
+		source   string
+	}{
+		{"transaction handle and store", 1, `package store; func violates(q queryer, s *Store) { _ = q }`},
+		{"multi-statement transaction closure", 2, `package store; func violates(s *Store) { s.Transact(nil, func(tx *Transaction) error { x := 1; _ = x; return nil }) }`},
+		{"queryer nil comparison", 3, `package store; func violates(q queryer) { if q == nil { return } }`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, tt.name+".go", tt.source, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			findings := scanTxScopeFile(tt.name+".go", file, fset)
+			if len(findings) != 1 || findings[0].Property != tt.property {
+				t.Fatalf("property %d self-test found %d findings: %v", tt.property, len(findings), findings)
+			}
+		})
 	}
 }
 
@@ -50,11 +82,11 @@ func txScopeRepoRoot() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
 }
 
-func scanTxScope(root string) []txScopeFinding {
+func scanTxScope(root string) ([]txScopeFinding, int) {
 	storeDir := filepath.Join(root, "internal", "store")
 	entries, err := os.ReadDir(storeDir)
 	if err != nil {
-		return []txScopeFinding{{Path: "internal/store", Line: 1, Identifier: "store", Property: 0, Message: "cannot read package: " + err.Error()}}
+		return []txScopeFinding{{Path: "internal/store", Line: 1, Identifier: "store", Property: 0, Message: "cannot read package: " + err.Error()}}, 0
 	}
 
 	paths := make([]string, 0, len(entries))
@@ -86,7 +118,7 @@ func scanTxScope(root string) []txScopeFinding {
 		}
 		return findings[i].Property < findings[j].Property
 	})
-	return findings
+	return findings, len(paths)
 }
 
 func scanTxScopeFile(path string, file *ast.File, fset *token.FileSet) []txScopeFinding {
@@ -156,7 +188,7 @@ func scanTxScopeFunction(path string, body *ast.BlockStmt, params []txScopeParam
 	}
 	for _, param := range params {
 		if param.kind == txScopeStore {
-			findings = append(findings, txScopeFinding{path, fset.Position(param.ident.Pos()).Line, param.ident.Name, 1, "transaction-scoped function has a *Store parameter"})
+			findings = append(findings, txScopeFinding{path, fset.Position(param.ident.Pos()).Line, param.ident.Name, 1, "transaction-scoped function receives a *Store; use a tx-scoped core with only the live transaction handle"})
 		}
 	}
 	ast.Inspect(body, func(node ast.Node) bool {
@@ -168,7 +200,7 @@ func scanTxScopeFunction(path string, body *ast.BlockStmt, params []txScopeParam
 		}
 		ident, ok := node.(*ast.Ident)
 		if ok && stores[ident.Name] {
-			findings = append(findings, txScopeFinding{path, fset.Position(ident.Pos()).Line, ident.Name, 1, "transaction-scoped function references a *Store value"})
+			findings = append(findings, txScopeFinding{path, fset.Position(ident.Pos()).Line, ident.Name, 1, "transaction-scoped function references a *Store value; use tx-scoped query helpers instead"})
 		}
 		return true
 	})
@@ -192,10 +224,10 @@ func scanTxScopeNilChecks(path string, body *ast.BlockStmt, params []txScopePara
 		left, lok := binary.X.(*ast.Ident)
 		right, rok := binary.Y.(*ast.Ident)
 		if lok && queryers[left.Name] && rok && right.Name == "nil" {
-			findings = append(findings, txScopeFinding{path, fset.Position(left.Pos()).Line, left.Name, 3, "queryer parameter compared with nil"})
+			findings = append(findings, txScopeFinding{path, fset.Position(left.Pos()).Line, left.Name, 3, "queryer parameter compared with nil; guard the live handle in the owning method instead"})
 		}
 		if rok && queryers[right.Name] && lok && left.Name == "nil" {
-			findings = append(findings, txScopeFinding{path, fset.Position(right.Pos()).Line, right.Name, 3, "queryer parameter compared with nil"})
+			findings = append(findings, txScopeFinding{path, fset.Position(right.Pos()).Line, right.Name, 3, "queryer parameter compared with nil; guard the live handle in the owning method instead"})
 		}
 		return true
 	})
@@ -206,17 +238,17 @@ func scanTxScopeClosure(path string, lit *ast.FuncLit, stores []string, fset *to
 	var findings []txScopeFinding
 	line := fset.Position(lit.Pos()).Line
 	if lit.Body == nil || len(lit.Body.List) != 1 {
-		findings = append(findings, txScopeFinding{path, line, "Transact", 2, "Transact closure must contain exactly one return statement"})
+		findings = append(findings, txScopeFinding{path, line, "Transact", 2, "Transact closure must contain exactly one return statement; extract coordination into a tx-taking wrapper"})
 		return findings
 	}
 	ret, ok := lit.Body.List[0].(*ast.ReturnStmt)
 	if !ok || len(ret.Results) != 1 {
-		findings = append(findings, txScopeFinding{path, line, "Transact", 2, "Transact closure must contain exactly one return statement"})
+		findings = append(findings, txScopeFinding{path, line, "Transact", 2, "Transact closure must contain exactly one return statement; extract coordination into a tx-taking wrapper"})
 		return findings
 	}
 	call, ok := ret.Results[0].(*ast.CallExpr)
 	if !ok {
-		findings = append(findings, txScopeFinding{path, line, "Transact", 2, "Transact closure must return a single function call"})
+		findings = append(findings, txScopeFinding{path, line, "Transact", 2, "Transact closure must return a single function call; extract coordination into a tx-taking wrapper"})
 		return findings
 	}
 	for _, name := range stores {
@@ -230,7 +262,7 @@ func scanTxScopeClosure(path string, lit *ast.FuncLit, stores []string, fset *to
 			return true
 		})
 		if captured != nil {
-			findings = append(findings, txScopeFinding{path, fset.Position(captured.Pos()).Line, name, 2, "Transact closure captures a *Store value"})
+			findings = append(findings, txScopeFinding{path, fset.Position(captured.Pos()).Line, name, 2, "Transact closure captures a *Store value; pass the transaction to a tx-taking wrapper instead"})
 		}
 	}
 	_ = call
@@ -264,9 +296,6 @@ func txScopeTypeKind(expr ast.Expr) string {
 	}
 	star, ok := expr.(*ast.StarExpr)
 	if !ok {
-		if txScopeContainsTransaction(expr) {
-			return txScopeTx
-		}
 		return ""
 	}
 	if ident, ok := star.X.(*ast.Ident); ok {
@@ -285,28 +314,6 @@ func txScopeTypeKind(expr ast.Expr) string {
 		}
 	}
 	return ""
-}
-
-func txScopeContainsTransaction(expr ast.Expr) bool {
-	found := false
-	ast.Inspect(expr, func(node ast.Node) bool {
-		star, ok := node.(*ast.StarExpr)
-		if !ok {
-			return true
-		}
-		if ident, ok := star.X.(*ast.Ident); ok && ident.Name == "Transaction" {
-			found = true
-			return false
-		}
-		if selector, ok := star.X.(*ast.SelectorExpr); ok && selector.Sel.Name == "Tx" {
-			if base, ok := selector.X.(*ast.Ident); ok && base.Name == "sql" {
-				found = true
-				return false
-			}
-		}
-		return true
-	})
-	return found
 }
 
 func txScopeStoreNames(params []txScopeParam) []string {

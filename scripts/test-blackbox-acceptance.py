@@ -738,50 +738,31 @@ def step_h_backup_restore(binary: Path, env: dict, work: Path, repo: Path, grant
         raise HarnessError(f"restored work_browse.list returned id={items[0].get('id')}, want {work_id}")
 
 
-def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes, public_key: bytes) -> None:
-    """#187 upgrade compatibility: data written by the latest published
-    (older) binary is opened, fully read, and further written by the binary
-    under test.
-
-    Direction matters: an upgrade runs the NEW binary against OLD data. The
-    probe bootstraps a fresh home with the published release binary, then the
-    binary under test backs that home up — the online-backup API reads every
-    page, so a schema incompatibility surfaces here, not at --version, which
-    never opens the store — and then creates a Product in the same home,
-    proving a write after upgrade. If the old binary rejects the bootstrap
-    payloads (strict-field CLI drift), the step skips with that typed failure
-    in the reason: CLI-contract drift is governed by the agent-surface
-    contracts, not by this store-compatibility gate. A failure of the NEW
-    binary against old-binary data is a hard failure.
-
-    Download failure (offline, rate limit, auth) is not a harness failure —
-    the harness prints ``SKIP-UPGRADE: <reason>`` and continues. A silent
-    skip is the defect this rule exists to prevent.
-    """
+def _download_release_binary(work: Path, subdir: str, tag: str | None) -> Path | None:
+    """Download a release binary into work/subdir; None with a printed SKIP reason."""
+    target = work / subdir
+    target.mkdir(parents=True, exist_ok=True)
+    command = ['gh', 'release', 'download']
+    if tag is not None:
+        command.append(tag)
+    command += ['--repo', 'Sharper-Flow/concord', '--pattern', 'concord-v*', '--dir', str(target), '--skip-existing']
     try:
-        completed = subprocess.run(
-            ['gh', 'release', 'download', '--repo', 'Sharper-Flow/concord', '--pattern', 'concord-v*', '--dir', str(work / 'upgrade'), '--skip-existing'],
-            capture_output=True, text=True, timeout=120, check=False,
-        )
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
     except FileNotFoundError:
         print("SKIP-UPGRADE: gh CLI not installed", flush=True)
-        return
+        return None
     except subprocess.TimeoutExpired:
         print("SKIP-UPGRADE: gh release download timed out", flush=True)
-        return
+        return None
+    label = tag or 'latest'
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or '').strip().splitlines()
-        print(f"SKIP-UPGRADE: gh exit={completed.returncode}; {detail[-1] if detail else 'no output'}", flush=True)
-        return
-    assets = sorted((work / 'upgrade').glob('concord-v*'))
-    if not assets:
-        print("SKIP-UPGRADE: gh downloaded no concord-v* asset", flush=True)
-        return
+        print(f"SKIP-UPGRADE[{label}]: gh exit={completed.returncode}; {detail[-1] if detail else 'no output'}", flush=True)
+        return None
     # The release pipeline writes the binary as ``concord-$VERSION`` (no
     # extension); the SBOM and SHA-256 carry extensions. Pick the only file
-    # matching the binary shape: at least 1 MiB and executable.
-    candidate = None
-    for asset in assets:
+    # matching the binary shape: at least 1 MiB.
+    for asset in sorted(target.glob('concord-v*')):
         if not asset.is_file():
             continue
         if asset.name.endswith(('.sha256', '.sbom.spdx.json', '.tar.gz')):
@@ -789,10 +770,28 @@ def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes,
         if asset.stat().st_size < (1 << 20):
             continue
         os.chmod(asset, 0o755)
-        candidate = asset
-        break
+        return asset
+    print(f"SKIP-UPGRADE[{label}]: downloaded assets are not a concord binary", flush=True)
+    return None
+
+
+def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | None, seed: bytes, public_key: bytes) -> None:
+    """Open and further write, with the binary under test, a home written by
+    one published release binary (latest when tag is None).
+
+    Direction matters: an upgrade runs the NEW binary against OLD data. The
+    probe bootstraps a fresh home with the release binary, then the binary
+    under test backs that home up — the online-backup API reads every page,
+    so a schema it cannot open fails here, not at --version, which never
+    opens the store — and then creates a Product in the same home, proving a
+    write after upgrade. If the old binary rejects the bootstrap payloads
+    (strict-field CLI drift), the step skips with that typed failure in the
+    reason: CLI-contract drift is governed by the agent-surface contracts,
+    not by this store-compatibility gate. A failure of the NEW binary against
+    old-binary data is a hard failure.
+    """
+    candidate = _download_release_binary(work, subdir, tag)
     if candidate is None:
-        print(f"SKIP-UPGRADE: downloaded assets are not a concord binary: {[a.name for a in assets]}", flush=True)
         return
     version_check = subprocess.run([str(candidate), '--version'], capture_output=True, text=True, timeout=15, check=False)
     if version_check.returncode != 0:
@@ -803,10 +802,10 @@ def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes,
     # A separate home, written by the OLD binary.
     old_env = {
         **env,
-        'XDG_DATA_HOME': str(work / 'upgrade-data'),
-        'XDG_CONFIG_HOME': str(work / 'upgrade-config'),
+        'XDG_DATA_HOME': str(work / f'{subdir}-data'),
+        'XDG_CONFIG_HOME': str(work / f'{subdir}-config'),
     }
-    for directory in (work / 'upgrade-data', work / 'upgrade-config'):
+    for directory in (work / f'{subdir}-data', work / f'{subdir}-config'):
         directory.mkdir(parents=True, exist_ok=True)
     try:
         _run(candidate, ['client', 'register'], {
@@ -830,12 +829,12 @@ def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes,
         }, old_env)
     except HarnessError as error:
         reason = str(error)[:300]
-        print(f"SKIP-UPGRADE: release binary rejected the bootstrap payload (CLI drift): {reason}", flush=True)
+        print(f"SKIP-UPGRADE[{tag or 'latest'}]: release binary rejected the bootstrap payload (CLI drift): {reason}", flush=True)
         return
 
     # The NEW binary reads the entire database through the backup verb —
     # a schema it cannot open fails here with schema_unsupported, not later.
-    _run(binary, ['backup'], {'destination': str(work / 'upgrade-after-backup')}, old_env)
+    _run(binary, ['backup'], {'destination': str(work / f'{subdir}-after-backup')}, old_env)
     # And it writes to the upgraded home.
     _run(binary, ['product', 'create'], {
         'product_id': 'harness-upgrade-product-new',
@@ -847,6 +846,21 @@ def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes,
         'role': 'primary',
         'reason': 'blackbox upgrade probe written by the binary under test',
     }, old_env)
+
+
+# v0.13.0 is the pinned old-release probe: its databases record migration
+# checksums from texts later edited (digest correction, reformatting), so it
+# exercises the shipped-variant acceptance at the manifest check. Probing the
+# latest release alone cannot see that class.
+UPGRADE_PROBE_OLD_TAG = 'v0.13.0'
+
+
+def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes, public_key: bytes) -> None:
+    """#187 upgrade compatibility against two published releases: the latest
+    and a pinned old tag. See _upgrade_probe for the per-release contract.
+    """
+    _upgrade_probe(binary, env, work, 'upgrade-latest', None, seed, public_key)
+    _upgrade_probe(binary, env, work, 'upgrade-old', UPGRADE_PROBE_OLD_TAG, seed, public_key)
 
 
 # ---------------------------------------------------------------------------

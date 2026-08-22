@@ -393,9 +393,20 @@ The launcher inherits C14 §4 wholesale and adds container-level rules.
   for the entity already on screen, with typed coverage and no per-row fan-out.
 - No screen issues per-row or per-work fan-out. The knowledge section is one bounded
   read for the entity already on screen, not a read per row.
-- The knowledge section renders lazily: it is read when the section is first focused
-  on that screen entry, not on every screen entry, so the common status-checking path
-  pays for one query.
+- The knowledge section is read when it is first focused on that screen entry, never
+  again on that entry. What that costs differs by screen, because the section is not
+  focusable in the same way on both:
+  - **S2:** knowledge is part of the Domain panel, and the Domain panel is focused on
+    entry. First-focused and on-entry are therefore the same moment, and entering S2
+    costs two reads — the Domain read and the Product-scoped knowledge read. Panel
+    focus cycles Domain → blocked → next and never lands on a separate knowledge
+    section, so there is no later moment to defer the read to.
+  - **S3:** knowledge is its own focusable section, cycled after Domains, relations,
+    and ranked work. It is read when the operator first focuses it, so entering S3
+    costs one read and an operator who never opens the section never pays for it.
+- The rule exists so the common status-checking path does not pay for queries it does
+  not use. S1 issues no knowledge read at all, and S3 defers its read until asked. Two
+  reads is the floor for S2, which renders knowledge in the panel it opens on.
 - P99 ≤ 100 ms locally at 10× measured dataset, matching the PM1 implementation
   target carried by C14 §8.
 - All reads go through the accepted CD-0005 read tools or their in-process Go

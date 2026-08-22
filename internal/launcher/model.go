@@ -268,9 +268,10 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 				m.snapshot = Snapshot{Screen: ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 				return err
 			}
-			// The Domain panel is focused on entry, so load its bounded knowledge
-			// section through the existing lazy read path. A failed knowledge read
-			// remains typed in the Product snapshot without losing navigation.
+			// The Domain panel is focused on entry, so its bounded knowledge
+			// section reads here. A failed knowledge read stays typed in the
+			// Product snapshot rather than costing navigation, which is why the
+			// error is discarded.
 			_ = m.EnsureKnowledge(ctx)
 			m.snapshot.Session = SessionHandoff{ProductID: product}
 			m.snapshot.PanelFocus = S2PanelDomain

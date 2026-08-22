@@ -1470,15 +1470,25 @@
     {
       "date": "2026-08-22T00:00:00Z",
       "evidence": [
+<<<<<<< HEAD
         "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
         "contracts/agent-lane-report.schema.json",
         "internal/store/worker_lanes.go",
         "adapter/opencode/dispatch.ts"
+=======
+        "docs/decisions/CD-0056-conformance-control-round.md",
+        "internal/store/conformance_test.go",
+        "internal/store/conformance_status_test.go"
+>>>>>>> 6b90cc8 (fix(store): require a clean unpaced control for the commit-duration verdict (#341))
       ],
       "home_domain_id": "product-root:concord",
       "id": "CD-0056",
       "kind": "decision",
+<<<<<<< HEAD
       "path": "docs/decisions/CD-0056-lane-evidence-obligations-bind.md",
+=======
+      "path": "docs/decisions/CD-0056-conformance-control-round.md",
+>>>>>>> 6b90cc8 (fix(store): require a clean unpaced control for the commit-duration verdict (#341))
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -1486,6 +1496,7 @@
         "project_ids": [],
         "tag_ids": []
       },
+<<<<<<< HEAD
       "sha256": "sha256:8c25d11950c0ff5f3bec9cddbfe668788b1aa8607e54e2cfd261f0e4b7d78dc3",
       "status": "accepted",
       "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
@@ -1495,6 +1506,17 @@
         "workers"
       ],
       "title": "A lane report discharges its lane's evidence obligations"
+=======
+      "sha256": "sha256:5a36346e4442fe6f0fd0e2d72fd1d6414df0907360b2fa0f4e5e853ecbea5a16",
+      "status": "accepted",
+      "summary": "The CD-0051 commit-duration falsifier requires both a paced-round majority above the 100ms P99 target and an above-target unpaced acceptance control; paced overshoot with a clean control is inconclusive and records both P99 values, while correctness precedence, population authority, and diagnostic measurements remain unchanged.",
+      "tags": [
+        "conformance",
+        "concurrency",
+        "falsifier"
+      ],
+      "title": "The commit-duration falsifier requires a clean unpaced control"
+>>>>>>> 6b90cc8 (fix(store): require a clean unpaced control for the commit-duration verdict (#341))
     },
     {
       "date": "2026-08-06T00:00:00Z",

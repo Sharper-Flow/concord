@@ -7,9 +7,9 @@
     "adapter/opencode/dispatch.ts"
   ],
   "home_domain_id": "product-root:concord",
-  "id": "CD-0056",
+  "id": "CD-0057",
   "kind": "decision",
-  "path": "docs/decisions/CD-0056-lane-evidence-obligations-bind.md",
+  "path": "docs/decisions/CD-0057-conformance-control-round.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

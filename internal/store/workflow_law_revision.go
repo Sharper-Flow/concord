@@ -169,7 +169,7 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 // findStaleWorkflowLawRevision is read-only and accepts either *sql.DB or
 // *sql.Tx. It consults only the current Git-derived law projection and the
 // event-folded contract pins; it never changes either authority.
-func findStaleWorkflowLawRevision(ctx context.Context, q lawQueryer, homeProjectID, homeLocatorID, workID string, contractVersion int64, mandated []string) (*StaleLawRevision, error) {
+func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID, homeLocatorID, workID string, contractVersion int64, mandated []string) (*StaleLawRevision, error) {
 	if len(mandated) == 0 {
 		return nil, nil
 	}
@@ -178,13 +178,13 @@ func findStaleWorkflowLawRevision(ctx context.Context, q lawQueryer, homeProject
 	}
 	for _, lawID := range mandated {
 		var pinnedHash string
-		err := queryRowContext(q, ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, lawID).Scan(&pinnedHash)
+		err := q.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, lawID).Scan(&pinnedHash)
 		pinned := err == nil
 		if err != nil && err != sql.ErrNoRows {
 			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read workflow law revision pins", true, "retry once the workflow projection is readable", err)
 		}
 		var status, oldHash string
-		err = queryRowContext(q, ctx, `SELECT status,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, homeProjectID, homeLocatorID, lawID).Scan(&status, &oldHash)
+		err = q.QueryRowContext(ctx, `SELECT status,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, homeProjectID, homeLocatorID, lawID).Scan(&status, &oldHash)
 		if err == sql.ErrNoRows {
 			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "mandated law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
 			failure.CandidateIDs = []string{lawID}
@@ -199,7 +199,7 @@ func findStaleWorkflowLawRevision(ctx context.Context, q lawQueryer, homeProject
 			continue
 		}
 		var successorID, successorHash string
-		err = queryRowContext(q, ctx, `SELECT s.law_id,s.content_hash FROM law_relations r JOIN law_subjects s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id WHERE r.home_project_id=? AND r.home_locator_id=? AND r.kind='supersedes' AND r.target_law_id=? AND s.status='accepted' ORDER BY s.law_id LIMIT 1`, homeProjectID, homeLocatorID, lawID).Scan(&successorID, &successorHash)
+		err = q.QueryRowContext(ctx, `SELECT s.law_id,s.content_hash FROM law_relations r JOIN law_subjects s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id WHERE r.home_project_id=? AND r.home_locator_id=? AND r.kind='supersedes' AND r.target_law_id=? AND s.status='accepted' ORDER BY s.law_id LIMIT 1`, homeProjectID, homeLocatorID, lawID).Scan(&successorID, &successorHash)
 		if err == sql.ErrNoRows {
 			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "superseded mandated law has no valid accepted successor in the current projection", false, "publish and rebuild the accepted successor law projection")
 			failure.CandidateIDs = []string{lawID}
@@ -222,16 +222,6 @@ func findStaleWorkflowLawRevision(ctx context.Context, q lawQueryer, homeProject
 	return nil, nil
 }
 
-func queryRowContext(q lawQueryer, ctx context.Context, query string, args ...any) *sql.Row {
-	if db, ok := q.(*sql.DB); ok {
-		return db.QueryRowContext(ctx, query, args...)
-	}
-	if tx, ok := q.(*sql.Tx); ok {
-		return tx.QueryRowContext(ctx, query, args...)
-	}
-	return nil
-}
-
 func validateWorkflowLawMandate(mandated []string) error {
 	seen := map[string]struct{}{}
 	for _, lawID := range mandated {
@@ -246,7 +236,7 @@ func validateWorkflowLawMandate(mandated []string) error {
 	return nil
 }
 
-func readWorkflowLawRevisions(ctx context.Context, q lawQueryer, workID string, contractVersion int64) ([]WorkflowLawRevision, error) {
+func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, contractVersion int64) ([]WorkflowLawRevision, error) {
 	rows, err := q.QueryContext(ctx, `SELECT law_id,content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? ORDER BY law_id`, workID, contractVersion)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "read_workflow_law_revision", "cannot read workflow law revision pins", true, "retry once the workflow projection is readable", err)

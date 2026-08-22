@@ -95,11 +95,7 @@ func checkMandatedLawsDB(ctx context.Context, db *sql.DB, homeProjectID, homeLoc
 	return checkMandatedLawsQuery(ctx, db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
-type lawQueryer interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}
-
-func checkMandatedLawsQuery(ctx context.Context, q lawQueryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) (LawBoundaryCheck, error) {
+func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) (LawBoundaryCheck, error) {
 	if len(mandated) > 32 || len(modified) > 32 {
 		return LawBoundaryCheck{}, newFailure(KindInvalidPayload, "check_mandated_laws", "law mandate exceeds the bounded list size", false, "supply at most 32 law IDs")
 	}

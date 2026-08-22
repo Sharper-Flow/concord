@@ -2511,13 +2511,9 @@ func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// manifestQueryer is satisfied by both *sql.DB and *sql.Tx so the manifest can
-// be read without opening a write transaction.
-type manifestQueryer interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
-func appliedMigrations(ctx context.Context, tx manifestQueryer) (map[int]string, error) {
+// appliedMigrations takes a queryer so the manifest can be read without
+// opening a write transaction.
+func appliedMigrations(ctx context.Context, tx queryer) (map[int]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT version, checksum FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest", true,

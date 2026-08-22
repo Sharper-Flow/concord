@@ -447,11 +447,7 @@ func CheckWorkflowDomainOverlap(ctx context.Context, s *Store, workID string) er
 		return newFailure(KindUnavailable, "workflow_domain_overlap", "store is not open", false, "open the authority database")
 	}
 	return s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, "workflow_domain_overlap")
-		if err != nil {
-			return err
-		}
-		return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
+		return CheckWorkflowDomainOverlapTransactionTx(ctx, transaction, workID)
 	})
 }
 

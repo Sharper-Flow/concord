@@ -26,7 +26,7 @@ const (
 
 // WorkerDispatchedPayload is the v3 dispatch identity. The event subject is
 // the owning work item; AttemptID identifies the worker attempt. The
-// declared-side routing columns were dropped under CD-0056: Concord records
+// declared-side routing columns were dropped under CD-0057: Concord records
 // what executed (readback_model) and nothing else.
 type WorkerDispatchedPayload struct {
 	AttemptID           string `json:"attempt_id"`
@@ -44,7 +44,7 @@ type WorkerDispatchedPayload struct {
 	// for payloads older than v3.
 	HostProvenance *WorkerHostProvenance `json:"host_provenance,omitempty"`
 	// ReadbackModel records the model the host reports as having executed
-	// the attempt (CD-0056 D2). It is the only model evidence Concord
+	// the attempt (CD-0057 D2). It is the only model evidence Concord
 	// records; the adapter writes the same value on dispatch and on the
 	// worker.completed / worker.failed terminal events.
 	ReadbackModel string `json:"readback_model,omitempty"`
@@ -93,7 +93,7 @@ type WorkerHostProvenanceSource struct {
 
 // WorkerAttempt is the fold-only current projection of one worker attempt.
 // It intentionally contains no workflow step, verdict, or completion state.
-// The declared-side routing columns were dropped under CD-0056.
+// The declared-side routing columns were dropped under CD-0057.
 type WorkerAttempt struct {
 	WorkID              string `json:"work_id"`
 	AttemptID           string `json:"attempt_id"`
@@ -211,7 +211,7 @@ func upcastWorkerDispatchedV1(event Event) (Event, error) {
 	if _, err := LookupLane(payload.LaneID, payload.LaneVersion, payload.LaneDigest); err != nil {
 		return Event{}, err
 	}
-	// CD-0056: declared-side routing fields were dropped. v1 payloads that
+	// CD-0057: declared-side routing fields were dropped. v1 payloads that
 	// carried them are folded as-is — the columns simply do not survive the
 	// migration to v3 and the fold reads only the surviving identity.
 	encoded, err := json.Marshal(payload)

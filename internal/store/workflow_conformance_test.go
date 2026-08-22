@@ -2167,7 +2167,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 
 // observeWorkerAttempts exposes the CD-0017 D5 worker attempt evidence to the
 // scenario corpus. Every dispatched attempt carries its registered lane
-// identity and the readback executing model (CD-0056: the only model evidence
+// identity and the readback executing model (CD-0057: the only model evidence
 // Concord records), so a scenario can assert typed lane evidence rather than
 // response wording.
 func observeWorkerAttempts(ctx context.Context, s *Store, workID string, observation *workflowObservation) error {

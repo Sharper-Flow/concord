@@ -108,7 +108,7 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{mismatch}}); err != nil {
 		t.Fatal(err)
 	}
-	// CD-0056: Concord records the host readback verbatim. A completion that
+	// CD-0057: Concord records the host readback verbatim. A completion that
 	// names a different readback than the dispatch is accepted as a normal
 	// completion; the dispatch and terminal readback are both recorded. The
 	// store no longer asserts a model_identity_mismatch.
@@ -190,7 +190,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-foreign-failed-subject", "terminal-foreign-failed-event", "terminal-foreign-failed-attempt", preferredModelForLane(lane)), KindInvalidOperation, before, beforeEvents)
 	})
 	t.Run("model mismatch is no longer a terminal kind", func(t *testing.T) {
-		// CD-0056: the readback mismatch no longer records a typed failure. A
+		// CD-0057: the readback mismatch no longer records a typed failure. A
 		// completion that names a different readback than the dispatch
 		// succeeds as a normal completion; the readback column records what
 		// the host reported. A second completion is still rejected because
@@ -360,7 +360,7 @@ func TestGenericHostAgentsAreNotDispatchableLanes(t *testing.T) {
 
 // CD-0034: host prompt provenance is declared at dispatch — validated closed,
 // required for v3 evidence at the CLI boundary, and upcasted with an honest
-// legacy marker for v1/v2 history. Provenance is unaffected by CD-0056; only
+// legacy marker for v1/v2 history. Provenance is unaffected by CD-0057; only
 // the routing-policy fields left the dispatch payload.
 func TestWorkerHostProvenanceValidation(t *testing.T) {
 	valid := &WorkerHostProvenance{Digest: "sha256:" + strings.Repeat("a", 64), Sources: []WorkerHostProvenanceSource{

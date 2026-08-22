@@ -273,7 +273,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const signal = options.signal ?? new AbortController().signal
   const childRunner = options.runner ?? runner
   const binary = options.binary ?? "opencode"
-  // CD-0056: the adapter no longer asserts --model. OpenCode resolves the
+  // CD-0057: the adapter no longer asserts --model. OpenCode resolves the
   // executing model from host configuration (agent.<name>.model or a routing
   // plugin). Concord records what the host reports executed; it does not claim
   // what was permitted to execute.

@@ -1437,9 +1437,9 @@
         "internal/store/schema.go"
       ],
       "home_domain_id": "product-root:concord",
-      "id": "CD-0056",
+      "id": "CD-0057",
       "kind": "decision",
-      "path": "docs/decisions/CD-0056-no-model-routing.md",
+      "path": "docs/decisions/CD-0057-no-model-routing.md",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -1447,7 +1447,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:3c216372768963641fd5c9f5eafd8060011bda97bc3f78362346f8657f1e48f9",
+      "sha256": "sha256:37fed5f4c439d4b901cf87a93e2721e400802d88c4654a5729c0dd0622165447",
       "status": "accepted",
       "summary": "Concord performs no model resolution: the adapter omits --model from lane dispatch and OpenCode resolves the executing model from host configuration; readback_model is the sole model evidence feeding CD-0017 D6 distinctness; the routing-policy record, the CONCORD_ROUTING_POLICY host state, the load-time validation, and the five declared-side worker-attempt columns (routing_policy_version, routing_policy_digest, resolved_model, resolution_role, fallback_reason) are retired under a schema migration; CD-0017 D2's dispatch flag is dropped and D8/D9 retire.",
       "tags": [

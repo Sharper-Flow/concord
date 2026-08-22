@@ -155,4 +155,4 @@ targets under its plugin tuple, for example:
 This configuration is purely host-owned. Concord neither reads nor asserts it;
 the adapter does not pass `--model` on the spawn argv and does not carry a
 resolution set. What runs is whatever the host's routing chain selects, and
-the adapter records that selection only as `readback_model`. CD-0056.
+the adapter records that selection only as `readback_model`. CD-0057.

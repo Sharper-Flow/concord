@@ -438,7 +438,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 		t.Fatalf("worker-fail exit=%d stderr=%q", code, errOut.String())
 	}
 
-	// CD-0056: a completion whose readback differs from the dispatch readback
+	// CD-0057: a completion whose readback differs from the dispatch readback
 	// is accepted as a normal completion. The readback is whatever the host
 	// reported, and the only model evidence Concord records.
 	divergentDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch3")

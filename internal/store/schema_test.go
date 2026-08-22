@@ -347,7 +347,7 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 // constant.
 const historicalRoutingPolicyDigest = "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736"
 
-// TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows covers CD-0056
+// TestMigrateV42ToV43DropsWorkerRoutingEvidenceAndPreservesRows covers CD-0057
 // D4: the declared-side worker attempt columns are removed under a rename +
 // recreate + copy + drop, every pre-existing row survives, and the lifecycle
 // CHECK that references readback_model is preserved.

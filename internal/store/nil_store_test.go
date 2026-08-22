@@ -122,6 +122,34 @@ func TestUnopenedStoreReturnsTypedFailure(t *testing.T) {
 			_, err := s.QueryQ10(ctx, Q10Request{Work: "work-1"})
 			return err
 		}},
+		{"LookupMutationIdempotency", func(s *Store) error {
+			_, _, err := s.LookupMutationIdempotency(ctx, MutationIdempotencyKey{})
+			return err
+		}},
+		{"AcceptedInputsDigest", func(s *Store) error {
+			_, err := s.AcceptedInputsDigest(ctx, "op-1")
+			return err
+		}},
+		{"LatestWorkflowContractVersion", func(s *Store) error {
+			_, err := s.LatestWorkflowContractVersion(ctx, "work-1")
+			return err
+		}},
+		{"ActiveWorkflowContract", func(s *Store) error {
+			_, err := s.ActiveWorkflowContract(ctx, "work-1")
+			return err
+		}},
+		{"WorkVersion", func(s *Store) error {
+			_, err := s.WorkVersion(ctx, "work-1")
+			return err
+		}},
+		{"TerminalWorkVersion", func(s *Store) error {
+			_, err := s.TerminalWorkVersion(ctx, "work-1")
+			return err
+		}},
+		{"PendingOperationForWork", func(s *Store) error {
+			_, err := s.PendingOperationForWork(ctx, "work-1")
+			return err
+		}},
 	} {
 		for _, receiver := range []struct {
 			label string

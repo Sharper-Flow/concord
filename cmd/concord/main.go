@@ -105,7 +105,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research"},
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("routing_policy_version"), field("routing_policy_digest"), field("resolved_model"), field("resolution_role"), field("fallback_reason"), field("packet_schema_version"), field("report_schema_version")), Optional: "host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "resolution_role: preferred | fallback | undeclared; fallback_reason: rate_limit | provider_unavailable | budget_exhausted | other | empty for preferred; resolved_model must be in the declared routing-policy resolution set"},
-	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version")), Optional: "none", Enums: "readback_model must equal the dispatch resolved_model"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "evidence[] (obligation; detail 1-512 chars) — required and non-empty when evidence_origin is reported (CD-0056)", Enums: "readback_model must equal the dispatch resolved_model; evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands; reported evidence must discharge every obligation the dispatching lane declares"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | model_identity_mismatch"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research; public_key: base64 Ed25519"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research"},
@@ -309,6 +309,11 @@ type workerCompleteRequest struct {
 	ReadbackModel       string                        `json:"readback_model"`
 	ReportSchemaVersion string                        `json:"report_schema_version"`
 	Assertion           agent.WorkerEvidenceAssertion `json:"assertion"`
+	// Evidence is the parsed agent-lane-report.v1 evidence the adapter read
+	// from the worker; EvidenceOrigin says whether it was reported at all
+	// (CD-0056 D1/D6).
+	Evidence       []store.WorkerReportEvidence `json:"evidence"`
+	EvidenceOrigin string                       `json:"evidence_origin"`
 }
 
 type workerFailRequest struct {
@@ -380,14 +385,18 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
+		if request.EvidenceOrigin == "" {
+			writeOperatorDiagnostic(errOut, command, "worker-complete v2 evidence requires evidence_origin (CD-0056: a completion records whether its evidence was reported)")
+			return 1
+		}
 		binding := agent.WorkerEvidenceBinding{
 			Verb:          agent.WorkerEvidenceVerbComplete,
 			WorkID:        request.WorkID,
 			AttemptID:     request.AttemptID,
 			ReadbackModel: request.ReadbackModel,
 		}
-		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion}
-		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}
+		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin}
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: mustMarshalWorkerPayload(payload)}
 		mismatch := func(attempt store.WorkerAttempt) (store.Event, error) {
 			mismatchErr := store.ValidateWorkerCompletion(attempt.ResolvedModel, request.ReadbackModel)
 			if mismatchErr == nil {

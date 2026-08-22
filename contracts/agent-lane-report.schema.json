@@ -13,6 +13,20 @@
     "lane_digest": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"},
     "readback_model": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]*/[^/ ]+$"},
     "status": {"enum": ["completed", "failed"]},
-    "evidence": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 512}}
+    "evidence": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/evidence_entry"}}
+  },
+  "$defs": {
+    "evidence_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["obligation", "detail"],
+      "properties": {
+        "obligation": {"$ref": "#/$defs/evidence_obligation"},
+        "detail": {"type": "string", "minLength": 1, "maxLength": 512}
+      }
+    },
+    "evidence_obligation": {
+      "enum": ["bounded_findings", "commands", "contract_findings", "exit_codes", "failure_classification", "files_touched", "severity", "source_citations", "uncertainties", "unresolved_issues", "verification_commands"]
+    }
   }
 }

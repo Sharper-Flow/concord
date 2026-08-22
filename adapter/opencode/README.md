@@ -119,6 +119,18 @@ event or export shape fails closed. Worker lifecycle evidence is recorded by the
 `worker-dispatch`, `worker-complete`, and `worker-fail` CLI verbs; workers never
 record workflow transitions, verdicts, or completion.
 
+The adapter also admits the worker's `agent-lane-report.v1` report from that
+event stream (CD-0056 D7). The report is read from the text of a `text` event, at
+`part.text`, which is the only place the host carries model text; the last text
+part that parses as a JSON object is the report, optionally inside one Markdown
+fence. The report must satisfy the closed report schema and
+echo the dispatched `attempt_id`, `lane_id`, `lane_version`, and `lane_digest`.
+An admitted `completed` report becomes a `worker-complete` carrying
+`evidence_origin: reported` and the reported evidence. A report that is absent,
+malformed, schema-invalid, or bound to another packet becomes a `worker-fail`
+with the `invalid_report` kind, and a `failed` report becomes a `worker-fail`
+carrying the worker's own failure.
+
 ### Recommended host permission and fallback configuration
 
 Keep Concord lane dispatch closed to generic host agents. In the OpenCode

@@ -457,6 +457,68 @@ def check_workflow_contracts() -> list[str]:
         findings.append(f"scenarios/workflow-engine.v1.json: structural validation failed: {exc}")
     return findings
 
+def _check_evidence_obligation_vocabulary() -> list[str]:
+    """Prove the lane evidence obligation join (CD-0056 D2).
+
+    The vocabulary is declared twice: `agent-lanes.schema.json` bounds what a
+    lane may owe, and `agent-lane-report.schema.json` bounds what a report may
+    discharge. Two enums that must agree are a join, and an unvalidated join
+    fails open on the first divergence — a lane could declare an obligation no
+    report is able to name, making that lane undispatchable at the moment its
+    manifest is edited rather than at the moment the schemas drift.
+    """
+    return evidence_obligation_findings(
+        json.loads((ROOT / "contracts/agent-lanes.schema.json").read_text(encoding="utf-8")),
+        json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8")),
+        json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8")),
+    )
+
+def _obligation_enum(document: object, label: str, findings: list[str]) -> list[str] | None:
+    node = document
+    for key in ("$defs", "evidence_obligation", "enum"):
+        if not isinstance(node, dict) or key not in node:
+            findings.append(f"{label}: missing $defs/evidence_obligation/enum")
+            return None
+        node = node[key]
+    if not isinstance(node, list) or not node or len(set(node)) != len(node):
+        findings.append(f"{label}: $defs/evidence_obligation/enum must be a nonempty duplicate-free array")
+        return None
+    return node
+
+def evidence_obligation_findings(lanes_schema: object, report_schema: object, registry: object) -> list[str]:
+    """Pure form of the CD-0056 D2 check, over already-parsed documents."""
+    findings: list[str] = []
+    lanes_label = "contracts/agent-lanes.schema.json"
+    report_label = "contracts/agent-lane-report.schema.json"
+    declared = _obligation_enum(lanes_schema, lanes_label, findings)
+    dischargeable = _obligation_enum(report_schema, report_label, findings)
+    if declared is None or dischargeable is None:
+        return findings
+    if set(declared) != set(dischargeable):
+        findings.append(
+            f"evidence obligation vocabulary differs between {lanes_label} and {report_label}: "
+            f"{sorted(set(declared) ^ set(dischargeable))}"
+        )
+        return findings
+    if declared != dischargeable:
+        # Same members, different order. Harmless to a validator and confusing
+        # to a reader diffing the two contracts, so it is a finding rather than
+        # a tolerated difference.
+        findings.append(
+            f"evidence obligation vocabulary is ordered differently in {lanes_label} and {report_label}"
+        )
+        return findings
+    vocabulary = set(declared)
+    lanes = registry.get("lanes", []) if isinstance(registry, dict) else []
+    for lane in lanes:
+        undeclared = sorted(set(lane.get("evidence_obligations", [])) - vocabulary)
+        if undeclared:
+            findings.append(
+                f"contracts/agent-lanes.v1.json: lane {lane.get('id')!r} declares "
+                f"evidence obligation(s) outside the closed vocabulary: {undeclared}"
+            )
+    return findings
+
 def main() -> int:
     workflow_findings = check_workflow_contracts()
     if workflow_findings:
@@ -476,6 +538,7 @@ def main() -> int:
     }
     for path, required in lane_schema_expectations.items():
         lane_findings.extend(_check_closed_schema(path, required))
+    lane_findings.extend(_check_evidence_obligation_vocabulary())
     lane_generator = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-lanes.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
     if lane_generator.returncode:
         lane_findings.append(lane_generator.stderr.strip() or lane_generator.stdout.strip() or "lane generator failed")

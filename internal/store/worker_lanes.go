@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -28,6 +29,17 @@ const (
 const (
 	WorkerResolutionPreferred = "preferred"
 	WorkerResolutionFallback  = "fallback"
+)
+
+// Evidence origin is closed (CD-0056 D6). WorkerEvidenceReported means the
+// payload carries the evidence a worker actually returned; a completion
+// recorded today must use it and satisfy its lane's obligations.
+// WorkerEvidenceLegacyUnavailable marks a completion that predates the
+// evidence contract, so a legacy completion stays visibly legacy instead of
+// being indistinguishable from one that reported nothing.
+const (
+	WorkerEvidenceReported          = "reported"
+	WorkerEvidenceLegacyUnavailable = "legacy_unavailable"
 )
 
 // WorkerDispatchedPayload is the complete D5 dispatch identity. The event
@@ -64,10 +76,27 @@ type WorkerDispatchedPayload struct {
 	TerminalDetail      string `json:"terminal_detail,omitempty"`
 }
 
+// WorkerReportEvidence is one discharged lane evidence obligation as the
+// worker reported it (CD-0056 D1). Obligation is drawn from the closed
+// vocabulary in agent_lanes.go; Detail is recorded as reported and is never
+// summarized, scored, or rewritten.
+type WorkerReportEvidence struct {
+	Obligation string `json:"obligation"`
+	Detail     string `json:"detail"`
+}
+
 type WorkerCompletedPayload struct {
 	AttemptID           string `json:"attempt_id"`
 	ReadbackModel       string `json:"readback_model"`
 	ReportSchemaVersion string `json:"report_schema_version"`
+	// Evidence is the reported discharge of the dispatching lane's declared
+	// obligations. It is empty exactly when EvidenceOrigin is
+	// legacy_unavailable.
+	Evidence []WorkerReportEvidence `json:"evidence,omitempty"`
+	// EvidenceOrigin is always present on a v2 payload: an absent origin
+	// would let one shape mean both "reported nothing" and "predates the
+	// contract".
+	EvidenceOrigin string `json:"evidence_origin"`
 }
 
 type WorkerFailedPayload struct {
@@ -130,6 +159,41 @@ func validateWorkerDispatchedPayload(event Event, payload WorkerDispatchedPayloa
 func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) error {
 	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
+	}
+	return validateWorkerReportEvidence(payload.EvidenceOrigin, payload.Evidence)
+}
+
+// validateWorkerReportEvidence is the shape half of the CD-0056 evidence
+// contract. The validator receives the event but not the attempt, so it cannot
+// reach the dispatching lane: obligation coverage is enforced in the fold.
+func validateWorkerReportEvidence(origin string, evidence []WorkerReportEvidence) error {
+	switch origin {
+	case WorkerEvidenceLegacyUnavailable:
+		if len(evidence) != 0 {
+			return invalidWorkerPayload("worker.completed evidence_origin legacy_unavailable cannot carry reported evidence")
+		}
+		return nil
+	case WorkerEvidenceReported:
+	default:
+		return invalidWorkerPayload("worker.completed evidence_origin must be reported or legacy_unavailable")
+	}
+	if len(evidence) < 1 || len(evidence) > 64 {
+		return invalidWorkerPayload("worker.completed evidence_origin reported requires between 1 and 64 evidence entries")
+	}
+	// A lane may discharge one obligation with several distinct facts, so
+	// only an identical (obligation, detail) pair is a duplicate.
+	seen := make(map[WorkerReportEvidence]struct{}, len(evidence))
+	for _, entry := range evidence {
+		if !ValidLaneEvidenceObligation(entry.Obligation) {
+			return invalidWorkerPayload("worker.completed evidence names an obligation outside the closed lane evidence vocabulary")
+		}
+		if len(entry.Detail) < 1 || len(entry.Detail) > 512 {
+			return invalidWorkerPayload("worker.completed evidence detail must be between 1 and 512 characters")
+		}
+		if _, exists := seen[entry]; exists {
+			return invalidWorkerPayload("worker.completed evidence repeats an identical obligation and detail pair")
+		}
+		seen[entry] = struct{}{}
 	}
 	return nil
 }
@@ -243,6 +307,25 @@ func upcastWorkerDispatchedV1(event Event) (Event, error) {
 	return event, nil
 }
 
+// upcastWorkerCompletedV1 records a stored completion as legacy rather than as
+// an empty report (CD-0056 D6). No upcaster can invent evidence the worker
+// never returned, so the origin says which it is.
+func upcastWorkerCompletedV1(event Event) (Event, error) {
+	var payload WorkerCompletedPayload
+	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	payload.Evidence = nil
+	payload.EvidenceOrigin = WorkerEvidenceLegacyUnavailable
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "worker_event_upcast", "cannot encode the worker completion payload", false, "repair the worker event payload", err)
+	}
+	event.PayloadVersion = 2
+	event.Payload = encoded
+	return event, nil
+}
+
 func invalidWorkerPayload(detail string) error {
 	return newFailure(KindInvalidPayload, "validate_worker_event", detail, false, "repair the worker event payload")
 }
@@ -303,13 +386,16 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	var workID, lifecycle, resolvedModel string
-	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle, &resolvedModel); err != nil {
+	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID)
+	if err != nil {
 		return err
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	if resolvedModel != payload.ReadbackModel {
-		result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, string(KindModelIdentityMismatch), "resolved model differs from host readback model", now, payload.AttemptID, workID)
+	// Model identity is checked before obligation coverage: a mismatch
+	// already forces the attempt to fail, so whether its report discharged
+	// the lane's obligations is moot.
+	if attempt.ResolvedModel != payload.ReadbackModel {
+		result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, string(KindModelIdentityMismatch), "resolved model differs from host readback model", now, payload.AttemptID, attempt.WorkID)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot record worker model identity mismatch", true, "retry once the database is writable", err)
 		}
@@ -318,7 +404,19 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		return nil
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, now, payload.AttemptID, workID)
+	// CD-0056 D4: the fold is the only point where the attempt's lane
+	// identity and the reported evidence are both in hand, so coverage is
+	// enforced inside the transaction that would make the attempt terminal.
+	if payload.EvidenceOrigin == WorkerEvidenceReported {
+		lane, err := LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest)
+		if err != nil {
+			return err
+		}
+		if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence); err != nil {
+			return err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, now, payload.AttemptID, attempt.WorkID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot complete worker attempt projection", true, "retry once the database is writable", err)
 	}
@@ -333,12 +431,12 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	var workID, lifecycle, resolvedModel string
-	if err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, &workID, &lifecycle, &resolvedModel); err != nil {
+	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID)
+	if err != nil {
 		return err
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID, workID)
+	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID, attempt.WorkID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot fail worker attempt projection", true, "retry once the database is writable", err)
 	}
@@ -348,23 +446,85 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, attemptID string, workID, lifecycle, resolvedModel *string) error {
+// workerTerminalAttempt is the dispatched-attempt identity a terminal worker
+// fold needs. It carries the lane identity so the fold can resolve the
+// dispatching lane without a claim from the payload.
+type workerTerminalAttempt struct {
+	WorkID        string
+	Lifecycle     string
+	ResolvedModel string
+	LaneID        string
+	LaneVersion   int64
+	LaneDigest    string
+}
+
+// readWorkerTerminalAttempt reads through the passed transaction only. The
+// store pools one connection, so any *Store method call here would park on the
+// pool forever while this transaction holds it.
+func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, attemptID string) (workerTerminalAttempt, error) {
+	var attempt workerTerminalAttempt
 	if event.SubjectType != SubjectWorkItem {
-		return newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
+		return attempt, newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,resolved_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(workID, lifecycle, resolvedModel); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,resolved_model,lane_id,lane_version,lane_digest FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&attempt.WorkID, &attempt.Lifecycle, &attempt.ResolvedModel, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest); err != nil {
 		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before the terminal worker event")
+			return attempt, newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before the terminal worker event")
 		}
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read worker attempt projection", true, "retry once the database is readable", err)
+		return attempt, wrapFailure(KindUnavailable, "fold_event", "cannot read worker attempt projection", true, "retry once the database is readable", err)
 	}
-	if *workID != event.SubjectID {
-		return newFailure(KindInvalidOperation, "fold_event", "worker terminal event subject does not own the worker attempt", false, "use the attempt's owning work item as the event subject")
+	if attempt.WorkID != event.SubjectID {
+		return attempt, newFailure(KindInvalidOperation, "fold_event", "worker terminal event subject does not own the worker attempt", false, "use the attempt's owning work item as the event subject")
 	}
-	if *lifecycle != "dispatched" {
-		return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already terminal", false, "use a new attempt identity")
+	if attempt.Lifecycle != "dispatched" {
+		return attempt, newFailure(KindProjectionConflict, "fold_event", "worker attempt is already terminal", false, "use a new attempt identity")
+	}
+	return attempt, nil
+}
+
+// verifyWorkerEvidenceCoverage enforces CD-0056 D4 coverage: every obligation
+// the dispatching lane declares appears at least once, and the report names no
+// obligation the lane does not declare. Concord does not count entries, rank
+// them, or judge their content.
+func verifyWorkerEvidenceCoverage(lane LaneDefinition, evidence []WorkerReportEvidence) error {
+	declared := make(map[string]struct{}, len(lane.EvidenceObligations))
+	for _, obligation := range lane.EvidenceObligations {
+		declared[obligation] = struct{}{}
+	}
+	discharged := make(map[string]struct{}, len(evidence))
+	undeclared := make(map[string]struct{})
+	for _, entry := range evidence {
+		if _, ok := declared[entry.Obligation]; !ok {
+			undeclared[entry.Obligation] = struct{}{}
+			continue
+		}
+		discharged[entry.Obligation] = struct{}{}
+	}
+	if len(undeclared) > 0 {
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("worker report names evidence obligations the dispatching lane does not declare: %s", sortedObligationList(undeclared)),
+			false, "record worker.failed with the invalid_report failure kind")
+	}
+	missing := make(map[string]struct{})
+	for _, obligation := range lane.EvidenceObligations {
+		if _, ok := discharged[obligation]; !ok {
+			missing[obligation] = struct{}{}
+		}
+	}
+	if len(missing) > 0 {
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("worker report leaves lane evidence obligations undischarged: %s", sortedObligationList(missing)),
+			false, "record worker.failed with the invalid_report failure kind")
 	}
 	return nil
+}
+
+func sortedObligationList(values map[string]struct{}) string {
+	names := make([]string, 0, len(values))
+	for value := range values {
+		names = append(names, value)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 func verifyWorkerTerminalUpdate(result sql.Result, unavailableDetail, missingDetail string) error {

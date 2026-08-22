@@ -41,6 +41,10 @@ func (s *Store) BlockedSessions(ctx context.Context, now time.Time, products []s
 	if s == nil || s.db == nil {
 		return BlockedSessionsResult{}, newFailure(KindUnavailable, "blocked_sessions", "store is not open", false, "open the authority database")
 	}
+	// The projection issues one session query plus a grant lookup per session,
+	// so it reads inside a transaction: without one, the rows come from
+	// separate snapshots and a session can be listed against a grant state
+	// that never coexisted with it.
 	tx, err := beginRead(ctx, s, "blocked_sessions")
 	if err != nil {
 		return BlockedSessionsResult{}, err
@@ -60,6 +64,10 @@ func (s *Store) BlockedSessions(ctx context.Context, now time.Time, products []s
 // Product-row query embeds it inside its own read transaction, and a second
 // connection would deadlock on SQLite's single writer.
 func blockedSessionsTx(ctx context.Context, tx *sql.Tx, now time.Time, products []string, limit int) (BlockedSessionsResult, error) {
+	return blockedSessionsCore(ctx, tx, now, products, limit)
+}
+
+func blockedSessionsCore(ctx context.Context, q queryer, now time.Time, products []string, limit int) (BlockedSessionsResult, error) {
 	var out BlockedSessionsResult
 	out.Sessions = []BlockedSession{}
 	if limit < 1 {
@@ -73,7 +81,7 @@ func blockedSessionsTx(ctx context.Context, tx *sql.Tx, now time.Time, products 
 	}
 	nowText := now.UTC().Format(time.RFC3339Nano)
 
-	rows, err := tx.QueryContext(ctx, `
+	rows, err := q.QueryContext(ctx, `
 		SELECT g.session_ref, g.agent_ref, g.worktree, g.directory, c.consequence, c.issued_at
 		FROM agent_approval_challenges c
 		JOIN agent_grants g ON g.grant_ref = c.grant_ref
@@ -110,7 +118,7 @@ func blockedSessionsTx(ctx context.Context, tx *sql.Tx, now time.Time, products 
 			// Re-read the grant's product scope through the same bounded
 			// result: one extra query per session is bounded by the page.
 			var productJSON string
-			if err := tx.QueryRowContext(ctx, `SELECT product_scope_json FROM agent_grants WHERE session_ref=? AND agent_ref=? AND worktree=? ORDER BY issued_at DESC LIMIT 1`, session.SessionRef, session.AgentRef, session.Worktree).Scan(&productJSON); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT product_scope_json FROM agent_grants WHERE session_ref=? AND agent_ref=? AND worktree=? ORDER BY issued_at DESC LIMIT 1`, session.SessionRef, session.AgentRef, session.Worktree).Scan(&productJSON); err != nil {
 				return out, wrapFailure(KindUnavailable, "blocked_sessions", "cannot read grant scope", true, "retry once the database is readable", err)
 			}
 			if json.Unmarshal([]byte(productJSON), &grantProducts) != nil {

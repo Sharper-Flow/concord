@@ -28,6 +28,10 @@ func (s *Store) QueryLawConflictsAtHome(ctx context.Context, homeProjectID, home
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "query_law_conflicts", "store is not open", false, "open a store before checking law conflicts")
 	}
+	return queryLawConflictsAtHome(ctx, s.db, homeProjectID, homeLocatorID, lawIDs)
+}
+
+func queryLawConflictsAtHome(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, lawIDs []string) ([]LawConflict, error) {
 	if len(lawIDs) > 32 {
 		return nil, newFailure(KindInvalidPayload, "query_law_conflicts", "law conflict query exceeds the bounded list size", false, "supply at most 32 law IDs")
 	}
@@ -35,7 +39,7 @@ func (s *Store) QueryLawConflictsAtHome(ctx context.Context, homeProjectID, home
 		return []LawConflict{}, nil
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(lawIDs)), ",")
-	rows, err := s.db.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind='conflicts_with' AND source_law_id IN (`+placeholders+`) AND target_law_id IN (`+placeholders+`) ORDER BY source_law_id,target_law_id LIMIT 33`, append(append([]any{homeProjectID, homeLocatorID}, stringArgs(lawIDs)...), stringArgs(lawIDs)...)...)
+	rows, err := q.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind='conflicts_with' AND source_law_id IN (`+placeholders+`) AND target_law_id IN (`+placeholders+`) ORDER BY source_law_id,target_law_id LIMIT 33`, append(append([]any{homeProjectID, homeLocatorID}, stringArgs(lawIDs)...), stringArgs(lawIDs)...)...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query_law_conflicts", "cannot read derived law conflicts", true, "retry once the knowledge projection is readable", err)
 	}
@@ -62,7 +66,7 @@ func (s *Store) CheckMandatedLawsAtHome(ctx context.Context, homeProjectID, home
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before checking mandated laws")
 	}
-	_, err := checkMandatedLawsDB(ctx, s.db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
+	_, err := checkMandatedLawsQuery(ctx, s.db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 	return err
 }
 
@@ -85,17 +89,10 @@ func checkMandatedLawsTxAtHome(ctx context.Context, tx *sql.Tx, homeProjectID, h
 	return checkMandatedLawsQuery(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
-func checkMandatedLawsDB(ctx context.Context, db *sql.DB, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) (LawBoundaryCheck, error) {
+func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) (LawBoundaryCheck, error) {
 	if homeProjectID == "" || homeLocatorID == "" {
 		return LawBoundaryCheck{}, newFailure(KindUnknownScope, "check_mandated_laws", "canonical law home is incomplete", false, "resolve one canonical Git knowledge home")
 	}
-	if err := validateLawModificationSubset(mandated, modified); err != nil {
-		return LawBoundaryCheck{}, err
-	}
-	return checkMandatedLawsQuery(ctx, db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
-}
-
-func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) (LawBoundaryCheck, error) {
 	if len(mandated) > 32 || len(modified) > 32 {
 		return LawBoundaryCheck{}, newFailure(KindInvalidPayload, "check_mandated_laws", "law mandate exceeds the bounded list size", false, "supply at most 32 law IDs")
 	}

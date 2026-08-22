@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-18T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0041",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0041-architecture-bound-product-law.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:593ecb8147434f3cb36691626633296d2cfd39edf4dcf3aa7b7b8e8be82248d2",
+  "status": "accepted",
+  "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; concurrent Domain overlap requires version-pinned resolution; Initiative remains secondary context; SQLite remains sole local authority. CD-0042 amends only the pre-go-live agent-surface sequencing.",
+  "tags": [
+    "product-law",
+    "architecture",
+    "domains",
+    "concurrency",
+    "initiative"
+  ],
+  "title": "Architecture-bound Product law is Concord's primary coordination model"
+}

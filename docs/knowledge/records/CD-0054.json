@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-21T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+    "internal/store/routing_policy.go",
+    "adapter/opencode/dispatch.ts"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0054",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0054-routing-policy-host-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:cd06b7d7a1500fb0a18aa63c13da6e34f03aa49230600e51f5a4bca7abfe640e",
+  "status": "accepted",
+  "summary": "The routing policy loads from CONCORD_ROUTING_POLICY host state with the repo record as default template, failing closed when host state is set but unreadable; the lane registry becomes model-neutral, load-time validation replaces cross-file pinning including adapter-side opencode models existence checks, and the per-attempt digest-bound evidence boundary is unchanged.",
+  "tags": [
+    "routing",
+    "lanes",
+    "host-state"
+  ],
+  "title": "Routing-policy authority is load-time host state"
+}

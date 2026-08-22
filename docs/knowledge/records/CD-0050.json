@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-21T00:00:00Z",
+  "evidence": [
+    "internal/store/durable.go",
+    "internal/store/agent_authority.go",
+    "internal/agent/mutations.go",
+    "cmd/concord/main.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0050",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0050-durable-acknowledgement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:445f87fdde1d5e529b34b88d98e6cd67b70f18d62526f4674dcc97ba0e36813b",
+  "status": "accepted",
+  "summary": "Acknowledged consequential operations are durable across power loss via a TRUNCATE-checkpoint barrier that syncs the whole WAL even under synchronous=NORMAL; ordinary writes stay NORMAL and are durable through the last boundary; the barrier lives at the acknowledgement layer, not inside fence primitives.",
+  "tags": [
+    "durability",
+    "sqlite",
+    "authority"
+  ],
+  "title": "Durable acknowledgement at consequential boundaries"
+}

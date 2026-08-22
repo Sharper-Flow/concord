@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "TS3",
+  "kind": "spec",
+  "path": "docs/agent-read-tool-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:59b7c878cc447490c7bddf9be19488c14e1c2ec88afadecb1e220835fb7bf220",
+  "status": "accepted",
+  "summary": "Defines bounded read tools including the durable knowledge surface.",
+  "tags": [
+    "ts3",
+    "agents",
+    "queries"
+  ],
+  "title": "Agent read tool contract"
+}

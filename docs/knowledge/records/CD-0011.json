@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0011",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2c5f620cfd97f7c872aa9233101ba9ca7f0dc18cb00a37212dea012ae43c4aab",
+  "status": "accepted",
+  "summary": "Records the decision to retain direct local SQLite after conformance review.",
+  "tags": [
+    "sqlite",
+    "conformance"
+  ],
+  "title": "Retain SQLite after conformance"
+}

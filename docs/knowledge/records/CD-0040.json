@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-17T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0008-concord-mechanism-hardening.md",
+    "internal/store/work_observations.go",
+    "docs/decisions/CD-0039-attributed-native-run-outcomes.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0040",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0040-verifiable-external-observations.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d24c5659a7cd4c39bf5be8b1582145eaf3b504b69ff2dc2ed3a0d3c58f932692",
+  "status": "accepted",
+  "summary": "External observations share typed provenance and append-only verification; presence is broad, while absence and consequential use require pinned completeness and current proof.",
+  "tags": [
+    "external-state",
+    "verification",
+    "provenance"
+  ],
+  "title": "External observations prove presence; absence requires pinned completeness"
+}

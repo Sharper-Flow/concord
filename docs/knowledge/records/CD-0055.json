@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-21T00:00:00Z",
+  "evidence": [
+    "scripts/check-reachability.py",
+    "scripts/check-tx-scope.py",
+    "internal/store/boundary_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0055",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0055-repository-check-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:97e9fc349decaa3d3290ce4c8538c30bb3e531b5b93405f7042d20b468497844",
+  "status": "accepted",
+  "summary": "Repository checks name one authority class — structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py retained as the declared textual exception.",
+  "tags": [
+    "validators",
+    "policy",
+    "evidence"
+  ],
+  "title": "Repository checks are structural first, and textual guards are declared exceptions"
+}

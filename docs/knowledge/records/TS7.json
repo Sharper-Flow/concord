@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "TS7",
+  "kind": "spec",
+  "path": "docs/agent-result-envelope.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:f9d3d48f5dcf5d2bee3d77d00bdf833fc58a78addfaeb5fcc1c1347811b1faed",
+  "status": "accepted",
+  "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
+  "tags": [
+    "ts7",
+    "agents",
+    "errors"
+  ],
+  "title": "Agent result envelope"
+}

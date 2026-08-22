@@ -1,0 +1,22 @@
+{
+  "date": "2026-07-25T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0002",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0002-concord-state-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d2b0cad7b3d9205b7064c9c1e355f4b4754f3bebc7a47d55148bf09220572f7f",
+  "status": "accepted",
+  "summary": "Defines SQLite authority and durable state boundaries.",
+  "tags": [
+    "state-authority",
+    "sqlite"
+  ],
+  "title": "Concord state authority"
+}

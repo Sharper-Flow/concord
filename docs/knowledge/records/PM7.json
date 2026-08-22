@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "PM7",
+  "kind": "spec",
+  "path": "docs/compaction-retention-policy.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:497374caff8c789b70a57c8d34200a3a6ef4c694ac1ca6d45656aa67ab914087",
+  "status": "accepted",
+  "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
+  "tags": [
+    "pm7",
+    "retention",
+    "rebuild"
+  ],
+  "title": "Compaction retention policy"
+}

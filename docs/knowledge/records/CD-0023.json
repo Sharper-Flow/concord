@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-14T00:00:00Z",
+  "evidence": [
+    "internal/agent/verdict_scope_test.go",
+    "internal/store/workflow_verdict.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0023",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0023-verdict-read-scope.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:cb938dc6217e9d2990ac703d4939f67012aafc626fd2f1767aac8089717438e1",
+  "status": "accepted",
+  "summary": "Recorded verdicts become readable, read-scoped results: every session except the recorded executing actor audits an acceptance; influence stays with CD-0013 D5.",
+  "tags": [
+    "verdicts",
+    "read-scope",
+    "agent-surface"
+  ],
+  "title": "Verdict read scope for the executing actor"
+}

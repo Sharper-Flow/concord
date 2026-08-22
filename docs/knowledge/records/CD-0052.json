@@ -1,0 +1,26 @@
+{
+  "date": "2026-08-21T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
+    "internal/store/lifecycle_relations_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0052",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0052-implements-fulfilment-semantics.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:ed5858431069edc94e11c8eb8589c9b2dbe77e953b20ac1b60f7974a2c79b9cc",
+  "status": "accepted",
+  "summary": "The work-relation kind implements is a directional, non-blocking, non-hierarchical, cycle-exempt many-to-one fulfilment link recording that a work item fulfils a decision-kind item; it is display-only until a consumer defines its read surface in a citing record, and removal stays off the table while it remains in the closed vocabulary.",
+  "tags": [
+    "relations",
+    "vocabulary"
+  ],
+  "title": "implements declares fulfilment-link semantics, display-only"
+}

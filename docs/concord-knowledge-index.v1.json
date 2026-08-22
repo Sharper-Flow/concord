@@ -55,268 +55,276 @@
   },
   "records": [
     {
+      "date": "2026-07-25T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0002",
       "kind": "decision",
       "path": "docs/decisions/CD-0002-concord-state-authority.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d2b0cad7b3d9205b7064c9c1e355f4b4754f3bebc7a47d55148bf09220572f7f",
       "status": "accepted",
-      "date": "2026-07-25T00:00:00Z",
-      "title": "Concord state authority",
       "summary": "Defines SQLite authority and durable state boundaries.",
       "tags": [
         "state-authority",
         "sqlite"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:d2b0cad7b3d9205b7064c9c1e355f4b4754f3bebc7a47d55148bf09220572f7f",
-      "home_domain_id": "product-root:concord"
+      "title": "Concord state authority"
     },
     {
+      "date": "2026-07-25T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0003",
       "kind": "decision",
       "path": "docs/decisions/CD-0003-concord-storage-layer-shape.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bb1315eb6cfff72fcceb4bde45a9ff3f193612346cb85134fd0c3c699a0a230b",
       "status": "accepted",
-      "date": "2026-07-25T00:00:00Z",
-      "title": "Concord storage layer shape",
       "summary": "Defines the initial storage layer shape and boundaries.",
       "tags": [
         "storage",
         "architecture"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:bb1315eb6cfff72fcceb4bde45a9ff3f193612346cb85134fd0c3c699a0a230b",
-      "home_domain_id": "product-root:concord"
+      "title": "Concord storage layer shape"
     },
     {
+      "date": "2026-07-31T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0005",
       "kind": "decision",
       "path": "docs/decisions/CD-0005-concord-agent-tool-surface.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:5ba4aa39e02c1d3a57bfb5afa67937c71607bbe1756f7e57a24ad4fc36c9971a",
       "status": "accepted",
-      "date": "2026-07-31T00:00:00Z",
-      "title": "Concord agent tool surface",
       "summary": "Consolidates the generated current agent surface, exact manifest-digest identity, core authority boundary, and deterministic pre-go-live evidence as amended by CD-0042.",
       "tags": [
         "agents",
         "tools"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:5ba4aa39e02c1d3a57bfb5afa67937c71607bbe1756f7e57a24ad4fc36c9971a",
-      "home_domain_id": "product-root:concord"
+      "title": "Concord agent tool surface"
     },
     {
+      "date": "2026-08-01T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0006",
       "kind": "decision",
       "path": "docs/decisions/CD-0006-concord-root-product-policy.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:545b60a12d8b24588bd01a730ec2fb1f59eb9002bae0fed4d28ebbe9d5535b47",
       "status": "accepted",
-      "date": "2026-08-01T00:00:00Z",
-      "title": "Concord root Product policy",
       "summary": "Defines the root Product and fix-forward policy.",
       "tags": [
         "product",
         "governance"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:545b60a12d8b24588bd01a730ec2fb1f59eb9002bae0fed4d28ebbe9d5535b47",
-      "home_domain_id": "product-root:concord"
+      "title": "Concord root Product policy"
     },
     {
+      "date": "2026-08-02T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0007",
       "kind": "decision",
       "path": "docs/decisions/CD-0007-concord-repository-bootstrap.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:7571c7cc3f34fb86674746850989cd14765c75e7389298053f3837d6b91c4221",
       "status": "accepted",
-      "date": "2026-08-02T00:00:00Z",
-      "title": "Concord repository bootstrap",
       "summary": "Defines the public repository, governance, and release boundary.",
       "tags": [
         "repository",
         "governance"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:7571c7cc3f34fb86674746850989cd14765c75e7389298053f3837d6b91c4221",
-      "home_domain_id": "product-root:concord"
+      "title": "Concord repository bootstrap"
     },
     {
+      "date": "2026-08-05T00:00:00Z",
+      "evidence": [
+        "internal/store/worktrees.go",
+        "internal/store/worktrees_test.go",
+        "internal/agent/trunk_firewall_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0008",
       "kind": "decision",
       "path": "docs/decisions/CD-0008-concord-mechanism-hardening.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:24758757586b904377718a5ad7030f6e43e1ff96f1af18dfd3d8aaabb08b69fa",
       "status": "accepted",
-      "date": "2026-08-05T00:00:00Z",
-      "title": "Concord mechanism hardening",
       "summary": "Defines unreadable-record isolation and durable evidence hardening.",
       "tags": [
         "reliability",
         "evidence",
         "isolation"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:24758757586b904377718a5ad7030f6e43e1ff96f1af18dfd3d8aaabb08b69fa",
-      "evidence": [
-        "internal/store/worktrees.go",
-        "internal/store/worktrees_test.go",
-        "internal/agent/trunk_firewall_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Concord mechanism hardening"
     },
     {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/store/research_mutations.go",
+        "internal/agent/research_surface_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0009",
       "kind": "decision",
       "path": "docs/decisions/CD-0009-active-research-context.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d88e809feb0046fa209a1115fa1b32fad0c21c11ea53d1cfbe9b56486ee9b72c",
       "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Active research context",
       "summary": "Defines retention-bounded research context and canonical durable forms.",
       "tags": [
         "research",
         "retention"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:d88e809feb0046fa209a1115fa1b32fad0c21c11ea53d1cfbe9b56486ee9b72c",
-      "evidence": [
-        "internal/store/research_mutations.go",
-        "internal/agent/research_surface_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Active research context"
     },
     {
+      "date": "2026-08-07T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0010",
       "kind": "decision",
       "path": "docs/decisions/CD-0010-pre-readiness-development-authority.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730",
       "status": "accepted",
-      "date": "2026-08-07T00:00:00Z",
-      "title": "Pre-readiness development authority",
       "summary": "Defines GitHub-native development authority before replacement readiness.",
       "tags": [
         "authority",
         "github"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730",
-      "home_domain_id": "product-root:concord"
+      "title": "Pre-readiness development authority"
     },
     {
+      "date": "2026-08-07T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0011",
       "kind": "decision",
       "path": "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:2c5f620cfd97f7c872aa9233101ba9ca7f0dc18cb00a37212dea012ae43c4aab",
       "status": "accepted",
-      "date": "2026-08-07T00:00:00Z",
-      "title": "Retain SQLite after conformance",
       "summary": "Records the decision to retain direct local SQLite after conformance review.",
       "tags": [
         "sqlite",
         "conformance"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:2c5f620cfd97f7c872aa9233101ba9ca7f0dc18cb00a37212dea012ae43c4aab",
-      "home_domain_id": "product-root:concord"
+      "title": "Retain SQLite after conformance"
     },
     {
+      "date": "2026-08-07T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0012",
       "kind": "decision",
       "path": "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:2e5a40ba3a6f71b5fa8f48ffcca4e42e07e7b5ee0e2616efdb78a736ca320bba",
       "status": "accepted",
-      "date": "2026-08-07T00:00:00Z",
-      "title": "Bind stated goals to delivered outcomes",
       "summary": "Defines the three-part outcome contract and strengthen-only delivery comparison.",
       "tags": [
         "goals",
         "outcomes"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:2e5a40ba3a6f71b5fa8f48ffcca4e42e07e7b5ee0e2616efdb78a736ca320bba",
-      "home_domain_id": "product-root:concord"
+      "title": "Bind stated goals to delivered outcomes"
     },
     {
+      "date": "2026-08-08T00:00:00Z",
+      "evidence": [
+        "scenarios/workflow-engine.v1.json",
+        "internal/store/workflow_conformance_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0013",
       "kind": "decision",
       "path": "docs/decisions/CD-0013-workflow-engine-mechanism.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:4de4819c5202a0367182fcec9f4e1f987f0a886e2e481178be9415718bd7844d",
       "status": "accepted",
-      "date": "2026-08-08T00:00:00Z",
-      "title": "Workflow engine mechanism",
       "summary": "Defines the versioned workflow registry, execution evidence, and completion gate.",
       "tags": [
         "workflow",
         "evidence"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:4de4819c5202a0367182fcec9f4e1f987f0a886e2e481178be9415718bd7844d",
-      "evidence": [
-        "scenarios/workflow-engine.v1.json",
-        "internal/store/workflow_conformance_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Workflow engine mechanism"
     },
     {
+      "date": "2026-08-10T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0014",
       "kind": "decision",
       "path": "docs/decisions/CD-0014-terminal-launcher-rendering.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:295da03b371c170ba6689a84e658679ddffb4d5bf991675639aaf560df291d2d",
       "status": "accepted",
-      "date": "2026-08-10T00:00:00Z",
-      "title": "Terminal launcher rendering stack",
       "summary": "Chooses Bubble Tea v2 behind an isolated adapter and fixes Product-only launcher query scope.",
       "tags": [
         "launcher",
@@ -324,73 +332,78 @@
         "rendering",
         "product-scope"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:295da03b371c170ba6689a84e658679ddffb4d5bf991675639aaf560df291d2d",
-      "home_domain_id": "product-root:concord"
+      "title": "Terminal launcher rendering stack"
     },
     {
+      "date": "2026-08-11T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0015",
       "kind": "decision",
       "path": "docs/decisions/CD-0015-typed-law-relations.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bb3a0c59a801229176511cc1e7578441bce8b6581276bb5bc48eacd0ae9a3f64",
       "status": "accepted",
-      "date": "2026-08-11T00:00:00Z",
-      "title": "Typed law relations and Git-derived workflow checks",
       "summary": "Defines Git-authoritative typed law relations and bounded workflow conflict checks.",
       "tags": [
         "law",
         "relations",
         "workflow"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:bb3a0c59a801229176511cc1e7578441bce8b6581276bb5bc48eacd0ae9a3f64",
-      "home_domain_id": "product-root:concord"
+      "title": "Typed law relations and Git-derived workflow checks"
     },
     {
+      "date": "2026-08-11T00:00:00Z",
+      "evidence": [
+        "internal/store/workflow_continuity.go",
+        "internal/store/workflow_continuity_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0016",
       "kind": "decision",
       "path": "docs/decisions/CD-0016-context-continuity.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:98680244e6653e03458dcb6fb437417558807d47724e44077a6de330f86ca8c5",
       "status": "accepted",
-      "date": "2026-08-11T00:00:00Z",
-      "title": "Context continuity",
       "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, and typed restart availability.",
       "tags": [
         "context-continuity",
         "workflow",
         "agents"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:98680244e6653e03458dcb6fb437417558807d47724e44077a6de330f86ca8c5",
-      "evidence": [
-        "internal/store/workflow_continuity.go",
-        "internal/store/workflow_continuity_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Context continuity"
     },
     {
+      "date": "2026-08-11T00:00:00Z",
+      "evidence": [
+        "contracts/agent-lanes.v1.json",
+        "internal/store/worker_authority_boundary_test.go",
+        "adapter/opencode/evals/promptfooconfig.yaml"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0017",
       "kind": "decision",
       "path": "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
       "status": "accepted",
-      "date": "2026-08-11T00:00:00Z",
-      "title": "Typed workers and model routing",
       "summary": "Defines the Concord-owned lane registry, host-loaded capability-class model routing, readback identity evidence, typed fallback outcomes, and the worker authority boundary.",
       "tags": [
         "typed-workers",
@@ -398,28 +411,23 @@
         "workflow",
         "agents"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
-      "evidence": [
-        "contracts/agent-lanes.v1.json",
-        "internal/store/worker_authority_boundary_test.go",
-        "adapter/opencode/evals/promptfooconfig.yaml"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Typed workers and model routing"
     },
     {
+      "date": "2026-08-12T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0018",
       "kind": "decision",
       "path": "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c9fba6faf223ff74cc0af490cd2c948ed6217c826093704d6922bd89a9d55ea6",
       "status": "accepted",
-      "date": "2026-08-12T00:00:00Z",
-      "title": "Declared urgency and provenance for parallel-eligible work",
       "summary": "Closed two-band urgency enum (standard/expedite) prepended to ranking with priority retained as within-band tiebreak, plus a typed non-blocking acyclic raised_from provenance relation; no assignment, claim, or parallel-safety mechanism.",
       "tags": [
         "urgency",
@@ -428,46 +436,46 @@
         "agents",
         "coordination"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:c9fba6faf223ff74cc0af490cd2c948ed6217c826093704d6922bd89a9d55ea6",
-      "home_domain_id": "product-root:concord"
+      "title": "Declared urgency and provenance for parallel-eligible work"
     },
     {
+      "date": "2026-08-13T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0019",
       "kind": "decision",
       "path": "docs/decisions/CD-0019-predecessor-strength-preservation.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:ca70f98e6306b6aeb280f59405180c061e6c2553458f9fcf7553c94d88f9848a",
       "status": "accepted",
-      "date": "2026-08-13T00:00:00Z",
-      "title": "Predecessor-strength preservation and research-informed redesign",
       "summary": "Six predecessor strengths (specs, narrative artifacts, knowledge index, conformance, triage, reflection) are preservation-mandated, each research-informed in its Concord shape rather than inherited.",
       "tags": [
         "predecessor",
         "preservation",
         "method"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:ca70f98e6306b6aeb280f59405180c061e6c2553458f9fcf7553c94d88f9848a",
-      "home_domain_id": "product-root:concord"
+      "title": "Predecessor-strength preservation and research-informed redesign"
     },
     {
+      "date": "2026-08-13T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0020",
       "kind": "decision",
       "path": "docs/decisions/CD-0020-retain-knowledge-index-shape.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45",
       "status": "accepted",
-      "date": "2026-08-13T00:00:00Z",
-      "title": "Retain the manifest-primary knowledge-index shape",
       "summary": "Retains the Git-authoritative, SQLite-derived knowledge-index shape, bounded Q9/Q10 query boundary, independent code intelligence, and separate conformance repair path.",
       "tags": [
         "knowledge-index",
@@ -475,23 +483,27 @@
         "authority",
         "research"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45",
-      "home_domain_id": "product-root:concord"
+      "title": "Retain the manifest-primary knowledge-index shape"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/launcher/model.go",
+        "docs/terminal-launcher-contract.md"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0021",
       "kind": "decision",
       "path": "docs/decisions/CD-0021-floor-condition-1-scope.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Floor condition 1 means reach, not an operator authoring surface",
       "summary": "Floor condition 1 is claimable without an operator authoring surface: planning happens through an agent session, and full Product scope means every Product is reachable from the launcher rather than a result set spanning Products.",
       "tags": [
         "floor",
@@ -499,27 +511,26 @@
         "scope",
         "authority"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66",
-      "evidence": [
-        "internal/launcher/model.go",
-        "docs/terminal-launcher-contract.md"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Floor condition 1 means reach, not an operator authoring surface"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/store/research_operations.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0022",
       "kind": "decision",
       "path": "docs/decisions/CD-0022-active-research-finding-scope.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:af133dda5aa2698f263f94ce9bbd91acf8305f49a3e697c02757b343d1eb5027",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Active research findings carry applies-to scope",
       "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
       "tags": [
         "research",
@@ -527,53 +538,53 @@
         "knowledge",
         "retention"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:af133dda5aa2698f263f94ce9bbd91acf8305f49a3e697c02757b343d1eb5027",
-      "evidence": [
-        "internal/store/research_operations.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Active research findings carry applies-to scope"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/agent/verdict_scope_test.go",
+        "internal/store/workflow_verdict.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0023",
       "kind": "decision",
       "path": "docs/decisions/CD-0023-verdict-read-scope.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cb938dc6217e9d2990ac703d4939f67012aafc626fd2f1767aac8089717438e1",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Verdict read scope for the executing actor",
       "summary": "Recorded verdicts become readable, read-scoped results: every session except the recorded executing actor audits an acceptance; influence stays with CD-0013 D5.",
       "tags": [
         "verdicts",
         "read-scope",
         "agent-surface"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:cb938dc6217e9d2990ac703d4939f67012aafc626fd2f1767aac8089717438e1",
-      "evidence": [
-        "internal/agent/verdict_scope_test.go",
-        "internal/store/workflow_verdict.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Verdict read scope for the executing actor"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/store/initiative.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0024",
       "kind": "decision",
       "path": "docs/decisions/CD-0024-epic-agent-surface-and-ts9-exception.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:be2ff3010ee2a0a52bfbc851cd49717b326d32b150c1294e50e3478a928c30bc",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Epic agent surface and narrow TS9 exception",
       "summary": "Historical record of the Epic reachability change and one-time TS9 exception; CD-0042 closes its pre-go-live version and model-trial policy without creating a current compatibility path.",
       "tags": [
         "epic",
@@ -581,440 +592,437 @@
         "ts9",
         "migration"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:be2ff3010ee2a0a52bfbc851cd49717b326d32b150c1294e50e3478a928c30bc",
-      "evidence": [
-        "internal/store/initiative.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Epic agent surface and narrow TS9 exception"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/store/research_reliance.go",
+        "internal/agent/research_surface_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0025",
       "kind": "decision",
       "path": "docs/decisions/CD-0025-research-surface.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:952a7153df0e335a30312a994ffae31d14d21dbdd02224a434b81542f537cbc1",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Research surface and engine-bound reliance",
       "summary": "Research authoring reaches the agent tool surface under a research capability; workflow actions declare bindings the engine proves fail-closed against stale required revisions.",
       "tags": [
         "research",
         "agent-surface",
         "reliance"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:952a7153df0e335a30312a994ffae31d14d21dbdd02224a434b81542f537cbc1",
-      "evidence": [
-        "internal/store/research_reliance.go",
-        "internal/agent/research_surface_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Research surface and engine-bound reliance"
     },
     {
-      "id": "CD-0026",
-      "kind": "decision",
-      "path": "docs/decisions/CD-0026-learning-capture.md",
-      "status": "accepted",
       "date": "2026-08-14T00:00:00Z",
-      "title": "Learning capture: lesson authoring, reflection, and drift audit",
-      "summary": "Lessons publish through the archive surface into git and the manifest under operator approval; promotion is explicit scope; reflections are tagged lessons; evidence paths give law a structural drift audit.",
-      "tags": [
-        "lessons",
-        "knowledge",
-        "drift-audit"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:40d0f7f7eca5761348f116c6c51aeeaebaf97edff824174152074c9291431ad2",
       "evidence": [
         "internal/store/lesson_publish.go",
         "internal/store/lesson_publish_test.go",
         "internal/agent/lesson_dispatch_test.go",
         "scripts/check-knowledge-index.py"
       ],
-      "home_domain_id": "product-root:concord"
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0026",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0026-learning-capture.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:40d0f7f7eca5761348f116c6c51aeeaebaf97edff824174152074c9291431ad2",
+      "status": "accepted",
+      "summary": "Lessons publish through the archive surface into git and the manifest under operator approval; promotion is explicit scope; reflections are tagged lessons; evidence paths give law a structural drift audit.",
+      "tags": [
+        "lessons",
+        "knowledge",
+        "drift-audit"
+      ],
+      "title": "Learning capture: lesson authoring, reflection, and drift audit"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/store/workflow_continuity.go",
+        "internal/store/workflow_continuity_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0027",
       "kind": "decision",
       "path": "docs/decisions/CD-0027-typed-restart-excluded.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:27b590e86f5054250457065186b6ecd1ebf3f462e391af8e82fa44b39849049f",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Typed restart after a boundary is deliberately excluded",
       "summary": "CD-0016's re-derived pinned continuity already prevents silent authority loss across boundaries; restart-into-lane would only preserve in-flight working memory, which the host's session management owns.",
       "tags": [
         "continuity",
         "lanes",
         "exclusion"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:27b590e86f5054250457065186b6ecd1ebf3f462e391af8e82fa44b39849049f",
-      "evidence": [
-        "internal/store/workflow_continuity.go",
-        "internal/store/workflow_continuity_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Typed restart after a boundary is deliberately excluded"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/store/resource_claims.go",
+        "internal/agent/resource_claims_dispatch_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0028",
       "kind": "decision",
       "path": "docs/decisions/CD-0028-resource-claims.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:9eb67612cb80c4cf2ef84c707e653e0ac6b0cae14c05fcb9b4d29c7b38e4aeec",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Durable resource claims for concurrent agents",
       "summary": "Claims are durable records of intent on typed resource keys: work-item holders survive session death, contention refuses with coordination, terminal transition releases, and no authority is granted.",
       "tags": [
         "claims",
         "concurrency",
         "agent-surface"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:9eb67612cb80c4cf2ef84c707e653e0ac6b0cae14c05fcb9b4d29c7b38e4aeec",
-      "evidence": [
-        "internal/store/resource_claims.go",
-        "internal/agent/resource_claims_dispatch_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Durable resource claims for concurrent agents"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/store/work_messages.go",
+        "internal/agent/work_messages_dispatch_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0029",
       "kind": "decision",
       "path": "docs/decisions/CD-0029-peer-messages.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:003f4d884c1dfc9dc12c79bc2ac9d0f6ba883c789103d72f13f736141ee0e29e",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Peer messages addressed to durable work",
       "summary": "Messages are durable events addressed to work items: direct or Product-broadcast, pull-at-next-call delivery with a continuity pending pointer, withdrawable-with-visibility, structurally authority-free.",
       "tags": [
         "messaging",
         "concurrency",
         "agent-surface"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:003f4d884c1dfc9dc12c79bc2ac9d0f6ba883c789103d72f13f736141ee0e29e",
-      "evidence": [
-        "internal/store/work_messages.go",
-        "internal/agent/work_messages_dispatch_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Peer messages addressed to durable work"
     },
     {
+      "date": "2026-08-14T00:00:00Z",
+      "evidence": [
+        "internal/store/work_observations.go",
+        "internal/store/work_observations_test.go",
+        "internal/agent/observation_dispatch_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0030",
       "kind": "decision",
       "path": "docs/decisions/CD-0030-mid-execution-observations.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:30df4765ec371069f28b8509483320e1fa9982ce23d4e1d8c7f33e97867ce9b1",
       "status": "accepted",
-      "date": "2026-08-14T00:00:00Z",
-      "title": "Mid-execution observations",
       "summary": "Observations are the durable form of noticing: a lightweight mid-life record on work items, visible at resume, carrying no authority; promotion to work stays the unchanged capture+raised_from path.",
       "tags": [
         "observations",
         "discovery",
         "continuity"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:30df4765ec371069f28b8509483320e1fa9982ce23d4e1d8c7f33e97867ce9b1",
-      "evidence": [
-        "internal/store/work_observations.go",
-        "internal/store/work_observations_test.go",
-        "internal/agent/observation_dispatch_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Mid-execution observations"
     },
     {
+      "date": "2026-08-16T00:00:00Z",
+      "evidence": [
+        "internal/sessionboot/sessionboot.go",
+        "cmd/concord/session_test.go",
+        "internal/launcher/render/bubbletea/model_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0031",
       "kind": "decision",
       "path": "docs/decisions/CD-0031-core-derived-session-boot.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:be076d19e2951ed4de4e77f0be6dfa426c54867eaf7474fba52b3e9ff0826008",
       "status": "accepted",
-      "date": "2026-08-16T00:00:00Z",
-      "title": "Core-derived operator session boot",
       "summary": "Launcher-started operator sessions receive one generated, digest-bound packet rendered from canonical continuity before OpenCode starts; the launcher remains identity-only.",
       "tags": [
         "continuity",
         "launcher",
         "agent-surface"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:be076d19e2951ed4de4e77f0be6dfa426c54867eaf7474fba52b3e9ff0826008",
-      "evidence": [
-        "internal/sessionboot/sessionboot.go",
-        "cmd/concord/session_test.go",
-        "internal/launcher/render/bubbletea/model_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Core-derived operator session boot"
     },
     {
+      "date": "2026-08-16T00:00:00Z",
+      "evidence": [
+        "internal/store/workflow_supersession_confirmation_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0033",
       "kind": "decision",
       "path": "docs/decisions/CD-0033-out-of-band-direction.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cbe1aec76975566acf3442f2c0e74a6f4b8462f908646bc39d9c081c732423a3",
       "status": "accepted",
-      "date": "2026-08-16T00:00:00Z",
-      "title": "Out-of-band operator direction binds through contract supersession",
       "summary": "Direction of labor is legitimate and out-of-band; changing a declared end-state binds through the single operator-approved supersession path, with clause 5 as the visible check and the unverifiable trigger documented.",
       "tags": [
         "direction",
         "outcome-binding",
         "operator"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:cbe1aec76975566acf3442f2c0e74a6f4b8462f908646bc39d9c081c732423a3",
-      "evidence": [
-        "internal/store/workflow_supersession_confirmation_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Out-of-band operator direction binds through contract supersession"
     },
     {
-      "id": "CD-0035",
-      "kind": "decision",
-      "path": "docs/decisions/CD-0035-governing-requirements-at-capture.md",
-      "status": "accepted",
-      "date": "2026-08-17T00:00:00Z",
-      "title": "Governing requirements are scope-bound and refused at capture",
-      "summary": "Governing requirements bind to a Project rather than to a rule, and capture refuses by set difference against the requirements its target scope declares: invariant_violation naming the omitted requirements, typed operator options, no events, and a minted challenge the approved scope cut resolves against.",
-      "tags": [
-        "agent-surface",
-        "governing-law",
-        "capture"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:037eceaed277b5f4c825621d4b78b15552ef9ebe0064387d0ad8ab5aa8ee4fb8",
+      "date": "2026-08-16T00:00:00Z",
       "evidence": [
-        "internal/store/governing_requirements.go",
-        "internal/agent/mutations.go",
-        "internal/agent/envelope.go"
+        "internal/store/worker_lanes.go",
+        "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord"
-    },
-    {
+      "home_domain_id": "product-root:concord",
       "id": "CD-0034",
       "kind": "decision",
       "path": "docs/decisions/CD-0034-host-prompt-provenance.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bfcbd7779f456c9c2b17b6443d4ccfe601787be0c84b8b8afc0d2339000fa1c4",
       "status": "accepted",
-      "date": "2026-08-16T00:00:00Z",
-      "title": "Host prompt provenance is declared at dispatch",
       "summary": "Host injection is permitted only when recorded: dispatch evidence v3 carries a provenance digest over enumerable prompt surfaces, unenumerable ones are named, and D7 evals are reproducible only when lane and provenance digests both match.",
       "tags": [
         "lanes",
         "evidence",
         "prompt-authority"
       ],
+      "title": "Host prompt provenance is declared at dispatch"
+    },
+    {
+      "date": "2026-08-17T00:00:00Z",
+      "evidence": [
+        "internal/store/governing_requirements.go",
+        "internal/agent/mutations.go",
+        "internal/agent/envelope.go"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0035",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0035-governing-requirements-at-capture.md",
       "scopes": {
+        "domain_ids": [],
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bfcbd7779f456c9c2b17b6443d4ccfe601787be0c84b8b8afc0d2339000fa1c4",
-      "evidence": [
-        "internal/store/worker_lanes.go",
-        "adapter/opencode/dispatch.ts"
+      "sha256": "sha256:037eceaed277b5f4c825621d4b78b15552ef9ebe0064387d0ad8ab5aa8ee4fb8",
+      "status": "accepted",
+      "summary": "Governing requirements bind to a Project rather than to a rule, and capture refuses by set difference against the requirements its target scope declares: invariant_violation naming the omitted requirements, typed operator options, no events, and a minted challenge the approved scope cut resolves against.",
+      "tags": [
+        "agent-surface",
+        "governing-law",
+        "capture"
       ],
-      "home_domain_id": "product-root:concord"
+      "title": "Governing requirements are scope-bound and refused at capture"
     },
     {
+      "date": "2026-08-17T00:00:00Z",
+      "evidence": [
+        "internal/store/workflow_law_revision.go",
+        "internal/store/workflow_law_revision_test.go",
+        "docs/workflow-engine-contract.md"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0036",
       "kind": "decision",
       "path": "docs/decisions/CD-0036-breaking-law-cutovers.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d79282359486fbba3953dc2007683c2888c3b5e4993743787e399bf9eaacbd11",
       "status": "accepted",
-      "date": "2026-08-17T00:00:00Z",
-      "title": "Breaking law supersession strictly quiesces old consumers",
       "summary": "Law revision identity is the law ID and content hash; same-ID amendments remain compatible, while an accepted superseding law strictly quiesces old workflow consumers until recovery.",
       "tags": [
         "workflow",
         "law",
         "cutover"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:d79282359486fbba3953dc2007683c2888c3b5e4993743787e399bf9eaacbd11",
-      "evidence": [
-        "internal/store/workflow_law_revision.go",
-        "internal/store/workflow_law_revision_test.go",
-        "docs/workflow-engine-contract.md"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Breaking law supersession strictly quiesces old consumers"
     },
     {
+      "date": "2026-08-17T00:00:00Z",
+      "evidence": [
+        "internal/agent/authority.go",
+        "docs/agent-call-context-contract.md",
+        "scenarios/agent-jobs.v1.json"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0037",
       "kind": "decision",
       "path": "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:700c9184b4da80c3228dfb9f5fccf6714547f125b0562398de8b57a6fd01ec27",
       "status": "accepted",
-      "date": "2026-08-17T00:00:00Z",
-      "title": "Approval consequence summaries are derived from validated facts",
       "summary": "Core-issued approval challenges carry a typed summary derived only from the exact operation, consequence, digest, scope, versions, and expiry the approval binds.",
       "tags": [
         "approval",
         "agent-surface",
         "authority"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:700c9184b4da80c3228dfb9f5fccf6714547f125b0562398de8b57a6fd01ec27",
-      "evidence": [
-        "internal/agent/authority.go",
-        "docs/agent-call-context-contract.md",
-        "scenarios/agent-jobs.v1.json"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Approval consequence summaries are derived from validated facts"
     },
     {
+      "date": "2026-08-17T00:00:00Z",
+      "evidence": [
+        "internal/agent/runtime.go",
+        "contracts/agent-tool-surface.v1.json",
+        "scenarios/agent-jobs.v1.json"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0038",
       "kind": "decision",
       "path": "docs/decisions/CD-0038-per-operation-seconds-budgets.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c6b81f6e26f28635fc0ada6d19715f5672b6bd5fa493def79e21bf7d26498caa",
       "status": "accepted",
-      "date": "2026-08-17T00:00:00Z",
-      "title": "Operation time budgets are explicit, per-operation, and never clamped",
       "summary": "Every operation declares a seconds ceiling; unsupported requests refuse before effects and accepted budgets become one propagated deadline.",
       "tags": [
         "budgets",
         "agent-surface",
         "bounds"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:c6b81f6e26f28635fc0ada6d19715f5672b6bd5fa493def79e21bf7d26498caa",
-      "evidence": [
-        "internal/agent/runtime.go",
-        "contracts/agent-tool-surface.v1.json",
-        "scenarios/agent-jobs.v1.json"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Operation time budgets are explicit, per-operation, and never clamped"
     },
     {
+      "date": "2026-08-17T00:00:00Z",
+      "evidence": [
+        "internal/store/workflow_registry.go",
+        "docs/workflow-engine-contract.md",
+        "scenarios/agent-jobs.v1.json"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0039",
       "kind": "decision",
       "path": "docs/decisions/CD-0039-attributed-native-run-outcomes.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:b0f5731d030015730e47a27ee8c714d315aba9d55c0fe852ec6bafb0609e88aa",
       "status": "accepted",
-      "date": "2026-08-17T00:00:00Z",
-      "title": "Native-run outcomes are attributed reports, not Concord findings",
       "summary": "Native-run status is a typed report attributed to the authenticated trusted client; failed health plus rollback records durable state and returns a workflow-action partial.",
       "tags": [
         "workflow",
         "evidence",
         "native-authority"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:b0f5731d030015730e47a27ee8c714d315aba9d55c0fe852ec6bafb0609e88aa",
-      "evidence": [
-        "internal/store/workflow_registry.go",
-        "docs/workflow-engine-contract.md",
-        "scenarios/agent-jobs.v1.json"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Native-run outcomes are attributed reports, not Concord findings"
     },
     {
+      "date": "2026-08-17T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0008-concord-mechanism-hardening.md",
+        "internal/store/work_observations.go",
+        "docs/decisions/CD-0039-attributed-native-run-outcomes.md"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0040",
       "kind": "decision",
       "path": "docs/decisions/CD-0040-verifiable-external-observations.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d24c5659a7cd4c39bf5be8b1582145eaf3b504b69ff2dc2ed3a0d3c58f932692",
       "status": "accepted",
-      "date": "2026-08-17T00:00:00Z",
-      "title": "External observations prove presence; absence requires pinned completeness",
       "summary": "External observations share typed provenance and append-only verification; presence is broad, while absence and consequential use require pinned completeness and current proof.",
       "tags": [
         "external-state",
         "verification",
         "provenance"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:d24c5659a7cd4c39bf5be8b1582145eaf3b504b69ff2dc2ed3a0d3c58f932692",
-      "evidence": [
-        "docs/decisions/CD-0008-concord-mechanism-hardening.md",
-        "internal/store/work_observations.go",
-        "docs/decisions/CD-0039-attributed-native-run-outcomes.md"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "External observations prove presence; absence requires pinned completeness"
     },
     {
+      "date": "2026-08-18T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0041",
       "kind": "decision",
       "path": "docs/decisions/CD-0041-architecture-bound-product-law.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:593ecb8147434f3cb36691626633296d2cfd39edf4dcf3aa7b7b8e8be82248d2",
       "status": "accepted",
-      "date": "2026-08-18T00:00:00Z",
-      "title": "Architecture-bound Product law is Concord's primary coordination model",
       "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; concurrent Domain overlap requires version-pinned resolution; Initiative remains secondary context; SQLite remains sole local authority. CD-0042 amends only the pre-go-live agent-surface sequencing.",
       "tags": [
         "product-law",
@@ -1023,37 +1031,10 @@
         "concurrency",
         "initiative"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:593ecb8147434f3cb36691626633296d2cfd39edf4dcf3aa7b7b8e8be82248d2",
-      "home_domain_id": "product-root:concord"
+      "title": "Architecture-bound Product law is Concord's primary coordination model"
     },
     {
-      "id": "CD-0042",
-      "kind": "decision",
-      "path": "docs/decisions/CD-0042-pre-go-live-single-path.md",
-      "status": "accepted",
       "date": "2026-08-19T00:00:00Z",
-      "title": "Pre-go-live development keeps one agent-surface path",
-      "summary": "Binds the current generated agent surface to one manifest digest, requires deterministic authority evidence, and removes unreleased compatibility, deprecation, model-trial gate, and replay machinery before go-live.",
-      "tags": [
-        "agents",
-        "compatibility",
-        "pre-go-live"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:0be5d65da9fb6907239f3c0e1674547d6c57ebc7e5711010109278634cd2f0c6",
       "evidence": [
         "docs/agent-tool-surface-evolution.md",
         "docs/agent-tool-surface-measurement.md",
@@ -1062,395 +1043,170 @@
         "contracts/workflow-engine-scenarios.schema.json",
         "scripts/check-agent-contracts.py"
       ],
-      "home_domain_id": "product-root:concord"
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0042",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0042-pre-go-live-single-path.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:0be5d65da9fb6907239f3c0e1674547d6c57ebc7e5711010109278634cd2f0c6",
+      "status": "accepted",
+      "summary": "Binds the current generated agent surface to one manifest digest, requires deterministic authority evidence, and removes unreleased compatibility, deprecation, model-trial gate, and replay machinery before go-live.",
+      "tags": [
+        "agents",
+        "compatibility",
+        "pre-go-live"
+      ],
+      "title": "Pre-go-live development keeps one agent-surface path"
     },
     {
+      "date": "2026-08-20T00:00:00Z",
+      "evidence": [
+        "docs/capability-placement.md",
+        "docs/predecessor-operational-coverage.md",
+        "skills/README.md"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0043",
       "kind": "decision",
       "path": "docs/decisions/CD-0043-host-owned-lane-methodology.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a5f0f1cb210c716354f7b17638fb892954c6fafd7bdd81dfeae45ce96b0cc455",
       "status": "accepted",
-      "date": "2026-08-20T00:00:00Z",
-      "title": "Lane methodology is host-owned and provenance-recorded",
       "summary": "Concord owns the lane contract, evidence boundary, and provenance record but never lane methodology; methodology reaches a dispatch only through the CD-0034 enumerable host instruction surface, skills/ stays reserved with a closed reason, and the deferring coverage rows name the host owner.",
       "tags": [
         "lanes",
         "methodology",
         "prompt-authority"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:a5f0f1cb210c716354f7b17638fb892954c6fafd7bdd81dfeae45ce96b0cc455",
-      "evidence": [
-        "docs/capability-placement.md",
-        "docs/predecessor-operational-coverage.md",
-        "skills/README.md"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Lane methodology is host-owned and provenance-recorded"
     },
     {
+      "date": "2026-08-20T00:00:00Z",
+      "evidence": [
+        "internal/agent/worker_evidence.go",
+        "cmd/concord/worker_evidence_test.go",
+        "adapter/opencode/credentials.ts"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0044",
       "kind": "decision",
       "path": "docs/decisions/CD-0044-worker-evidence-caller-authentication.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c82a74a0f95b3bf33ef1ef8f366c01a98262574dd3ba1b5fc4777cf57a31b8d0",
       "status": "accepted",
-      "date": "2026-08-20T00:00:00Z",
-      "title": "Worker evidence writes authenticate their caller",
       "summary": "Worker-evidence CLI writes carry a signed worker-evidence-v1 assertion bound to the exact attempt, lane, routing, and provenance identity; the nonce is consumed in the appending transaction, worker_evidence is client-policy authority no grant can carry, terminal attempts refuse further evidence, and the recorded actor is a verified client.",
       "tags": [
         "typed-workers",
         "authority",
         "evidence"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:c82a74a0f95b3bf33ef1ef8f366c01a98262574dd3ba1b5fc4777cf57a31b8d0",
-      "evidence": [
-        "internal/agent/worker_evidence.go",
-        "cmd/concord/worker_evidence_test.go",
-        "adapter/opencode/credentials.ts"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Worker evidence writes authenticate their caller"
     },
     {
+      "date": "2026-08-20T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+        "docs/core-architecture.md",
+        "docs/floor-readiness.v1.json"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0045",
       "kind": "decision",
       "path": "docs/decisions/CD-0045-writer-admission-invariant.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:7af6da8fa054084e21443739a76a17a4342f338fc5ae46b1b0d930a268e50f4b",
       "status": "accepted",
-      "date": "2026-08-20T00:00:00Z",
-      "title": "Concurrency law states bounded writer admission, not zero waiting",
       "summary": "The Priority 2 concurrency invariant states bounded writer admission rather than zero contention; writer-admission wait, commit duration, and escaped busy failure are distinct measured quantities, correctness precedes latency, population identity is part of the bound, and CD-0011 retains sole ownership of the reopen conditions.",
       "tags": [
         "concurrency",
         "sqlite",
         "floor-readiness"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:7af6da8fa054084e21443739a76a17a4342f338fc5ae46b1b0d930a268e50f4b",
-      "evidence": [
-        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
-        "docs/core-architecture.md",
-        "docs/floor-readiness.v1.json"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Concurrency law states bounded writer admission, not zero waiting"
     },
     {
+      "date": "2026-08-20T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+        "internal/store/conformance_test.go",
+        ".github/workflows/ci.yml"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0046",
       "kind": "decision",
       "path": "docs/decisions/CD-0046-conformance-population-provenance.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c29afba78f7a825afc4fc938d68db7bcdcc3703e0dec0ae273def1864eea613b",
       "status": "accepted",
-      "date": "2026-08-20T00:00:00Z",
-      "title": "Conformance population authority is invocation provenance, not measured host isolation",
       "summary": "An accepted conformance falsifier verdict is reachable only from the acceptance entry point run with the required-check signal the workflow sets; every other invocation stays inconclusive regardless of the threshold, a CI run missing the signal fails visibly, and CD-0011 structural wording is amended to the narrower enforceable claim of invocation provenance.",
       "tags": [
         "conformance",
         "population-authority",
         "sqlite"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:c29afba78f7a825afc4fc938d68db7bcdcc3703e0dec0ae273def1864eea613b",
-      "evidence": [
-        "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
-        "internal/store/conformance_test.go",
-        ".github/workflows/ci.yml"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Conformance population authority is invocation provenance, not measured host isolation"
     },
     {
-      "id": "PM1",
-      "kind": "spec",
-      "path": "docs/product-memory-query-contract.md",
-      "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Product memory query contract",
-      "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
-      "tags": [
-        "pm1",
-        "queries"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:83e4eeab0ab03a788bc38a659f9a2764a98bbfec50d9b88fc6e9b7279cfd1a64",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "PM3",
-      "kind": "spec",
-      "path": "docs/product-memory-domain-schema.md",
-      "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Product memory domain schema",
-      "summary": "Defines the authoritative event log and typed Product-memory projections.",
-      "tags": [
-        "pm3",
-        "schema"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:efeb33a4f55362e61f1fdf6c05c67d475acc15c95c5c2a78a417fbac05ee1e53",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "PM6",
-      "kind": "spec",
-      "path": "docs/canonical-git-note-placement.md",
-      "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Canonical Git note placement",
-      "summary": "Defines canonical home placement and git-first proof for durable notes.",
-      "tags": [
-        "pm6",
-        "git",
-        "proof"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:55e1755f5902a6b9776d61217b7581153d28cce4fba15b793d9628cab3966806",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "PM7",
-      "kind": "spec",
-      "path": "docs/compaction-retention-policy.md",
-      "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Compaction retention policy",
-      "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
-      "tags": [
-        "pm7",
-        "retention",
-        "rebuild"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:497374caff8c789b70a57c8d34200a3a6ef4c694ac1ca6d45656aa67ab914087",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "TS3",
-      "kind": "spec",
-      "path": "docs/agent-read-tool-contract.md",
-      "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Agent read tool contract",
-      "summary": "Defines bounded read tools including the durable knowledge surface.",
-      "tags": [
-        "ts3",
-        "agents",
-        "queries"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:59b7c878cc447490c7bddf9be19488c14e1c2ec88afadecb1e220835fb7bf220",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "TS7",
-      "kind": "spec",
-      "path": "docs/agent-result-envelope.md",
-      "status": "accepted",
-      "date": "2026-08-06T00:00:00Z",
-      "title": "Agent result envelope",
-      "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
-      "tags": [
-        "ts7",
-        "agents",
-        "errors"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:f9d3d48f5dcf5d2bee3d77d00bdf833fc58a78addfaeb5fcc1c1347811b1faed",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "advance-predecessor-lessons",
-      "kind": "lesson",
-      "path": "docs/advance-predecessor-lessons.md",
-      "status": "published",
-      "date": "2026-08-05T00:00:00Z",
-      "title": "Advance predecessor lessons",
-      "summary": "Records public predecessor lessons that inform Concord without becoming a second authority.",
-      "tags": [
-        "lessons",
-        "predecessor"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:348ef42c5debee51f2870c477243ac9ef451cf98fb3d0d45f6f98494ccbc103d"
-    },
-    {
-      "id": "agent-lanes-contract",
-      "kind": "spec",
-      "path": "docs/agent-lanes-contract.md",
-      "status": "accepted",
-      "date": "2026-08-11T00:00:00Z",
-      "title": "Agent lane contract",
-      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, capability classes, budgets, lifecycle states, and evidence obligations.",
-      "tags": [
-        "typed-workers",
-        "lane-registry",
-        "agents"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:68de0b63b1bdc0a07b14fbb72e8bdcf57638bd4527cddb4d802d07c2f603d2dc",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "routing-policy-contract",
-      "kind": "spec",
-      "path": "docs/routing-policy-contract.md",
-      "status": "accepted",
-      "date": "2026-08-11T00:00:00Z",
-      "title": "Worker routing policy",
-      "summary": "Generated CD-0017 routing policy binding capability classes to host-loaded preferred models and ordered declared fallback resolution sets.",
-      "tags": [
-        "typed-workers",
-        "model-routing",
-        "fallback",
-        "agents"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:78f01bafd9cd7e36132c010884efd53f8f5481c9fd3d92a13c44d6042494f7e7",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "workflow-engine-contract",
-      "kind": "spec",
-      "path": "docs/workflow-engine-contract.md",
-      "status": "accepted",
-      "date": "2026-08-08T00:00:00Z",
-      "title": "Workflow engine contract",
-      "summary": "Defines the machine-readable workflow engine implementation contract.",
-      "tags": [
-        "workflow",
-        "contract"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:89e9906427b947eca64d15a3c996971fcd7ca2a735e1bcf36e9a592c91e89e07",
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "CD-0047",
-      "kind": "decision",
-      "path": "docs/decisions/CD-0047-declared-coverage-state.md",
-      "status": "accepted",
       "date": "2026-08-20T00:00:00Z",
-      "title": "Coverage is declared, and an undeclared gap is a failure",
-      "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction.",
-      "tags": [
-        "coverage",
-        "drift",
-        "evidence"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:017d3b70a673b9e911e8f09b3f92b1f60cdc0d2569af2fa7a6e3dcd3d31fce81",
       "evidence": [
         "scripts/check-law-coverage.py",
         "scripts/check-reachability.py",
         "docs/law-coverage.v1.json",
         "docs/reachability-exceptions.v1.json"
       ],
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "CD-0048",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0047",
       "kind": "decision",
-      "path": "docs/decisions/CD-0048-s2-answer-stack-composition.md",
-      "status": "accepted",
-      "date": "2026-08-20T00:00:00Z",
-      "title": "S2 composes the answers the store already materialized",
-      "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order — governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
-      "tags": [
-        "launcher",
-        "terminal-contract"
-      ],
+      "path": "docs/decisions/CD-0047-declared-coverage-state.md",
       "scopes": {
+        "domain_ids": [],
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:13bf61d184703b1e3380955b009dcea910c9c429e86ab640668e46dd1cb8144e",
+      "sha256": "sha256:017d3b70a673b9e911e8f09b3f92b1f60cdc0d2569af2fa7a6e3dcd3d31fce81",
+      "status": "accepted",
+      "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction.",
+      "tags": [
+        "coverage",
+        "drift",
+        "evidence"
+      ],
+      "title": "Coverage is declared, and an undeclared gap is a failure"
+    },
+    {
+      "date": "2026-08-20T00:00:00Z",
       "evidence": [
         "docs/terminal-launcher-contract.md",
         "internal/store/product_row.go",
@@ -1458,28 +1214,28 @@
         "internal/store/launcher_query.go",
         "cmd/concord/session.go"
       ],
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "CD-0049",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0048",
       "kind": "decision",
-      "path": "docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md",
-      "status": "accepted",
-      "date": "2026-08-21T00:00:00Z",
-      "title": "Agent definitions are delivered per project, and Concord asserts agent identity itself",
-      "summary": "Concord-owned lane definitions reach a host only through a project's .opencode/agents/, because a global agent cannot be scoped and an environment-supplied definition presents no file for CD-0034 provenance to hash; Concord asserts required agent identity before launch rather than relying on --agent, whose unknown-name failure mode is a silent substitution with a success exit code; the orchestrator is constrained and verified rather than authored, since CD-0016 excludes an agent_definitions table; a session with absent required identity refuses to start.",
-      "tags": [
-        "agent-surface",
-        "installer"
-      ],
+      "path": "docs/decisions/CD-0048-s2-answer-stack-composition.md",
       "scopes": {
+        "domain_ids": [],
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:749aa4947c2499a99d5db9794f83d3831156a19f8893bb30e93ad2d70743340f",
+      "sha256": "sha256:13bf61d184703b1e3380955b009dcea910c9c429e86ab640668e46dd1cb8144e",
+      "status": "accepted",
+      "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order — governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
+      "tags": [
+        "launcher",
+        "terminal-contract"
+      ],
+      "title": "S2 composes the answers the store already materialized"
+    },
+    {
+      "date": "2026-08-21T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0016-context-continuity.md",
         "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
@@ -1487,97 +1243,128 @@
         "cmd/concord/session.go",
         "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord"
-    },
-    {
-      "id": "CD-0050",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0049",
       "kind": "decision",
-      "path": "docs/decisions/CD-0050-durable-acknowledgement.md",
-      "status": "accepted",
-      "date": "2026-08-21T00:00:00Z",
-      "title": "Durable acknowledgement at consequential boundaries",
-      "summary": "Acknowledged consequential operations are durable across power loss via a TRUNCATE-checkpoint barrier that syncs the whole WAL even under synchronous=NORMAL; ordinary writes stay NORMAL and are durable through the last boundary; the barrier lives at the acknowledgement layer, not inside fence primitives.",
-      "tags": [
-        "durability",
-        "sqlite",
-        "authority"
-      ],
+      "path": "docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md",
       "scopes": {
+        "domain_ids": [],
         "mode": "home",
         "product_ids": [],
         "project_ids": [],
-        "domain_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:445f87fdde1d5e529b34b88d98e6cd67b70f18d62526f4674dcc97ba0e36813b",
+      "sha256": "sha256:749aa4947c2499a99d5db9794f83d3831156a19f8893bb30e93ad2d70743340f",
+      "status": "accepted",
+      "summary": "Concord-owned lane definitions reach a host only through a project's .opencode/agents/, because a global agent cannot be scoped and an environment-supplied definition presents no file for CD-0034 provenance to hash; Concord asserts required agent identity before launch rather than relying on --agent, whose unknown-name failure mode is a silent substitution with a success exit code; the orchestrator is constrained and verified rather than authored, since CD-0016 excludes an agent_definitions table; a session with absent required identity refuses to start.",
+      "tags": [
+        "agent-surface",
+        "installer"
+      ],
+      "title": "Agent definitions are delivered per project, and Concord asserts agent identity itself"
+    },
+    {
+      "date": "2026-08-21T00:00:00Z",
       "evidence": [
         "internal/store/durable.go",
         "internal/store/agent_authority.go",
         "internal/agent/mutations.go",
         "cmd/concord/main.go"
       ],
-      "home_domain_id": "product-root:concord"
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0050",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0050-durable-acknowledgement.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:445f87fdde1d5e529b34b88d98e6cd67b70f18d62526f4674dcc97ba0e36813b",
+      "status": "accepted",
+      "summary": "Acknowledged consequential operations are durable across power loss via a TRUNCATE-checkpoint barrier that syncs the whole WAL even under synchronous=NORMAL; ordinary writes stay NORMAL and are durable through the last boundary; the barrier lives at the acknowledgement layer, not inside fence primitives.",
+      "tags": [
+        "durability",
+        "sqlite",
+        "authority"
+      ],
+      "title": "Durable acknowledgement at consequential boundaries"
     },
     {
+      "date": "2026-08-21T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0045-writer-admission-invariant.md",
+        "internal/store/conformance_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0051",
       "kind": "decision",
       "path": "docs/decisions/CD-0051-conformance-falsifier-quantity.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:6f5a1e9e5e146c2439518fe32667cb4f11fa9728cca4ea3b0f10ecc332b711ca",
       "status": "accepted",
-      "date": "2026-08-21T00:00:00Z",
-      "title": "The conformance falsifier weighs commit duration, not scheduler time",
       "summary": "The sustained conformance falsifier weighs commit-duration P99, the quantity CD-0045 names as Concord-owned, against the unchanged 100ms target; wall and writer-admission wait stay measured and diagnostic, correctness precedence and population authority are untouched, and scheduler-owned overshoot on a shared runner reports as inconclusive instead of a law-grade fired verdict.",
       "tags": [
         "conformance",
         "concurrency",
         "falsifier"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:6f5a1e9e5e146c2439518fe32667cb4f11fa9728cca4ea3b0f10ecc332b711ca",
-      "evidence": [
-        "docs/decisions/CD-0045-writer-admission-invariant.md",
-        "internal/store/conformance_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "The conformance falsifier weighs commit duration, not scheduler time"
     },
     {
+      "date": "2026-08-21T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
+        "internal/store/lifecycle_relations_test.go"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0052",
       "kind": "decision",
       "path": "docs/decisions/CD-0052-implements-fulfilment-semantics.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:ed5858431069edc94e11c8eb8589c9b2dbe77e953b20ac1b60f7974a2c79b9cc",
       "status": "accepted",
-      "date": "2026-08-21T00:00:00Z",
-      "title": "implements declares fulfilment-link semantics, display-only",
       "summary": "The work-relation kind implements is a directional, non-blocking, non-hierarchical, cycle-exempt many-to-one fulfilment link recording that a work item fulfils a decision-kind item; it is display-only until a consumer defines its read surface in a citing record, and removal stays off the table while it remains in the closed vocabulary.",
       "tags": [
         "relations",
         "vocabulary"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:ed5858431069edc94e11c8eb8589c9b2dbe77e953b20ac1b60f7974a2c79b9cc",
-      "evidence": [
-        "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
-        "internal/store/lifecycle_relations_test.go"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "implements declares fulfilment-link semantics, display-only"
     },
     {
+      "date": "2026-08-21T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
+        "docs/decisions/CD-0026-learning-capture.md",
+        "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0053",
       "kind": "decision",
       "path": "docs/decisions/CD-0053-predecessor-strength-answers.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:54a5ba96f0a2072508f669a59114f884e3cab24619d66328c338c34a51efa242",
       "status": "accepted",
-      "date": "2026-08-21T00:00:00Z",
-      "title": "The three un-mandated predecessor strengths are answered",
       "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. Each answer cites its mechanism and executable evidence and is cutover-blocking per issue #295.",
       "tags": [
         "predecessor",
@@ -1585,76 +1372,289 @@
         "workflow",
         "knowledge"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:54a5ba96f0a2072508f669a59114f884e3cab24619d66328c338c34a51efa242",
-      "evidence": [
-        "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
-        "docs/decisions/CD-0026-learning-capture.md",
-        "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "The three un-mandated predecessor strengths are answered"
     },
     {
+      "date": "2026-08-21T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+        "internal/store/routing_policy.go",
+        "adapter/opencode/dispatch.ts"
+      ],
+      "home_domain_id": "product-root:concord",
       "id": "CD-0054",
       "kind": "decision",
       "path": "docs/decisions/CD-0054-routing-policy-host-authority.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cd06b7d7a1500fb0a18aa63c13da6e34f03aa49230600e51f5a4bca7abfe640e",
       "status": "accepted",
-      "date": "2026-08-21T00:00:00Z",
-      "title": "Routing-policy authority is load-time host state",
       "summary": "The routing policy loads from CONCORD_ROUTING_POLICY host state with the repo record as default template, failing closed when host state is set but unreadable; the lane registry becomes model-neutral, load-time validation replaces cross-file pinning including adapter-side opencode models existence checks, and the per-attempt digest-bound evidence boundary is unchanged.",
       "tags": [
         "routing",
         "lanes",
         "host-state"
       ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
-      "sha256": "sha256:cd06b7d7a1500fb0a18aa63c13da6e34f03aa49230600e51f5a4bca7abfe640e",
-      "evidence": [
-        "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
-        "internal/store/routing_policy.go",
-        "adapter/opencode/dispatch.ts"
-      ],
-      "home_domain_id": "product-root:concord"
+      "title": "Routing-policy authority is load-time host state"
     },
     {
-      "id": "CD-0055",
-      "kind": "decision",
-      "path": "docs/decisions/CD-0055-repository-check-authority.md",
-      "status": "accepted",
       "date": "2026-08-21T00:00:00Z",
-      "title": "Repository checks are structural first, and textual guards are declared exceptions",
-      "summary": "Repository checks name one authority class — structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py retained as the declared textual exception.",
-      "tags": [
-        "validators",
-        "policy",
-        "evidence"
-      ],
-      "scopes": {
-        "mode": "home",
-        "product_ids": [],
-        "project_ids": [],
-        "domain_ids": [],
-        "tag_ids": []
-      },
       "evidence": [
         "scripts/check-reachability.py",
         "scripts/check-tx-scope.py",
         "internal/store/boundary_test.go"
       ],
       "home_domain_id": "product-root:concord",
-      "sha256": "sha256:97e9fc349decaa3d3290ce4c8538c30bb3e531b5b93405f7042d20b468497844"
+      "id": "CD-0055",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0055-repository-check-authority.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:97e9fc349decaa3d3290ce4c8538c30bb3e531b5b93405f7042d20b468497844",
+      "status": "accepted",
+      "summary": "Repository checks name one authority class — structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py retained as the declared textual exception.",
+      "tags": [
+        "validators",
+        "policy",
+        "evidence"
+      ],
+      "title": "Repository checks are structural first, and textual guards are declared exceptions"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "PM1",
+      "kind": "spec",
+      "path": "docs/product-memory-query-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:83e4eeab0ab03a788bc38a659f9a2764a98bbfec50d9b88fc6e9b7279cfd1a64",
+      "status": "accepted",
+      "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
+      "tags": [
+        "pm1",
+        "queries"
+      ],
+      "title": "Product memory query contract"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "PM3",
+      "kind": "spec",
+      "path": "docs/product-memory-domain-schema.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:efeb33a4f55362e61f1fdf6c05c67d475acc15c95c5c2a78a417fbac05ee1e53",
+      "status": "accepted",
+      "summary": "Defines the authoritative event log and typed Product-memory projections.",
+      "tags": [
+        "pm3",
+        "schema"
+      ],
+      "title": "Product memory domain schema"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "PM6",
+      "kind": "spec",
+      "path": "docs/canonical-git-note-placement.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:55e1755f5902a6b9776d61217b7581153d28cce4fba15b793d9628cab3966806",
+      "status": "accepted",
+      "summary": "Defines canonical home placement and git-first proof for durable notes.",
+      "tags": [
+        "pm6",
+        "git",
+        "proof"
+      ],
+      "title": "Canonical Git note placement"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "PM7",
+      "kind": "spec",
+      "path": "docs/compaction-retention-policy.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:497374caff8c789b70a57c8d34200a3a6ef4c694ac1ca6d45656aa67ab914087",
+      "status": "accepted",
+      "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
+      "tags": [
+        "pm7",
+        "retention",
+        "rebuild"
+      ],
+      "title": "Compaction retention policy"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "TS3",
+      "kind": "spec",
+      "path": "docs/agent-read-tool-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:59b7c878cc447490c7bddf9be19488c14e1c2ec88afadecb1e220835fb7bf220",
+      "status": "accepted",
+      "summary": "Defines bounded read tools including the durable knowledge surface.",
+      "tags": [
+        "ts3",
+        "agents",
+        "queries"
+      ],
+      "title": "Agent read tool contract"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "TS7",
+      "kind": "spec",
+      "path": "docs/agent-result-envelope.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:f9d3d48f5dcf5d2bee3d77d00bdf833fc58a78addfaeb5fcc1c1347811b1faed",
+      "status": "accepted",
+      "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
+      "tags": [
+        "ts7",
+        "agents",
+        "errors"
+      ],
+      "title": "Agent result envelope"
+    },
+    {
+      "date": "2026-08-05T00:00:00Z",
+      "id": "advance-predecessor-lessons",
+      "kind": "lesson",
+      "path": "docs/advance-predecessor-lessons.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:348ef42c5debee51f2870c477243ac9ef451cf98fb3d0d45f6f98494ccbc103d",
+      "status": "published",
+      "summary": "Records public predecessor lessons that inform Concord without becoming a second authority.",
+      "tags": [
+        "lessons",
+        "predecessor"
+      ],
+      "title": "Advance predecessor lessons"
+    },
+    {
+      "date": "2026-08-11T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "agent-lanes-contract",
+      "kind": "spec",
+      "path": "docs/agent-lanes-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:68de0b63b1bdc0a07b14fbb72e8bdcf57638bd4527cddb4d802d07c2f603d2dc",
+      "status": "accepted",
+      "summary": "Generated CD-0017 Phase 1 lane registry projection with closed packet/report references, capability classes, budgets, lifecycle states, and evidence obligations.",
+      "tags": [
+        "typed-workers",
+        "lane-registry",
+        "agents"
+      ],
+      "title": "Agent lane contract"
+    },
+    {
+      "date": "2026-08-11T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "routing-policy-contract",
+      "kind": "spec",
+      "path": "docs/routing-policy-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:78f01bafd9cd7e36132c010884efd53f8f5481c9fd3d92a13c44d6042494f7e7",
+      "status": "accepted",
+      "summary": "Generated CD-0017 routing policy binding capability classes to host-loaded preferred models and ordered declared fallback resolution sets.",
+      "tags": [
+        "typed-workers",
+        "model-routing",
+        "fallback",
+        "agents"
+      ],
+      "title": "Worker routing policy"
+    },
+    {
+      "date": "2026-08-08T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "workflow-engine-contract",
+      "kind": "spec",
+      "path": "docs/workflow-engine-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:89e9906427b947eca64d15a3c996971fcd7ca2a735e1bcf36e9a592c91e89e07",
+      "status": "accepted",
+      "summary": "Defines the machine-readable workflow engine implementation contract.",
+      "tags": [
+        "workflow",
+        "contract"
+      ],
+      "title": "Workflow engine contract"
     }
   ]
 }

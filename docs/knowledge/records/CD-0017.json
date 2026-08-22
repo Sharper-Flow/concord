@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-11T00:00:00Z",
+  "evidence": [
+    "contracts/agent-lanes.v1.json",
+    "internal/store/worker_authority_boundary_test.go",
+    "adapter/opencode/evals/promptfooconfig.yaml"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0017",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
+  "status": "accepted",
+  "summary": "Defines the Concord-owned lane registry, host-loaded capability-class model routing, readback identity evidence, typed fallback outcomes, and the worker authority boundary.",
+  "tags": [
+    "typed-workers",
+    "model-routing",
+    "workflow",
+    "agents"
+  ],
+  "title": "Typed workers and model routing"
+}

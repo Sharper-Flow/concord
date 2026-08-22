@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-20T00:00:00Z",
+  "evidence": [
+    "docs/capability-placement.md",
+    "docs/predecessor-operational-coverage.md",
+    "skills/README.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0043",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0043-host-owned-lane-methodology.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a5f0f1cb210c716354f7b17638fb892954c6fafd7bdd81dfeae45ce96b0cc455",
+  "status": "accepted",
+  "summary": "Concord owns the lane contract, evidence boundary, and provenance record but never lane methodology; methodology reaches a dispatch only through the CD-0034 enumerable host instruction surface, skills/ stays reserved with a closed reason, and the deferring coverage rows name the host owner.",
+  "tags": [
+    "lanes",
+    "methodology",
+    "prompt-authority"
+  ],
+  "title": "Lane methodology is host-owned and provenance-recorded"
+}

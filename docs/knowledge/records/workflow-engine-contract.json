@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-08T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "workflow-engine-contract",
+  "kind": "spec",
+  "path": "docs/workflow-engine-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:89e9906427b947eca64d15a3c996971fcd7ca2a735e1bcf36e9a592c91e89e07",
+  "status": "accepted",
+  "summary": "Defines the machine-readable workflow engine implementation contract.",
+  "tags": [
+    "workflow",
+    "contract"
+  ],
+  "title": "Workflow engine contract"
+}

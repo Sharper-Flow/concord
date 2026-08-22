@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-13T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0019",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0019-predecessor-strength-preservation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:ca70f98e6306b6aeb280f59405180c061e6c2553458f9fcf7553c94d88f9848a",
+  "status": "accepted",
+  "summary": "Six predecessor strengths (specs, narrative artifacts, knowledge index, conformance, triage, reflection) are preservation-mandated, each research-informed in its Concord shape rather than inherited.",
+  "tags": [
+    "predecessor",
+    "preservation",
+    "method"
+  ],
+  "title": "Predecessor-strength preservation and research-informed redesign"
+}

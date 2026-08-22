@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-14T00:00:00Z",
+  "evidence": [
+    "internal/store/lesson_publish.go",
+    "internal/store/lesson_publish_test.go",
+    "internal/agent/lesson_dispatch_test.go",
+    "scripts/check-knowledge-index.py"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0026",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0026-learning-capture.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:40d0f7f7eca5761348f116c6c51aeeaebaf97edff824174152074c9291431ad2",
+  "status": "accepted",
+  "summary": "Lessons publish through the archive surface into git and the manifest under operator approval; promotion is explicit scope; reflections are tagged lessons; evidence paths give law a structural drift audit.",
+  "tags": [
+    "lessons",
+    "knowledge",
+    "drift-audit"
+  ],
+  "title": "Learning capture: lesson authoring, reflection, and drift audit"
+}

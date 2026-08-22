@@ -1,0 +1,22 @@
+{
+  "date": "2026-07-25T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0003",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0003-concord-storage-layer-shape.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:bb1315eb6cfff72fcceb4bde45a9ff3f193612346cb85134fd0c3c699a0a230b",
+  "status": "accepted",
+  "summary": "Defines the initial storage layer shape and boundaries.",
+  "tags": [
+    "storage",
+    "architecture"
+  ],
+  "title": "Concord storage layer shape"
+}

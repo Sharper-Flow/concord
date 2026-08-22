@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-01T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0006",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0006-concord-root-product-policy.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:545b60a12d8b24588bd01a730ec2fb1f59eb9002bae0fed4d28ebbe9d5535b47",
+  "status": "accepted",
+  "summary": "Defines the root Product and fix-forward policy.",
+  "tags": [
+    "product",
+    "governance"
+  ],
+  "title": "Concord root Product policy"
+}

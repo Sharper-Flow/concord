@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-17T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_registry.go",
+    "docs/workflow-engine-contract.md",
+    "scenarios/agent-jobs.v1.json"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0039",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0039-attributed-native-run-outcomes.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:b0f5731d030015730e47a27ee8c714d315aba9d55c0fe852ec6bafb0609e88aa",
+  "status": "accepted",
+  "summary": "Native-run status is a typed report attributed to the authenticated trusted client; failed health plus rollback records durable state and returns a workflow-action partial.",
+  "tags": [
+    "workflow",
+    "evidence",
+    "native-authority"
+  ],
+  "title": "Native-run outcomes are attributed reports, not Concord findings"
+}

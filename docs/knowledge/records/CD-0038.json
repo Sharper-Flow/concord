@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-17T00:00:00Z",
+  "evidence": [
+    "internal/agent/runtime.go",
+    "contracts/agent-tool-surface.v1.json",
+    "scenarios/agent-jobs.v1.json"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0038",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0038-per-operation-seconds-budgets.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:c6b81f6e26f28635fc0ada6d19715f5672b6bd5fa493def79e21bf7d26498caa",
+  "status": "accepted",
+  "summary": "Every operation declares a seconds ceiling; unsupported requests refuse before effects and accepted budgets become one propagated deadline.",
+  "tags": [
+    "budgets",
+    "agent-surface",
+    "bounds"
+  ],
+  "title": "Operation time budgets are explicit, per-operation, and never clamped"
+}

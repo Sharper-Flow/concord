@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-12T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0018",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:c9fba6faf223ff74cc0af490cd2c948ed6217c826093704d6922bd89a9d55ea6",
+  "status": "accepted",
+  "summary": "Closed two-band urgency enum (standard/expedite) prepended to ranking with priority retained as within-band tiebreak, plus a typed non-blocking acyclic raised_from provenance relation; no assignment, claim, or parallel-safety mechanism.",
+  "tags": [
+    "urgency",
+    "provenance",
+    "relations",
+    "agents",
+    "coordination"
+  ],
+  "title": "Declared urgency and provenance for parallel-eligible work"
+}

@@ -501,22 +501,90 @@ def atomic_write(path: Path, content: str) -> None:
                 pass
 
 
+def _load_generator() -> object:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_knowledge_index", Path(__file__).resolve().with_name("generate-knowledge-index.py")
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("unable to load generate-knowledge-index.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_aggregate_freshness(findings: list[str]) -> None:
+    shard_dir = ROOT / "docs/knowledge/records"
+    if not shard_dir.is_dir():
+        return
+    try:
+        generator = _load_generator()
+        derived = generator.derive_aggregate(ROOT, [])
+    except (OSError, ValueError, RuntimeError) as exc:
+        findings.append(f"knowledge index aggregate freshness: {exc}")
+        return
+    if derived is None:
+        findings.append(
+            "knowledge index aggregate freshness: generator rejected shards; see above"
+        )
+        return
+    if not MANIFEST.is_file():
+        findings.append("knowledge index aggregate freshness: aggregate is missing")
+        return
+    actual = MANIFEST.read_bytes()
+    if derived != actual:
+        findings.append(
+            "knowledge index aggregate is stale relative to shards; "
+            "run python3 scripts/generate-knowledge-index.py --update"
+        )
+
+
 def update_manifest(data: object) -> list[str]:
     findings = validate(data, check_hashes=False)
     if findings:
         return findings
     assert isinstance(data, dict)
     records = data["records"]
+    shard_dir = ROOT / "docs/knowledge/records"
+    if not shard_dir.is_dir():
+        return ["manifest: knowledge record shard directory is missing"]
+    shards: dict[str, dict[str, object]] = {}
     for record in records:
         assert isinstance(record, dict)
         target = ROOT / record["path"]
-        record["sha256"] = "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
+        shard_path = shard_dir / f"{record['id']}.json"
+        try:
+            shard = load(shard_path, [])
+        except OSError:
+            shard = None
+        if not isinstance(shard, dict):
+            return [f"manifest: missing or invalid record shard: {shard_path.relative_to(ROOT)}"]
+        original = dict(record)
+        original.pop("sha256", None)
+        shard_without_hash = dict(shard)
+        shard_without_hash.pop("sha256", None)
+        if shard_without_hash != original:
+            return [f"manifest: record shard disagrees with aggregate: {shard_path.relative_to(ROOT)}"]
+        digest = "sha256:" + hashlib.sha256(target.read_bytes()).hexdigest()
+        record["sha256"] = digest
+        shard["sha256"] = digest
+        shards[record["id"]] = shard
     findings = validate(data, check_hashes=True)
     if findings:
         return findings
     try:
-        content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-        atomic_write(MANIFEST, content)
+        generator = _load_generator()
+        for identifier, shard in shards.items():
+            shard_path = shard_dir / f"{identifier}.json"
+            atomic_write(
+                shard_path,
+                json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+            )
+        derived = generator.derive_aggregate(ROOT, [], template=data)
+        if derived is None:
+            return ["manifest: knowledge record shards failed generator validation"]
+        atomic_write(MANIFEST, derived.decode("utf-8"))
     except OSError as exc:
         return [f"manifest: atomic update failed: {exc}"]
     return []
@@ -532,6 +600,7 @@ def main() -> int:
         findings = update_manifest(data)
     elif data is not None:
         findings = validate(data)
+        check_aggregate_freshness(findings)
     for finding in findings:
         print(finding)
     if findings:

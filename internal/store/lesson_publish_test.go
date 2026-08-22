@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -91,6 +92,15 @@ func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, first.Record.Path)); err != nil {
 		t.Fatalf("lesson note missing: %v", err)
+	}
+	shardPath := filepath.Join(repo, lessonRecordDir, req.LessonID+".json")
+	shardBytes, err := os.ReadFile(shardPath)
+	if err != nil {
+		t.Fatalf("lesson record shard missing: %v", err)
+	}
+	var shard KnowledgeRecord
+	if err := json.Unmarshal(shardBytes, &shard); err != nil || shard.ID != req.LessonID {
+		t.Fatalf("invalid lesson record shard: %v", err)
 	}
 	manifestBytes, _ := os.ReadFile(filepath.Join(repo, lessonManifestPath))
 	var manifest struct {
@@ -245,5 +255,69 @@ func TestMarshalKnowledgeManifestPreservesV12LawHomes(t *testing.T) {
 	}
 	if got := parsed.Records[0]; got.HomeDomainID != "product-root:concord" || len(got.AppliesToDomainIDs) != 1 || got.AppliesToDomainIDs[0] != "store" {
 		t.Fatalf("law homes lost during serialization: %+v", got)
+	}
+}
+
+func TestMarshalKnowledgeManifestMatchesKnowledgeIndexGenerator(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs/knowledge/records"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := KnowledgeManifest{
+		SchemaVersion: "1.2", SupportedKinds: []string{"lesson", "research"}, IndexedKinds: []string{"lesson"},
+		DomainRegistry: KnowledgeDomainRegistry{
+			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
+		},
+		Records: []KnowledgeRecord{{
+			ID: "lesson-round-trip", Kind: "lesson", Path: "docs/lesson-round-trip.md", Status: "published", Date: "2026-08-20T00:00:00Z",
+			Title: "Round trip", Summary: "Python and Go use one aggregate byte format.", Tags: []string{"proof"},
+			Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}, domainIDsPresent: true},
+			SHA256: "sha256:" + strings.Repeat("a", 64),
+		}},
+	}
+	aggregate, err := marshalKnowledgeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, lessonManifestPath), aggregate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shard, err := marshalKnowledgeRecord(manifest.Records[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, lessonRecordDir, "lesson-round-trip.json"), shard, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := json.MarshalIndent(manifest.DomainRegistry, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, lessonRecordDir, "../domain-registry.json"), append(registry, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := "."
+	if _, err := os.Stat(filepath.Join(repoRoot, "scripts/generate-knowledge-index.py")); err != nil {
+		repoRoot = filepath.Join("..", "..")
+	}
+	currentBytes, err := os.ReadFile(filepath.Join(repoRoot, lessonManifestPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentManifest, err := parseKnowledgeManifest(currentBytes)
+	if err != nil {
+		t.Fatalf("current generated aggregate is not runtime-readable: %v", err)
+	}
+	currentRendered, err := marshalKnowledgeManifest(currentManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(currentBytes, currentRendered) {
+		t.Fatal("Go manifest serialization diverges from the generated aggregate")
+	}
+	cmd := exec.Command("python3", filepath.Join(repoRoot, "scripts/generate-knowledge-index.py"), "--check", "--root", root)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generator rejected Go serialization: %v\n%s", err, output)
 	}
 }

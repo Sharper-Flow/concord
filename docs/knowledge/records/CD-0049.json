@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-21T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0016-context-continuity.md",
+    "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
+    "docs/decisions/CD-0034-host-prompt-provenance.md",
+    "cmd/concord/session.go",
+    "adapter/opencode/dispatch.ts"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0049",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:749aa4947c2499a99d5db9794f83d3831156a19f8893bb30e93ad2d70743340f",
+  "status": "accepted",
+  "summary": "Concord-owned lane definitions reach a host only through a project's .opencode/agents/, because a global agent cannot be scoped and an environment-supplied definition presents no file for CD-0034 provenance to hash; Concord asserts required agent identity before launch rather than relying on --agent, whose unknown-name failure mode is a silent substitution with a success exit code; the orchestrator is constrained and verified rather than authored, since CD-0016 excludes an agent_definitions table; a session with absent required identity refuses to start.",
+  "tags": [
+    "agent-surface",
+    "installer"
+  ],
+  "title": "Agent definitions are delivered per project, and Concord asserts agent identity itself"
+}

@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-14T00:00:00Z",
+  "evidence": [
+    "internal/store/research_operations.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0022",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0022-active-research-finding-scope.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:af133dda5aa2698f263f94ce9bbd91acf8305f49a3e697c02757b343d1eb5027",
+  "status": "accepted",
+  "summary": "Active research findings reuse durable knowledge’s home-or-explicit Product, Project, Domain, and tag scope vocabulary while remaining disposable active context with no writer or tool surface.",
+  "tags": [
+    "research",
+    "scope",
+    "knowledge",
+    "retention"
+  ],
+  "title": "Active research findings carry applies-to scope"
+}

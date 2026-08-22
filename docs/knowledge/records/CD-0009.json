@@ -1,0 +1,26 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/research_mutations.go",
+    "internal/agent/research_surface_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0009",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0009-active-research-context.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d88e809feb0046fa209a1115fa1b32fad0c21c11ea53d1cfbe9b56486ee9b72c",
+  "status": "accepted",
+  "summary": "Defines retention-bounded research context and canonical durable forms.",
+  "tags": [
+    "research",
+    "retention"
+  ],
+  "title": "Active research context"
+}

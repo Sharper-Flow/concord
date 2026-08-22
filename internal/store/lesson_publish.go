@@ -22,6 +22,7 @@ import (
 
 const (
 	lessonManifestPath = "docs/concord-knowledge-index.v1.json"
+	lessonRecordDir    = "docs/knowledge/records"
 	maxLessonContent   = 32768
 	maxLessonTags      = 8
 	maxLessonEvidence  = 32
@@ -159,6 +160,8 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	notePath := "docs/lessons/" + now.UTC().Format("2006-01-02") + "-" + slugifyKnowledgeTitle(req.Title) + ".md"
 	fullNotePath := path.Join(home.RepoPath, notePath)
 	manifestFullPath := path.Join(home.RepoPath, lessonManifestPath)
+	recordShardPath := path.Join(lessonRecordDir, req.LessonID+".json")
+	recordShardFullPath := path.Join(home.RepoPath, recordShardPath)
 
 	// Existing manifest governs idempotency and conflicts.
 	manifestBytes, readErr := os.ReadFile(manifestFullPath)
@@ -205,6 +208,16 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	if err := os.WriteFile(fullNotePath, []byte(req.Content), 0o644); err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson draft", true, "restore write access to the git home", err)
 	}
+	if err := os.MkdirAll(path.Dir(recordShardFullPath), 0o755); err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson record directory", true, "restore write access to the git home", err)
+	}
+	shard, err := marshalKnowledgeRecord(record)
+	if err != nil {
+		return out, err
+	}
+	if err := os.WriteFile(recordShardFullPath, shard, 0o644); err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson record shard", true, "restore write access to the git home", err)
+	}
 
 	// Append the record and rewrite the manifest preserving its canonical
 	// formatting: root order as authored, record keys sorted, indent two.
@@ -221,10 +234,10 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the knowledge manifest", true, "restore write access to the git home", err)
 	}
 
-	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, lessonManifestPath); err != nil {
+	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, recordShardPath, lessonManifestPath); err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot stage the lesson", true, "restore git write access and retry", err)
 	}
-	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord lesson "+req.LessonID, "--", notePath, lessonManifestPath); err != nil {
+	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord lesson "+req.LessonID, "--", notePath, recordShardPath, lessonManifestPath); err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot commit the lesson", true, "complete the native git commit and reconcile", err)
 	}
 	commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
@@ -242,42 +255,17 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 // offline validator and authored file already use: two-space indent, record
 // keys sorted, one trailing newline.
 func marshalKnowledgeManifest(manifest KnowledgeManifest) ([]byte, error) {
-	root := map[string]any{
-		"schema_version":  manifest.SchemaVersion,
-		"supported_kinds": manifest.SupportedKinds,
-		"indexed_kinds":   manifest.IndexedKinds,
-	}
-	if manifest.SchemaVersion == "1.2" {
-		root["domain_registry"] = manifest.DomainRegistry
-	}
-	records := make([]any, 0, len(manifest.Records))
-	for _, record := range manifest.Records {
-		entry := map[string]any{
-			"id": record.ID, "kind": record.Kind, "path": record.Path, "status": record.Status,
-			"date": record.Date, "title": record.Title, "summary": record.Summary,
-			"tags": record.Tags, "scopes": record.Scopes, "sha256": record.SHA256,
-		}
-		if record.Successor != "" {
-			entry["successor"] = record.Successor
-		}
-		if len(record.LawRelations) > 0 {
-			entry["law_relations"] = record.LawRelations
-		}
-		if record.HomeDomainID != "" {
-			entry["home_domain_id"] = record.HomeDomainID
-		}
-		if len(record.AppliesToDomainIDs) > 0 {
-			entry["applies_to_domain_ids"] = record.AppliesToDomainIDs
-		}
-		if len(record.Evidence) > 0 {
-			entry["evidence"] = record.Evidence
-		}
-		records = append(records, entry)
-	}
-	root["records"] = records
-	out, err := json.MarshalIndent(root, "", "  ")
+	out, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the knowledge manifest", false, "repair the manifest record", err)
+	}
+	return append(out, '\n'), nil
+}
+
+func marshalKnowledgeRecord(record KnowledgeRecord) ([]byte, error) {
+	out, err := json.MarshalIndent(manifestRecordEntry(record), "", "  ")
+	if err != nil {
+		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the lesson record shard", false, "repair the manifest record", err)
 	}
 	return append(out, '\n'), nil
 }

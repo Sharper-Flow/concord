@@ -1,0 +1,23 @@
+{
+  "date": "2026-08-11T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0015",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0015-typed-law-relations.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:bb3a0c59a801229176511cc1e7578441bce8b6581276bb5bc48eacd0ae9a3f64",
+  "status": "accepted",
+  "summary": "Defines Git-authoritative typed law relations and bounded workflow conflict checks.",
+  "tags": [
+    "law",
+    "relations",
+    "workflow"
+  ],
+  "title": "Typed law relations and Git-derived workflow checks"
+}

@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0012",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2e5a40ba3a6f71b5fa8f48ffcca4e42e07e7b5ee0e2616efdb78a736ca320bba",
+  "status": "accepted",
+  "summary": "Defines the three-part outcome contract and strengthen-only delivery comparison.",
+  "tags": [
+    "goals",
+    "outcomes"
+  ],
+  "title": "Bind stated goals to delivered outcomes"
+}

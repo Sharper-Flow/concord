@@ -14,7 +14,10 @@ existing corpus can dogfood the rule before it blocks CI.
 
   outline       exact-case headings under the kind's required_sections list
   ac grammar    under "Acceptance criteria", every criterion parses as
-                Given/When/Then (Given optional; When and Then required)
+                Given/When/Then (Given optional; Then required; exactly one
+                When, because a second trigger is a second criterion)
+  ac coverage   the "Verification" section states at least as many entries as
+                there are criteria, so no criterion is left unproven
   ste subset    sentence length ≤ 40 words, banned phrases absent,
                 abbreviation discipline on first use
 
@@ -56,6 +59,13 @@ TABLE_ROW_RE = re.compile(r"^\s*\|")
 CODE_FENCE_RE = re.compile(r"^\s{0,3}```")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ABBR_RE = re.compile(r"\b([A-Z]{2,})\b")
+# Keyword counting is word-bounded so "Whenever" and "Thenceforth" do not
+# register as clauses. A raw substring count makes the clause tally unusable
+# as a granularity signal, because prose that merely starts with the keyword
+# letters inflates it.
+GHERKIN_KEYWORD_RE = {
+    keyword: re.compile(rf"\b{keyword}\b") for keyword in ("Given", "When", "Then")
+}
 SENTENCE_SPLIT_RE = re.compile(r"[.!?]+\s+")
 WORD_RE = re.compile(r"\b\w+\b", re.UNICODE)
 
@@ -176,16 +186,16 @@ def check_required_sections(
             findings.append(f"missing-section: {path.relative_to(ROOT)} ({section})")
 
 
-def find_acceptance_criteria_section(
-    lines: list[str], start_after: int = 0
+def find_section(
+    lines: list[str], title: str, start_after: int = 0
 ) -> tuple[int, int] | None:
-    """Return (start, end) 1-based line range of the Acceptance criteria section.
+    """Return (start, end) 1-based line range of the named section.
 
     `start` is the line of the heading itself; `end` is the line *after* the
     next heading at the same or higher level, or len(lines) + 1 when the
     section runs to EOF.
     """
-    ac_level: int | None = None
+    section_level: int | None = None
     start_line = 0
     for index, line in enumerate(lines, start=1):
         if index <= start_after:
@@ -195,17 +205,73 @@ def find_acceptance_criteria_section(
             continue
         text = match.group(2).strip()
         level = len(match.group(1))
-        if text == "Acceptance criteria":
-            ac_level = level
+        if text == title:
+            section_level = level
             start_line = index
             break
-    if ac_level is None:
+    if section_level is None:
         return None
     for index, line in enumerate(lines[start_line:], start=start_line + 1):
         match = HEADING_RE.match(line)
-        if match and len(match.group(1)) <= ac_level:
+        if match and len(match.group(1)) <= section_level:
             return start_line, index - 1
     return start_line, len(lines)
+
+
+def iter_section_blocks(
+    lines: list[str], section_start: int, section_end: int
+) -> list[tuple[int, list[str]]]:
+    """Split a section into blocks, returning (start_line, text_lines) pairs.
+
+    A block is a list item, numbered item, or paragraph (a run of consecutive
+    non-blank, non-heading, non-code lines). Indented continuation lines join
+    the parent block. Both the acceptance-criteria grammar and the
+    verification join count the same block shape, so the split lives here
+    rather than in either caller.
+    """
+    blocks: list[tuple[int, list[str]]] = []
+    in_code = False
+    current: list[str] = []
+    block_start = 0
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            blocks.append((block_start, current))
+            current = []
+
+    for index in range(section_start + 1, section_end + 1):
+        line = lines[index - 1]
+        if CODE_FENCE_RE.match(line):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        if HEADING_RE.match(line):
+            flush()
+            continue
+        list_match = LIST_ITEM_RE.match(line)
+        if list_match:
+            flush()
+            block_start = index
+            current = [list_match.group(1).rstrip()]
+            continue
+        if not line.strip():
+            flush()
+            continue
+        if current:
+            parent = lines[block_start - 1]
+            parent_indent = len(parent) - len(parent.lstrip())
+            if len(line) - len(line.lstrip()) > parent_indent:
+                current.append(line.strip())
+                continue
+        # Paragraph-level block: a non-blank, non-list, non-heading line.
+        if not current:
+            block_start = index
+        current.append(line.strip())
+
+    flush()
+    return blocks
 
 
 def parse_gherkin_criteria(
@@ -215,26 +281,17 @@ def parse_gherkin_criteria(
     path: Path,
     findings: list[str],
 ) -> int:
-    """Parse the acceptance-criteria section, return the number of criteria seen.
+    """Validate the acceptance-criteria section, return the number of criteria.
 
-    Each criterion is a list item, numbered item, or paragraph (block of
-    consecutive non-blank non-heading non-code lines). Indented continuation
-    lines join the parent criterion. A criterion's first keyword must be
-    Given/When/Then; the criterion is well-formed iff it contains at least
-    one When and one Then (Given is optional per the recorded amendment).
+    A criterion's first keyword must be Given/When/Then. It is well-formed iff
+    it contains at least one When and one Then (Given is optional per the
+    recorded amendment) and states exactly one When. A criterion with two
+    triggers is two criteria: the single-When rule is the granularity test.
     """
     keywords = ("Given", "When", "Then")
-    seen_criteria = 0
-    in_code = False
-    current: list[tuple[int, str]] = []
-    block_start = 0
+    blocks = iter_section_blocks(lines, section_start, section_end)
 
-    def commit(start_line: int, body: list[tuple[int, str]]) -> None:
-        nonlocal seen_criteria
-        if not body:
-            return
-        seen_criteria += 1
-        text_lines = [line for _, line in body]
+    for start_line, text_lines in blocks:
         first = text_lines[0].lstrip()
         first_word = first.split(None, 1)[0] if first else ""
         if first_word not in keywords:
@@ -242,75 +299,64 @@ def parse_gherkin_criteria(
                 f"ac-not-gherkin: {path.relative_to(ROOT)}#{start_line} "
                 f"(first token must be one of {list(keywords)}, got {first_word!r})"
             )
-            return
+            continue
         joined = " ".join(text_lines)
-        seen = {kw: joined.count(kw) for kw in keywords}
+        seen = {kw: len(GHERKIN_KEYWORD_RE[kw].findall(joined)) for kw in keywords}
         if seen["When"] < 1 or seen["Then"] < 1:
             findings.append(
                 f"ac-not-gherkin: {path.relative_to(ROOT)}#{start_line} "
                 f"(must contain at least one When and one Then, got {seen})"
             )
-
-    def is_continuation(line: str, indent: int) -> bool:
-        stripped = line.strip()
-        if not stripped:
-            return False
-        return len(line) - len(line.lstrip()) > indent
-
-    for index in range(section_start + 1, section_end + 1):
-        line = lines[index - 1]
-        if CODE_FENCE_RE.match(line):
-            in_code = not in_code
             continue
-        if in_code:
-            continue
-        match = HEADING_RE.match(line)
-        if match:
-            if current:
-                commit(block_start, current)
-                current = []
-            continue
-        list_match = LIST_ITEM_RE.match(line)
-        if list_match:
-            if current:
-                commit(block_start, current)
-            block_start = index
-            current = [(index, list_match.group(1).rstrip())]
-            indent = len(line) - len(line.lstrip())
-            continue
-        if not line.strip():
-            if current:
-                commit(block_start, current)
-                current = []
-            continue
-        if current:
-            parent_indent = len(lines[block_start - 1]) - len(
-                lines[block_start - 1].lstrip()
+        if seen["When"] > 1:
+            findings.append(
+                f"ac-multiple-when: {path.relative_to(ROOT)}#{start_line} "
+                f"(a criterion states one trigger; got {seen['When']} When clauses, "
+                f"split it into one criterion per trigger)"
             )
-            if is_continuation(line, parent_indent):
-                current.append((index, line.strip()))
-                continue
-        # Paragraph-level criterion: a non-blank, non-list, non-heading line.
-        if not current:
-            block_start = index
-            current = [(index, line.strip())]
-        else:
-            current.append((index, line.strip()))
 
-    if current:
-        commit(block_start, current)
-    return seen_criteria
+    return len(blocks)
+
+
+def check_verification_coverage(
+    lines: list[str], criteria_count: int, path: Path, findings: list[str]
+) -> None:
+    """Join the acceptance criteria to the Verification section.
+
+    The contract already requires both sections, so the join needs no
+    identifier syntax inside the Gherkin sentence: a record that states more
+    criteria than it verifies has left criteria unproven. This is a necessary
+    condition only. Proving that a named artifact actually exercises a given
+    criterion is the typed scenario-resolution work on issue #319.
+    """
+    if criteria_count == 0:
+        return
+    section = find_section(lines, "Verification")
+    if section is None:
+        # check_required_sections already reports the absent section.
+        return
+    entries = iter_section_blocks(lines, section[0], section[1])
+    if not entries:
+        findings.append(
+            f"verification-empty: {path.relative_to(ROOT)} "
+            f"({criteria_count} criteria, no verification entries)"
+        )
+        return
+    if len(entries) < criteria_count:
+        findings.append(
+            f"verification-underspecified: {path.relative_to(ROOT)} "
+            f"({criteria_count} criteria, {len(entries)} verification entries)"
+        )
 
 
 def check_gherkin(
     lines: list[str], path: Path, findings: list[str]
 ) -> int:
-    section = find_acceptance_criteria_section(lines)
+    section = find_section(lines, "Acceptance criteria")
     if section is None:
         findings.append(f"ac-missing: {path.relative_to(ROOT)}")
         return 0
-    _, end = section
-    return parse_gherkin_criteria(lines, section[0], end, path, findings)
+    return parse_gherkin_criteria(lines, section[0], section[1], path, findings)
 
 
 def strip_html_comments(lines: list[str]) -> list[str]:
@@ -498,7 +544,8 @@ def check_record(
     check_required_sections(headings, required, absolute, findings)
 
     if spec.get("ac_required", False):
-        check_gherkin(lines, absolute, findings)
+        criteria_count = check_gherkin(lines, absolute, findings)
+        check_verification_coverage(lines, criteria_count, absolute, findings)
 
     segments, line_text = split_into_segments(lines)
     # Replace lines with the scrubbed content for content checks so HTML

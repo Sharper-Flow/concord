@@ -213,11 +213,17 @@ closing the session.
 | `n` / `p` | Next / previous page | S1, S2 |
 | `/` | Filter the current screen's already-fetched result set | S1, S2 |
 | `s` | Query — submit a bounded semantic search and render its results | S2, S3 only; requires ambient Product |
+| `Ctrl-l` | Clear the text input | All, while a filter or query input is open |
 | `Tab` | Cycle panel focus within S2's answer stack (CD-0048); on S3 cycle sections — knowledge | S2, S3 |
 | `l` | Launch a session for the current scope (§6) | S2, S3 |
 | `r` | Explicit refresh (§7) | All |
 | `?` | Help overlay listing the active keymap | All |
 | `q` | Quit; on S1 exits, elsewhere behaves as back | All |
+
+`Ctrl-l` is free to carry clear on this surface. The launcher owes the terminal no
+explicit redraw, because the rendering framework owns redraw (§11), so the key's
+conventional terminal meaning has no work to do here. `Ctrl-u`, the other common
+clear-line convention, is unavailable: the table above binds it to half-page up.
 
 The help overlay is generated from the active keymap rather than maintained as prose,
 so a keymap change cannot drift from its documentation.

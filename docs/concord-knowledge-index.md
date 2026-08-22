@@ -63,6 +63,8 @@ updates hashes only; it never authors inclusion, metadata, or status.
 
 Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally; CI repeats this preflight against `origin/main`.
 
+Coverage records for indexed law are authored as shards under `docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to regenerate `docs/law-coverage.v1.json`; CI validates aggregate freshness through `scripts/check-json.py`.
+
 SQLite's `law_subjects` and `law_relations` tables are derived only by
 `RebuildKnowledgeIndex` for one home, inside the same transactional fold guard.
 Failed validation or rollback leaves the previous derived law projection

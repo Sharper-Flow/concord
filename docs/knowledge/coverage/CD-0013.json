@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
+    }
+  ],
+  "id": "CD-0013",
+  "state": "satisfied"
+}

@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContextContinuityCheckpointBoundaryAndCanonicalRead"
+    }
+  ],
+  "id": "CD-0016",
+  "state": "satisfied"
+}

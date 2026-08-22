@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerHostProvenanceValidation"
+    }
+  ],
+  "id": "CD-0034",
+  "state": "satisfied"
+}

@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "scenario",
+      "value": "AJ5-resolve-domain-overlap"
+    }
+  ],
+  "id": "CD-0042",
+  "state": "satisfied"
+}

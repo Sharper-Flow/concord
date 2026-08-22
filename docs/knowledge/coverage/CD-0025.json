@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestResearchAuthorBindProveAndRead"
+    }
+  ],
+  "id": "CD-0025",
+  "state": "satisfied"
+}

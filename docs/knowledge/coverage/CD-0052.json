@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRelationKindsEnforceTheirOwnGraphRules"
+    }
+  ],
+  "id": "CD-0052",
+  "state": "satisfied"
+}

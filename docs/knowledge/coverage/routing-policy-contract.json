@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "generated",
+      "value": "internal/store/generated_routing_policy.go#RoutingPolicyManifestDigest"
+    }
+  ],
+  "id": "routing-policy-contract",
+  "state": "satisfied"
+}

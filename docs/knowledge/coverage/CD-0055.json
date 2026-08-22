@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestStoreBoundaryRepoIsClean"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestStoreBoundaryFixtureViolations"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-tx-scope.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-reachability.py"
+    }
+  ],
+  "id": "CD-0055",
+  "state": "satisfied"
+}

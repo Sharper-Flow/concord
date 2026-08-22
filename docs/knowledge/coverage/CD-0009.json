@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestActiveResearchRevisionAndIdempotencyBoundary"
+    }
+  ],
+  "id": "CD-0009",
+  "state": "satisfied"
+}

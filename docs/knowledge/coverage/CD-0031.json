@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSupersessionInvalidatesPriorPremiseConfirmation"
+    }
+  ],
+  "id": "CD-0031",
+  "state": "satisfied"
+}

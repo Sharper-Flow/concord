@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "scenario",
+      "value": "WF04-weaker-delivery"
+    }
+  ],
+  "id": "CD-0012",
+  "state": "satisfied"
+}

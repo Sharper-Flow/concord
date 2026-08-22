@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures"
+    }
+  ],
+  "id": "CD-0014",
+  "state": "satisfied"
+}

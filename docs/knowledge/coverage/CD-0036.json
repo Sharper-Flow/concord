@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible"
+    }
+  ],
+  "id": "CD-0036",
+  "state": "satisfied"
+}

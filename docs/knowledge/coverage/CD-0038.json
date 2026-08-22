@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "scenario",
+      "value": "AJ8-budget-refused"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestApplyBudgetParsesRequestedSecondsAndCeiling"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestBudgetRefusalCarriesTheTypedCeiling"
+    }
+  ],
+  "id": "CD-0038",
+  "state": "satisfied"
+}

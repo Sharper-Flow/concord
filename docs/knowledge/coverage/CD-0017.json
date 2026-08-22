@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLaneRegistryIsGeneratedClosedAndDigestPinned"
+    }
+  ],
+  "id": "CD-0017",
+  "state": "satisfied"
+}

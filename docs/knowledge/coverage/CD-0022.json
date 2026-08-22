@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResearchFindingScopesAreValidatedReadBackAndCopied"
+    }
+  ],
+  "id": "CD-0022",
+  "state": "satisfied"
+}

@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestS2AnswerStackPanelOrderIsFixed"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestS2AnswerStackSummaryValuesAreStoreMaterialized"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestS2NoUnresolvedOverlapIsDistinctFromUnavailable"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestS2AnswerStackRenderIsIdempotent"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestS2PanelFocusCyclesAndS3SectionsRemainSeparate"
+    }
+  ],
+  "id": "CD-0048",
+  "state": "satisfied"
+}

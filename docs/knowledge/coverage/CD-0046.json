@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResolvePopulationAuthority"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResolveCIRunnerTripwire"
+    }
+  ],
+  "id": "CD-0046",
+  "state": "satisfied"
+}

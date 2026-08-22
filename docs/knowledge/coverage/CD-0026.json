@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"
+    }
+  ],
+  "id": "CD-0026",
+  "state": "satisfied"
+}

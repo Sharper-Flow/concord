@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "scenario",
+      "value": "AJ8-approval-required"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLatestProductChangingDefinitionsHaveApprovalRouteWithoutHistoricalRewrite"
+    },
+    {
+      "kind": "scenario",
+      "value": "WF04-weaker-delivery"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof"
+    }
+  ],
+  "id": "CD-0053",
+  "state": "satisfied"
+}

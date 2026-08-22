@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestKnowledgeManifestV11RelationsAndV10Compatibility"
+    }
+  ],
+  "id": "CD-0015",
+  "state": "satisfied"
+}

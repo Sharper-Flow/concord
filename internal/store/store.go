@@ -143,12 +143,17 @@ func ensureInstallationKey(ctx context.Context, db *sql.DB) error {
 
 // InstallationKey returns the authority-owned key for authenticated cursors.
 // The bytes are never serialized into an agent response.
-func InstallationKey(ctx context.Context, db *sql.DB) ([]byte, error) {
-	if db == nil {
+//
+// The queryer must be a live handle. This check catches a nil interface, but
+// a nil *sql.DB placed in a queryer is a non-nil interface holding a nil
+// pointer and reaches the query, so callers guard their own handle before
+// calling in.
+func InstallationKey(ctx context.Context, q queryer) ([]byte, error) {
+	if q == nil {
 		return nil, newFailure(KindUnavailable, "cursor_key", "database is not open", true, "open the authority database")
 	}
 	var key []byte
-	if err := db.QueryRowContext(ctx, `SELECT key_bytes FROM agent_installation_keys WHERE key_name='cursor'`).Scan(&key); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT key_bytes FROM agent_installation_keys WHERE key_name='cursor'`).Scan(&key); err != nil {
 		return nil, wrapFailure(KindUnavailable, "cursor_key", "cannot read the installation cursor key", true,
 			"open a migrated authority database", err)
 	}

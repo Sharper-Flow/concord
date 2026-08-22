@@ -73,8 +73,8 @@ func (s *Store) DecodeCursor(ctx context.Context, token string, expected SignedC
 }
 
 func (s *Store) cursorKey(ctx context.Context) ([]byte, error) {
-	if s == nil {
-		return InstallationKey(ctx, nil)
+	if s == nil || s.db == nil {
+		return nil, newFailure(KindUnavailable, "cursor_key", "database is not open", true, "open the authority database")
 	}
 	return InstallationKey(ctx, s.db)
 }

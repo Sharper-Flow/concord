@@ -94,7 +94,12 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q9", "store is not open", false, "open a store before querying knowledge")
 	}
-	resolvedHome, err := s.ResolveKnowledgeQueryHome(ctx, req.Product, req.Project, req.Home, "PM1.Q9")
+	return queryQ9(ctx, s.db, req)
+}
+
+func queryQ9(ctx context.Context, q queryer, req Q9Request) (Q9Result, error) {
+	var out Q9Result
+	resolvedHome, err := resolveKnowledgeQueryHome(ctx, q, req.Product, req.Project, req.Home, "PM1.Q9")
 	if err != nil {
 		return out, err
 	}
@@ -121,7 +126,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 		return out, err
 	}
 	tags := orderedStrings(nonEmptyStrings(req.Tags))
-	watermark, authority, err := validateKnowledgeHomeForQuery(ctx, s, req.Home, req.AllowDegraded, "PM1.Q9")
+	watermark, authority, err := validateKnowledgeHomeForQueryCore(ctx, q, req.Home, req.AllowDegraded, "PM1.Q9")
 	if err != nil {
 		return out, err
 	}
@@ -129,7 +134,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 		watermark = "unindexed"
 	}
 	if authority == "authoritative" {
-		if err := validateKnowledgeCoverage(ctx, s, req.Home, watermark, kinds); err != nil {
+		if err := validateKnowledgeCoverageCore(ctx, q, req.Home, watermark, kinds); err != nil {
 			return out, err
 		}
 	}
@@ -139,7 +144,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 		}
 	}
 	query, args := buildKnowledgeQueryForScope(req, kinds, tags, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q9", "cannot search the git knowledge index", true, "retry once the database is readable", err)
 	}
@@ -167,7 +172,7 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	meta := knowledgeWatermarkMeta("PM1.Q9", req.Home, watermark, authority)
 	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, ProjectID: req.Project}
 	if authority == "authoritative" {
-		meta.Omissions = append(meta.Omissions, knowledgeCoverageOmissions(ctx, s.db, req.Home, watermark)...)
+		meta.Omissions = append(meta.Omissions, knowledgeCoverageOmissions(ctx, q, req.Home, watermark)...)
 	}
 	if authority != "authoritative" {
 		meta.Omissions = []string{"knowledge_index_lagging_or_unreachable"}
@@ -175,6 +180,69 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	meta.NextCursor = cursor
 	out.ResultMeta, out.Items, out.IndexWatermark = meta, items, watermark
 	return out, nil
+}
+
+func validateKnowledgeHomeForQueryCore(ctx context.Context, q queryer, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
+	current, err := resolveKnowledgeHead(ctx, home)
+	if err != nil {
+		if allowDegraded {
+			return "unreachable", "degraded", nil
+		}
+		return "", "", newFailure(KindUnreachable, op, "git knowledge authority is unreachable", true, "restore the git home and retry")
+	}
+	var scanned string
+	var complete bool
+	err = q.QueryRowContext(ctx, `SELECT scanned_commit_oid, complete FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &complete)
+	if err == sql.ErrNoRows {
+		scanned = ""
+	} else if err != nil {
+		return "", "", wrapFailure(KindUnavailable, "knowledge_index", "cannot read the knowledge watermark", true, "retry once the database is readable", err)
+	}
+	authority := "authoritative"
+	if scanned == "" || !complete || scanned != current {
+		if allowDegraded {
+			return scanned, "degraded", nil
+		}
+		return "", "", newFailure(KindIndexDegraded, op, "knowledge index watermark is stale or incomplete", true, "rebuild the git-derived knowledge index")
+	}
+	return scanned, authority, nil
+}
+
+func validateKnowledgeCoverageCore(ctx context.Context, q queryer, home KnowledgeHome, commit string, kinds []string) error {
+	if len(kinds) == 0 {
+		return nil
+	}
+	rows, err := q.QueryContext(ctx, `SELECT kind,coverage,scanned_commit_oid FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q9", "cannot read knowledge kind coverage", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	available := map[string]bool{}
+	for rows.Next() {
+		var kind, coverage, scanned string
+		if err := rows.Scan(&kind, &coverage, &scanned); err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode knowledge kind coverage", true, "retry once the database is readable", err)
+		}
+		if coverage == "indexed" && scanned == commit {
+			available[kind] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q9", "cannot finish reading knowledge kind coverage", true, "retry once the database is readable", err)
+	}
+	missing := make([]string, 0)
+	for _, kind := range kinds {
+		if !available[kind] {
+			missing = append(missing, kind)
+		}
+	}
+	if len(missing) > 0 {
+		failure := newFailure(KindKnowledgeUnavailable, "PM1.Q9", "explicitly requested knowledge kinds are unavailable: "+strings.Join(missing, ","), false, "publish and rebuild the canonical kind, or remove it from the filter")
+		failure.UnavailableKinds = missing
+		failure.CandidateIDs = append([]string(nil), missing...)
+		return failure
+	}
+	return nil
 }
 
 func scanKnowledgeItem(rows *sql.Rows) (KnowledgeItem, error) {
@@ -213,6 +281,11 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q10", "store is not open", false, "open a store before querying knowledge")
 	}
+	return queryQ10(ctx, s.db, req)
+}
+
+func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error) {
+	var out Q10Result
 	if (req.Work == "") == (req.KnowledgeID == "") {
 		return out, newFailure(KindInvalidFilter, "PM1.Q10", "Q10 requires exactly one stable reference", false, "supply either work or knowledge_id")
 	}
@@ -223,11 +296,11 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if lookupID == "" {
 		lookupID = req.KnowledgeID
 	}
-	err := s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`, lookupID).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
+	err := q.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`, lookupID).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
 	if err == sql.ErrNoRows {
 		if req.Work != "" {
 			var exists bool
-			if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, lookupID).Scan(&exists); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, lookupID).Scan(&exists); err != nil {
 				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect live work", true, "retry once the database is readable", err)
 			}
 			if exists {
@@ -244,11 +317,11 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if req.Product != "" {
 		var inScope bool
 		if kind == "work_note" || scopeMode == "explicit" {
-			if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=?)`, lookupID, req.Product).Scan(&inScope); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=?)`, lookupID, req.Product).Scan(&inScope); err != nil {
 				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
 			}
 		} else if scopeMode == "home" {
-			if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, req.Product, homeProject).Scan(&inScope); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, req.Product, homeProject).Scan(&inScope); err != nil {
 				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
 			}
 		}
@@ -256,7 +329,7 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 			return out, unknownScope("PM1.Q10", "knowledge note is not in the requested Product scope")
 		}
 	}
-	storedHome, locatorErr := s.KnowledgeHomeForLocator(ctx, homeProject, homeLocator, "")
+	storedHome, locatorErr := knowledgeHomeForLocator(ctx, q, homeProject, homeLocator, "")
 	if locatorErr != nil {
 		return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical locator is unavailable", locatorErr)
 	}
@@ -295,31 +368,31 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 			table, column string
 			target        *[]string
 		}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
-			values, queryErr := archivedScopeIDs(ctx, s.db, scope.table, scope.column, lookupID)
+			values, queryErr := archivedScopeIDs(ctx, q, scope.table, scope.column, lookupID)
 			if queryErr != nil {
 				return out, queryErr
 			}
 			*scope.target = values
 		}
 		if manifestSchemaVersion == "1.2" {
-			values, queryErr := archivedScopeIDs(ctx, s.db, "archived_work_domains", "domain_id", lookupID)
+			values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID)
 			if queryErr != nil {
 				return out, queryErr
 			}
 			record.Scopes.DomainIDs, record.Scopes.domainIDsPresent = values, true
 			if kind == "decision" || kind == "spec" {
-				if err := s.db.QueryRowContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID); err != nil {
+				if err := q.QueryRowContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID); err != nil {
 					return out, q10LawDomainProjectionFailure(err)
 				}
 				record.homeDomainPresent = true
-				values, queryErr = archivedLawApplicability(ctx, s.db, homeProject, homeLocator, lookupID)
+				values, queryErr = archivedLawApplicability(ctx, q, homeProject, homeLocator, lookupID)
 				if queryErr != nil {
 					return out, queryErr
 				}
 				record.AppliesToDomainIDs, record.appliesToDomainsPresent = values, true
 			}
 		} else {
-			values, queryErr := archivedScopeIDs(ctx, s.db, "archived_work_components", "component_id", lookupID)
+			values, queryErr := archivedScopeIDs(ctx, q, "archived_work_components", "component_id", lookupID)
 			if queryErr != nil {
 				return out, queryErr
 			}
@@ -333,8 +406,8 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	return out, nil
 }
 
-func archivedScopeIDs(ctx context.Context, db *sql.DB, table, column, workID string) ([]string, error) {
-	rows, err := db.QueryContext(ctx, "SELECT "+column+" FROM "+table+" WHERE work_id=? ORDER BY "+column, workID)
+func archivedScopeIDs(ctx context.Context, q queryer, table, column, workID string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, "SELECT "+column+" FROM "+table+" WHERE work_id=? ORDER BY "+column, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read manifest record scope", true, "retry once the database is readable", err)
 	}
@@ -350,8 +423,8 @@ func archivedScopeIDs(ctx context.Context, db *sql.DB, table, column, workID str
 	return values, rows.Err()
 }
 
-func archivedLawApplicability(ctx context.Context, db *sql.DB, homeProject, homeLocator, lawID string) ([]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=? ORDER BY domain_id`, homeProject, homeLocator, lawID)
+func archivedLawApplicability(ctx context.Context, q queryer, homeProject, homeLocator, lawID string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=? ORDER BY domain_id`, homeProject, homeLocator, lawID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read law Domain applicability", true, "retry once the database is readable", err)
 	}

@@ -4,7 +4,55 @@
       "architecture_relations": [],
       "domain_id": "product-root:concord",
       "name": "Concord",
-      "purpose": "Product-wide Concord law and architecture",
+      "purpose": "Product-wide Concord law and architecture: cross-cutting constitutional constraints, development authority, and decisions that bind every child Domain rather than any single one.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [],
+      "domain_id": "durable-authority",
+      "name": "Durable authority",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [],
+      "domain_id": "workflow-engine",
+      "name": "Workflow engine",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [],
+      "domain_id": "agent-surface",
+      "name": "Agent surface",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [],
+      "domain_id": "product-memory",
+      "name": "Product memory and law",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [],
+      "domain_id": "operator-surface",
+      "name": "Operator surface",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [],
+      "domain_id": "predecessor-migration",
+      "name": "Predecessor migration",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns migration from the Advance predecessor: the snapshot contract and its fail-closed validation, inventory and import verbs, and cutover sequencing. Bounded by design; moves to deprecated once cutover completes.",
       "status": "current"
     }
   ],

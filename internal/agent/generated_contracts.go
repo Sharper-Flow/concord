@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:f6e8644d1e67dca969f8993a1c2a89aa86b386eee7d3958df748606084b79d75"
+const ManifestDigest = "sha256:aff2b3b8195dead8331915b7537dc3eaf6e704a86a6b3034a92e6251baa3e742"
 
 type OperationKind string
 
@@ -175,6 +175,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"research_pack":                              {Required: []string{"pack_id", "owner_work_id", "current_revision", "freshness", "expected_version", "created_at", "updated_at"}, Properties: []string{"pack_id", "owner_work_id", "current_revision", "freshness", "expected_version", "created_at", "updated_at", "revisions", "consumers"}},
 	"research_revision":                          {Required: []string{"pack_id", "revision", "created_at", "question"}, Properties: []string{"pack_id", "revision", "question", "scope_in", "scope_out", "done_when", "method", "created_at", "findings", "sources", "freshness"}},
 	"research_revision_input":                    {Required: []string{"question", "method"}, Properties: []string{"question", "scope_in", "scope_out", "done_when", "method"}},
+	"research_scopes":                            {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}},
 	"research_scopes_input":                      {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "tag_ids"}},
 	"research_source":                            {Required: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},
 	"research_source_input":                      {Required: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},

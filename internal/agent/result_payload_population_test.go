@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -107,6 +108,79 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 	}
 }
 
+// fullyPopulatedResearchPack authors a pack through the store's own mutation API
+// and reads it back through the same call the research read uses, so the fixture
+// is what the store actually produces rather than a literal that can drift from
+// it. Scopes are explicit and name every scope kind the store persists, including
+// the component kind, which no agent input can reach today.
+func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
+	t.Helper()
+	ctx := context.Background()
+	s, _, _, _ := researchSurfaceFixture(t)
+	identity := func(key string) store.ResearchMutationIdentity {
+		return store.ResearchMutationIdentity{PrincipalRef: "human-1", Tool: "result-payload-population", OperationKind: "test", IdempotencyKey: key}
+	}
+	pack, err := store.CreateResearchPack(ctx, s, store.CreateResearchPackRequest{
+		Identity:    identity("create"),
+		OwnerWorkID: "work-1",
+		Freshness:   store.ResearchCurrent,
+		Revision: store.ResearchRevisionInput{
+			Question: "does the read surface accept every stored scope kind?",
+			ScopeIn:  json.RawMessage(`[]`),
+			ScopeOut: json.RawMessage(`[]`),
+			DoneWhen: json.RawMessage(`[]`),
+			Method:   "source_code",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create research pack: %v", err)
+	}
+	if _, err := store.AddResearchSource(ctx, s, store.ResearchSourceRequest{
+		Identity: identity("source"), PackID: pack.PackID, ExpectedVersion: 1,
+		Source: store.ResearchSource{
+			SourceID: "source-1", Kind: store.SourceCode, Locator: "internal/store/research_types.go",
+			Title: "research types", PublisherOrAuthor: "concord", PublishedAt: "2026-01-01T00:00:00Z",
+			AccessedAt: "2026-01-02T00:00:00Z",
+		},
+	}); err != nil {
+		t.Fatalf("add research source: %v", err)
+	}
+	if _, err := store.AddResearchFinding(ctx, s, store.ResearchFindingRequest{
+		Identity: identity("finding"), PackID: pack.PackID, ExpectedVersion: 2,
+		Finding: store.ResearchFinding{
+			FindingID: "finding-1", Kind: store.FindingObservation, Statement: "component scope is persisted",
+			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,
+			SourceIDs: []string{"source-1"},
+			Scopes: store.ResearchScopes{
+				Mode:       "explicit",
+				ProductIDs: []string{"product-1"}, ProjectIDs: []string{"project-1"},
+				ComponentIDs: []string{"component-1"}, TagIDs: []string{"tag-1"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("add research finding: %v", err)
+	}
+	if _, err := store.BindResearchConsumer(ctx, s, store.BindResearchConsumerRequest{
+		Identity: identity("bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3,
+		Consumer: store.ResearchConsumer{ConsumerWorkID: "work-1", UseRole: store.UseContext, Required: true, AcceptedAt: "2026-01-03T00:00:00Z"},
+	}); err != nil {
+		t.Fatalf("bind research consumer: %v", err)
+	}
+	got, err := store.GetResearchPack(ctx, s, pack.PackID, 100)
+	if err != nil {
+		t.Fatalf("read research pack: %v", err)
+	}
+	for _, revision := range got.Revisions {
+		for _, finding := range revision.Findings {
+			if len(finding.Scopes.ComponentIDs) > 0 {
+				return got
+			}
+		}
+	}
+	t.Fatal("fixture lost its component scope before validation")
+	return store.ResearchPack{}
+}
+
 func repeatHex(n int) string {
 	out := make([]byte, n)
 	for i := range out {
@@ -126,6 +200,7 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		payload   any
 	}{
 		{name: "work_trace continuity", tool: "concord_work_trace", operation: "continuity", payload: ContinuityPayload(fullyPopulatedContinuitySnapshot())},
+		{name: "work_trace research", tool: "concord_work_trace", operation: "research", payload: fullyPopulatedResearchPack(t)},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			raw, err := json.Marshal(testCase.payload)

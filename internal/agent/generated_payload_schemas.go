@@ -2736,7 +2736,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "scopes": {
-          "$ref": "#/$defs/research_scopes_input"
+          "$ref": "#/$defs/research_scopes"
         },
         "source_ids": {
           "items": {
@@ -3022,6 +3022,50 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "question",
         "method"
+      ],
+      "type": "object"
+    },
+    "research_scopes": {
+      "additionalProperties": false,
+      "properties": {
+        "component_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "home",
+            "explicit"
+          ],
+          "type": "string"
+        },
+        "product_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "project_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "tag_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode"
       ],
       "type": "object"
     },

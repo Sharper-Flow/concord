@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -19,9 +20,9 @@ import (
 // behind a zero value.
 //
 // Coverage is bounded to payloads whose bytes come from marshalling a store
-// struct and that hold today. Payloads assembled from map literals in runtime.go
-// do not carry this join: the literal is written against the schema, and the
-// schema's required list already refuses an omission.
+// struct. Payloads still assembled from map literals in runtime.go do not carry
+// this join: the literal is written against the schema, and the schema's
+// required list already refuses an omission.
 
 func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 	cursor := "cursor:1"
@@ -181,6 +182,103 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	return store.ResearchPack{}
 }
 
+// domainReadPayloads holds one wire payload per Domain read, each projected
+// from what the store actually returned.
+type domainReadPayloads struct {
+	list        store.DomainListPayload
+	detail      store.DomainDetailPayload
+	activeWork  store.DomainActiveWorkPayload
+	attachments store.DomainAttachmentsPayload
+	overlaps    store.DomainOverlapsPayload
+}
+
+// fullyPopulatedDomainPayloads runs all five Domain reads against a store
+// carrying the maximally populated registry, then projects each result the way
+// dispatch does. Taking the values from the store rather than from a literal is
+// what keeps the fixture from drifting away from what the reads produce.
+func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	const product, project = "product-1", "project-1"
+	workIDs := []string{"work-1", "work-2"}
+	if err := pm1fixture.SeedProductAndProject(ctx, s, product, project); err != nil {
+		t.Fatal(err)
+	}
+	for index, workID := range workIDs {
+		if err := pm1fixture.SeedWorkItem(ctx, s, project, workID, "Work "+workID, index+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	options := pm1fixture.DomainPayloadEvidenceOptions{Dir: t.TempDir(), ProductID: product, ProjectID: project, LocatorID: "payload-locator", WorkIDs: workIDs}
+	if err := pm1fixture.SeedDomainPayloadEvidence(ctx, s, options); err != nil {
+		t.Fatal(err)
+	}
+	domain := pm1fixture.PayloadChildDomainID
+
+	list, err := s.QueryDomainList(ctx, store.DomainListRequest{Product: product})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := s.QueryDomainDetail(ctx, store.DomainDetailRequest{Product: product, Domain: domain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeWork, err := s.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: domain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachments, err := s.QueryDomainAttachments(ctx, store.DomainAttachmentsRequest{Product: product, Domain: domain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlaps, err := s.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: product, Domain: domain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDomainReadsArePopulated(t, detail, activeWork, attachments, overlaps)
+	return domainReadPayloads{
+		list:        store.NewDomainListPayload(list),
+		detail:      store.NewDomainDetailPayload(detail),
+		activeWork:  store.NewDomainActiveWorkPayload(activeWork),
+		attachments: store.NewDomainAttachmentsPayload(attachments),
+		overlaps:    store.NewDomainOverlapsPayload(overlaps),
+	}
+}
+
+// assertDomainReadsArePopulated refuses a vacuous fixture. Every member below is
+// optional in its schema, so a read that left it empty would validate without
+// ever exercising the declaration under test.
+func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, activeWork store.DomainActiveWorkResult, attachments store.DomainAttachmentsResult, overlaps store.DomainOverlapsResult) {
+	t.Helper()
+	if detail.Domain.ParentID == "" {
+		t.Fatal("detail Domain has no parent, so parent_domain_id is unexercised")
+	}
+	if len(detail.CurrentLaw) == 0 || len(detail.CurrentLaw[0].AppliesTo) == 0 {
+		t.Fatalf("detail law applicability is unexercised: %#v", detail.CurrentLaw)
+	}
+	if len(detail.Relations) == 0 || len(detail.Relations[0].GoverningLaws) == 0 {
+		t.Fatalf("detail governing law is unexercised: %#v", detail.Relations)
+	}
+	if len(activeWork.Work) == 0 {
+		t.Fatal("active work is empty, so the work item members are unexercised")
+	}
+	if len(attachments.Attachments.ProjectEdges) == 0 || len(attachments.Attachments.ResourceEdges) == 0 {
+		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
+	}
+	if len(overlaps.Pairs) == 0 || len(overlaps.Pairs[0].SharedLawIDs) == 0 {
+		t.Fatalf("overlap shared law is unexercised: %#v", overlaps.Pairs)
+	}
+}
+
 func repeatHex(n int) string {
 	out := make([]byte, n)
 	for i := range out {
@@ -193,6 +291,7 @@ func repeatHex(n int) string {
 // value through the same validator the envelope uses, so a Go field added
 // without its schema entry fails here rather than at an agent read.
 func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
+	domain := fullyPopulatedDomainPayloads(t)
 	for _, testCase := range []struct {
 		name      string
 		tool      string
@@ -201,6 +300,11 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 	}{
 		{name: "work_trace continuity", tool: "concord_work_trace", operation: "continuity", payload: ContinuityPayload(fullyPopulatedContinuitySnapshot())},
 		{name: "work_trace research", tool: "concord_work_trace", operation: "research", payload: fullyPopulatedResearchPack(t)},
+		{name: "domain list", tool: "concord_domain", operation: "list", payload: domain.list},
+		{name: "domain detail", tool: "concord_domain", operation: "detail", payload: domain.detail},
+		{name: "domain active_work", tool: "concord_domain", operation: "active_work", payload: domain.activeWork},
+		{name: "domain attachments", tool: "concord_domain", operation: "attachments", payload: domain.attachments},
+		{name: "domain overlaps", tool: "concord_domain", operation: "overlaps", payload: domain.overlaps},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			raw, err := json.Marshal(testCase.payload)

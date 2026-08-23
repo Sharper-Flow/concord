@@ -1237,7 +1237,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "domains": result.Domains})
+			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainListPayload(result))
 			if err != nil {
 				return response, err
 			}
@@ -1250,7 +1250,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "domain": result.Domain, "current_law": result.CurrentLaw, "relations": result.Relations})
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainDetailPayload(result))
 		case "active_work":
 			if in.DomainID == "" {
 				return coreError(base, "invalid_input", "active Domain work requires domain_id", "reread_entities", false), nil
@@ -1259,7 +1259,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "work": result.Work})
+			response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainActiveWorkPayload(result))
 			if err != nil {
 				return response, err
 			}
@@ -1272,13 +1272,13 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "domain": result.Domain, "attachments": result.Attachments})
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainAttachmentsPayload(result))
 		case "overlaps":
 			result, err := r.Store.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: product, Domain: in.DomainID})
 			if err != nil {
 				return failureEnvelope(base, err), nil
 			}
-			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"registry": result.Registry, "pairs": result.Pairs, "truncated": result.Truncated})
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainOverlapsPayload(result))
 		default:
 			// Every Domain operation names its own read. Refusing an unmatched
 			// operation keeps a new one from silently answering with another

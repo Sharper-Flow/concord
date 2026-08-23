@@ -11,6 +11,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shard_format  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SHARD_DIR = Path("docs/knowledge/records")
 DOMAIN_REGISTRY = Path("docs/knowledge/domain-registry.json")
@@ -346,9 +349,16 @@ def main() -> int:
             print(finding)
         print(f"knowledge index generation failed: {len(findings)} finding(s)", file=sys.stderr)
         return 1
+    shards = sorted((args.root / SHARD_DIR).glob("*.json"))
     if args.check:
         if not aggregate_path.is_file():
             print(f"aggregate missing: {AGGREGATE}", file=sys.stderr)
+            return 1
+        unformatted = shard_format.drifted(shards)
+        if unformatted:
+            print("knowledge shard format drift: regenerate to normalise", file=sys.stderr)
+            for path in unformatted[:20]:
+                print(f"  {path.relative_to(args.root)}", file=sys.stderr)
             return 1
         actual = aggregate_path.read_bytes()
         if actual != derived:
@@ -358,6 +368,8 @@ def main() -> int:
             return 1
         print("knowledge index aggregate is up to date")
         return 0
+    for path in shard_format.normalise(shards):
+        print(f"normalised {path.relative_to(args.root)}")
     aggregate_path.parent.mkdir(parents=True, exist_ok=True)
     aggregate_path.write_bytes(derived)
     print(f"wrote {AGGREGATE}")

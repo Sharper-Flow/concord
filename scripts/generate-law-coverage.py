@@ -18,6 +18,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shard_format  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SHARD_DIR = ROOT / "docs/knowledge/coverage"
 AGGREGATE = ROOT / "docs/law-coverage.v1.json"
@@ -173,9 +176,16 @@ def main() -> int:
         return 1
 
     aggregate_path = args.root / "docs/law-coverage.v1.json"
+    shards = sorted((args.root / "docs/knowledge/coverage").glob("*.json"))
     if args.check:
         if not aggregate_path.is_file():
             print(f"aggregate missing: {aggregate_path.relative_to(args.root)}", file=sys.stderr)
+            return 1
+        unformatted = shard_format.drifted(shards)
+        if unformatted:
+            print("coverage shard format drift: regenerate to normalise", file=sys.stderr)
+            for path in unformatted[:20]:
+                print(f"  {path.relative_to(args.root)}", file=sys.stderr)
             return 1
         actual = aggregate_path.read_bytes()
         if actual != derived:
@@ -184,6 +194,8 @@ def main() -> int:
         print("law coverage aggregate is up to date")
         return 0
 
+    for path in shard_format.normalise(shards):
+        print(f"normalised {path.relative_to(args.root)}")
     aggregate_path.write_bytes(derived)
     print(f"wrote {aggregate_path.relative_to(args.root)}")
     return 0

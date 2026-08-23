@@ -419,12 +419,20 @@ async function dispatchAuthorize(childRunner: DispatchRunner, binary: string, re
 
 // CD-0034 / issue #103: host prompt provenance. The adapter enumerates the
 // unversioned host surfaces it can bind — the lane agent definition file, the
-// AGENTS.md chain at spawn cwd, and instruction files declared through
+// global AGENTS.md, the AGENTS.md chain at spawn cwd, instruction files the
+// host config declares, and instruction files declared through
 // CONCORD_HOST_INSTRUCTIONS (colon-separated paths) — hashing each. Surfaces
 // it cannot enumerate (provider hints, voice overlays, MCP tool prompts) are
 // recorded by name as unenumerated. Injection is permitted only when
 // recorded: a silent injection change changes this digest and is visible in
 // dispatch evidence.
+//
+// Resolution is deliberately exact rather than faithful. Reproducing the host's
+// own resolver — glob semantics, remote fetches, the merge order across every
+// config layer — would be a second implementation that drifts from the first.
+// An entry this cannot resolve exactly is recorded by name as unenumerated, so
+// the manifest never claims to have bound content it did not read, and nothing
+// injected is silently absent.
 export type HostProvenanceSource = { kind: "agent_definition" | "agents_md" | "instruction_file" | "unenumerated"; path?: string; sha256?: string }
 export type HostProvenance = { digest: string; sources: HostProvenanceSource[] }
 
@@ -445,10 +453,136 @@ async function fileProvenance(kind: HostProvenanceSource["kind"], path: string):
   }
 }
 
+// OpenCode resolves its global config directory from OPENCODE_CONFIG_DIR, then
+// XDG_CONFIG_HOME, then ~/.config — uniformly on every platform. The adapter
+// mirrors that lookup so it binds the same global surfaces the host injects.
+function opencodeConfigDir(): string {
+  const override = process.env.OPENCODE_CONFIG_DIR
+  if (override) return override.replace(/\/+$/, "")
+  const home = process.env.HOME ?? ""
+  const xdg = process.env.XDG_CONFIG_HOME
+  return `${xdg && xdg.length > 0 ? xdg.replace(/\/+$/, "") : `${home}/.config`}/opencode`
+}
+
+// jsonc-parser is not available to the adapter and adding a dependency would
+// change the release file set, so comments and trailing commas are stripped by
+// a scanner that respects string literals. A file this cannot parse is never
+// guessed at: the caller records it as unenumerated by path.
+function stripJsonc(text: string): string {
+  let out = ""
+  let inString = false
+  let escaped = false
+  let comment: "" | "line" | "block" = ""
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    const next = text[i + 1]
+    if (comment === "line") {
+      if (ch === "\n") { comment = ""; out += ch }
+      continue
+    }
+    if (comment === "block") {
+      if (ch === "*" && next === "/") { comment = ""; i++ }
+      continue
+    }
+    if (inString) {
+      out += ch
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; out += ch; continue }
+    if (ch === "/" && next === "/") { comment = "line"; i++; continue }
+    if (ch === "/" && next === "*") { comment = "block"; i++; continue }
+    out += ch
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1")
+}
+
+const CONFIG_FILE_NAMES = ["config.json", "opencode.json", "opencode.jsonc"]
+const GLOB_METACHARACTERS = /[*?[\]{}]/
+
+// Every config file OpenCode may merge an instructions array from, bounded so a
+// dispatch cost stays fixed: the global directory, an explicit OPENCODE_CONFIG
+// file, and the project walk from cwd toward the filesystem root.
+function configFileCandidates(cwd: string): string[] {
+  const dir = opencodeConfigDir()
+  const candidates = CONFIG_FILE_NAMES.map(name => `${dir}/${name}`)
+  if (process.env.OPENCODE_CONFIG) candidates.push(process.env.OPENCODE_CONFIG)
+  let current = cwd
+  for (let depth = 0; depth < 8; depth++) {
+    candidates.push(`${current}/opencode.jsonc`, `${current}/opencode.json`)
+    candidates.push(`${current}/.opencode/opencode.json`, `${current}/.opencode/opencode.jsonc`)
+    const parent = current.slice(0, current.lastIndexOf("/"))
+    if (!parent || parent === current) break
+    current = parent
+  }
+  return candidates.slice(0, 48)
+}
+
+async function configInstructionEntries(cwd: string): Promise<{ entries: string[]; unreadable: string[] }> {
+  const entries: string[] = []
+  const unreadable: string[] = []
+  for (const candidate of configFileCandidates(cwd)) {
+    let parsed: unknown
+    try {
+      const file = Bun.file(candidate)
+      if (!(await file.exists())) continue
+      parsed = JSON.parse(stripJsonc(await file.text()))
+    } catch {
+      unreadable.push(candidate)
+      continue
+    }
+    const declared = isRecord(parsed) ? parsed["instructions"] : null
+    if (!Array.isArray(declared)) continue
+    for (const entry of declared) {
+      if (typeof entry === "string" && entry.length > 0 && !entries.includes(entry)) entries.push(entry)
+    }
+  }
+  return { entries: entries.slice(0, 64), unreadable: unreadable.slice(0, 8) }
+}
+
+// CD-0034 admits a surface as bound only when its content is hashed. An entry
+// the adapter cannot resolve exactly — a glob, a remote URL, a config it cannot
+// parse — is recorded by name as unenumerated rather than dropped, so nothing
+// the host injects is silently absent from the manifest.
+async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> {
+  const sources: HostProvenanceSource[] = []
+  const { entries, unreadable } = await configInstructionEntries(cwd)
+  for (const path of unreadable) sources.push({ kind: "unenumerated", path })
+  for (const entry of entries) {
+    if (entry.startsWith("http://") || entry.startsWith("https://") || GLOB_METACHARACTERS.test(entry)) {
+      sources.push({ kind: "unenumerated", path: entry })
+      continue
+    }
+    const expanded = entry.startsWith("~/") ? `${process.env.HOME ?? ""}/${entry.slice(2)}` : entry
+    if (expanded.startsWith("/")) {
+      const source = await fileProvenance("instruction_file", expanded)
+      sources.push(source ?? { kind: "unenumerated", path: entry })
+      continue
+    }
+    // A relative entry resolves against every ancestor of the spawn directory,
+    // so each existing match is bound, and an entry matching nothing anywhere
+    // is still named.
+    let matched = false
+    let dir = cwd
+    for (let depth = 0; depth < 8; depth++) {
+      const source = await fileProvenance("instruction_file", `${dir}/${expanded}`)
+      if (source) { sources.push(source); matched = true }
+      const parent = dir.slice(0, dir.lastIndexOf("/"))
+      if (!parent || parent === dir) break
+      dir = parent
+    }
+    if (!matched) sources.push({ kind: "unenumerated", path: entry })
+  }
+  return sources
+}
+
 export async function computeHostPromptProvenance(laneId: string, cwd = process.cwd()): Promise<HostProvenance> {
   const sources: HostProvenanceSource[] = []
+  const configDir = opencodeConfigDir()
   const agentCandidates = [
-    `${process.env.HOME ?? ""}/.config/opencode/agents/concord-${laneId}.md`,
+    `${configDir}/agents/concord-${laneId}.md`,
     `${cwd}/.opencode/agents/concord-${laneId}.md`,
   ]
   for (const candidate of agentCandidates) {
@@ -458,22 +592,28 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
       break
     }
   }
+  // The global AGENTS.md is injected into every session but sits outside the
+  // spawn directory's ancestry, so the upward walk below can never reach it.
+  const globalAgents = await fileProvenance("agents_md", `${configDir}/AGENTS.md`)
+  if (globalAgents) sources.push(globalAgents)
   let dir = cwd
-  for (let depth = 0; depth < 8 && sources.filter(s => s.kind === "agents_md").length < 4; depth++) {
+  for (let depth = 0; depth < 8 && sources.filter(s => s.kind === "agents_md").length < 5; depth++) {
     const source = await fileProvenance("agents_md", `${dir}/AGENTS.md`)
     if (source) sources.push(source)
     const parent = dir.slice(0, dir.lastIndexOf("/"))
     if (!parent || parent === dir) break
     dir = parent
   }
+  sources.push(...(await instructionSources(cwd)))
   const declared = (process.env.CONCORD_HOST_INSTRUCTIONS ?? "").split(":").filter(Boolean).slice(0, 16)
   for (const path of declared) {
+    if (sources.some(source => source.kind === "instruction_file" && source.path === path)) continue
     const source = await fileProvenance("instruction_file", path)
     if (source) sources.push(source)
   }
   sources.push(...UNENUMERATED_SURFACES)
   const manifest = sources.map(source => [source.kind, source.path ?? "", source.sha256 ?? ""].join("\n")).join("\n---\n")
-  return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 32) }
+  return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
 export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; toolContext?: ToolContext } = {}): Promise<AgentResultEnvelope> {

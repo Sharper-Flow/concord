@@ -1,11 +1,15 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface",
+    "workflow-engine"
+  ],
   "date": "2026-08-16T00:00:00Z",
   "evidence": [
     "internal/sessionboot/sessionboot.go",
     "cmd/concord/session_test.go",
     "internal/launcher/render/bubbletea/model_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "operator-surface",
   "id": "CD-0031",
   "kind": "decision",
   "path": "docs/decisions/CD-0031-core-derived-session-boot.md",

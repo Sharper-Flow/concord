@@ -4,7 +4,7 @@
     "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
     "adapter/opencode/dispatch.ts"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0054",
   "kind": "decision",
   "path": "docs/decisions/CD-0054-routing-policy-host-authority.md",

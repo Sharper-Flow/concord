@@ -1,4 +1,8 @@
 {
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "repository-verification"
+  ],
   "date": "2026-08-20T00:00:00Z",
   "evidence": [
     "scripts/check-law-coverage.py",
@@ -6,7 +10,7 @@
     "docs/law-coverage.v1.json",
     "docs/reachability-exceptions.v1.json"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0047",
   "kind": "decision",
   "path": "docs/decisions/CD-0047-declared-coverage-state.md",

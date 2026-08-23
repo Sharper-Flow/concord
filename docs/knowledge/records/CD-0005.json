@@ -1,6 +1,6 @@
 {
   "date": "2026-07-31T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0005",
   "kind": "decision",
   "path": "docs/decisions/CD-0005-concord-agent-tool-surface.md",

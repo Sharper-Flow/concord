@@ -1,4 +1,7 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface"
+  ],
   "date": "2026-08-21T00:00:00Z",
   "evidence": [
     "docs/decisions/CD-0016-context-continuity.md",
@@ -7,7 +10,7 @@
     "cmd/concord/session.go",
     "adapter/opencode/dispatch.ts"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "operator-surface",
   "id": "CD-0049",
   "kind": "decision",
   "path": "docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md",

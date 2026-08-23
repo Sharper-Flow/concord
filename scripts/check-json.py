@@ -81,6 +81,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"knowledge vocabulary drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    domain_registry_checker = ROOT / "scripts/check-domain-registry.py"
+    if domain_registry_checker.is_file():
+        checked = subprocess.run([sys.executable, str(domain_registry_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"domain registry drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     floor_checker = ROOT / "scripts/check-floor-readiness.py"
     if floor_checker.is_file():
         checked = subprocess.run([sys.executable, str(floor_checker)], cwd=ROOT, capture_output=True, text=True)

@@ -1,4 +1,7 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface"
+  ],
   "date": "2026-08-14T00:00:00Z",
   "evidence": [
     "internal/store/lesson_publish.go",
@@ -6,7 +9,7 @@
     "internal/agent/lesson_dispatch_test.go",
     "scripts/check-knowledge-index.py"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0026",
   "kind": "decision",
   "path": "docs/decisions/CD-0026-learning-capture.md",

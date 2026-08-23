@@ -5,7 +5,7 @@
     "docs/predecessor-operational-coverage.md",
     "skills/README.md"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0043",
   "kind": "decision",
   "path": "docs/decisions/CD-0043-host-owned-lane-methodology.md",

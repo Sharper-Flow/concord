@@ -1,4 +1,8 @@
 {
+  "applies_to_domain_ids": [
+    "product-memory",
+    "work-coordination"
+  ],
   "date": "2026-08-13T00:00:00Z",
   "home_domain_id": "product-root:concord",
   "id": "CD-0019",

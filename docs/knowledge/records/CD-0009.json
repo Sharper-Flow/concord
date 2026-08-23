@@ -1,10 +1,14 @@
 {
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "work-coordination"
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
     "internal/store/research_mutations.go",
     "internal/agent/research_surface_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0009",
   "kind": "decision",
   "path": "docs/decisions/CD-0009-active-research-context.md",

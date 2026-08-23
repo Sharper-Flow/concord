@@ -4,7 +4,128 @@
       "architecture_relations": [],
       "domain_id": "product-root:concord",
       "name": "Concord",
-      "purpose": "Product-wide Concord law and architecture",
+      "purpose": "Product-wide Concord law and architecture: cross-cutting constitutional constraints, development authority, and decisions that bind every child Domain rather than any single one.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [],
+      "domain_id": "durable-authority",
+      "name": "Durable authority",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002",
+            "PM3"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        },
+        {
+          "governing_law_ids": [
+            "CD-0036"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "product-memory"
+        }
+      ],
+      "domain_id": "workflow-engine",
+      "name": "Workflow engine",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        },
+        {
+          "governing_law_ids": [
+            "CD-0013",
+            "CD-0023"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "workflow-engine"
+        }
+      ],
+      "domain_id": "agent-surface",
+      "name": "Agent surface",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0015",
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        }
+      ],
+      "domain_id": "product-memory",
+      "name": "Product memory and law",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        }
+      ],
+      "domain_id": "work-coordination",
+      "name": "Work coordination",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        }
+      ],
+      "domain_id": "operator-surface",
+      "name": "Operator surface",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0047"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "product-memory"
+        }
+      ],
+      "domain_id": "repository-verification",
+      "name": "Repository verification",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
       "status": "current"
     }
   ],

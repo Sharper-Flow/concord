@@ -3,7 +3,7 @@
   "evidence": [
     "internal/store/workflow_supersession_confirmation_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0033",
   "kind": "decision",
   "path": "docs/decisions/CD-0033-out-of-band-direction.md",

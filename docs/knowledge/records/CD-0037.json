@@ -5,7 +5,7 @@
     "docs/agent-call-context-contract.md",
     "scenarios/agent-jobs.v1.json"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0037",
   "kind": "decision",
   "path": "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md",

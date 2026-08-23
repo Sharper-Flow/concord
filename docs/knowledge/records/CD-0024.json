@@ -3,7 +3,7 @@
   "evidence": [
     "internal/store/initiative.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0024",
   "kind": "decision",
   "path": "docs/decisions/CD-0024-epic-agent-surface-and-ts9-exception.md",

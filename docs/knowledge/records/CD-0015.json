@@ -1,6 +1,10 @@
 {
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "workflow-engine"
+  ],
   "date": "2026-08-11T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0015",
   "kind": "decision",
   "path": "docs/decisions/CD-0015-typed-law-relations.md",

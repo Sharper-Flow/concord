@@ -1,6 +1,9 @@
 {
+  "applies_to_domain_ids": [
+    "durable-authority"
+  ],
   "date": "2026-08-06T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "PM7",
   "kind": "spec",
   "path": "docs/compaction-retention-policy.md",

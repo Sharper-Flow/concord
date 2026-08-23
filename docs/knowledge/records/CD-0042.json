@@ -8,7 +8,7 @@
     "contracts/workflow-engine-scenarios.schema.json",
     "scripts/check-agent-contracts.py"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0042",
   "kind": "decision",
   "path": "docs/decisions/CD-0042-pre-go-live-single-path.md",

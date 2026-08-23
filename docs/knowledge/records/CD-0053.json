@@ -1,4 +1,9 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface",
+    "product-memory",
+    "workflow-engine"
+  ],
   "date": "2026-08-21T00:00:00Z",
   "evidence": [
     "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",

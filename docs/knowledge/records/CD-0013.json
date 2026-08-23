@@ -4,7 +4,7 @@
     "scenarios/workflow-engine.v1.json",
     "internal/store/workflow_conformance_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0013",
   "kind": "decision",
   "path": "docs/decisions/CD-0013-workflow-engine-mechanism.md",

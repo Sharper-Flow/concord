@@ -1,6 +1,10 @@
 {
+  "applies_to_domain_ids": [
+    "product-memory",
+    "work-coordination"
+  ],
   "date": "2026-08-06T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "PM3",
   "kind": "spec",
   "path": "docs/product-memory-domain-schema.md",

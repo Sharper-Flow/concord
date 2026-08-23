@@ -5,7 +5,7 @@
     "docs/workflow-engine-contract.md",
     "scenarios/agent-jobs.v1.json"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0039",
   "kind": "decision",
   "path": "docs/decisions/CD-0039-attributed-native-run-outcomes.md",

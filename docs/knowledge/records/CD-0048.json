@@ -7,7 +7,7 @@
     "internal/store/launcher_query.go",
     "cmd/concord/session.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "operator-surface",
   "id": "CD-0048",
   "kind": "decision",
   "path": "docs/decisions/CD-0048-s2-answer-stack-composition.md",

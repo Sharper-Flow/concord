@@ -5,7 +5,7 @@
     "internal/store/conformance_test.go",
     ".github/workflows/ci.yml"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "CD-0046",
   "kind": "decision",
   "path": "docs/decisions/CD-0046-conformance-population-provenance.md",

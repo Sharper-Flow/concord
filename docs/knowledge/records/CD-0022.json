@@ -3,7 +3,7 @@
   "evidence": [
     "internal/store/research_operations.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0022",
   "kind": "decision",
   "path": "docs/decisions/CD-0022-active-research-finding-scope.md",

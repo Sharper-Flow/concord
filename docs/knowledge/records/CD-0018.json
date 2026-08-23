@@ -1,6 +1,10 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface",
+    "operator-surface"
+  ],
   "date": "2026-08-12T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "work-coordination",
   "id": "CD-0018",
   "kind": "decision",
   "path": "docs/decisions/CD-0018-declared-urgency-and-provenance.md",

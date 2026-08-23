@@ -26,9 +26,130 @@
       {
         "domain_id": "product-root:concord",
         "name": "Concord",
-        "purpose": "Product-wide Concord law and architecture",
+        "purpose": "Product-wide Concord law and architecture: cross-cutting constitutional constraints, development authority, and decisions that bind every child Domain rather than any single one.",
         "status": "current",
         "architecture_relations": []
+      },
+      {
+        "domain_id": "durable-authority",
+        "name": "Durable authority",
+        "purpose": "Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.",
+        "parent_domain_id": "product-root:concord",
+        "status": "current",
+        "architecture_relations": []
+      },
+      {
+        "domain_id": "workflow-engine",
+        "name": "Workflow engine",
+        "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
+        "parent_domain_id": "product-root:concord",
+        "status": "current",
+        "architecture_relations": [
+          {
+            "kind": "depends_on",
+            "target_domain_id": "durable-authority",
+            "governing_law_ids": [
+              "CD-0002",
+              "PM3"
+            ]
+          },
+          {
+            "kind": "depends_on",
+            "target_domain_id": "product-memory",
+            "governing_law_ids": [
+              "CD-0036"
+            ]
+          }
+        ]
+      },
+      {
+        "domain_id": "agent-surface",
+        "name": "Agent surface",
+        "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
+        "parent_domain_id": "product-root:concord",
+        "status": "current",
+        "architecture_relations": [
+          {
+            "kind": "depends_on",
+            "target_domain_id": "durable-authority",
+            "governing_law_ids": [
+              "CD-0002"
+            ]
+          },
+          {
+            "kind": "depends_on",
+            "target_domain_id": "workflow-engine",
+            "governing_law_ids": [
+              "CD-0013",
+              "CD-0023"
+            ]
+          }
+        ]
+      },
+      {
+        "domain_id": "product-memory",
+        "name": "Product memory and law",
+        "purpose": "Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.",
+        "parent_domain_id": "product-root:concord",
+        "status": "current",
+        "architecture_relations": [
+          {
+            "kind": "depends_on",
+            "target_domain_id": "durable-authority",
+            "governing_law_ids": [
+              "CD-0015",
+              "CD-0002"
+            ]
+          }
+        ]
+      },
+      {
+        "domain_id": "work-coordination",
+        "name": "Work coordination",
+        "purpose": "Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.",
+        "parent_domain_id": "product-root:concord",
+        "status": "current",
+        "architecture_relations": [
+          {
+            "kind": "depends_on",
+            "target_domain_id": "durable-authority",
+            "governing_law_ids": [
+              "CD-0002"
+            ]
+          }
+        ]
+      },
+      {
+        "domain_id": "operator-surface",
+        "name": "Operator surface",
+        "purpose": "Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.",
+        "parent_domain_id": "product-root:concord",
+        "status": "current",
+        "architecture_relations": [
+          {
+            "kind": "depends_on",
+            "target_domain_id": "durable-authority",
+            "governing_law_ids": [
+              "CD-0002"
+            ]
+          }
+        ]
+      },
+      {
+        "domain_id": "repository-verification",
+        "name": "Repository verification",
+        "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
+        "parent_domain_id": "product-root:concord",
+        "status": "current",
+        "architecture_relations": [
+          {
+            "kind": "depends_on",
+            "target_domain_id": "product-memory",
+            "governing_law_ids": [
+              "CD-0047"
+            ]
+          }
+        ]
       }
     ]
   },
@@ -93,7 +214,7 @@
   "records": [
     {
       "date": "2026-07-25T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0002",
       "kind": "decision",
       "path": "docs/decisions/CD-0002-concord-state-authority.md",
@@ -115,7 +236,7 @@
     },
     {
       "date": "2026-07-25T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0003",
       "kind": "decision",
       "path": "docs/decisions/CD-0003-concord-storage-layer-shape.md",
@@ -137,7 +258,7 @@
     },
     {
       "date": "2026-07-31T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0005",
       "kind": "decision",
       "path": "docs/decisions/CD-0005-concord-agent-tool-surface.md",
@@ -202,13 +323,18 @@
       "title": "Concord repository bootstrap"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface",
+        "work-coordination",
+        "workflow-engine"
+      ],
       "date": "2026-08-05T00:00:00Z",
       "evidence": [
         "internal/store/worktrees.go",
         "internal/store/worktrees_test.go",
         "internal/agent/trunk_firewall_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0008",
       "kind": "decision",
       "path": "docs/decisions/CD-0008-concord-mechanism-hardening.md",
@@ -230,12 +356,16 @@
       "title": "Concord mechanism hardening"
     },
     {
+      "applies_to_domain_ids": [
+        "durable-authority",
+        "work-coordination"
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
         "internal/store/research_mutations.go",
         "internal/agent/research_surface_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "CD-0009",
       "kind": "decision",
       "path": "docs/decisions/CD-0009-active-research-context.md",
@@ -279,7 +409,7 @@
     },
     {
       "date": "2026-08-07T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0011",
       "kind": "decision",
       "path": "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
@@ -301,7 +431,7 @@
     },
     {
       "date": "2026-08-07T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "workflow-engine",
       "id": "CD-0012",
       "kind": "decision",
       "path": "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
@@ -327,7 +457,7 @@
         "scenarios/workflow-engine.v1.json",
         "internal/store/workflow_conformance_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "workflow-engine",
       "id": "CD-0013",
       "kind": "decision",
       "path": "docs/decisions/CD-0013-workflow-engine-mechanism.md",
@@ -349,7 +479,7 @@
     },
     {
       "date": "2026-08-10T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "operator-surface",
       "id": "CD-0014",
       "kind": "decision",
       "path": "docs/decisions/CD-0014-terminal-launcher-rendering.md",
@@ -372,8 +502,12 @@
       "title": "Terminal launcher rendering stack"
     },
     {
+      "applies_to_domain_ids": [
+        "durable-authority",
+        "workflow-engine"
+      ],
       "date": "2026-08-11T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "CD-0015",
       "kind": "decision",
       "path": "docs/decisions/CD-0015-typed-law-relations.md",
@@ -395,12 +529,15 @@
       "title": "Typed law relations and Git-derived workflow checks"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface"
+      ],
       "date": "2026-08-11T00:00:00Z",
       "evidence": [
         "internal/store/workflow_continuity.go",
         "internal/store/workflow_continuity_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "workflow-engine",
       "id": "CD-0016",
       "kind": "decision",
       "path": "docs/decisions/CD-0016-context-continuity.md",
@@ -428,7 +565,7 @@
         "internal/store/worker_authority_boundary_test.go",
         "adapter/opencode/evals/promptfooconfig.yaml"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0017",
       "kind": "decision",
       "path": "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
@@ -451,8 +588,12 @@
       "title": "Typed workers and model routing"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface",
+        "operator-surface"
+      ],
       "date": "2026-08-12T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "work-coordination",
       "id": "CD-0018",
       "kind": "decision",
       "path": "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
@@ -476,6 +617,10 @@
       "title": "Declared urgency and provenance for parallel-eligible work"
     },
     {
+      "applies_to_domain_ids": [
+        "product-memory",
+        "work-coordination"
+      ],
       "date": "2026-08-13T00:00:00Z",
       "home_domain_id": "product-root:concord",
       "id": "CD-0019",
@@ -500,7 +645,7 @@
     },
     {
       "date": "2026-08-13T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "CD-0020",
       "kind": "decision",
       "path": "docs/decisions/CD-0020-retain-knowledge-index-shape.md",
@@ -523,12 +668,15 @@
       "title": "Retain the manifest-primary knowledge-index shape"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface"
+      ],
       "date": "2026-08-14T00:00:00Z",
       "evidence": [
         "internal/launcher/model.go",
         "docs/terminal-launcher-contract.md"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "operator-surface",
       "id": "CD-0021",
       "kind": "decision",
       "path": "docs/decisions/CD-0021-floor-condition-1-scope.md",
@@ -555,7 +703,7 @@
       "evidence": [
         "internal/store/research_operations.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "CD-0022",
       "kind": "decision",
       "path": "docs/decisions/CD-0022-active-research-finding-scope.md",
@@ -578,12 +726,15 @@
       "title": "Active research findings carry applies-to scope"
     },
     {
+      "applies_to_domain_ids": [
+        "workflow-engine"
+      ],
       "date": "2026-08-14T00:00:00Z",
       "evidence": [
         "internal/agent/verdict_scope_test.go",
         "internal/store/workflow_verdict.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0023",
       "kind": "decision",
       "path": "docs/decisions/CD-0023-verdict-read-scope.md",
@@ -609,7 +760,7 @@
       "evidence": [
         "internal/store/initiative.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0024",
       "kind": "decision",
       "path": "docs/decisions/CD-0024-epic-agent-surface-and-ts9-exception.md",
@@ -632,12 +783,16 @@
       "title": "Epic agent surface and narrow TS9 exception"
     },
     {
+      "applies_to_domain_ids": [
+        "product-memory",
+        "workflow-engine"
+      ],
       "date": "2026-08-14T00:00:00Z",
       "evidence": [
         "internal/store/research_reliance.go",
         "internal/agent/research_surface_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0025",
       "kind": "decision",
       "path": "docs/decisions/CD-0025-research-surface.md",
@@ -659,6 +814,9 @@
       "title": "Research surface and engine-bound reliance"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface"
+      ],
       "date": "2026-08-14T00:00:00Z",
       "evidence": [
         "internal/store/lesson_publish.go",
@@ -666,7 +824,7 @@
         "internal/agent/lesson_dispatch_test.go",
         "scripts/check-knowledge-index.py"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "CD-0026",
       "kind": "decision",
       "path": "docs/decisions/CD-0026-learning-capture.md",
@@ -688,12 +846,15 @@
       "title": "Learning capture: lesson authoring, reflection, and drift audit"
     },
     {
+      "applies_to_domain_ids": [
+        "workflow-engine"
+      ],
       "date": "2026-08-14T00:00:00Z",
       "evidence": [
         "internal/store/workflow_continuity.go",
         "internal/store/workflow_continuity_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0027",
       "kind": "decision",
       "path": "docs/decisions/CD-0027-typed-restart-excluded.md",
@@ -720,7 +881,7 @@
         "internal/store/resource_claims.go",
         "internal/agent/resource_claims_dispatch_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "work-coordination",
       "id": "CD-0028",
       "kind": "decision",
       "path": "docs/decisions/CD-0028-resource-claims.md",
@@ -747,7 +908,7 @@
         "internal/store/work_messages.go",
         "internal/agent/work_messages_dispatch_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "work-coordination",
       "id": "CD-0029",
       "kind": "decision",
       "path": "docs/decisions/CD-0029-peer-messages.md",
@@ -775,7 +936,7 @@
         "internal/store/work_observations_test.go",
         "internal/agent/observation_dispatch_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "work-coordination",
       "id": "CD-0030",
       "kind": "decision",
       "path": "docs/decisions/CD-0030-mid-execution-observations.md",
@@ -797,13 +958,17 @@
       "title": "Mid-execution observations"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface",
+        "workflow-engine"
+      ],
       "date": "2026-08-16T00:00:00Z",
       "evidence": [
         "internal/sessionboot/sessionboot.go",
         "cmd/concord/session_test.go",
         "internal/launcher/render/bubbletea/model_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "operator-surface",
       "id": "CD-0031",
       "kind": "decision",
       "path": "docs/decisions/CD-0031-core-derived-session-boot.md",
@@ -829,7 +994,7 @@
       "evidence": [
         "internal/store/workflow_supersession_confirmation_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "workflow-engine",
       "id": "CD-0033",
       "kind": "decision",
       "path": "docs/decisions/CD-0033-out-of-band-direction.md",
@@ -856,7 +1021,7 @@
         "internal/store/worker_lanes.go",
         "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0034",
       "kind": "decision",
       "path": "docs/decisions/CD-0034-host-prompt-provenance.md",
@@ -878,13 +1043,16 @@
       "title": "Host prompt provenance is declared at dispatch"
     },
     {
+      "applies_to_domain_ids": [
+        "product-memory"
+      ],
       "date": "2026-08-17T00:00:00Z",
       "evidence": [
         "internal/store/governing_requirements.go",
         "internal/agent/mutations.go",
         "internal/agent/envelope.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0035",
       "kind": "decision",
       "path": "docs/decisions/CD-0035-governing-requirements-at-capture.md",
@@ -906,13 +1074,16 @@
       "title": "Governing requirements are scope-bound and refused at capture"
     },
     {
+      "applies_to_domain_ids": [
+        "workflow-engine"
+      ],
       "date": "2026-08-17T00:00:00Z",
       "evidence": [
         "internal/store/workflow_law_revision.go",
         "internal/store/workflow_law_revision_test.go",
         "docs/workflow-engine-contract.md"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "CD-0036",
       "kind": "decision",
       "path": "docs/decisions/CD-0036-breaking-law-cutovers.md",
@@ -940,7 +1111,7 @@
         "docs/agent-call-context-contract.md",
         "scenarios/agent-jobs.v1.json"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0037",
       "kind": "decision",
       "path": "docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md",
@@ -968,7 +1139,7 @@
         "contracts/agent-tool-surface.v1.json",
         "scenarios/agent-jobs.v1.json"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0038",
       "kind": "decision",
       "path": "docs/decisions/CD-0038-per-operation-seconds-budgets.md",
@@ -996,7 +1167,7 @@
         "docs/workflow-engine-contract.md",
         "scenarios/agent-jobs.v1.json"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "workflow-engine",
       "id": "CD-0039",
       "kind": "decision",
       "path": "docs/decisions/CD-0039-attributed-native-run-outcomes.md",
@@ -1018,6 +1189,11 @@
       "title": "Native-run outcomes are attributed reports, not Concord findings"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface",
+        "durable-authority",
+        "work-coordination"
+      ],
       "date": "2026-08-17T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0008-concord-mechanism-hardening.md",
@@ -1080,7 +1256,7 @@
         "contracts/workflow-engine-scenarios.schema.json",
         "scripts/check-agent-contracts.py"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0042",
       "kind": "decision",
       "path": "docs/decisions/CD-0042-pre-go-live-single-path.md",
@@ -1108,7 +1284,7 @@
         "docs/predecessor-operational-coverage.md",
         "skills/README.md"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0043",
       "kind": "decision",
       "path": "docs/decisions/CD-0043-host-owned-lane-methodology.md",
@@ -1136,7 +1312,7 @@
         "cmd/concord/worker_evidence_test.go",
         "adapter/opencode/credentials.ts"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0044",
       "kind": "decision",
       "path": "docs/decisions/CD-0044-worker-evidence-caller-authentication.md",
@@ -1164,7 +1340,7 @@
         "docs/core-architecture.md",
         "docs/floor-readiness.v1.json"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0045",
       "kind": "decision",
       "path": "docs/decisions/CD-0045-writer-admission-invariant.md",
@@ -1192,7 +1368,7 @@
         "internal/store/conformance_test.go",
         ".github/workflows/ci.yml"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0046",
       "kind": "decision",
       "path": "docs/decisions/CD-0046-conformance-population-provenance.md",
@@ -1214,6 +1390,10 @@
       "title": "Conformance population authority is invocation provenance, not measured host isolation"
     },
     {
+      "applies_to_domain_ids": [
+        "durable-authority",
+        "repository-verification"
+      ],
       "date": "2026-08-20T00:00:00Z",
       "evidence": [
         "scripts/check-law-coverage.py",
@@ -1221,7 +1401,7 @@
         "docs/law-coverage.v1.json",
         "docs/reachability-exceptions.v1.json"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "CD-0047",
       "kind": "decision",
       "path": "docs/decisions/CD-0047-declared-coverage-state.md",
@@ -1251,7 +1431,7 @@
         "internal/store/launcher_query.go",
         "cmd/concord/session.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "operator-surface",
       "id": "CD-0048",
       "kind": "decision",
       "path": "docs/decisions/CD-0048-s2-answer-stack-composition.md",
@@ -1272,6 +1452,9 @@
       "title": "S2 composes the answers the store already materialized"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface"
+      ],
       "date": "2026-08-21T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0016-context-continuity.md",
@@ -1280,7 +1463,7 @@
         "cmd/concord/session.go",
         "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "operator-surface",
       "id": "CD-0049",
       "kind": "decision",
       "path": "docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md",
@@ -1308,7 +1491,7 @@
         "internal/agent/mutations.go",
         "cmd/concord/main.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0050",
       "kind": "decision",
       "path": "docs/decisions/CD-0050-durable-acknowledgement.md",
@@ -1335,7 +1518,7 @@
         "docs/decisions/CD-0045-writer-admission-invariant.md",
         "internal/store/conformance_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0051",
       "kind": "decision",
       "path": "docs/decisions/CD-0051-conformance-falsifier-quantity.md",
@@ -1362,7 +1545,7 @@
         "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
         "internal/store/lifecycle_relations_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "work-coordination",
       "id": "CD-0052",
       "kind": "decision",
       "path": "docs/decisions/CD-0052-implements-fulfilment-semantics.md",
@@ -1383,6 +1566,11 @@
       "title": "implements declares fulfilment-link semantics, display-only"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface",
+        "product-memory",
+        "workflow-engine"
+      ],
       "date": "2026-08-21T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
@@ -1417,7 +1605,7 @@
         "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
         "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0054",
       "kind": "decision",
       "path": "docs/decisions/CD-0054-routing-policy-host-authority.md",
@@ -1445,7 +1633,7 @@
         "internal/store/txscope_test.go",
         "internal/store/boundary_test.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "repository-verification",
       "id": "CD-0055",
       "kind": "decision",
       "path": "docs/decisions/CD-0055-repository-check-authority.md",
@@ -1467,6 +1655,10 @@
       "title": "Repository checks are structural first, and textual guards are declared exceptions"
     },
     {
+      "applies_to_domain_ids": [
+        "durable-authority",
+        "workflow-engine"
+      ],
       "date": "2026-08-22T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
@@ -1474,7 +1666,7 @@
         "internal/store/worker_lanes.go",
         "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0056",
       "kind": "decision",
       "path": "docs/decisions/CD-0056-lane-evidence-obligations-bind.md",
@@ -1503,7 +1695,7 @@
         "internal/store/worker_lanes.go",
         "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "CD-0057",
       "kind": "decision",
       "path": "docs/decisions/CD-0057-conformance-control-round.md",
@@ -1531,7 +1723,7 @@
         "adapter/opencode/dispatch.ts",
         "internal/store/schema.go"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "CD-0058",
       "kind": "decision",
       "path": "docs/decisions/CD-0058-no-model-routing.md",
@@ -1590,8 +1782,37 @@
       "title": "Lane dispatch is a registered workflow action"
     },
     {
+      "date": "2026-08-22T00:00:00Z",
+      "evidence": [
+        "docs/knowledge/domain-registry.json",
+        "docs/concord-knowledge-index.v1.json",
+        "contracts/concord-knowledge-index.v1.schema.json"
+      ],
+      "home_domain_id": "product-memory",
+      "id": "CD-0060",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0060-domain-registry-enactment.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:8445764197db008e7ee1eb6ec076266a81889c99942a0244282980b7e5c67a4e",
+      "status": "accepted",
+      "summary": "Concord's Domain registry enacts seven child Domains under the Product root: durable-authority, workflow-engine, agent-surface, product-memory, work-coordination, operator-surface, and repository-verification. Every current law record declares one home_domain_id; eight Product-wide records stay at the root and 21 straddling records declare bounded applies_to_domain_ids. No Domain enters the registry owning no law, which defers predecessor-migration until its first law exists. Architecture relations carry governing_law_ids, and Domain identity is never inferred from a record's title.",
+      "tags": [
+        "domains",
+        "knowledge-index",
+        "product-law",
+        "architecture"
+      ],
+      "title": "The Domain registry enacts seven child Domains"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "PM1",
       "kind": "spec",
       "path": "docs/product-memory-query-contract.md",
@@ -1612,8 +1833,12 @@
       "title": "Product memory query contract"
     },
     {
+      "applies_to_domain_ids": [
+        "product-memory",
+        "work-coordination"
+      ],
       "date": "2026-08-06T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "durable-authority",
       "id": "PM3",
       "kind": "spec",
       "path": "docs/product-memory-domain-schema.md",
@@ -1635,7 +1860,7 @@
     },
     {
       "date": "2026-08-06T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "PM6",
       "kind": "spec",
       "path": "docs/canonical-git-note-placement.md",
@@ -1657,8 +1882,11 @@
       "title": "Canonical Git note placement"
     },
     {
+      "applies_to_domain_ids": [
+        "durable-authority"
+      ],
       "date": "2026-08-06T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "PM7",
       "kind": "spec",
       "path": "docs/compaction-retention-policy.md",
@@ -1702,7 +1930,7 @@
     },
     {
       "date": "2026-08-06T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "TS3",
       "kind": "spec",
       "path": "docs/agent-read-tool-contract.md",
@@ -1725,7 +1953,7 @@
     },
     {
       "date": "2026-08-06T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "TS7",
       "kind": "spec",
       "path": "docs/agent-result-envelope.md",
@@ -1769,7 +1997,7 @@
     },
     {
       "date": "2026-08-11T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "agent-surface",
       "id": "agent-lanes-contract",
       "kind": "spec",
       "path": "docs/agent-lanes-contract.md",
@@ -1792,7 +2020,7 @@
     },
     {
       "date": "2026-08-22T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "product-memory",
       "id": "knowledge-formalization-procedure",
       "kind": "constitution",
       "path": "docs/knowledge-formalization-procedure.md",
@@ -1860,7 +2088,7 @@
     },
     {
       "date": "2026-08-08T00:00:00Z",
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "workflow-engine",
       "id": "workflow-engine-contract",
       "kind": "spec",
       "path": "docs/workflow-engine-contract.md",

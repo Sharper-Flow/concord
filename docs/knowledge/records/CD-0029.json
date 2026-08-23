@@ -4,7 +4,7 @@
     "internal/store/work_messages.go",
     "internal/agent/work_messages_dispatch_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "work-coordination",
   "id": "CD-0029",
   "kind": "decision",
   "path": "docs/decisions/CD-0029-peer-messages.md",

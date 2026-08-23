@@ -6,7 +6,7 @@
     "internal/agent/mutations.go",
     "cmd/concord/main.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "CD-0050",
   "kind": "decision",
   "path": "docs/decisions/CD-0050-durable-acknowledgement.md",

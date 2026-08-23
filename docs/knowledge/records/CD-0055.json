@@ -5,7 +5,7 @@
     "internal/store/txscope_test.go",
     "internal/store/boundary_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "repository-verification",
   "id": "CD-0055",
   "kind": "decision",
   "path": "docs/decisions/CD-0055-repository-check-authority.md",

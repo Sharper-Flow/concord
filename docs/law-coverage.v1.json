@@ -728,6 +728,11 @@
       "state": "satisfied"
     },
     {
+      "id": "CD-0061",
+      "issue": 254,
+      "state": "outstanding"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

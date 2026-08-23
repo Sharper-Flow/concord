@@ -101,7 +101,7 @@ def agent_projection(lane: dict) -> str:
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
     return f"""---
 description: Concord {lane['id']} lane — {lane['purpose']}
-mode: subagent
+mode: all
 tools:
   task: false
 permission:

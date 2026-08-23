@@ -47,6 +47,7 @@ export interface AgentLaneReport {
 
 export interface SessionMetadata {
   readback_model: string
+  readback_agent: string
   session_id: string | null
 }
 
@@ -63,7 +64,7 @@ export interface AgentResultEnvelope {
   session_id: string | null
   output?: string
   error?: {
-    kind: "invalid_input" | "blocked" | "error" | "invalid_report"
+    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
     message: string
@@ -227,25 +228,25 @@ export function readRunSessionMetadata(stdout: string): RunSessionMetadata | nul
   return { session_id: [...sessions][0] }
 }
 
-export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "session_id"> | null {
+export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
   if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return null }
   if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages)) return null
   const seen = new Set<string>()
-  const assistants: { id: string; created: number; model: string }[] = []
+  const assistants: { id: string; created: number; model: string; agent: string }[] = []
   for (const message of value.messages) {
     if (!isRecord(message) || !isRecord(message.info) || !Array.isArray(message.parts)) return null
     const info = message.info
     if (typeof info.id !== "string" || typeof info.sessionID !== "string" || info.sessionID !== expectedSessionID || !isRecord(info.time) || typeof info.time.created !== "number" || seen.has(info.id)) return null
     seen.add(info.id)
     if (info.role === "user") continue
-    if (info.role !== "assistant" || typeof info.providerID !== "string" || typeof info.modelID !== "string") return null
-    assistants.push({ id: info.id, created: info.time.created, model: `${info.providerID}/${info.modelID}` })
+    if (info.role !== "assistant" || typeof info.providerID !== "string" || typeof info.modelID !== "string" || typeof info.agent !== "string") return null
+    assistants.push({ id: info.id, created: info.time.created, model: `${info.providerID}/${info.modelID}`, agent: info.agent })
   }
   assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
   const latest = assistants.at(-1)
-  return latest ? { readback_model: latest.model, session_id: expectedSessionID } : null
+  return latest ? { readback_model: latest.model, readback_agent: latest.agent, session_id: expectedSessionID } : null
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -692,6 +693,16 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (exported.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output", "reconcile_operation")
   const readback = readExportSessionMetadata(exported.stdout, runMetadata.session_id)
   if (!readback) return errorEnvelope(lane, packet, "error", "error", "OpenCode session export did not contain one typed executing-model readback", "reconcile_operation")
+  // The adapter names the lane executor; the host owns which model executes
+  // it (CD-0058 D1). Because the host may also substitute the agent itself —
+  // run mode falls back to the default agent when an agent definition is not
+  // selectable — the executor identity is asserted against the export the same
+  // way model evidence is read from it. A substituted executor never recorded
+  // the lane contract, so its output is admitted as no worker's evidence.
+  const expectedAgent = `concord-${lane.id}`
+  if (readback.readback_agent !== expectedAgent) {
+    return errorEnvelope(lane, packet, "error", "agent_identity_mismatch", `executed agent ${JSON.stringify(readback.readback_agent)} does not match the dispatched lane agent ${JSON.stringify(expectedAgent)}`, "contact_operator")
+  }
   const envelope = baseEnvelope(lane, packet, "ok")
   envelope.readback_model = readback.readback_model
   envelope.session_id = readback.session_id

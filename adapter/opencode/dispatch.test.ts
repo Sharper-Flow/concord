@@ -71,15 +71,18 @@ const runOutput = (extra = "", carried: unknown = report()) => [
   extra,
 ].filter(Boolean).join("\n")
 
-const exportedSession = (model = READBACK_MODEL) => JSON.stringify({
+const exportedSession = (model = READBACK_MODEL, agent = "concord-research") => JSON.stringify({
   info: { id: "session-1" },
-  messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] }],
+  messages: [
+    { info: { id: "message-0", sessionID: "session-1", role: "user", agent, time: { created: 0 } }, parts: [] },
+    { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent, providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] },
+  ],
 })
 
-const workerRunner = (model = READBACK_MODEL, output = runOutput()): DispatchRunner => ({
+const workerRunner = (model = READBACK_MODEL, output = runOutput(), agent = "concord-research"): DispatchRunner => ({
   async run(argv) {
     if (argv[1] === "run") return { exitCode: 0, stdout: output, stderr: "" }
-    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model), stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model, agent), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   },
 })
@@ -134,6 +137,43 @@ test("dispatch obtains readback from a sanitized session export", async () => {
   expect(result.outcome).toBe("ok")
   expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "run"], ["opencode", "export"]])
   expect(calls[1]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+})
+
+// The sanitized export carries the executing agent on each message info; the
+// readback takes executor identity from the latest assistant message, exactly
+// where it takes model identity from.
+test("readback extracts the executing agent from the latest assistant message", () => {
+  expect(readExportSessionMetadata(exportedSession(), "session-1")).toEqual({ readback_model: READBACK_MODEL, readback_agent: "concord-research", session_id: "session-1" })
+  const substituted = exportedSession(READBACK_MODEL, "adv")
+  expect(readExportSessionMetadata(substituted, "session-1")?.readback_agent).toBe("adv")
+})
+
+// An assistant message without a typed agent string is not a readback: the
+// assertion boundary fails closed rather than guessing an executor.
+test("an export whose assistant message carries no agent string is not a readback", () => {
+  const stripped = JSON.stringify({
+    info: { id: "session-1" },
+    messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] }],
+  })
+  expect(readExportSessionMetadata(stripped, "session-1")).toBe(null)
+})
+
+// A host that substitutes the executor — run mode falls back to the default
+// agent when the named agent is not selectable — produced output no lane
+// contract governs. The dispatch fails closed before any evidence is recorded,
+// so a substituted executor can never drive worker-complete.
+test("a dispatch executed by a substituted agent fails closed with no worker evidence", async () => {
+  const evidenceCalls: string[][] = []
+  const result = await dispatchWorker(packet(), { credentials: testCredentials,
+    runner: workerRunner(READBACK_MODEL, runOutput(), "adv"),
+    evidenceRunner: { async run(argv) { evidenceCalls.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } },
+    toolContext: permissiveToolContext(),
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("agent_identity_mismatch")
+  expect(result.error?.recovery_action).toBe("contact_operator")
+  expect(result.error?.message).toBe('executed agent "adv" does not match the dispatched lane agent "concord-research"')
+  expect(evidenceCalls).toEqual([])
 })
 
 test("a successful run records dispatch evidence before completion evidence", async () => {

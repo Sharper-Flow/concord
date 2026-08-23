@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/complexity-budget.schema.json",
+  "title": "Concord cognitive-complexity budget",
+  "description": "Closed contract for production functions whose cognitive complexity exceeds the repository threshold. Complexity is computed rather than declared: scripts/check-complexity.py runs the pinned analysis, subtracts these allowances, and fails on any remainder. Each allowance records the score measured when it was granted, and the check fails when the real score no longer matches. That is the whole mechanism - an allowance is permission for a function to be this complex, not permission for it to be complex. A function that grew fails as a regression; a function that shrank fails as a stale allowance, because a budget that overstates the debt stops describing the code. Go defines no normative complexity limit, so the threshold is repository policy: golangci-lint's own reference configuration recommends 10-20 with a default of 30, and this threshold is deliberately far above that because it is a starting ratchet over existing code, not a target.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "analysis",
+    "threshold",
+    "allowances"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "analysis": {
+      "description": "The pinned command that computes the finding set. Pinning the version is what makes the set reproducible: a tool upgrade then surfaces as a reviewable manifest diff rather than an unexplained CI failure. The tool runs through go run and is not a module dependency, the precedent .github/workflows/ci.yml already sets for govulncheck and contracts/reachability-exceptions.schema.json for deadcode.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "version",
+        "args",
+        "roots"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 256
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "args": {
+          "description": "Arguments passed before the roots. Test files are excluded here rather than in the checker, so the manifest states the measured population rather than leaving it to the script.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "roots": {
+          "description": "Directories walked by the analysis. These are the whole compiled product; anything outside them is not shipped.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "threshold": {
+      "description": "Functions scoring above this are findings unless allowed. Lowering it is the ratchet; raising it requires a decision, because it forgives debt nobody chose to take on.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "allowances": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "function",
+          "measured",
+          "state",
+          "reason"
+        ],
+        "properties": {
+          "function": {
+            "description": "Identity as <directory>.<FuncName>, where FuncName may carry a receiver in the form the analysis emits. Line and column are deliberately excluded: the identity being declared is the function, not its position in a file.",
+            "type": "string",
+            "pattern": "^[a-z0-9/_]+\\.[A-Za-z_(][A-Za-z0-9_.()]*$",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "measured": {
+            "description": "The score observed when this allowance was granted or last revised. The check requires the real score to equal it exactly, so any change to the function - in either direction - surfaces as a manifest diff a reviewer must accept.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "state": {
+            "description": "outstanding: the function should be simplified and an issue tracks it. out_of_scope: an accepted decision keeps this shape, and it is declared rather than excused. unmeasured: the shape has not been assessed against a decision yet.",
+            "type": "string",
+            "enum": [
+              "outstanding",
+              "unmeasured",
+              "out_of_scope"
+            ]
+          },
+          "issue": {
+            "description": "Public issue tracking an outstanding allowance. Required when outstanding; forbidden otherwise.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "description": "What makes this function complex, in terms a reviewer can check against the code. A reason that only restates the score is not a reason.",
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          }
+        }
+      }
+    }
+  }
+}

@@ -26,19 +26,18 @@ type WorkflowReadDefinition struct {
 }
 
 type WorkflowReadContract struct {
-	Version                         int64                        `json:"version"`
-	Premise                         string                       `json:"premise"`
-	OutcomeKind                     string                       `json:"outcome_kind"`
-	OutcomePayload                  string                       `json:"outcome_payload"`
-	RequiredEvidence                []string                     `json:"required_evidence"`
-	RouteConventions                []string                     `json:"route_conventions"`
-	SpecMandate                     []string                     `json:"spec_mandate"`
-	LawModifies                     []string                     `json:"law_modifies"`
-	LawRevisions                    []WorkflowLawRevision        `json:"law_revisions"`
-	RigorClass                      string                       `json:"rigor_class"`
-	ChangesProductTruth             bool                         `json:"changes_product_truth"`
-	LegacyProductTruthCompatibility bool                         `json:"legacy_product_truth_compatibility"`
-	ArchitectureBinding             *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	Version             int64                        `json:"version"`
+	Premise             string                       `json:"premise"`
+	OutcomeKind         string                       `json:"outcome_kind"`
+	OutcomePayload      string                       `json:"outcome_payload"`
+	RequiredEvidence    []string                     `json:"required_evidence"`
+	RouteConventions    []string                     `json:"route_conventions"`
+	SpecMandate         []string                     `json:"spec_mandate"`
+	LawModifies         []string                     `json:"law_modifies"`
+	LawRevisions        []WorkflowLawRevision        `json:"law_revisions"`
+	RigorClass          string                       `json:"rigor_class"`
+	ChangesProductTruth bool                         `json:"changes_product_truth"`
+	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 }
 
 func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (RegisteredDefinition, error) {
@@ -97,17 +96,16 @@ type WorkflowReadProjection struct {
 	UnresolvedConditions []string                  `json:"unresolved_conditions"`
 	// OverdueAwaits lists condition ids whose wait exceeded the declared
 	// bound, derived at read time — the waiting/never-completable split.
-	OverdueAwaits                   []string                     `json:"overdue_awaits"`
-	AwaitHealth                     []WorkflowReadCondition      `json:"await_health"`
-	UnreadableConditions            []string                     `json:"unreadable_conditions"`
-	Ready                           bool                         `json:"ready"`
-	BlockingConditions              []string                     `json:"blocking_conditions"`
-	ImpactNotices                   []WorkflowReadNotice         `json:"impact_notices"`
-	CompletionWarnings              []string                     `json:"completion_warnings"`
-	StaleLawRevision                *StaleLawRevision            `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth             bool                         `json:"changes_product_truth"`
-	LegacyProductTruthCompatibility bool                         `json:"legacy_product_truth_compatibility"`
-	ArchitectureBinding             *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	OverdueAwaits        []string                     `json:"overdue_awaits"`
+	AwaitHealth          []WorkflowReadCondition      `json:"await_health"`
+	UnreadableConditions []string                     `json:"unreadable_conditions"`
+	Ready                bool                         `json:"ready"`
+	BlockingConditions   []string                     `json:"blocking_conditions"`
+	ImpactNotices        []WorkflowReadNotice         `json:"impact_notices"`
+	CompletionWarnings   []string                     `json:"completion_warnings"`
+	StaleLawRevision     *StaleLawRevision            `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth  bool                         `json:"changes_product_truth"`
+	ArchitectureBinding  *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 }
 
 // ReadWorkflowProjection returns one bounded, point-in-time workflow
@@ -139,7 +137,6 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		return out, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	out.LegacyProductTruthCompatibility = out.Definition.Version >= 1 && out.Definition.Version <= 3
 	out.CandidateIDs = []string{}
 	out.Conditions = []WorkflowReadCondition{}
 	out.UnresolvedConditions = []string{}
@@ -162,7 +159,6 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
 		contract.ChangesProductTruth = out.ChangesProductTruth
-		contract.LegacyProductTruthCompatibility = out.LegacyProductTruthCompatibility
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, s.db, request.WorkID, contract.Version)
 		if err != nil {
 			return out, err
@@ -368,7 +364,6 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		return nil, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	out.LegacyProductTruthCompatibility = out.Definition.Version >= 1 && out.Definition.Version <= 3
 	out.Ready = true
 	out.CandidateIDs = []string{}
 	out.Conditions = []WorkflowReadCondition{}
@@ -391,7 +386,6 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
 		contract.ChangesProductTruth = out.ChangesProductTruth
-		contract.LegacyProductTruthCompatibility = out.LegacyProductTruthCompatibility
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, workID, contract.Version)
 		if err != nil {
 			return nil, err

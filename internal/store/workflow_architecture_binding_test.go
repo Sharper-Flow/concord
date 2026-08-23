@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -93,7 +92,7 @@ func architectureValidationFixture(t *testing.T, workID string) (*Store, Workflo
 	if err := seedTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4)
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
@@ -304,7 +303,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		t.Fatal(err)
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:architecture", ClientRef: "client:architecture", AgentRef: "agent:architecture", SessionRef: "session:architecture", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4)
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
@@ -372,7 +371,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !projection.ChangesProductTruth || projection.LegacyProductTruthCompatibility || projection.Contract == nil || projection.Contract.Version != 2 || projection.ArchitectureBinding == nil || len(projection.ArchitectureBinding.DomainModifies) != 1 || projection.ArchitectureBinding.DomainModifies[0] != "root" {
+	if !projection.ChangesProductTruth || projection.Contract == nil || projection.Contract.Version != 2 || projection.ArchitectureBinding == nil || len(projection.ArchitectureBinding.DomainModifies) != 1 || projection.ArchitectureBinding.DomainModifies[0] != "root" {
 		t.Fatalf("unexpected read projection: %+v", projection)
 	}
 	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
@@ -410,7 +409,7 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	workID := "architecture-binding-missing"
 	seedWork(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:missing", ClientRef: "client:missing", AgentRef: "agent:missing", SessionRef: "session:missing", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4)
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
@@ -453,56 +452,13 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	}
 }
 
-func TestLegacyWorkflowDefinitionsRemainFalseAndRebuildWithoutAuthority(t *testing.T) {
-	ctx := context.Background()
-	for _, definitionVersion := range []int{1, 2, 3} {
-		t.Run("definition-v"+strconv.Itoa(definitionVersion), func(t *testing.T) {
-			s := openTemp(t)
-			workID := "legacy-binding-v" + strconv.Itoa(definitionVersion)
-			seedWork(t, s, workID)
-			actor := WorkflowActor{PrincipalRef: "principal:legacy", ClientRef: "client:legacy", AgentRef: "agent:legacy", SessionRef: "session:" + workID, ActorClass: ActorAgent}
-			definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", int64(definitionVersion))
-			if !ok {
-				t.Fatal("legacy implementation definition missing")
-			}
-			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
-				tx.Rollback()
-				t.Fatal(err)
-			}
-			if err := tx.Commit(); err != nil {
-				t.Fatal(err)
-			}
-			event := workflowEventWithActor("legacy-binding-contract-v"+strconv.Itoa(definitionVersion), WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-				"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "legacy contract", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:legacy", "immutable_subject_ref": "commit:legacy", "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "consequence_class": "internal_sqlite",
-			})
-			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-				t.Fatal(err)
-			}
-			if err := RebuildFromLog(ctx, s); err != nil {
-				t.Fatal(err)
-			}
-			projection, err := ReadWorkflow(ctx, s, workID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if projection.ChangesProductTruth || !projection.LegacyProductTruthCompatibility || projection.ArchitectureBinding != nil {
-				t.Fatalf("legacy definition gained Product authority: %+v", projection)
-			}
-		})
-	}
-}
-
 func TestGenericWorkflowAllowsEmptyLawModifiesButNoProductAuthority(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "generic-binding-shape"
 	seedWork(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:generic", ClientRef: "client:generic", AgentRef: "agent:generic", SessionRef: "session:generic", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.generic_one_off", 4)
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.generic_one_off", 1)
 	if !ok {
 		t.Fatal("latest generic definition missing")
 	}

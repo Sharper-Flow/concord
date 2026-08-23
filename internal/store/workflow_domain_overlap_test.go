@@ -395,9 +395,9 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) (WorkflowActor, int64) {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4)
+	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
 	if !ok {
-		t.Fatal("workflow.implementation v4 is unavailable")
+		t.Fatal("workflow.implementation is unavailable")
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:overlap", ClientRef: "client:overlap", AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

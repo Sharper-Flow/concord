@@ -644,7 +644,7 @@
         },
         {
           "kind": "go_test",
-          "value": "internal/store.TestLatestProductChangingDefinitionsHaveApprovalRouteWithoutHistoricalRewrite"
+          "value": "internal/store.TestProductChangingDefinitionsHaveApprovalRoute"
         },
         {
           "kind": "scenario",

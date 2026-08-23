@@ -5,50 +5,38 @@ import (
 	"testing"
 )
 
-func TestLatestWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
+func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version != 4 {
-			t.Fatalf("latest %s version=%d, want 4", definition.Ref, definition.Version)
+		if definition.Version != 1 {
+			t.Fatalf("built-in %s version=%d, want 1", definition.Ref, definition.Version)
 		}
 		for _, action := range definition.ActionDefinitions {
 			if !validActionExecutionMode(action.ExecutionMode) {
 				t.Fatalf("%s action %s has invalid execution mode %q", definition.Ref, action.ID, action.ExecutionMode)
 			}
 		}
-		for _, version := range []int64{1, 2, 3, 4} {
-			if _, ok := registry.Lookup(definition.Ref, version); !ok {
-				t.Fatalf("%s v%d is not registered", definition.Ref, version)
-			}
+		if _, ok := registry.Lookup(definition.Ref, 1); !ok {
+			t.Fatalf("%s is not registered", definition.Ref)
 		}
 	}
 }
 
-func TestWorkflowDefinitionEncodingPreservesHistoryAndAddsProductTruthAtV4(t *testing.T) {
+func TestWorkflowDefinitionEncodingCarriesModesAndProductTruth(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
-	v2, _ := registry.Lookup("workflow.implementation", 2)
-	v3, _ := registry.Lookup("workflow.implementation", 3)
-	v4, _ := registry.Lookup("workflow.implementation", 4)
-	v2Canonical, err := CanonicalWorkflowDefinition(v2.Definition)
+	registered, ok := registry.Lookup("workflow.implementation", 1)
+	if !ok {
+		t.Fatal("implementation definition is not registered")
+	}
+	canonical, err := CanonicalWorkflowDefinition(registered.Definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v4Canonical, err := CanonicalWorkflowDefinition(v4.Definition)
-	if err != nil {
-		t.Fatal(err)
+	if !bytes.Contains(canonical, []byte(`"execution_mode"`)) {
+		t.Fatal("canonical definition omitted typed execution modes")
 	}
-	v3Canonical, err := CanonicalWorkflowDefinition(v3.Definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(v2Canonical, []byte(`"execution_mode"`)) {
-		t.Fatal("v2 canonical definition changed its historical encoding")
-	}
-	if !bytes.Contains(v3Canonical, []byte(`"execution_mode"`)) {
-		t.Fatal("v3 canonical definition omitted typed execution modes")
-	}
-	if !bytes.Contains(v4Canonical, []byte(`"changes_product_truth"`)) {
-		t.Fatal("v4 canonical definition omitted product-truth classification")
+	if !bytes.Contains(canonical, []byte(`"changes_product_truth"`)) {
+		t.Fatal("canonical definition omitted product-truth classification")
 	}
 }
 
@@ -75,72 +63,46 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 	}
 }
 
-func TestLegacyCustomDefinitionsReceiveCompatibleRuntimeModesWithoutChangingDigest(t *testing.T) {
-	for _, testCase := range []struct {
-		name    string
-		version int64
-	}{{"v1", 1}, {"v2", 2}} {
-		t.Run(testCase.name, func(t *testing.T) {
-			version := testCase.version
-			definition := builtinImplementation()
-			if version == 2 {
-				definition = builtinWorkflowV2(definition)
-			}
-			definition.AvailableActions[0] = "custom_action"
-			definition.StepGraph.Steps[0].Actions[0] = "custom_action"
-			definition.ActionDefinitions[0].ID = "custom_action"
-			definition.ActionDefinitions[0].ExecutionMode = ""
-			legacyDigest, err := WorkflowDefinitionDigest(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-			registered, err := NewWorkflowDefinitionRegistry().Register(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if registered.Digest != legacyDigest {
-				t.Fatalf("compatible runtime mode changed v%d digest: got %s want %s", version, registered.Digest, legacyDigest)
-			}
-			if registered.Definition.ActionDefinitions[0].ExecutionMode != ActionAdvance {
-				t.Fatalf("legacy custom action mode=%q, want %q", registered.Definition.ActionDefinitions[0].ExecutionMode, ActionAdvance)
-			}
-		})
+// An action the definition does not declare has no execution mode. The registry
+// infers nothing from the action ID.
+func TestUndeclaredActionHasNoExecutionMode(t *testing.T) {
+	definition := BuiltinWorkflowDefinitions()[0]
+	if mode, ok := workflowActionExecutionMode(definition, "record_report"); ok {
+		t.Fatalf("undeclared action resolved mode=%q, want no mode", mode)
 	}
 }
 
-func TestV1UndeclaredReplayActionUsesFrozenCompatibilityMode(t *testing.T) {
-	definition := builtinImplementation()
-	mode, ok := workflowActionExecutionMode(definition, "record_report")
-	if !ok || mode != ActionAdvance {
-		t.Fatalf("v1 undeclared replay action mode=%q found=%t, want %q", mode, ok, ActionAdvance)
-	}
-}
-
-func TestV3DefinitionRejectsMissingExecutionMode(t *testing.T) {
+func TestDefinitionRejectsMissingExecutionMode(t *testing.T) {
 	definition := BuiltinWorkflowDefinitions()[0]
 	definition.ActionDefinitions[0].ExecutionMode = ""
 	if err := ValidateWorkflowDefinition(definition); err == nil {
-		t.Fatal("v3 definition without execution_mode passed validation")
+		t.Fatal("definition without execution_mode passed validation")
 	}
 	if _, err := NewWorkflowDefinitionRegistry().Register(definition); err == nil {
-		t.Fatal("v3 definition without execution_mode was registered")
+		t.Fatal("definition without execution_mode was registered")
 	}
 }
 
-func TestHistoricalBuiltinWorkflowDigestsStayPinned(t *testing.T) {
+// The shipped definition digests are the identity the conformance corpus pins.
+// A change here is a change to every pinned scenario.
+func TestBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
-	want := map[int64]string{
-		1: "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
-		2: "sha256:81c3b0c3932135ccd4027e7b2f14873562df5b50f3aae314e2fec9b0be8402e5",
-		3: "sha256:15e65392ebf9418bd9ce1b1c2833a93c7025c8e3a0324f16b1e52d832d1187f3",
+	want := map[string]string{
+		"workflow.implementation":     "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+		"workflow.break_fix":          "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+		"workflow.research":           "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
+		"workflow.architecture_spike": "sha256:a6a5f1f88f5b4e546ec566e7175f6700c56e32dc557d183c6538a504b41225ac",
+		"workflow.ops_runbook":        "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+		"workflow.static_analysis":    "sha256:6e63731bb8f245d772eb85ce7de5f4fe23edd766775cfd4cdea7b728c3b8801a",
+		"workflow.generic_one_off":    "sha256:ba903197f3786f03e099bfaef35d188b64d6cfc2cc33d9b2ff4a7931b666775f",
 	}
-	for version, expected := range want {
-		definition, ok := registry.Lookup("workflow.implementation", version)
+	for ref, expected := range want {
+		definition, ok := registry.Lookup(ref, 1)
 		if !ok {
-			t.Fatalf("workflow.implementation v%d is not registered", version)
+			t.Fatalf("%s is not registered", ref)
 		}
 		if definition.Digest != expected {
-			t.Fatalf("workflow.implementation v%d digest=%s, want %s", version, definition.Digest, expected)
+			t.Fatalf("%s digest=%s, want %s", ref, definition.Digest, expected)
 		}
 	}
 }

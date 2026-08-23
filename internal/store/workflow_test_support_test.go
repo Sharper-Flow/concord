@@ -9,13 +9,60 @@ import (
 
 const testManifestDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-func legacyImplementationDigest(t *testing.T) string {
-	t.Helper()
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
-	if !ok {
-		t.Fatal("legacy implementation definition is not registered")
+// workflowFixtureRef names the test-only workflow family that fold, projection,
+// and supersession fixtures pin. It carries the implementation step graph so
+// step IDs stay familiar, and a work kind without Product-truth authority so a
+// contract fixture stays about the mechanism under test rather than about
+// architecture binding. Version 2 adds the worker action pair, which gives the
+// registry a real supersession to prove against; the shipped built-ins carry
+// exactly one version each.
+const workflowFixtureRef = "workflow.test_fixture"
+
+// workflowFixtureWorkKind is the payload spelling of the fixture family's work
+// kind.
+const workflowFixtureWorkKind = "static_analysis"
+
+// The fixture family registers at test-binary initialization so cross-process
+// race workers, which re-enter the binary without running a helper, resolve the
+// same pins as their parent.
+var workflowFixtureVersions = registerWorkflowFixtureFamily()
+
+func registerWorkflowFixtureFamily() []RegisteredDefinition {
+	registry := BuiltinWorkflowRegistry()
+	registered := make([]RegisteredDefinition, 0, 2)
+	for _, definition := range []WorkflowDefinition{
+		workflowFixtureShape(builtinImplementation(), 1),
+		workflowFixtureShape(withWorkerActions(builtinImplementation()), 2),
+	} {
+		entry, err := registry.Register(definition)
+		if err != nil {
+			panic(err)
+		}
+		registered = append(registered, entry)
 	}
-	return definition.Digest
+	return registered
+}
+
+func workflowFixtureDefinition(t *testing.T, version int64) RegisteredDefinition {
+	t.Helper()
+	if version < 1 || version > int64(len(workflowFixtureVersions)) {
+		t.Fatalf("workflow fixture v%d is not registered", version)
+	}
+	return workflowFixtureVersions[version-1]
+}
+
+func workflowFixtureShape(definition WorkflowDefinition, version int64) WorkflowDefinition {
+	definition.Ref = workflowFixtureRef
+	definition.Version = version
+	definition.WorkKind = WorkKindStaticAnalysis
+	changesProductTruth := false
+	definition.ChangesProductTruth = &changesProductTruth
+	return definition
+}
+
+func workflowFixtureDigest(t *testing.T) string {
+	t.Helper()
+	return workflowFixtureDefinition(t, 1).Digest
 }
 
 // applyWorkflowTestOperation models the owning workflow route for white-box

@@ -168,10 +168,7 @@ func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:law-pin", ClientRef: "client:law-pin", AgentRef: "agent:law-pin", SessionRef: "session:law-pin", ActorClass: ActorAgent}
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 3)
-	if !ok {
-		t.Fatal("historical v3 implementation definition is not registered")
-	}
+	registered := workflowFixtureDefinition(t, 1)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -212,10 +209,7 @@ func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, Work
 	seedWork(t, s, workID)
 	executor := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:executor", SessionRef: "session:executor", ActorClass: ActorAgent}
 	evaluator := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:evaluator", SessionRef: "session:evaluator", ActorClass: ActorOperator}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
-	if !ok {
-		t.Fatal("legacy implementation definition is not registered")
-	}
+	definition := workflowFixtureDefinition(t, 1)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

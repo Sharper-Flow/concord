@@ -36,7 +36,7 @@ func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
 	seedWork(t, s, "workflow-work")
 	seedWorkflowAuthority(t, s, "condition-authority", "workflow-work", "principal/resolver", "request:condition", []string{"approval:one"})
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/1")
-	implementationDigest := legacyImplementationDigest(t)
+	implementationDigest := workflowFixtureDigest(t)
 	base := int64(2)
 	events := []Event{
 		workflowEvent("actor", WorkflowActorRecorded, "workflow-work", map[string]any{
@@ -45,7 +45,7 @@ func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
 		}),
 		workflowEvent("definition", WorkflowDefinitionSelected, "workflow-work", map[string]any{
 			"work_id": "workflow-work", "expected_version": 3, "resulting_version": 4,
-			"ref": "workflow.implementation", "version": 1, "digest": implementationDigest, "work_kind": "implementation",
+			"ref": workflowFixtureRef, "version": 1, "digest": implementationDigest, "work_kind": workflowFixtureWorkKind,
 		}),
 		workflowEventWithActor("contract", WorkflowContractApproved, "workflow-work", actor, map[string]any{
 			"work_id": "workflow-work", "expected_version": 4, "resulting_version": 5,
@@ -135,14 +135,14 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 	s := openTemp(t)
 	seedWork(t, s, "ordered-gate-work")
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/executor")
-	digest := legacyImplementationDigest(t)
+	digest := workflowFixtureDigest(t)
 	events := []Event{
 		workflowEvent("ordered-actor", WorkflowActorRecorded, "ordered-gate-work", map[string]any{
 			"work_id": "ordered-gate-work", "expected_version": 2, "resulting_version": 3, "actor_ref": actor,
 			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/executor", "actor_class": "agent",
 		}),
 		workflowEvent("ordered-definition", WorkflowDefinitionSelected, "ordered-gate-work", map[string]any{
-			"work_id": "ordered-gate-work", "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation",
+			"work_id": "ordered-gate-work", "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind,
 		}),
 		workflowEventWithActor("ordered-contract", WorkflowContractApproved, "ordered-gate-work", actor, map[string]any{
 			"work_id": "ordered-gate-work", "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "deliver the checked change",
@@ -181,11 +181,11 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	seedWorkflowLaw(t, s)
 	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/complete")
 	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/review")
-	digest := legacyImplementationDigest(t)
+	digest := workflowFixtureDigest(t)
 	events := []Event{
 		workflowEvent("complete-executor", WorkflowActorRecorded, "complete-work", map[string]any{"work_id": "complete-work", "expected_version": 2, "resulting_version": 3, "actor_ref": executor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/complete", "actor_class": "agent"}),
 		workflowEvent("complete-operator", WorkflowActorRecorded, "complete-work", map[string]any{"work_id": "complete-work", "expected_version": 3, "resulting_version": 4, "actor_ref": operator, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/review", "actor_class": "operator"}),
-		workflowEvent("complete-definition", WorkflowDefinitionSelected, "complete-work", map[string]any{"work_id": "complete-work", "expected_version": 4, "resulting_version": 5, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
+		workflowEvent("complete-definition", WorkflowDefinitionSelected, "complete-work", map[string]any{"work_id": "complete-work", "expected_version": 4, "resulting_version": 5, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowEventWithActor("complete-contract", WorkflowContractApproved, "complete-work", executor, map[string]any{"work_id": "complete-work", "expected_version": 5, "resulting_version": 6, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:complete", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_boundary_version": 1, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"}),
 		workflowEventWithActor("complete-start", WorkflowActionStarted, "complete-work", executor, map[string]any{"work_id": "complete-work", "expected_version": 6, "resulting_version": 7, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "complete-operation", "actor_ref": executor}),
 		workflowEvent("complete-impact", WorkflowImpactDeclared, "complete-work", map[string]any{"work_id": "complete-work", "expected_version": 7, "resulting_version": 8, "edge_id": "edge:complete", "edge_kind": "modifies", "edge_class": "none", "target_work_id": "complete-work", "target_kind": "work_item", "severity": "breaking"}),
@@ -550,10 +550,10 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	source, _ := seedCompletionGateCase(t, "revision-source", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	seedWork(t, source, "revision-dependent")
 	dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/revision-dependent")
-	digest := legacyImplementationDigest(t)
+	digest := workflowFixtureDigest(t)
 	dependentEvents := []Event{
 		workflowEvent("revision-dependent-actor", WorkflowActorRecorded, "revision-dependent", map[string]any{"work_id": "revision-dependent", "expected_version": 2, "resulting_version": 3, "actor_ref": dependentActor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/dependent", "session_ref": "session/revision-dependent", "actor_class": "agent"}),
-		workflowEvent("revision-dependent-definition", WorkflowDefinitionSelected, "revision-dependent", map[string]any{"work_id": "revision-dependent", "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
+		workflowEvent("revision-dependent-definition", WorkflowDefinitionSelected, "revision-dependent", map[string]any{"work_id": "revision-dependent", "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowEventWithActor("revision-dependent-contract", WorkflowContractApproved, "revision-dependent", dependentActor, map[string]any{"work_id": "revision-dependent", "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "consume the source contract", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:dependent", "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"}),
 		workflowEventWithActor("revision-dependent-start", WorkflowActionStarted, "revision-dependent", dependentActor, map[string]any{"work_id": "revision-dependent", "expected_version": 5, "resulting_version": 6, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "dependent-operation", "actor_ref": dependentActor}),
 	}
@@ -605,11 +605,11 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 			seedWork(t, s, dependentID)
 			actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+sourceID)
 			dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/"+dependentID)
-			digest := legacyImplementationDigest(t)
+			digest := workflowFixtureDigest(t)
 			version := int64(2)
 			events := []Event{
 				workflowEvent("actor-"+dependentID, WorkflowActorRecorded, dependentID, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "actor_ref": dependentActor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/dependent", "session_ref": "session/" + dependentID, "actor_class": "agent"}),
-				workflowEvent("definition-"+dependentID, WorkflowDefinitionSelected, dependentID, map[string]any{"work_id": dependentID, "expected_version": version + 1, "resulting_version": version + 2, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
+				workflowEvent("definition-"+dependentID, WorkflowDefinitionSelected, dependentID, map[string]any{"work_id": dependentID, "expected_version": version + 1, "resulting_version": version + 2, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 			}
 			version += 2
 			if testCase.includeContract {
@@ -735,7 +735,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 	seedWorkflowLaw(t, s)
 	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+workID)
 	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/"+workID)
-	digest := legacyImplementationDigest(t)
+	digest := workflowFixtureDigest(t)
 	version := int64(2)
 	events := make([]Event, 0, 12)
 	appendEvent := func(event Event) {
@@ -744,7 +744,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 	}
 	appendEvent(workflowEvent("gate-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": executor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/" + workID, "actor_class": "agent"}))
 	appendEvent(workflowEvent("gate-operator-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": operator, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/" + workID, "actor_class": "operator"}))
-	appendEvent(workflowEvent("gate-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}))
+	appendEvent(workflowEvent("gate-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}))
 	mandate := []string{"spec:one"}
 	if testCase.emptyMandate {
 		mandate = []string{}

@@ -27,7 +27,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	}
 	wantActions := map[string][]string{
 		"workflow.implementation":     {"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
-		"workflow.break_fix":          {"record_reproduction", "record_root_cause", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "approve_contract"},
+		"workflow.break_fix":          {"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
 		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
 		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
 		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
@@ -109,13 +109,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		}
 	}
 	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1); !ok {
-		t.Fatal("legacy implementation definition was not registered")
-	}
-	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 3); !ok {
-		t.Fatal("historical v3 implementation definition was not registered")
-	}
-	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4); !ok {
-		t.Fatal("latest v4 implementation definition was not registered")
+		t.Fatal("implementation definition was not registered")
 	}
 }
 
@@ -162,47 +156,29 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 	}
 }
 
-func TestBuiltinWorkflowHistoryPinsV1V2V3AndLatestV4WorkerAcceptance(t *testing.T) {
+func TestBuiltinWorkflowResolvesVersionOneWithWorkerAcceptance(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	for _, latest := range BuiltinWorkflowDefinitions() {
-		if latest.Version != 4 {
-			t.Fatalf("latest %s version=%d, want 4", latest.Ref, latest.Version)
+		if latest.Version != 1 {
+			t.Fatalf("built-in %s version=%d, want 1", latest.Ref, latest.Version)
 		}
-		v1, ok := registry.Lookup(latest.Ref, 1)
+		registered, ok := registry.Lookup(latest.Ref, 1)
 		if !ok {
-			t.Fatalf("%s v1 definition is not registered", latest.Ref)
-		}
-		v2, ok := registry.Lookup(latest.Ref, 2)
-		if !ok {
-			t.Fatalf("%s v2 definition is not registered", latest.Ref)
-		}
-		if v1.Digest == v2.Digest {
-			t.Fatalf("%s v1 and v2 unexpectedly share digest %q", latest.Ref, v1.Digest)
-		}
-		v3, ok := registry.Lookup(latest.Ref, 3)
-		if !ok {
-			t.Fatalf("%s v3 definition is not registered", latest.Ref)
-		}
-		if v2.Digest == v3.Digest {
-			t.Fatalf("%s v2 and v3 unexpectedly share digest %q", latest.Ref, v2.Digest)
-		}
-		v4, ok := registry.Lookup(latest.Ref, 4)
-		if !ok {
-			t.Fatalf("%s v4 definition is not registered", latest.Ref)
-		}
-		if v3.Digest == v4.Digest {
-			t.Fatalf("%s v3 and v4 unexpectedly share digest %q", latest.Ref, v3.Digest)
+			t.Fatalf("%s definition is not registered", latest.Ref)
 		}
 		resolved, err := BuiltinWorkflowDefinitionForRef(latest.Ref)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolved.Definition.Version != 4 || resolved.Digest != v4.Digest {
-			t.Fatalf("latest resolver for %s = v%d %s, want v4 %s", latest.Ref, resolved.Definition.Version, resolved.Digest, v4.Digest)
+		if resolved.Definition.Version != 1 || resolved.Digest != registered.Digest {
+			t.Fatalf("resolver for %s = v%d %s, want v1 %s", latest.Ref, resolved.Definition.Version, resolved.Digest, registered.Digest)
 		}
+		// Research delegates no external effect, so it declares no worker
+		// acceptance route.
+		wantAcceptance := latest.WorkKind != WorkKindResearch
 		for _, step := range latest.StepGraph.Steps {
 			hasAcceptance := containsString(step.Actions, "accept_worker_result")
-			if (step.Kind == WorkflowStepExternalEffect) != hasAcceptance {
+			if (wantAcceptance && step.Kind == WorkflowStepExternalEffect) != hasAcceptance {
 				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, hasAcceptance, step.Kind)
 			}
 		}
@@ -318,8 +294,6 @@ func TestWorkflowDefinitionCanonicalEncodingMatchesPublicFixture(t *testing.T) {
 	if err := json.Unmarshal(definitionJSON, &definition); err != nil {
 		t.Fatal(err)
 	}
-	falseValue := false
-	definition.ChangesProductTruth = &falseValue
 	gotDigest, err := WorkflowDefinitionDigest(definition)
 	if err != nil {
 		t.Fatal(err)

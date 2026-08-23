@@ -112,12 +112,17 @@ opencode run --agent concord-<lane> --format json <packet>
 The adapter asserts no model identifier. OpenCode resolves the executing model
 from host configuration (`agent.<name>.model`, an OMR plugin entry, or an
 inheritance rule) — Concord does not read, validate, or carry that decision.
-The adapter reads one consistent session identity from the closed JSON event
-stream, then runs `opencode export <session> --sanitize` and reads the latest
-typed assistant `providerID`/`modelID` as `readback_model` evidence. Whatever
-the host reports is what Concord records; an undeclared model, an
-ambiguous/malformed event, or an ambiguous/malformed export shape fails
-closed. Worker lifecycle evidence is recorded by the internal
+The adapter does assert the executor identity: lane agents generate with
+`mode: all` so run mode resolves the named agent rather than falling back to
+the default agent (CD-0064), and the sanitized session export readback must
+report an executing agent equal to `concord-<lane>`. A substituted executor
+returns a typed `agent_identity_mismatch` failure and records no worker
+evidence. The adapter reads one consistent session identity from the closed
+JSON event stream, then runs `opencode export <session> --sanitize` and reads
+the latest typed assistant `providerID`/`modelID` as `readback_model`
+evidence. Whatever the host reports is what Concord records; an undeclared
+model, an ambiguous/malformed event, or an ambiguous/malformed export shape
+fails closed. Worker lifecycle evidence is recorded by the internal
 `worker-dispatch`, `worker-complete`, and `worker-fail` CLI verbs; workers
 never record workflow transitions, verdicts, or completion.
 

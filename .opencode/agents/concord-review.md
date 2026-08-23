@@ -1,6 +1,6 @@
 ---
 description: Concord review lane — Review a bounded change against its contract and acceptance evidence.
-mode: subagent
+mode: all
 tools:
   task: false
 permission:

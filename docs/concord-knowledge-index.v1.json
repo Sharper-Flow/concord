@@ -1913,6 +1913,35 @@
       "title": "Concord ships an always-on operator conduct corpus"
     },
     {
+      "date": "2026-08-23T00:00:00Z",
+      "evidence": [
+        "adapter/opencode/dispatch.ts",
+        "scripts/generate-agent-lanes.py",
+        "adapter/opencode/dispatch.test.ts"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "CD-0064",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0064-run-mode-executor-assertion.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:4bbc6b16e40c35d542c91461341fdff263e8dea7cccde1d0036500a28c554582",
+      "status": "accepted",
+      "summary": "Lane agents generate with mode: all so opencode run resolves the agent the adapter names instead of silently falling back to the default agent, and the sanitized export readback returns the executing agent beside the executing model. The adapter asserts the readback agent equals the dispatched concord-<lane> identity before any evidence is recorded: a mismatch is a typed agent_identity_mismatch failure that records no worker evidence and can never drive worker-complete. CD-0058 D2 is clarified as model-scoped; its D1 and the lane registry digests are untouched.",
+      "tags": [
+        "lanes",
+        "dispatch",
+        "executor-identity",
+        "readback"
+      ],
+      "title": "Run-mode lane dispatch asserts its executor"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "PM1",

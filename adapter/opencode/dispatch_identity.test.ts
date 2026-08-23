@@ -28,12 +28,12 @@ test("export metadata reads the latest typed assistant and ignores nested model-
   const exported = JSON.stringify({
     info: { id: "session-1" },
     messages: [
-      { info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: "openai", modelID: "preferred", time: { created: 10 } }, parts: [] },
-      { info: { id: "message-user", sessionID: "session-1", role: "user", time: { created: 15 } }, parts: [] },
-      { info: { id: "message-2", sessionID: "session-1", role: "assistant", providerID: "zai-coding-plan", modelID: "glm-5.2", time: { created: 20 } }, parts: [{ type: "tool", state: { output: { model: "hostile/not-readback" } } }] },
+      { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "preferred", time: { created: 10 } }, parts: [] },
+      { info: { id: "message-user", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 15 } }, parts: [] },
+      { info: { id: "message-2", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "zai-coding-plan", modelID: "glm-5.2", time: { created: 20 } }, parts: [{ type: "tool", state: { output: { model: "hostile/not-readback" } } }] },
     ],
   })
-  expect(readExportSessionMetadata(exported, "session-1")).toEqual({ readback_model: "zai-coding-plan/glm-5.2", session_id: "session-1" })
+  expect(readExportSessionMetadata(exported, "session-1")).toEqual({ readback_model: "zai-coding-plan/glm-5.2", readback_agent: "concord-research", session_id: "session-1" })
   expect(readExportSessionMetadata(exported, "different-session")).toBeNull()
 })
 
@@ -41,8 +41,8 @@ test("export metadata rejects ambiguous duplicate assistant identity", () => {
   const exported = JSON.stringify({
     info: { id: "session-1" },
     messages: [
-      { info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: "openai", modelID: "preferred", time: { created: 10 } }, parts: [] },
-      { info: { id: "message-1", sessionID: "session-1", role: "assistant", providerID: "zai-coding-plan", modelID: "glm-5.2", time: { created: 10 } }, parts: [] },
+      { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "preferred", time: { created: 10 } }, parts: [] },
+      { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "zai-coding-plan", modelID: "glm-5.2", time: { created: 10 } }, parts: [] },
     ],
   })
   expect(readExportSessionMetadata(exported, "session-1")).toBeNull()

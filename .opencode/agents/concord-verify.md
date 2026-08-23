@@ -1,6 +1,6 @@
 ---
 description: Concord verify lane — Run independent verification and return deterministic pass or failure evidence.
-mode: subagent
+mode: all
 tools:
   task: false
 permission:

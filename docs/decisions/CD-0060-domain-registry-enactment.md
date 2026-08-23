@@ -1,4 +1,4 @@
-# CD-0059: The Domain registry enacts seven child Domains
+# CD-0060: The Domain registry enacts seven child Domains
 
 - **Status:** Accepted
 - **Date:** 2026-08-22

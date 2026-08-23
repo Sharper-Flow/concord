@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-domain-registry.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    }
+  ],
+  "id": "CD-0060",
+  "state": "satisfied"
+}

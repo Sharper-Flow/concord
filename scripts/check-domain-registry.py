@@ -10,7 +10,7 @@ name governing law that was superseded years ago.
 This validator owns the referential propositions the schema cannot express,
 because JSON Schema cannot reach across from the registry to the record set.
 
-CD-0059 D4 is the reason it exists. "No Domain enters the registry empty. A
+CD-0060 D4 is the reason it exists. "No Domain enters the registry empty. A
 boundary that owns nothing is a label, and it cannot be checked against
 anything." That invariant is the one the rejected six-Domain draft violated,
 and nothing in the schema or the index checker would have caught it.
@@ -92,7 +92,7 @@ def main() -> int:
         if homes.get(domain_id, 0) == 0:
             findings.append(
                 f"{prefix}: declared but owns no law record; a Domain is declared in the "
-                "same change that writes its first law (CD-0059 D4)"
+                "same change that writes its first law (CD-0060 D4)"
             )
 
         parent = domain.get("parent_domain_id")

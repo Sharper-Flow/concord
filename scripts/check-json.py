@@ -87,12 +87,6 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"floor readiness drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
-    tx_scope_checker = ROOT / "scripts/check-tx-scope.py"
-    if tx_scope_checker.is_file():
-        checked = subprocess.run([sys.executable, str(tx_scope_checker)], cwd=ROOT, capture_output=True, text=True)
-        if checked.returncode:
-            findings.append(f"tx scope drift: {checked.stderr.strip() or checked.stdout.strip()}")
-
     agent_jobs_checker = ROOT / "scripts/check-agent-jobs.py"
     if agent_jobs_checker.is_file():
         checked = subprocess.run([sys.executable, str(agent_jobs_checker)], cwd=ROOT, capture_output=True, text=True)

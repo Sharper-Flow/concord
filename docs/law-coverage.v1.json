@@ -582,8 +582,8 @@
           "value": "internal/store.TestStoreBoundaryFixtureViolations"
         },
         {
-          "kind": "validator",
-          "value": "scripts/check-tx-scope.py"
+          "kind": "go_test",
+          "value": "internal/store.TestTxScope"
         },
         {
           "kind": "validator",

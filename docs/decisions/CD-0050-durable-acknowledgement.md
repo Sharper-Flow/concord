@@ -164,6 +164,6 @@ layer that acknowledges.
 - Every D3 family carries `SyncDurable` after its outermost commit; the
   WAL-truncation test fails if a Family A site drops it.
 - `gofmt -l .`, `go vet ./...`, `bin/oc-test targeted -- ./internal/store`,
-  `./internal/agent`, `./cmd/concord`, `check-tx-scope.py`,
-  `check-store-boundary.py`, `check-json.py`, `check-public-content.py` pass.
+  `./internal/agent`, `./cmd/concord`, `check-store-boundary.py`,
+  `check-json.py`, `check-public-content.py` pass.
 - `docs/concord-knowledge-index.v1.json` records CD-0050 once.

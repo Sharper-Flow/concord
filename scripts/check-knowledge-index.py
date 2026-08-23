@@ -13,6 +13,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shard_format  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
@@ -613,37 +616,35 @@ def _load_generator() -> object:
     return module
 
 
-def canonical_shard_text(shard: object) -> str:
-    """The one encoding a record shard is stored in.
-
-    The --update writer and the encoding check share this, so they cannot drift
-    apart and disagree about what canonical means.
-    """
-    return json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
-
-
 def check_shard_encoding(findings: list[str]) -> None:
-    """Record shards already carry the encoding --update writes.
+    """Authored shards already carry the byte form shard_format owns.
 
     A shard differing only in indent, key order, or trailing newline still
-    parses, so every other check passes and the drift stays invisible. The next
-    --update rewrites it, and the diff surfaces inside an unrelated change.
+    parses, so every other check passes and the drift stays invisible. The
+    generators reprove it only under a manual --check run; this is the path CI
+    takes, so it holds on every push. Coverage shards have no other live check
+    at all, which is why they are held here too.
     """
-    shard_dir = ROOT / "docs/knowledge/records"
-    if not shard_dir.is_dir():
-        return
-    for shard_path in sorted(shard_dir.glob("*.json")):
-        raw = shard_path.read_text(encoding="utf-8")
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
+    shard_dirs = {
+        "record shard": ROOT / "docs/knowledge/records",
+        "coverage shard": ROOT / "docs/knowledge/coverage",
+    }
+    for label, shard_dir in shard_dirs.items():
+        if not shard_dir.is_dir():
             continue
-        if raw != canonical_shard_text(parsed):
-            fail(
-                findings,
-                f"manifest: record shard is not canonically encoded: {shard_path.relative_to(ROOT)}; "
-                "run python3 scripts/check-knowledge-index.py --update",
-            )
+        for shard_path in sorted(shard_dir.glob("*.json")):
+            raw = shard_path.read_text(encoding="utf-8")
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if raw.encode("utf-8") != shard_format.canonical_bytes(parsed):
+                fail(
+                    findings,
+                    f"manifest: {label} is not canonically encoded: {shard_path.relative_to(ROOT)}; "
+                    "run python3 scripts/generate-knowledge-index.py --update "
+                    "and python3 scripts/generate-law-coverage.py --update",
+                )
 
 
 def check_aggregate_freshness(findings: list[str]) -> None:
@@ -709,7 +710,7 @@ def update_manifest(data: object) -> list[str]:
         generator = _load_generator()
         for identifier, shard in shards.items():
             shard_path = shard_dir / f"{identifier}.json"
-            atomic_write(shard_path, canonical_shard_text(shard))
+            atomic_write(shard_path, shard_format.canonical_bytes(shard).decode("utf-8"))
         derived = generator.derive_aggregate(ROOT, [], template=data)
         if derived is None:
             return ["manifest: knowledge record shards failed generator validation"]

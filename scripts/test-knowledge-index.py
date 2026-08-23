@@ -14,9 +14,15 @@ from unittest import mock
 
 SCRIPT = Path(__file__).with_name("check-knowledge-index.py")
 SPEC = importlib.util.spec_from_file_location("knowledge_checker", SCRIPT)
-assert SPEC and SPEC.loader
+
 checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)
+
+SHARD_FORMAT_SPEC = importlib.util.spec_from_file_location(
+    "shard_format", Path(__file__).with_name("shard_format.py")
+)
+shard_format = importlib.util.module_from_spec(SHARD_FORMAT_SPEC)
+SHARD_FORMAT_SPEC.loader.exec_module(shard_format)
 
 
 def fixture(path: str = "docs/lesson.md", digest: str = "a" * 64) -> dict:
@@ -494,27 +500,36 @@ def test_record_shards_carry_the_encoding_update_writes() -> None:
     """A shard differing only in whitespace parses, so nothing else catches it."""
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        shard_dir = root / "docs/knowledge/records"
-        shard_dir.mkdir(parents=True)
+        records_dir = root / "docs/knowledge/records"
+        coverage_dir = root / "docs/knowledge/coverage"
+        records_dir.mkdir(parents=True)
+        coverage_dir.mkdir(parents=True)
+        canonical = shard_format.canonical_bytes
         # Insertion order is deliberately unsorted so the sort_keys drift differs.
-        shard = {"title": "Decision", "id": "CD-0099", "kind": "decision"}
-        shard_path = shard_dir / "CD-0099.json"
-        shard_path.write_text(checker.canonical_shard_text(shard), encoding="utf-8")
-        with mock.patch.object(checker, "ROOT", root):
-            findings: list[str] = []
-            checker.check_shard_encoding(findings)
-            assert findings == [], findings
-            drifts = (
-                json.dumps(shard, indent=1, ensure_ascii=False, sort_keys=True) + "\n",
-                json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=True),
-                json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
-            )
-            for drift in drifts:
-                assert drift != checker.canonical_shard_text(shard), drift
-                shard_path.write_text(drift, encoding="utf-8")
-                findings = []
+        record = {"title": "Decision", "id": "CD-0099", "kind": "decision"}
+        coverage = {"state": "satisfied", "id": "CD-0099"}
+        for label, shard_dir, shard in (
+            ("record", records_dir, record),
+            ("coverage", coverage_dir, coverage),
+        ):
+            shard_path = shard_dir / "CD-0099.json"
+            shard_path.write_bytes(canonical(shard))
+            with mock.patch.object(checker, "ROOT", root):
+                findings: list[str] = []
                 checker.check_shard_encoding(findings)
-                assert any("not canonically encoded" in f for f in findings), (drift, findings)
+                assert findings == [], (label, findings)
+                drifts = (
+                    json.dumps(shard, indent=1, ensure_ascii=False, sort_keys=True) + "\n",
+                    json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=True),
+                    json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
+                )
+                for drift in drifts:
+                    assert drift.encode("utf-8") != canonical(shard), (label, drift)
+                    shard_path.write_text(drift, encoding="utf-8")
+                    findings = []
+                    checker.check_shard_encoding(findings)
+                    assert any("not canonically encoded" in f for f in findings), (label, drift, findings)
+                    shard_path.write_bytes(canonical(shard))
 
 
 def run_tests() -> None:

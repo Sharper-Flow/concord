@@ -1885,6 +1885,34 @@
       "title": "A root Domain home states why no child Domain owns it"
     },
     {
+      "date": "2026-08-23T00:00:00Z",
+      "evidence": [
+        "scripts/install.py",
+        "adapter/opencode/dispatch.ts",
+        "skills/README.md"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "CD-0063",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0063-shipped-operator-conduct-rules.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:64b1f74c8c73636ce8a456045959e73a09fa47852156d2a15db9a437c3c1d3e2",
+      "status": "accepted",
+      "summary": "Concord installs its agent definitions, skills, and an authored tool-agnostic conduct corpus once under the versioned data root, and a consuming project holds a pointer rather than a copy. The always-on instruction surface is registered per project so non-Concord projects receive nothing, while agents live in the central OpenCode agents directory because no per-project pointer exists and an agent is inert until invoked. skills/ stays reserved so CD-0043 D3 is preserved, methodology stays host-owned under CD-0043 D1, and a loaded corpus file binds by content hash in the CD-0034 provenance manifest.",
+      "tags": [
+        "conduct",
+        "prompt-authority",
+        "installer"
+      ],
+      "title": "Concord ships an always-on operator conduct corpus"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "PM1",

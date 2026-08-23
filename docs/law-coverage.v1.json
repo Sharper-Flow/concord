@@ -674,6 +674,20 @@
     {
       "evidence": [
         {
+          "kind": "validator",
+          "value": "scripts/check-domain-registry.py"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-knowledge-index.py"
+        }
+      ],
+      "id": "CD-0059",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
           "kind": "go_test",
           "value": "internal/store.TestDispatchWorkerIsRegisteredWithTheD2Policy"
         },

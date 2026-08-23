@@ -6,7 +6,7 @@
     "internal/store/worker_lanes.go",
     "adapter/opencode/dispatch.ts"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "CD-0057",
   "kind": "decision",
   "path": "docs/decisions/CD-0057-conformance-control-round.md",

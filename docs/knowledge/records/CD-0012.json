@@ -1,6 +1,6 @@
 {
   "date": "2026-08-07T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0012",
   "kind": "decision",
   "path": "docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",

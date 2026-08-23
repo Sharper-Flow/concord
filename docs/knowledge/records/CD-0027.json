@@ -1,10 +1,13 @@
 {
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ],
   "date": "2026-08-14T00:00:00Z",
   "evidence": [
     "internal/store/workflow_continuity.go",
     "internal/store/workflow_continuity_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0027",
   "kind": "decision",
   "path": "docs/decisions/CD-0027-typed-restart-excluded.md",

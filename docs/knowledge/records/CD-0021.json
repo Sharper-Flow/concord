@@ -1,10 +1,13 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface"
+  ],
   "date": "2026-08-14T00:00:00Z",
   "evidence": [
     "internal/launcher/model.go",
     "docs/terminal-launcher-contract.md"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "operator-surface",
   "id": "CD-0021",
   "kind": "decision",
   "path": "docs/decisions/CD-0021-floor-condition-1-scope.md",

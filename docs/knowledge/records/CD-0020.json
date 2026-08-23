@@ -1,6 +1,6 @@
 {
   "date": "2026-08-13T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0020",
   "kind": "decision",
   "path": "docs/decisions/CD-0020-retain-knowledge-index-shape.md",

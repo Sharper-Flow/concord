@@ -1,10 +1,14 @@
 {
+  "applies_to_domain_ids": [
+    "product-memory",
+    "workflow-engine"
+  ],
   "date": "2026-08-14T00:00:00Z",
   "evidence": [
     "internal/store/research_reliance.go",
     "internal/agent/research_surface_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0025",
   "kind": "decision",
   "path": "docs/decisions/CD-0025-research-surface.md",

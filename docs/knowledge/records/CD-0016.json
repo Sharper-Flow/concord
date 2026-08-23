@@ -1,10 +1,13 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface"
+  ],
   "date": "2026-08-11T00:00:00Z",
   "evidence": [
     "internal/store/workflow_continuity.go",
     "internal/store/workflow_continuity_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0016",
   "kind": "decision",
   "path": "docs/decisions/CD-0016-context-continuity.md",

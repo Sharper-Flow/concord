@@ -1,6 +1,6 @@
 {
   "date": "2026-08-08T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "workflow-engine",
   "id": "workflow-engine-contract",
   "kind": "spec",
   "path": "docs/workflow-engine-contract.md",

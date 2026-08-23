@@ -1,6 +1,6 @@
 {
   "date": "2026-08-10T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "operator-surface",
   "id": "CD-0014",
   "kind": "decision",
   "path": "docs/decisions/CD-0014-terminal-launcher-rendering.md",

@@ -4,7 +4,7 @@
     "docs/decisions/CD-0045-writer-admission-invariant.md",
     "internal/store/conformance_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "CD-0051",
   "kind": "decision",
   "path": "docs/decisions/CD-0051-conformance-falsifier-quantity.md",

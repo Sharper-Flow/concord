@@ -1,11 +1,16 @@
 {
+  "applies_to_domain_ids": [
+    "agent-surface",
+    "work-coordination",
+    "workflow-engine"
+  ],
   "date": "2026-08-05T00:00:00Z",
   "evidence": [
     "internal/store/worktrees.go",
     "internal/store/worktrees_test.go",
     "internal/agent/trunk_firewall_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "CD-0008",
   "kind": "decision",
   "path": "docs/decisions/CD-0008-concord-mechanism-hardening.md",

@@ -1,6 +1,6 @@
 {
   "date": "2026-08-11T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "agent-lanes-contract",
   "kind": "spec",
   "path": "docs/agent-lanes-contract.md",

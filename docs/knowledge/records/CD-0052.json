@@ -4,7 +4,7 @@
     "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
     "internal/store/lifecycle_relations_test.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "work-coordination",
   "id": "CD-0052",
   "kind": "decision",
   "path": "docs/decisions/CD-0052-implements-fulfilment-semantics.md",

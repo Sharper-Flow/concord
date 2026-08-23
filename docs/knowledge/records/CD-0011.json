@@ -1,6 +1,6 @@
 {
   "date": "2026-08-07T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "CD-0011",
   "kind": "decision",
   "path": "docs/decisions/CD-0011-retain-sqlite-after-conformance.md",

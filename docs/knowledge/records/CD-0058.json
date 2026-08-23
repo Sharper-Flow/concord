@@ -5,7 +5,7 @@
     "adapter/opencode/dispatch.ts",
     "internal/store/schema.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0058",
   "kind": "decision",
   "path": "docs/decisions/CD-0058-no-model-routing.md",

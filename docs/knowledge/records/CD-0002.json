@@ -1,6 +1,6 @@
 {
   "date": "2026-07-25T00:00:00Z",
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "durable-authority",
   "id": "CD-0002",
   "kind": "decision",
   "path": "docs/decisions/CD-0002-concord-state-authority.md",

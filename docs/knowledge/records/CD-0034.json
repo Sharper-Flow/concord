@@ -4,7 +4,7 @@
     "internal/store/worker_lanes.go",
     "adapter/opencode/dispatch.ts"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0034",
   "kind": "decision",
   "path": "docs/decisions/CD-0034-host-prompt-provenance.md",

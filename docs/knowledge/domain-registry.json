@@ -16,7 +16,23 @@
       "status": "current"
     },
     {
-      "architecture_relations": [],
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002",
+            "PM3"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        },
+        {
+          "governing_law_ids": [
+            "CD-0036"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "product-memory"
+        }
+      ],
       "domain_id": "workflow-engine",
       "name": "Workflow engine",
       "parent_domain_id": "product-root:concord",
@@ -24,7 +40,23 @@
       "status": "current"
     },
     {
-      "architecture_relations": [],
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        },
+        {
+          "governing_law_ids": [
+            "CD-0013",
+            "CD-0023"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "workflow-engine"
+        }
+      ],
       "domain_id": "agent-surface",
       "name": "Agent surface",
       "parent_domain_id": "product-root:concord",
@@ -32,7 +64,16 @@
       "status": "current"
     },
     {
-      "architecture_relations": [],
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0015",
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        }
+      ],
       "domain_id": "product-memory",
       "name": "Product memory and law",
       "parent_domain_id": "product-root:concord",
@@ -40,7 +81,31 @@
       "status": "current"
     },
     {
-      "architecture_relations": [],
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        }
+      ],
+      "domain_id": "work-coordination",
+      "name": "Work coordination",
+      "parent_domain_id": "product-root:concord",
+      "purpose": "Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.",
+      "status": "current"
+    },
+    {
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0002"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "durable-authority"
+        }
+      ],
       "domain_id": "operator-surface",
       "name": "Operator surface",
       "parent_domain_id": "product-root:concord",
@@ -48,11 +113,19 @@
       "status": "current"
     },
     {
-      "architecture_relations": [],
-      "domain_id": "predecessor-migration",
-      "name": "Predecessor migration",
+      "architecture_relations": [
+        {
+          "governing_law_ids": [
+            "CD-0047"
+          ],
+          "kind": "depends_on",
+          "target_domain_id": "product-memory"
+        }
+      ],
+      "domain_id": "repository-verification",
+      "name": "Repository verification",
       "parent_domain_id": "product-root:concord",
-      "purpose": "Owns migration from the Advance predecessor: the snapshot contract and its fail-closed validation, inventory and import verbs, and cutover sequencing. Bounded by design; moves to deprecated once cutover completes.",
+      "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
       "status": "current"
     }
   ],

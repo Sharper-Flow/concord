@@ -1,11 +1,14 @@
 {
+  "applies_to_domain_ids": [
+    "product-memory"
+  ],
   "date": "2026-08-17T00:00:00Z",
   "evidence": [
     "internal/store/governing_requirements.go",
     "internal/agent/mutations.go",
     "internal/agent/envelope.go"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "agent-surface",
   "id": "CD-0035",
   "kind": "decision",
   "path": "docs/decisions/CD-0035-governing-requirements-at-capture.md",

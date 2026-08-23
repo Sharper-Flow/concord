@@ -1,11 +1,14 @@
 {
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ],
   "date": "2026-08-17T00:00:00Z",
   "evidence": [
     "internal/store/workflow_law_revision.go",
     "internal/store/workflow_law_revision_test.go",
     "docs/workflow-engine-contract.md"
   ],
-  "home_domain_id": "product-root:concord",
+  "home_domain_id": "product-memory",
   "id": "CD-0036",
   "kind": "decision",
   "path": "docs/decisions/CD-0036-breaking-law-cutovers.md",

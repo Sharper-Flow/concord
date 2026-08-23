@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // Corpus mirrors the JSON shape of scenarios/product-memory-query.v1.json.
@@ -195,11 +196,7 @@ func Load() (Corpus, error) {
 // the returned *store.Store and is responsible for closing it. This mirrors
 // the historical openTemp helper used inside internal/store tests.
 func OpenTemp(dir string) (*store.Store, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("pm1fixture: create temp dir %s: %w", dir, err)
-	}
-	ctx := context.Background()
-	s, err := store.Open(ctx, filepath.Join(dir, "concord.db"))
+	s, err := storetest.Open(dir)
 	if err != nil {
 		return nil, fmt.Errorf("pm1fixture: open store: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // CD-0023: the recorded acceptance verdict of a terminal work item is
@@ -18,7 +19,7 @@ import (
 func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateKey, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

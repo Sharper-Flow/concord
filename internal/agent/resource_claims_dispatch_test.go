@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // CD-0028 / issue #88: uncontended claim, contended claim, release,
@@ -18,7 +19,7 @@ import (
 func claimsFixture(t *testing.T) (*store.Store, *Service, Grant) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

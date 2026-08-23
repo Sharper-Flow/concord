@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 func TestDispatchInitiativeSurfaceUsesInitiativeEventsAndBoundedEntriesRead(t *testing.T) {
@@ -317,7 +318,7 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 
 func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,7 +708,7 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -749,7 +750,7 @@ func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*stor
 func disjointRelationFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -817,7 +818,7 @@ func countRows(t *testing.T, db *sql.DB, query string) int {
 func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2380,6 +2380,65 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 ALTER TABLE law_domain_homes ADD COLUMN product_wide_rationale TEXT NOT NULL DEFAULT '';
 		`,
 	},
+	{
+		Version: 46,
+		Name:    "drop_orchestrator_reservation",
+		SQL: `
+-- CD-0061 D3: the typed_agent_type, typed_agent_version, and
+-- typed_agent_ruleset_digest columns on workflow_context_boundaries were
+-- reserved for a restart-dispatch path CD-0027 excludes; no code reads or
+-- writes them, and the only member of boundary_kind that gated on them
+-- ('restart') is closed by the same decision. The reservation is removed so
+-- the misreading CD-0049 made cannot recur, and boundary_kind narrows to
+-- admit only 'summary' at the column level. The table-level CHECK that
+-- summary-bound rows carry a non-empty summary is preserved.
+CREATE TABLE workflow_context_boundaries_new (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL,
+    boundary_sequence INTEGER NOT NULL,
+    boundary_count INTEGER NOT NULL,
+    boundary_id TEXT NOT NULL,
+    boundary_kind TEXT NOT NULL CHECK(boundary_kind='summary'),
+    checkpoint_id TEXT NOT NULL,
+    checkpoint_sequence INTEGER NOT NULL,
+    attempt_epoch INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    workflow_ref TEXT NOT NULL,
+    workflow_definition_version INTEGER NOT NULL,
+    workflow_definition_digest TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, boundary_sequence),
+    UNIQUE(work_id, boundary_id),
+    CHECK(work_version > 0),
+    CHECK(boundary_sequence > 0 AND boundary_count = boundary_sequence),
+    CHECK(length(boundary_id) BETWEEN 2 AND 128),
+    CHECK(boundary_kind='summary' AND length(summary) BETWEEN 1 AND 16384),
+    CHECK(attempt_epoch > 0),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(checkpoint_sequence > 0),
+    CHECK(length(workflow_ref) BETWEEN 2 AND 128),
+    CHECK(workflow_definition_version > 0),
+    CHECK(length(workflow_definition_digest) = 71 AND substr(workflow_definition_digest,1,7)='sha256:'),
+    CHECK(length(request_id) > 0)
+);
+INSERT INTO workflow_context_boundaries_new
+    (work_id, work_version, boundary_sequence, boundary_count, boundary_id, boundary_kind,
+     checkpoint_id, checkpoint_sequence, attempt_epoch, summary, workflow_ref,
+     workflow_definition_version, workflow_definition_digest, actor_ref, request_id, recorded_at)
+    SELECT work_id, work_version, boundary_sequence, boundary_count, boundary_id, boundary_kind,
+           checkpoint_id, checkpoint_sequence, attempt_epoch, summary, workflow_ref,
+           workflow_definition_version, workflow_definition_digest, actor_ref, request_id, recorded_at
+    FROM workflow_context_boundaries;
+DROP TABLE workflow_context_boundaries;
+ALTER TABLE workflow_context_boundaries_new RENAME TO workflow_context_boundaries;
+CREATE INDEX workflow_context_boundaries_history ON workflow_context_boundaries(work_id, boundary_sequence DESC);
+CREATE TRIGGER workflow_context_boundaries_guard_insert BEFORE INSERT ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is immutable'); END;
+CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

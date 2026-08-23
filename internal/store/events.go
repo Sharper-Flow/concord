@@ -25,6 +25,7 @@ const (
 	SubjectProduct  SubjectType = "product"
 	SubjectProject  SubjectType = "project"
 	SubjectWorkItem SubjectType = "work_item"
+	SubjectSession  SubjectType = "session"
 )
 
 // subjectTypes is the closed set this binary recognizes.
@@ -32,6 +33,7 @@ var subjectTypes = map[SubjectType]struct{}{
 	SubjectProduct:  {},
 	SubjectProject:  {},
 	SubjectWorkItem: {},
+	SubjectSession:  {},
 }
 
 func (s SubjectType) valid() bool {

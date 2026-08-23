@@ -96,3 +96,97 @@ func TestLaneAgentIdentityRejectsADirectoryNamedLikeADefinition(t *testing.T) {
 		t.Fatal("identity = nil, want failure when the definition path is not a regular file")
 	}
 }
+
+func TestOrchestratorIdentityResolvesFromEitherSearchedDirectory(t *testing.T) {
+	for _, location := range []string{"global", "project"} {
+		t.Run(location, func(t *testing.T) {
+			home, cwd := t.TempDir(), t.TempDir()
+			dir := filepath.Join(cwd, ".opencode", "agents")
+			if location == "global" {
+				dir = filepath.Join(home, ".config", "opencode", "agents")
+			}
+			writeAgentDefinition(t, dir, orchestratorAgentFileName)
+			assertion, err := verifyOrchestratorIdentity(home, cwd)
+			if err != nil {
+				t.Fatalf("identity = %v, want nil", err)
+			}
+			if assertion.Type != OrchestratorIdentityType {
+				t.Errorf("type = %q, want %q", assertion.Type, OrchestratorIdentityType)
+			}
+			if assertion.Version != OrchestratorIdentityVersion {
+				t.Errorf("version = %q, want %q", assertion.Version, OrchestratorIdentityVersion)
+			}
+			if len(assertion.Sources) == 0 {
+				t.Fatalf("assertion sources empty; expected at least the orchestrator definition")
+			}
+			if assertion.Sources[0].Kind != "orchestrator_definition" {
+				t.Errorf("first source kind = %q, want orchestrator_definition", assertion.Sources[0].Kind)
+			}
+		})
+	}
+}
+
+func TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	_, err := verifyOrchestratorIdentity(home, cwd)
+	if err == nil {
+		t.Fatal("identity = nil, want absent-identity failure")
+	}
+	message := err.Error()
+	for _, fragment := range []string{
+		orchestratorAgentFileName,
+		filepath.Join(home, ".config", "opencode", "agents"),
+		filepath.Join(cwd, ".opencode", "agents"),
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("diagnostic missing %q: %q", fragment, message)
+		}
+	}
+}
+
+func TestOrchestratorIdentityDigestIsStableAcrossInvocations(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	dir := filepath.Join(cwd, ".opencode", "agents")
+	writeAgentDefinition(t, dir, orchestratorAgentFileName)
+	if err := os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte("# project instructions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := verifyOrchestratorIdentity(home, cwd)
+	if err != nil {
+		t.Fatalf("first verify: %v", err)
+	}
+	second, err := verifyOrchestratorIdentity(home, cwd)
+	if err != nil {
+		t.Fatalf("second verify: %v", err)
+	}
+	if first.RulesetDigest != second.RulesetDigest {
+		t.Fatalf("digest changed across invocations on the same files: %q vs %q", first.RulesetDigest, second.RulesetDigest)
+	}
+	if !strings.HasPrefix(first.RulesetDigest, "sha256:") {
+		t.Fatalf("digest = %q, want sha256:<hex>", first.RulesetDigest)
+	}
+}
+
+func TestOrchestratorIdentityDigestChangesWhenArtifactChanges(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	dir := filepath.Join(cwd, ".opencode", "agents")
+	writeAgentDefinition(t, dir, orchestratorAgentFileName)
+	agentsPath := filepath.Join(cwd, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte("# instructions v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := verifyOrchestratorIdentity(home, cwd)
+	if err != nil {
+		t.Fatalf("first verify: %v", err)
+	}
+	if err := os.WriteFile(agentsPath, []byte("# instructions v2 — silently changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := verifyOrchestratorIdentity(home, cwd)
+	if err != nil {
+		t.Fatalf("second verify: %v", err)
+	}
+	if first.RulesetDigest == second.RulesetDigest {
+		t.Fatalf("digest unchanged after AGENTS.md mutation: %q", second.RulesetDigest)
+	}
+}

@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRootHomeRequiresProductWideRationale"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRootHomeRationaleSurvivesTheQ10Projection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLegacyMigrationMarksUndecidedRootHomes"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-domain-registry.py"
+    }
+  ],
+  "id": "CD-0062",
+  "state": "satisfied"
+}

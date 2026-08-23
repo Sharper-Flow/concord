@@ -1,4 +1,4 @@
-# CD-0061: A root Domain home states why no child Domain owns it
+# CD-0062: A root Domain home states why no child Domain owns it
 
 - **Status:** Accepted
 - **Date:** 2026-08-23

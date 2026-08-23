@@ -1,5 +1,18 @@
 {
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-installer.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-release.py"
+    }
+  ],
   "id": "CD-0063",
-  "issue": 410,
-  "state": "outstanding"
+  "state": "satisfied"
 }

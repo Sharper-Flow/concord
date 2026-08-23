@@ -232,6 +232,49 @@ test("an unknown readback is recorded as-is and not refused", async () => {
   expect(result.readback_model).toBe(hostExecuted)
 })
 
+// CD-0063 D5: the conduct corpus reaches a project as an absolute glob —
+// `<stable root>/instructions/*.md` — and a corpus file that reaches an agent
+// must be bound by content hash, not merely named. An absolute glob resolves
+// against one fixed directory, so it expands exactly.
+test("host prompt provenance binds an absolute corpus glob file for file", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-cwd-"))
+  const stableRoot = await mkdtemp(path.join(os.tmpdir(), "provenance-stable-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await Bun.write(`${stableRoot}/instructions/asking.md`, "# asking v1\n")
+    await Bun.write(`${stableRoot}/instructions/voice.md`, "# voice v1\n")
+    await Bun.write(
+      `${configDir}/opencode.jsonc`,
+      `{"instructions": [${JSON.stringify(`${stableRoot}/instructions/*.md`)}]}\n`,
+    )
+    const first = await computeHostPromptProvenance("research", dir)
+
+    const bound = first.sources.filter(s => s.kind === "instruction_file")
+    expect(bound.map(s => s.path).sort()).toEqual([
+      `${stableRoot}/instructions/asking.md`,
+      `${stableRoot}/instructions/voice.md`,
+    ])
+    expect(bound.every(s => typeof s.sha256 === "string" && s.sha256.startsWith("sha256:"))).toBe(true)
+
+    // A silent corpus change must move the digest — this is the guarantee the
+    // link entry exists to carry.
+    await Bun.write(`${stableRoot}/instructions/asking.md`, "# asking v2 — silently changed\n")
+    expect((await computeHostPromptProvenance("research", dir)).digest).not.toBe(first.digest)
+
+    // An absolute glob matching nothing is named rather than dropped.
+    await Bun.write(`${configDir}/opencode.jsonc`, `{"instructions": [${JSON.stringify(`${stableRoot}/absent/*.md`)}]}\n`)
+    const empty = await computeHostPromptProvenance("research", dir)
+    expect(empty.sources.filter(s => s.kind === "unenumerated").map(s => s.path)).toContain(
+      `${stableRoot}/absent/*.md`,
+    )
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
 // CD-0032 / issue #103: provenance is deterministic for the same inputs and
 // changes when an enumerated source changes.
 import { computeHostPromptProvenance } from "./dispatch"

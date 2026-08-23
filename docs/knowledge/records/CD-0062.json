@@ -1,0 +1,33 @@
+{
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "repository-verification"
+  ],
+  "date": "2026-08-23T00:00:00Z",
+  "evidence": [
+    "internal/store/knowledge_manifest.go",
+    "internal/store/knowledge_index_projection.go",
+    "scripts/check-domain-registry.py"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0062",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0062-root-home-states-its-claim.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:e73d6581ae8eaa40c77fa7591e00b7184fcc158e129b19e6c49324beacb9032c",
+  "status": "accepted",
+  "summary": "A law record homed to the Product root declares product_wide_rationale: a stated, bounded reason why no child Domain owns it. Child-homed law must not carry the field. The CD-0041 D9.2 upcast writes an explicit undecided marker instead of inventing a claim, and check-domain-registry.py refuses any record still carrying it. law_domain_homes gains the column under migration 45 so the claim survives the PM1.Q10 projection proof. Manifest version 1.2 tightens in place because CD-0042 D1 keeps Concord pre-go-live with no compatibility cohort.",
+  "tags": [
+    "domains",
+    "knowledge-index",
+    "product-law",
+    "projection"
+  ],
+  "title": "A root Domain home states why no child Domain owns it"
+}

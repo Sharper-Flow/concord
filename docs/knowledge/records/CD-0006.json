@@ -4,6 +4,7 @@
   "id": "CD-0006",
   "kind": "decision",
   "path": "docs/decisions/CD-0006-concord-root-product-policy.md",
+  "product_wide_rationale": "Establishes the root Product identity, the single-operator rule, and the human-approval constitution. Every child Domain operates inside those constraints; none of them owns the constraint itself.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

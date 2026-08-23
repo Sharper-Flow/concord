@@ -21,13 +21,24 @@ type manifestFixture struct {
 	Scopes    KnowledgeRecordScopes
 	Successor string
 	Content   string
+	// RootHomed opts a law fixture into the Product root rather than the
+	// fixture child Domain, so a test can exercise the root-home claim and the
+	// projection round trip that carries it.
+	RootHomed bool
 }
+
+// fixtureRootHomeRationale is the claim a RootHomed fixture states.
+const fixtureRootHomeRationale = "Fixture law binds every child Domain."
 
 func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture) {
 	t.Helper()
 	digestRoot := sha256.Sum256([]byte(repo))
 	fixtureProductKey := "fixture-" + hex.EncodeToString(digestRoot[:6])[:12]
 	fixtureRootDomain := "product-root:" + fixtureProductKey
+	// Fixture law names the child Domain that owns it. The root is reachable
+	// without deciding anything, so a fixture that defaulted there would be
+	// asserting a Product-wide claim none of these tests actually make.
+	fixtureLawDomain := "fixture-law"
 	records := make([]KnowledgeRecord, 0, len(fixtures))
 	for _, fixture := range fixtures {
 		content := fixture.Content
@@ -48,13 +59,21 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 			Scopes: scopes, Successor: fixture.Successor, SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 		}
 		if manifestLawBearingKinds[record.Kind] && record.Status == "accepted" && record.HomeDomainID == "" {
-			record.HomeDomainID = fixtureRootDomain
+			if fixture.RootHomed {
+				record.HomeDomainID = fixtureRootDomain
+				record.ProductWideRationale = fixtureRootHomeRationale
+			} else {
+				record.HomeDomainID = fixtureLawDomain
+			}
 		}
 		records = append(records, record)
 	}
 	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"work_note", "decision", "spec", "lesson", "research"}, IndexedKinds: []string{"work_note", "decision", "spec", "lesson"}, Records: records}
-	registryDomains := []KnowledgeDomain{{DomainID: fixtureRootDomain, Name: fixtureProductKey, Purpose: "fixture registry", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}}
-	declared := map[string]bool{fixtureRootDomain: true}
+	registryDomains := []KnowledgeDomain{
+		{DomainID: fixtureRootDomain, Name: fixtureProductKey, Purpose: "fixture registry", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+		{DomainID: fixtureLawDomain, Name: fixtureLawDomain, Purpose: "fixture law home", ParentDomainID: fixtureRootDomain, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+	}
+	declared := map[string]bool{fixtureRootDomain: true, fixtureLawDomain: true}
 	for _, record := range records {
 		for _, domainID := range record.Scopes.DomainIDs {
 			if !declared[domainID] {

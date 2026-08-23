@@ -27,7 +27,11 @@ const (
 	maxManifestSummary    = 4096
 	maxManifestPath       = 512
 	maxManifestDomains    = 64
-	maxManifestRelations  = 64
+	// maxManifestRootHomeRationale bounds the claim to a stated reason rather
+	// than an essay. A rationale that needs more room is describing law that
+	// belongs in a child Domain.
+	maxManifestRootHomeRationale = 512
+	maxManifestRelations         = 64
 )
 
 var knowledgeKindsClosed = map[string]bool{
@@ -193,10 +197,24 @@ type KnowledgeRecord struct {
 	// carry this record's guidance. The offline validator fails when an
 	// evidence path no longer exists — the structural law/implementation
 	// drift audit (CD-0026).
-	Evidence                []string `json:"evidence,omitempty"`
-	homeDomainPresent       bool
-	appliesToDomainsPresent bool
+	Evidence []string `json:"evidence,omitempty"`
+	// ProductWideRationale states why this record's behavior fits no child
+	// Domain. It is required when the home is the Product root and forbidden
+	// otherwise. The root is the only home reachable without deciding
+	// anything, so absent a stated claim a defaulted root home and a correct
+	// one are indistinguishable once written.
+	ProductWideRationale        string `json:"product_wide_rationale,omitempty"`
+	homeDomainPresent           bool
+	appliesToDomainsPresent     bool
+	productWideRationalePresent bool
 }
+
+// UndecidedRootHomeRationale marks a root home the CD-0041 D9.2 upcast
+// assigned rather than an author claimed. Legacy law carrying zero or several
+// component IDs has no decided home, and the migration cannot invent one. The
+// marker keeps that state visible and searchable instead of letting it wear
+// the same shape as a reviewed Product-wide claim.
+const UndecidedRootHomeRationale = "undecided: home assigned by the CD-0041 D9.2 upcast and not yet reviewed"
 
 // KnowledgeDisposition records source material the operator has decided not to
 // formalize. It is the opposite of a record: a record makes a document
@@ -391,6 +409,12 @@ func (record *KnowledgeRecord) UnmarshalJSON(data []byte) error {
 		}
 		record.appliesToDomainsPresent = true
 	}
+	if raw, ok := fields["product_wide_rationale"]; ok {
+		if string(raw) == "null" {
+			return fmt.Errorf("product_wide_rationale cannot be null")
+		}
+		record.productWideRationalePresent = true
+	}
 	return nil
 }
 
@@ -518,6 +542,9 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 	}
 	if len(record.AppliesToDomainIDs) > 0 {
 		entry["applies_to_domain_ids"] = record.AppliesToDomainIDs
+	}
+	if record.ProductWideRationale != "" {
+		entry["product_wide_rationale"] = record.ProductWideRationale
 	}
 	return entry
 }
@@ -818,20 +845,25 @@ func MigrateLegacyKnowledgeManifest(manifest KnowledgeManifest, productKey strin
 			case 0:
 				record.HomeDomainID = rootID
 				record.AppliesToDomainIDs = []string{}
+				record.ProductWideRationale = UndecidedRootHomeRationale
 			case 1:
 				record.HomeDomainID = record.Scopes.DomainIDs[0]
 				record.AppliesToDomainIDs = []string{}
 			default:
 				record.HomeDomainID = rootID
 				record.AppliesToDomainIDs = append([]string{}, record.Scopes.DomainIDs...)
+				record.ProductWideRationale = UndecidedRootHomeRationale
 			}
 			record.homeDomainPresent = true
 			record.appliesToDomainsPresent = true
+			record.productWideRationalePresent = record.ProductWideRationale != ""
 		} else {
 			record.HomeDomainID = ""
 			record.AppliesToDomainIDs = nil
+			record.ProductWideRationale = ""
 			record.homeDomainPresent = false
 			record.appliesToDomainsPresent = false
+			record.productWideRationalePresent = false
 		}
 		migrated.Records[index] = record
 	}
@@ -890,20 +922,47 @@ func validateKnowledgeDomainLawReferences(registry KnowledgeDomainRegistry, reco
 	return nil
 }
 
+// validateManifestRootHomeClaim holds the asymmetry between the root Domain
+// and every child. A child home has already decided, so the record needs no
+// further statement. The root has not: CD-0041 D2 makes it correct for
+// Product-wide law and simultaneously the only home an author reaches by
+// deciding nothing. Requiring the claim in the record is what separates the
+// two cases after the fact, which no later reader can otherwise do.
+func validateManifestRootHomeClaim(record KnowledgeRecord, hasHome bool, registry KnowledgeDomainRegistry) error {
+	rationale := strings.TrimSpace(record.ProductWideRationale)
+	rootHome := hasHome && registry.RootDomainID != "" && record.HomeDomainID == registry.RootDomainID
+	if !rootHome {
+		if record.productWideRationalePresent || record.ProductWideRationale != "" {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "only law homed to the root Domain states a product-wide rationale", false, "remove product_wide_rationale from a child-homed record")
+		}
+		return nil
+	}
+	if !record.productWideRationalePresent || rationale == "" {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law homed to the root Domain must state why no child Domain owns it", false, "author product_wide_rationale, or home the record to the child Domain whose behavior it governs")
+	}
+	if len(rationale) > maxManifestRootHomeRationale {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "product-wide rationale is too long", false, "state the reason in one or two sentences")
+	}
+	return nil
+}
+
 func validateManifestLawHome(record KnowledgeRecord, schemaVersion string, registry KnowledgeDomainRegistry) error {
 	if schemaVersion != "1.2" {
-		if record.HomeDomainID != "" || record.AppliesToDomainIDs != nil || record.homeDomainPresent || record.appliesToDomainsPresent {
+		if record.HomeDomainID != "" || record.AppliesToDomainIDs != nil || record.homeDomainPresent || record.appliesToDomainsPresent || record.ProductWideRationale != "" || record.productWideRationalePresent {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law-home fields require schema version 1.2", false, "remove domain law-home fields from a 1.0 or 1.1 manifest")
 		}
 		return nil
 	}
 	if !manifestLawBearingKinds[record.Kind] {
-		if record.HomeDomainID != "" || len(record.AppliesToDomainIDs) > 0 || record.homeDomainPresent || record.appliesToDomainsPresent {
+		if record.HomeDomainID != "" || len(record.AppliesToDomainIDs) > 0 || record.homeDomainPresent || record.appliesToDomainsPresent || record.ProductWideRationale != "" || record.productWideRationalePresent {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "non-law records cannot author domain law-home fields", false, "keep domain law-home fields on law-bearing records only")
 		}
 		return nil
 	}
 	hasHome := record.homeDomainPresent || record.HomeDomainID != ""
+	if err := validateManifestRootHomeClaim(record, hasHome, registry); err != nil {
+		return err
+	}
 	if record.Status == "accepted" && !hasHome {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "an accepted law-bearing record requires exactly one home domain", false, "author one home_domain_id")
 	}

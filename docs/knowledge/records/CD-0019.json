@@ -8,6 +8,7 @@
   "id": "CD-0019",
   "kind": "decision",
   "path": "docs/decisions/CD-0019-predecessor-strength-preservation.md",
+  "product_wide_rationale": "Mandates that six predecessor capabilities be carried forward and binds the method for deciding their shapes. The mandate spans product-memory, work-coordination, and durable-authority at once, and its D4 authorizes no implementation in any of them.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

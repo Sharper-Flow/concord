@@ -4,6 +4,7 @@
   "id": "CD-0041",
   "kind": "decision",
   "path": "docs/decisions/CD-0041-architecture-bound-product-law.md",
+  "product_wide_rationale": "Defines the Domain model itself, including what a Domain is and how law homes to one. A record that creates the partition cannot be owned by a Domain inside it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

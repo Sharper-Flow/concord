@@ -2367,6 +2367,19 @@ CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+	{
+		Version: 45,
+		Name:    "law_domain_home_product_wide_rationale",
+		SQL: `
+-- A law record homed to the Product root states why no child Domain owns it.
+-- The projection has to carry that claim or PM1.Q10 cannot hold: Q10 rebuilds
+-- the declared record from this table and requires byte equality with the
+-- manifest declaration, so a field the projection drops makes every
+-- root-homed record fail its own proof. Child-homed rows keep the empty
+-- default, which is what their absent claim means.
+ALTER TABLE law_domain_homes ADD COLUMN product_wide_rationale TEXT NOT NULL DEFAULT '';
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

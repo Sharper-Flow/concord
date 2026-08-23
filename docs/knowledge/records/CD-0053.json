@@ -14,6 +14,7 @@
   "id": "CD-0053",
   "kind": "decision",
   "path": "docs/decisions/CD-0053-predecessor-strength-answers.md",
+  "product_wide_rationale": "Answers the three predecessor strengths CD-0019 D3 left open, distributing the outcomes across workflow-engine, agent-surface, and product-memory. It closes a Product-wide mandate rather than governing any single Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

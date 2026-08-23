@@ -991,6 +991,20 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	); err != nil {
 		t.Fatalf("manifest record for migration 44: %v", err)
 	}
+	// Everything above targets migration 44. Carry the replay the rest of the
+	// way so the head assertion below keeps meaning what it says: the replay
+	// reached the current schema, not merely the migration this test opened on.
+	for _, m := range migrations[44:] {
+		if _, err := db.ExecContext(ctx, m.SQL); err != nil {
+			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+			m.Version, m.Name, m.checksum(), appliedAt,
+		); err != nil {
+			t.Fatalf("manifest record for migration %d: %v", m.Version, err)
+		}
+	}
 	var latest int
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {
 		t.Fatalf("read schema version: %v", err)

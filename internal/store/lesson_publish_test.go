@@ -245,6 +245,7 @@ func TestMarshalKnowledgeManifestPreservesV12LawHomes(t *testing.T) {
 			Title: "Law", Summary: "A current law retains its Domain ownership after lesson publication.", Tags: []string{},
 			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}, domainIDsPresent: true},
 			HomeDomainID: "product-root:concord", AppliesToDomainIDs: []string{"store"}, SHA256: "sha256:" + strings.Repeat("a", 64),
+			ProductWideRationale: "Ownership survives lesson publication across every child Domain.",
 		}},
 	}
 	written, err := marshalKnowledgeManifest(manifest)

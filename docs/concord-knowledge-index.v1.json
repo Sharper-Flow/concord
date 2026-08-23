@@ -284,6 +284,7 @@
       "id": "CD-0006",
       "kind": "decision",
       "path": "docs/decisions/CD-0006-concord-root-product-policy.md",
+      "product_wide_rationale": "Establishes the root Product identity, the single-operator rule, and the human-approval constitution. Every child Domain operates inside those constraints; none of them owns the constraint itself.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -306,6 +307,7 @@
       "id": "CD-0007",
       "kind": "decision",
       "path": "docs/decisions/CD-0007-concord-repository-bootstrap.md",
+      "product_wide_rationale": "Fixes the repository bootstrap and release boundary the whole Product is built and shipped through. It governs the container for every Domain rather than behavior inside any one.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -391,6 +393,7 @@
       "id": "CD-0010",
       "kind": "decision",
       "path": "docs/decisions/CD-0010-pre-readiness-development-authority.md",
+      "product_wide_rationale": "Assigns pre-readiness development authority to GitHub. It governs how this Product is built, not how it behaves, so no runtime Domain owns it.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -626,6 +629,7 @@
       "id": "CD-0019",
       "kind": "decision",
       "path": "docs/decisions/CD-0019-predecessor-strength-preservation.md",
+      "product_wide_rationale": "Mandates that six predecessor capabilities be carried forward and binds the method for deciding their shapes. The mandate spans product-memory, work-coordination, and durable-authority at once, and its D4 authorizes no implementation in any of them.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -1204,6 +1208,7 @@
       "id": "CD-0040",
       "kind": "decision",
       "path": "docs/decisions/CD-0040-verifiable-external-observations.md",
+      "product_wide_rationale": "Defines shared provenance and verification across Git state, worktrees, native runs, and recovery artifacts. Its own D1 states that provenance is shared while domain truth stays local, so the shared half has no single child owner.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -1227,6 +1232,7 @@
       "id": "CD-0041",
       "kind": "decision",
       "path": "docs/decisions/CD-0041-architecture-bound-product-law.md",
+      "product_wide_rationale": "Defines the Domain model itself, including what a Domain is and how law homes to one. A record that creates the partition cannot be owned by a Domain inside it.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -1581,6 +1587,7 @@
       "id": "CD-0053",
       "kind": "decision",
       "path": "docs/decisions/CD-0053-predecessor-strength-answers.md",
+      "product_wide_rationale": "Answers the three predecessor strengths CD-0019 D3 left open, distributing the outcomes across workflow-engine, agent-surface, and product-memory. It closes a Product-wide mandate rather than governing any single Domain.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",
@@ -1845,6 +1852,39 @@
       "title": "Orchestrator identity is recorded as a session assertion, not a restart boundary"
     },
     {
+      "applies_to_domain_ids": [
+        "durable-authority",
+        "repository-verification"
+      ],
+      "date": "2026-08-23T00:00:00Z",
+      "evidence": [
+        "internal/store/knowledge_manifest.go",
+        "internal/store/knowledge_index_projection.go",
+        "scripts/check-domain-registry.py"
+      ],
+      "home_domain_id": "product-memory",
+      "id": "CD-0062",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0062-root-home-states-its-claim.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:e73d6581ae8eaa40c77fa7591e00b7184fcc158e129b19e6c49324beacb9032c",
+      "status": "accepted",
+      "summary": "A law record homed to the Product root declares product_wide_rationale: a stated, bounded reason why no child Domain owns it. Child-homed law must not carry the field. The CD-0041 D9.2 upcast writes an explicit undecided marker instead of inventing a claim, and check-domain-registry.py refuses any record still carrying it. law_domain_homes gains the column under migration 45 so the claim survives the PM1.Q10 projection proof. Manifest version 1.2 tightens in place because CD-0042 D1 keeps Concord pre-go-live with no compatibility cohort.",
+      "tags": [
+        "domains",
+        "knowledge-index",
+        "product-law",
+        "projection"
+      ],
+      "title": "A root Domain home states why no child Domain owns it"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "PM1",
@@ -2103,6 +2143,7 @@
       "id": "priorities",
       "kind": "constitution",
       "path": "docs/priorities.md",
+      "product_wide_rationale": "The sole canonical source of ranked Product priorities and the operating envelope. Every Domain defers to it, and it ranks work across all of them.",
       "scopes": {
         "domain_ids": [],
         "mode": "home",

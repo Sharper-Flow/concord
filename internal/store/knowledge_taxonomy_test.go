@@ -77,6 +77,7 @@ func TestRecordStatusFollowsTheKindTier(t *testing.T) {
 			extra := map[string]any{}
 			if test.lawHome {
 				extra["home_domain_id"] = "product-root:concord"
+				extra["product_wide_rationale"] = "Fixture law binds every child Domain."
 			}
 			valid := taxonomyManifestBytes(t, taxonomyManifest{
 				Records: []json.RawMessage{taxonomyRecord(t, "record-1", test.kind, test.path, test.valid, extra)},
@@ -123,11 +124,13 @@ func TestLawRelationsRemainDecisionAndSpecOnly(t *testing.T) {
 	raw := taxonomyManifestBytes(t, taxonomyManifest{
 		Records: []json.RawMessage{
 			taxonomyRecord(t, "CO-0001", "constitution", "docs/constitution.md", "accepted", map[string]any{
-				"home_domain_id": "product-root:concord",
-				"law_relations":  []map[string]string{{"kind": "refines", "target_id": "CD-0001"}},
+				"home_domain_id":         "product-root:concord",
+				"product_wide_rationale": "Fixture law binds every child Domain.",
+				"law_relations":          []map[string]string{{"kind": "refines", "target_id": "CD-0001"}},
 			}),
 			taxonomyRecord(t, "CD-0001", "decision", "docs/decisions/CD-0001.md", "accepted", map[string]any{
-				"home_domain_id": "product-root:concord",
+				"home_domain_id":         "product-root:concord",
+				"product_wide_rationale": "Fixture law binds every child Domain.",
 			}),
 		},
 	})
@@ -145,7 +148,8 @@ func TestDispositionsAreBoundedAndExcludeRecordPaths(t *testing.T) {
 		return encoded
 	}
 	record := taxonomyRecord(t, "CD-0001", "decision", "docs/decisions/CD-0001.md", "accepted", map[string]any{
-		"home_domain_id": "product-root:concord",
+		"home_domain_id":         "product-root:concord",
+		"product_wide_rationale": "Fixture law binds every child Domain.",
 	})
 
 	valid := taxonomyManifestBytes(t, taxonomyManifest{

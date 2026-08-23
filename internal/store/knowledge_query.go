@@ -381,10 +381,11 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 			}
 			record.Scopes.DomainIDs, record.Scopes.domainIDsPresent = values, true
 			if kind == "decision" || kind == "spec" {
-				if err := q.QueryRowContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID); err != nil {
+				if err := q.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
 					return out, q10LawDomainProjectionFailure(err)
 				}
 				record.homeDomainPresent = true
+				record.productWideRationalePresent = record.ProductWideRationale != ""
 				values, queryErr = archivedLawApplicability(ctx, q, homeProject, homeLocator, lookupID)
 				if queryErr != nil {
 					return out, queryErr

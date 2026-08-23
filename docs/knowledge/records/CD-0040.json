@@ -14,6 +14,7 @@
   "id": "CD-0040",
   "kind": "decision",
   "path": "docs/decisions/CD-0040-verifiable-external-observations.md",
+  "product_wide_rationale": "Defines shared provenance and verification across Git state, worktrees, native runs, and recovery artifacts. Its own D1 states that provenance is shared while domain truth stays local, so the shared half has no single child owner.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

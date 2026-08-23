@@ -4,6 +4,7 @@
   "id": "CD-0007",
   "kind": "decision",
   "path": "docs/decisions/CD-0007-concord-repository-bootstrap.md",
+  "product_wide_rationale": "Fixes the repository bootstrap and release boundary the whole Product is built and shipped through. It governs the container for every Domain rather than behavior inside any one.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

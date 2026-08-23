@@ -575,7 +575,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			if !hasHome {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, homeDomain, law.SHA256, commit); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, homeDomain, law.SHA256, commit, law.ProductWideRationale); err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain home", true, "retry once the database is writable", err)
 			}
 			for _, domainID := range domainProjectionData.LawApplicability[law.ID] {

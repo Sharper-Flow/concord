@@ -155,6 +155,7 @@ func canonicalOrderManifest(t *testing.T) KnowledgeManifest {
 			LawRelations: []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0000"}},
 			Evidence:     []string{"internal/store/knowledge_manifest.go"},
 			HomeDomainID: "product-root:concord", AppliesToDomainIDs: []string{"product-root:concord"},
+			ProductWideRationale: "Fixture law binds every child Domain.",
 		}},
 	}
 }
@@ -190,8 +191,8 @@ func TestMarshalKnowledgeManifestEmitsCanonicalOrder(t *testing.T) {
 // carrying every optional key.
 var sortedRecordKeys = []string{
 	"applies_to_domain_ids", "date", "evidence", "home_domain_id", "id", "kind",
-	"law_relations", "path", "scopes", "sha256", "status", "successor",
-	"summary", "tags", "title",
+	"law_relations", "path", "product_wide_rationale", "scopes", "sha256",
+	"status", "successor", "summary", "tags", "title",
 }
 
 // TestMarshalKnowledgeManifestNormalizesAuthoredRecordOrder states the rule the
@@ -224,12 +225,13 @@ func TestMarshalKnowledgeManifestNormalizesAuthoredRecordOrder(t *testing.T) {
       "summary": "A record authored in an order the generator does not use.",
       "tags": [],
       "home_domain_id": "product-root:concord",
+      "product_wide_rationale": "Fixture law binds every child Domain.",
       "sha256": "sha256:` + strings.Repeat("a", 64) + `"
     }
   ]
 }
 `)
-	want := []string{"date", "home_domain_id", "id", "kind", "path", "scopes", "sha256", "status", "summary", "tags", "title"}
+	want := []string{"date", "home_domain_id", "id", "kind", "path", "product_wide_rationale", "scopes", "sha256", "status", "summary", "tags", "title"}
 	manifest, err := parseKnowledgeManifest(authored)
 	if err != nil {
 		t.Fatalf("parse authored manifest: %v", err)

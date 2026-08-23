@@ -4,6 +4,7 @@
   "id": "priorities",
   "kind": "constitution",
   "path": "docs/priorities.md",
+  "product_wide_rationale": "The sole canonical source of ranked Product priorities and the operating envelope. Every Domain defers to it, and it ranks work across all of them.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

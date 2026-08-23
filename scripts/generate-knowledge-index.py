@@ -43,6 +43,7 @@ ALLOWED_RECORD = {
     "evidence",
     "home_domain_id",
     "applies_to_domain_ids",
+    "product_wide_rationale",
 }
 REQUIRED_RECORD = ALLOWED_RECORD - {
     "successor",
@@ -50,6 +51,7 @@ REQUIRED_RECORD = ALLOWED_RECORD - {
     "evidence",
     "home_domain_id",
     "applies_to_domain_ids",
+    "product_wide_rationale",
 }
 SUPPORTED_KINDS = {"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"}
 KINDS = {"constitution", "decision", "spec", "lesson", "reference", "research"}

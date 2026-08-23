@@ -4,6 +4,7 @@
   "id": "CD-0010",
   "kind": "decision",
   "path": "docs/decisions/CD-0010-pre-readiness-development-authority.md",
+  "product_wide_rationale": "Assigns pre-readiness development authority to GitHub. It governs how this Product is built, not how it behaves, so no runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

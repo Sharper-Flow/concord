@@ -18,7 +18,7 @@ MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
 ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "dispositions", "doc_contract", "records"}
 ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
-ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids"}
+ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
 ALLOWED_SCOPES_V10 = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 ALLOWED_SCOPES_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 ALLOWED_DOMAIN_REGISTRY = {"schema_version", "product_key", "root_domain_id", "domains"}
@@ -81,6 +81,11 @@ def unique_string_list(value: object, maximum: int) -> bool:
 
 def valid_id(value: object) -> bool:
     return isinstance(value, str) and 0 < len(value) <= 256 and value == value.strip()
+
+
+def bounded_text(value: object, maximum: int) -> bool:
+    """A stated string: non-empty, untrimmed at both ends, and bounded."""
+    return isinstance(value, str) and 0 < len(value) <= maximum and value == value.strip()
 
 
 def validate_domain_registry(registry: object, findings: list[str]) -> set[str]:
@@ -285,7 +290,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         unknown = set(record) - ALLOWED_RECORD
         if unknown:
             fail(findings, f"{prefix}: unknown fields: {sorted(unknown)}")
-        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids"}
+        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
         missing = required - set(record)
         if missing:
             fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
@@ -374,11 +379,20 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if schema_version == "1.2" and any(domain_id not in domain_ids for domain_id in scopes["domain_ids"]):
                 fail(findings, f"{prefix}: scope domain is dangling")
 
-        if schema_version != "1.2" and ("home_domain_id" in record or "applies_to_domain_ids" in record):
+        if schema_version != "1.2" and ("home_domain_id" in record or "applies_to_domain_ids" in record or "product_wide_rationale" in record):
             fail(findings, f"{prefix}: law-home fields require schema_version 1.2")
         elif schema_version == "1.2":
-            if not law_bearing and ("home_domain_id" in record or "applies_to_domain_ids" in record):
+            if not law_bearing and ("home_domain_id" in record or "applies_to_domain_ids" in record or "product_wide_rationale" in record):
                 fail(findings, f"{prefix}: non-law records cannot author law-home fields")
+            # The root is the only home reachable by deciding nothing, so it
+            # carries a stated claim. A child home has already decided and a
+            # rationale there would assert a reach the home contradicts.
+            root_homed = record.get("home_domain_id") == registry.get("root_domain_id")
+            rationale = record.get("product_wide_rationale")
+            if root_homed and not bounded_text(rationale, 512):
+                fail(findings, f"{prefix}: law homed to the root Domain must state product_wide_rationale")
+            if not root_homed and "product_wide_rationale" in record:
+                fail(findings, f"{prefix}: only root-homed law states product_wide_rationale")
             if law_bearing and status == "accepted" and ("home_domain_id" not in record or not valid_id(record.get("home_domain_id"))):
                 fail(findings, f"{prefix}: an accepted law-bearing record requires one clean home_domain_id")
             if "home_domain_id" in record and (not valid_id(record["home_domain_id"]) or record["home_domain_id"] not in domain_ids):

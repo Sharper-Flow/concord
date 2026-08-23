@@ -23,6 +23,10 @@ const (
 	// SingleDomainName and SingleDomainPurpose are that Domain's identity.
 	SingleDomainName    = "Concord"
 	SingleDomainPurpose = "Product law"
+	// SingleDomainRootRationale is the claim a root-homed record must state.
+	// The fixture's registry declares no child Domain, so its law has no child
+	// to fit and the root is the only correct home.
+	SingleDomainRootRationale = "The fixture registry declares no child Domain, so this law has no child home available."
 	// DomainEvidenceLawID is the accepted decision homed to the root Domain.
 	DomainEvidenceLawID = "CD-0041"
 	// DomainEvidenceLawPath is the accepted decision's committed path.
@@ -199,13 +203,13 @@ func DomainEvidenceRepo(dir string) (string, error) {
 				Title: DomainEvidenceLawTitle, Summary: "Domains carry architecture authority", Tags: []string{},
 				LawRelations: []store.KnowledgeRelation{{Kind: "supersedes", TargetID: domainEvidenceSupersededID}},
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
-				HomeDomainID: SingleDomainRootID, SHA256: ContentDigest(DomainEvidenceLawBody),
+				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(DomainEvidenceLawBody),
 			},
 			{
 				ID: domainEvidenceSupersededID, Kind: "decision", Path: domainEvidenceSupersededPath, Status: "superseded", Date: "2026-08-17T00:00:00Z",
 				Title: "Component authority", Summary: "Retired architecture authority", Tags: []string{}, Successor: DomainEvidenceLawID,
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
-				HomeDomainID: SingleDomainRootID, SHA256: ContentDigest(domainEvidenceSupersededBody),
+				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(domainEvidenceSupersededBody),
 			},
 		},
 	}

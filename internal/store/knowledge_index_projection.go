@@ -14,6 +14,21 @@ import (
 	"unicode/utf8"
 )
 
+// CompactionBoundary selects whether a compaction link revalidates law and
+// architecture before folding. The zero value runs the guard, so a caller that
+// says nothing is protected and an exemption must be written explicitly.
+type CompactionBoundary int
+
+const (
+	// CompactionBoundaryRevalidated runs the CD-0041 D7 boundary check in the
+	// transaction that folds the link.
+	CompactionBoundaryRevalidated CompactionBoundary = iota
+	// CompactionBoundaryRecoveryExempt skips that check. Reconciling an
+	// orphaned note is the closed recovery choice for a pending compaction, so
+	// guarding it would refuse the only way out of that condition.
+	CompactionBoundaryRecoveryExempt
+)
+
 // CompactionLinkRequest is the proof-backed PM6 linkage input. The helper
 // verifies the committed blob before constructing the domain event.
 type CompactionLinkRequest struct {
@@ -27,6 +42,7 @@ type CompactionLinkRequest struct {
 	NotePath        string
 	ExpectedHash    string
 	Reason          string
+	Boundary        CompactionBoundary
 }
 
 type compactionLinkPayload struct {
@@ -154,13 +170,34 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "publish_compaction_link", "cannot encode the bounded compaction payload", false, "repair the note metadata", err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{
+	operation := Operation{
 		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 2, Payload: payloadBytes}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return publishCompactionLinkTx(ctx, tx, req.Boundary, req.WorkID, operation)
 	}); err != nil {
 		return err
 	}
 	return cleanupTerminalResearch(ctx, s, req.WorkID)
+}
+
+// publishCompactionLinkTx runs the CD-0041 D7 boundary check and the link fold
+// in the caller's transaction, so a law cutover cannot land between them.
+//
+// The subject of a compaction link is terminal, so the Domain-overlap half of
+// the check has an empty footprint by construction and the law-revision half is
+// what can refuse here. That refusal keeps output authorized under a superseded
+// law revision out of Product truth when the cutover commits while the external
+// git write is still in flight.
+func publishCompactionLinkTx(ctx context.Context, tx *Transaction, boundary CompactionBoundary, workID string, operation Operation) error {
+	if boundary == CompactionBoundaryRevalidated {
+		if err := CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
+			return err
+		}
+	}
+	_, err := ApplyOperationTx(ctx, tx, operation)
+	return err
 }
 
 func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) error {

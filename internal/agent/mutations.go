@@ -1809,6 +1809,12 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
 		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
+			// CD-0041 D7: publication is consequential, so the claim refuses
+			// before any git note is written when the contract's law revision
+			// pins or its active Domain overlaps no longer validate.
+			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
+				return err
+			}
 			if _, err := r.Authority.ValidateAndConsumeGrantTx(ctx, tx, inv); err != nil {
 				return err
 			}
@@ -1938,7 +1944,10 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if result.Outcome == OutcomeError {
 		return result, nil
 	}
-	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note"}); linkErr != nil {
+	// Reconcile is the closed recovery choice for an orphaned note, so its link
+	// is exempt from the CD-0041 D7 boundary check. Guarding it would refuse the
+	// only way out of a pending compaction.
+	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
 	}
 	changedJSON, _ := json.Marshal(changed[0])

@@ -1744,6 +1744,10 @@
       "title": "Concord performs no model routing"
     },
     {
+      "applies_to_domain_ids": [
+        "agent-surface",
+        "durable-authority"
+      ],
       "date": "2026-08-22T00:00:00Z",
       "evidence": [
         "internal/store/workflow_registry.go",
@@ -1756,7 +1760,7 @@
         "cmd/concord/main.go",
         "adapter/opencode/dispatch.ts"
       ],
-      "home_domain_id": "product-root:concord",
+      "home_domain_id": "workflow-engine",
       "id": "CD-0059",
       "kind": "decision",
       "path": "docs/decisions/CD-0059-worker-dispatch-action.md",

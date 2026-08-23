@@ -136,13 +136,11 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err != nil {
 		return err
 	}
-	if definition.Version >= 2 {
-		if err := requireActor(ctx, tx, event.Actor); err != nil {
-			return err
-		}
-		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, event.Actor, "", false, "complete_workflow"); err != nil {
-			return err
-		}
+	if err := requireActor(ctx, tx, event.Actor); err != nil {
+		return err
+	}
+	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, event.Actor, "", false, "complete_workflow"); err != nil {
+		return err
 	}
 
 	// Clause 1: durable, event-folded evidence bound to the approved contract.

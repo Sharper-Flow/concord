@@ -447,6 +447,50 @@
         {
           "kind": "go_test",
           "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-domain-registry.py"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestKnowledgeManifestV12RequiresLawHomeForApplicability"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestNonLawRecordsCannotAuthorLawHomeFields"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMarshalKnowledgeManifestPreservesV12LawHomes"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDefinitionValidationEnforcesVersionedProductTruthMatrix"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLatestBuiltinWorkflowProductTruthClassification"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale"
         }
       ],
       "id": "CD-0041",

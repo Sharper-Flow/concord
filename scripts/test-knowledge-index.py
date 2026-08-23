@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import copy
 import importlib.util
 import json
@@ -453,13 +454,6 @@ def test_duplicate_disposition_path_is_rejected() -> None:
         assert any("duplicate disposition path" in finding for finding in findings), findings
 
 
-if __name__ == "__main__":
-    for name, function in sorted(globals().items()):
-        if name.startswith("test_"):
-            function()
-    print("knowledge checker tests passed")
-
-
 def test_root_home_requires_a_stated_product_wide_rationale() -> None:
     """The root is reachable by deciding nothing, so it carries a stated claim."""
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
@@ -495,3 +489,56 @@ def test_only_root_homed_law_states_a_product_wide_rationale() -> None:
         with mock.patch.object(checker, "ROOT", root):
             findings = checker.validate(value, check_hashes=False)
         assert any("only root-homed law states product_wide_rationale" in finding for finding in findings), findings
+
+def test_record_shards_carry_the_encoding_update_writes() -> None:
+    """A shard differing only in whitespace parses, so nothing else catches it."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        shard_dir = root / "docs/knowledge/records"
+        shard_dir.mkdir(parents=True)
+        # Insertion order is deliberately unsorted so the sort_keys drift differs.
+        shard = {"title": "Decision", "id": "CD-0099", "kind": "decision"}
+        shard_path = shard_dir / "CD-0099.json"
+        shard_path.write_text(checker.canonical_shard_text(shard), encoding="utf-8")
+        with mock.patch.object(checker, "ROOT", root):
+            findings: list[str] = []
+            checker.check_shard_encoding(findings)
+            assert findings == [], findings
+            drifts = (
+                json.dumps(shard, indent=1, ensure_ascii=False, sort_keys=True) + "\n",
+                json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=True),
+                json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
+            )
+            for drift in drifts:
+                assert drift != checker.canonical_shard_text(shard), drift
+                shard_path.write_text(drift, encoding="utf-8")
+                findings = []
+                checker.check_shard_encoding(findings)
+                assert any("not canonically encoded" in f for f in findings), (drift, findings)
+
+
+def run_tests() -> None:
+    """Run every module-level test, and prove none was missed.
+
+    globals() is read at the moment this executes, so a test appended below the
+    call is not yet defined and silently never runs. Parsing the source for the
+    authoritative set turns that omission into a failure instead.
+    """
+    ran = set()
+    for name, function in sorted(globals().items()):
+        if name.startswith("test_"):
+            function()
+            ran.add(name)
+    declared = {
+        node.name
+        for node in ast.parse(Path(__file__).read_text(encoding="utf-8")).body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    }
+    missed = sorted(declared - ran)
+    if missed:
+        raise AssertionError(f"tests defined but never run: {', '.join(missed)}")
+    print("knowledge checker tests passed")
+
+
+if __name__ == "__main__":
+    run_tests()

@@ -1,32 +1,32 @@
 {
- "date": "2026-08-23T00:00:00Z",
- "evidence": [
-  "internal/store/schema.go",
-  "internal/store/workflow_continuity.go",
-  "cmd/concord/session.go",
-  "docs/decisions/CD-0027-typed-restart-excluded.md",
-  "docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md"
- ],
- "home_domain_id": "operator-surface",
- "id": "CD-0061",
- "kind": "decision",
- "path": "docs/decisions/CD-0061-orchestrator-identity-recording.md",
- "scopes": {
-  "domain_ids": [],
-  "mode": "home",
-  "product_ids": [],
-  "project_ids": [],
-  "tag_ids": []
- },
- "sha256": "sha256:0e3ffbadf8d5f32abb4d83bd18bf9e17800a3f667c72ad15a3b072a6683845bd",
- "status": "accepted",
- "summary": "CD-0027 excludes lane restart only; orchestrator identity is recorded as a subject_type='session' domain event rather than a restart context boundary, the orphaned typed_agent_* columns and the restart boundary_kind are removed, and the orchestrator ruleset digest covers the resolved host artifacts the way CD-0034 host prompt provenance does.",
- "tags": [
-  "workflow",
-  "lanes",
-  "authority",
-  "evidence",
-  "integrity"
- ],
- "title": "Orchestrator identity is recorded as a session assertion, not a restart boundary"
+  "date": "2026-08-23T00:00:00Z",
+  "evidence": [
+    "internal/store/schema.go",
+    "internal/store/workflow_continuity.go",
+    "cmd/concord/session.go",
+    "docs/decisions/CD-0027-typed-restart-excluded.md",
+    "docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "CD-0061",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0061-orchestrator-identity-recording.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:0e3ffbadf8d5f32abb4d83bd18bf9e17800a3f667c72ad15a3b072a6683845bd",
+  "status": "accepted",
+  "summary": "CD-0027 excludes lane restart only; orchestrator identity is recorded as a subject_type='session' domain event rather than a restart context boundary, the orphaned typed_agent_* columns and the restart boundary_kind are removed, and the orchestrator ruleset digest covers the resolved host artifacts the way CD-0034 host prompt provenance does.",
+  "tags": [
+    "workflow",
+    "lanes",
+    "authority",
+    "evidence",
+    "integrity"
+  ],
+  "title": "Orchestrator identity is recorded as a session assertion, not a restart boundary"
 }

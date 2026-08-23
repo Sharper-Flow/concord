@@ -35,6 +35,22 @@ ADAPTER_FILES = (
     "generated-contracts.ts",
     "generated-contract-tests.ts",
 )
+INSTRUCTION_FILES = (
+    "README.md",
+    "asking.md",
+    "change.md",
+    "completion.md",
+    "evidence.md",
+    "voice.md",
+)
+AGENT_FILES = (
+    "concord-implement.md",
+    "concord-research.md",
+    "concord-review.md",
+    "concord-verify.md",
+)
+STABLE_ROOT_NAME = "current"
+AGENT_GLOB = "concord-*.md"
 
 
 @dataclass(frozen=True)
@@ -46,7 +62,9 @@ class Paths:
     data_root: Path
     config_file: Path
     tools_dir: Path
+    agents_dir: Path
     launcher: Path
+    stable_root: Path
 
 
 @dataclass(frozen=True)
@@ -80,7 +98,9 @@ def paths_for(root: Path | None) -> Paths:
         data_root=data_home / "concord",
         config_file=config_home / "opencode" / "opencode.jsonc",
         tools_dir=config_home / "opencode" / "tools",
+        agents_dir=config_home / "opencode" / "agents",
         launcher=bin_dir / "concord",
+        stable_root=data_home / "concord" / STABLE_ROOT_NAME,
     )
 
 
@@ -283,11 +303,19 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
         "version",
         "version_files",
         "adapter_files",
+        "agent_files",
         "skill_path",
+        "stable_root",
         "launcher_target",
         "config_path",
     }
     if set(manifest) != required or manifest.get("managed_by") != "concord-installer-v1":
+        missing = required - set(manifest)
+        if manifest.get("managed_by") == "concord-installer-v1" and missing and missing <= {"agent_files", "stable_root"}:
+            raise InstallerError(
+                "installed by an older installer that records no central agents or stable root; "
+                "run uninstall, then install, to upgrade"
+            )
         raise InstallerError("refusing installer manifest with unknown or missing fields")
     version = manifest.get("version")
     if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
@@ -306,7 +334,12 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
         if not isinstance(relative, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise InstallerError("installer manifest has invalid version file records")
         safe_relative_target(version_root, relative, "version file")
-        if relative not in allowed_fixed and not relative.startswith("skills/"):
+        if (
+            relative not in allowed_fixed
+            and not relative.startswith("skills/")
+            and not relative.startswith("instructions/")
+            and not relative.startswith("agents/")
+        ):
             raise InstallerError(f"refusing unknown managed version file {relative!r}")
     if not allowed_fixed.issubset(version_files):
         raise InstallerError("installer manifest omits a required managed version file")
@@ -326,11 +359,42 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     for name in ADAPTER_FILES:
         safe_relative_target(paths.tools_dir, name, "adapter")
 
+    # Central agent definitions: filenames only (the path inside the version
+    # tree lives in version_files). The shape mirrors adapter_files: a dict of
+    # filename -> sha256, with the filename constrained so a manifest attack
+    # cannot reach a delete outside paths.agents_dir.
+    agent_files = manifest.get("agent_files")
+    if (
+        not isinstance(agent_files, dict)
+        or not all(isinstance(name, str) for name in agent_files)
+        or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in agent_files.values())
+    ):
+        raise InstallerError("installer manifest has invalid agent file records")
+    for name in agent_files:
+        if not name.startswith("concord-") or not name.endswith(".md"):
+            raise InstallerError(f"installer manifest has invalid agent file name {name!r}")
+        safe_relative_target(paths.agents_dir, name, "agent file")
+
     expected_skill = paths.data_root / version / "skills"
     skill_path = manifest.get("skill_path")
     if not isinstance(skill_path, str) or Path(skill_path).resolve(strict=False) != expected_skill.resolve(strict=False):
         raise InstallerError("installer manifest has a redirected skills path")
     safe_relative_target(paths.data_root, f"{version}/skills", "skills")
+
+    # The stable root is the path projects embed so they survive upgrades; the
+    # value here is the symlink's location (not its target), and any drift is a
+    # redirect that warrants refusal. An unmanaged directory or regular file at
+    # that path must never be clobbered into a symlink.
+    stable_root_value = manifest.get("stable_root")
+    if not isinstance(stable_root_value, str) or stable_root_value != str(paths.stable_root):
+        raise InstallerError("installer manifest has a redirected stable root")
+    if paths.stable_root.exists() and not paths.stable_root.is_symlink():
+        raise InstallerError(f"refusing {paths.stable_root}: not a symlink")
+    if paths.stable_root.is_symlink():
+        link_target = Path(os.readlink(paths.stable_root))
+        expected_target = paths.data_root / version
+        if link_target != expected_target:
+            raise InstallerError(f"installer stable root points outside its expected version target: {paths.stable_root}")
 
     expected_launcher = paths.data_root / version / "bin" / "concord"
     if manifest.get("launcher_target") != str(expected_launcher.resolve(strict=False)):
@@ -385,9 +449,11 @@ def secret_service_status() -> tuple[bool, str]:
 
 def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None) -> ConfigPlan:
     failures: list[str] = []
-    for managed_parent in (paths.data_root, paths.tools_dir, paths.bin_dir, paths.config_file.parent):
+    for managed_parent in (paths.data_root, paths.tools_dir, paths.agents_dir, paths.bin_dir, paths.config_file.parent):
         if managed_parent.is_symlink():
             failures.append(f"refusing symlinked managed path {managed_parent}")
+    if paths.stable_root.exists() and not paths.stable_root.is_symlink():
+        failures.append(f"refusing {paths.stable_root}: not a symlink")
     system = platform.system()
     machine = platform.machine().lower()
     if system != "Linux":
@@ -423,6 +489,13 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         if destination.exists() or destination.is_symlink():
             if not old_manifest or name not in adapter_records:
                 failures.append(f"refusing to overwrite user-authored adapter file {destination}")
+    agent_records = managed_agent_records(old_manifest)
+    for name in agent_records:
+        destination = paths.agents_dir / name
+        if destination.exists() or destination.is_symlink():
+            expected = agent_records[name]
+            if not destination.is_file() or sha256(destination) != expected:
+                failures.append(f"refusing to overwrite user-authored agent file {destination}")
     if old_manifest:
         old_version = old_manifest.get("version")
         if not isinstance(old_version, str):
@@ -601,12 +674,22 @@ def managed_adapter_records(manifest: dict[str, object] | None) -> dict[str, str
     return value  # type: ignore[return-value]
 
 
+def managed_agent_records(manifest: dict[str, object] | None) -> dict[str, str]:
+    if not manifest:
+        return {}
+    value = manifest.get("agent_files", {})
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise InstallerError("existing installer manifest has invalid agent file records")
+    return value  # type: ignore[return-value]
+
+
 TRANSACTION_PARENT = ".concord-transactions"
 MAX_TRANSACTION_JOURNAL_BYTES = 1024 * 1024
 MAX_TRANSACTION_FILES = 4096
 TRANSACTION_PHASES = (
     "staged",
     "version_activated",
+    "agents_swapped",
     "adapter_swapped",
     "launcher_swapped",
     "config_swapped",
@@ -630,6 +713,24 @@ def fsync_tree(root: Path) -> None:
 
 
 def durable_copy_tree(source: Path, destination: Path) -> None:
+    if destination.exists():
+        raise InstallerError(f"staging destination already exists: {destination}")
+    shutil.copytree(source, destination, symlinks=False)
+    fsync_tree(destination)
+    fsync_directory(destination.parent)
+
+
+def copy_tree_if_present(source: Path, destination: Path) -> None:
+    """Mirror durable_copy_tree for optional directories that may be absent.
+
+    The archive for a minimal Concord release does not have to ship skills,
+    instructions, or agents; the corpus is part of CD-0063, but the surface
+    itself ships empty under CD-0043 D3. Writing the loop three times when
+    every branch is the same `if source.exists()` copy would let one copy
+    drift from another, so the loop lives here.
+    """
+    if not source.exists():
+        return
     if destination.exists():
         raise InstallerError(f"staging destination already exists: {destination}")
     shutil.copytree(source, destination, symlinks=False)
@@ -727,10 +828,14 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
         "new_version_records",
         "old_adapter",
         "new_adapter",
+        "old_agents",
+        "new_agents",
         "old_config",
         "new_config",
         "old_launcher",
         "new_launcher",
+        "old_stable_root",
+        "new_stable_root",
         "old_manifest",
         "new_manifest",
         "targets",
@@ -785,18 +890,56 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in new_adapter.values())
     ):
         raise InstallerError(f"refusing malformed transaction adapter targets {journal_path(transaction_root)}")
+    old_agents = journal.get("old_agents")
+    if not isinstance(old_agents, dict):
+        raise InstallerError(f"refusing malformed transaction agent records {journal_path(transaction_root)}")
+    if len(old_agents) > MAX_TRANSACTION_FILES:
+        raise InstallerError(f"refusing oversized transaction agent records {journal_path(transaction_root)}")
+    for name, state in old_agents.items():
+        if not isinstance(name, str) or not isinstance(state, dict) or not isinstance(state.get("exists"), bool):
+            raise InstallerError(f"refusing malformed transaction agent state {journal_path(transaction_root)}")
+        if state["exists"] and (state.get("kind") != "file" or not isinstance(state.get("sha256"), str) or not SHA256_RE.fullmatch(state["sha256"])):
+            raise InstallerError(f"refusing malformed transaction agent state {journal_path(transaction_root)}")
+        if state["exists"] and state.get("backup") != name:
+            raise InstallerError(f"refusing malformed transaction agent backup {journal_path(transaction_root)}")
+        safe_relative_target(paths.agents_dir, name, "transaction agent")
+    new_agents = journal.get("new_agents")
+    if new_agents is not None and (
+        not isinstance(new_agents, dict)
+        or not all(isinstance(name, str) for name in new_agents)
+        or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in new_agents.values())
+    ):
+        raise InstallerError(f"refusing malformed transaction agent targets {journal_path(transaction_root)}")
     for relative in ("stage", "backup"):
         safe_relative_target(transaction_root.parent, transaction_root.name + "/" + relative, "transaction")
     targets = journal.get("targets")
-    if not isinstance(targets, dict) or set(targets) != {"version", "adapters", "launcher", "config", "manifest"}:
+    if not isinstance(targets, dict) or set(targets) != {"version", "adapters", "agents", "launcher", "config", "manifest", "stable_root"}:
         raise InstallerError(f"refusing malformed transaction targets {journal_path(transaction_root)}")
     if targets.get("config") != str(paths.config_file.resolve(strict=False)):
         raise InstallerError(f"refusing redirected transaction config target {journal_path(transaction_root)}")
     if targets.get("launcher") != str(paths.launcher):
         raise InstallerError(f"refusing redirected transaction launcher target {journal_path(transaction_root)}")
+    if targets.get("stable_root") != str(paths.stable_root):
+        raise InstallerError(f"refusing redirected transaction stable root target {journal_path(transaction_root)}")
+    if not isinstance(targets.get("agents"), list):
+        raise InstallerError(f"refusing malformed transaction agents target {journal_path(transaction_root)}")
     activation = journal.get("activation_version")
     if not isinstance(activation, str) or targets.get("version") != str((paths.data_root / activation).resolve(strict=False)):
         raise InstallerError(f"refusing redirected transaction version target {journal_path(transaction_root)}")
+    old_stable_root = journal.get("old_stable_root")
+    if not isinstance(old_stable_root, dict) or not isinstance(old_stable_root.get("exists"), bool):
+        raise InstallerError(f"refusing malformed transaction stable root state {journal_path(transaction_root)}")
+    if old_stable_root.get("exists") and (
+        old_stable_root.get("kind") != "symlink" or not isinstance(old_stable_root.get("target"), str)
+    ):
+        raise InstallerError(f"refusing malformed transaction stable root state {journal_path(transaction_root)}")
+    new_stable_root = journal.get("new_stable_root")
+    if not isinstance(new_stable_root, dict) or not isinstance(new_stable_root.get("exists"), bool):
+        raise InstallerError(f"refusing malformed transaction stable root target {journal_path(transaction_root)}")
+    if new_stable_root.get("exists") and (
+        new_stable_root.get("kind") != "symlink" or not isinstance(new_stable_root.get("target"), str)
+    ):
+        raise InstallerError(f"refusing malformed transaction stable root target {journal_path(transaction_root)}")
 
 
 def make_transaction(
@@ -807,6 +950,7 @@ def make_transaction(
     stage_source: Path | None,
     new_version_records: dict[str, str] | None,
     new_adapter: dict[str, str] | None,
+    new_agents: dict[str, str] | None,
     new_config: str | None,
     new_manifest_bytes: bytes | None,
 ) -> tuple[Path, dict[str, object]]:
@@ -849,13 +993,35 @@ def make_transaction(
     old_adapter: dict[str, object] = {}
     for name in ADAPTER_FILES:
         old_adapter[name] = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
+    # Capture the central agents state so rollback restores exactly what was
+    # there. The set is dynamic — every concord-*.md currently under the
+    # agents dir — so we iterate the directory rather than a static list.
+    old_agents: dict[str, object] = {}
+    if paths.agents_dir.exists() and not paths.agents_dir.is_symlink():
+        for entry in sorted(paths.agents_dir.iterdir()):
+            if entry.name.startswith("concord-") and entry.name.endswith(".md"):
+                old_agents[entry.name] = capture_file(entry, backup / "agents" / entry.name, f"agent {entry.name}")
     old_config = capture_file(paths.config_file, backup / "config", "OpenCode config")
     old_manifest_state = capture_file(paths.data_root / MANIFEST_NAME, backup / "manifest", "installer manifest")
     old_launcher = file_state(paths.launcher)
     if old_launcher.get("exists") and old_launcher.get("kind") != "symlink":
         raise InstallerError(f"refusing transaction over user-authored launcher {paths.launcher}")
+    old_stable_root = file_state(paths.stable_root)
+    if old_stable_root.get("exists") and old_stable_root.get("kind") != "symlink":
+        raise InstallerError(f"refusing transaction over unmanaged stable root {paths.stable_root}")
     new_config_state = {"exists": new_config is not None, "kind": "file", "sha256": sha256(stage / "config")} if new_config is not None else {"exists": False}
     new_manifest_state = {"exists": new_manifest_bytes is not None, "kind": "file", "sha256": sha256(stage / "manifest")} if new_manifest_bytes is not None else {"exists": False}
+    new_launcher_state = {"exists": operation == "install", "kind": "symlink", "target": str((paths.data_root / str(new_version) / "bin" / "concord").resolve())} if operation == "install" else {"exists": False}
+    # The uninstall branch records what apply_stable_root will produce: a
+    # removal when the current symlink points inside the data root, a no-op
+    # otherwise. verify_states compares the journal entry against the on-disk
+    # state, so the recorded target must match what apply actually leaves.
+    if operation == "install":
+        new_stable_root_state = {"exists": True, "kind": "symlink", "target": str((paths.data_root / str(new_version)).resolve())}
+    elif old_stable_root.get("exists") and _stable_root_targets_inside_data_root(paths.stable_root, paths.data_root):
+        new_stable_root_state = {"exists": False}
+    else:
+        new_stable_root_state = old_stable_root
     journal: dict[str, object] = {
         "schema": 1,
         "operation": operation,
@@ -869,10 +1035,14 @@ def make_transaction(
         "new_version_records": new_version_records,
         "old_adapter": old_adapter,
         "new_adapter": new_adapter,
+        "old_agents": old_agents,
+        "new_agents": new_agents,
         "old_config": old_config,
         "new_config": new_config_state,
         "old_launcher": old_launcher,
-        "new_launcher": {"exists": operation == "install", "kind": "symlink", "target": str((paths.data_root / str(new_version) / "bin" / "concord").resolve())} if operation == "install" else {"exists": False},
+        "new_launcher": new_launcher_state,
+        "old_stable_root": old_stable_root,
+        "new_stable_root": new_stable_root_state,
         "old_manifest": old_manifest_state,
         "new_manifest": new_manifest_state,
         "backup_dir": "backup",
@@ -882,9 +1052,11 @@ def make_transaction(
         "targets": {
             "version": str(activation_root.resolve(strict=False)),
             "adapters": [str((paths.tools_dir / name).resolve(strict=False)) for name in ADAPTER_FILES],
+            "agents": [str(paths.agents_dir)],
             "launcher": str(paths.launcher),
             "config": str(paths.config_file.resolve(strict=False)),
             "manifest": str((paths.data_root / MANIFEST_NAME).resolve(strict=False)),
+            "stable_root": str(paths.stable_root),
         },
     }
     write_journal(transaction_root, journal)
@@ -906,6 +1078,91 @@ def apply_version(transaction_root: Path, journal: dict[str, object], paths: Pat
         replace_durable(target, live)
     if journal["operation"] == "install":
         replace_durable(transaction_root / "stage" / "version", target)
+    apply_stable_root(transaction_root, journal, paths)
+
+
+def _stable_root_targets_inside_data_root(target: Path, data_root: Path) -> bool:
+    """Whether a stable_root symlink points inside the data root.
+
+    A symlink that escaped the data root cannot have been placed by a Concord
+    installation; removing it would clobber an unrelated path. Relative links
+    resolve against the symlink's parent so the comparison uses absolute paths.
+    """
+    link_target = Path(os.readlink(target))
+    if not link_target.is_absolute():
+        link_target = (target.parent / link_target).resolve()
+    return link_target == data_root or data_root in link_target.parents
+
+
+def apply_stable_root(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
+    """Maintain paths.stable_root as a symlink to the activation version.
+
+    Projects embed this path so they survive upgrades without rewriting their
+    configuration. Replacement uses a temp symlink beside the target so the
+    change is atomic; removal is the symmetric path for uninstall and only
+    fires when the existing symlink targets inside the data root.
+    """
+    target = paths.stable_root
+    if journal["operation"] == "install":
+        new_version = journal["new_version"]
+        if not isinstance(new_version, str):
+            raise InstallerError("transaction has no new version")
+        link_target = (paths.data_root / new_version).resolve()
+        temporary = target.parent / f".concord-stable-{transaction_root.name}"
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
+        temporary.symlink_to(link_target)
+        replace_durable(temporary, target)
+    elif target.is_symlink():
+        if not _stable_root_targets_inside_data_root(target, paths.data_root):
+            return
+        target.unlink()
+        fsync_directory(target.parent)
+    elif target.exists():
+        target.unlink()
+        fsync_directory(target.parent)
+
+
+def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
+    """Place central agent definitions from the version tree or remove them.
+
+    Central visibility is the only mechanism projects have to invoke a Concord
+    lane, which is why the file lives outside the version tree: a project
+    dispatch reads ~/.config/opencode/agents/<name>.md, not a versioned path.
+    Apply mirrors apply_adapters so an upgrade leaves an existing project
+    pointing at the new file content without rewriting the project itself.
+    The set is dynamic, so install iterates new_agents and uninstall iterates
+    old_agents (the snapshot the transaction captured).
+    """
+    touched = False
+    if journal["operation"] == "install":
+        new_agents = journal.get("new_agents") or {}
+        if not isinstance(new_agents, dict):
+            raise InstallerError("transaction has malformed agent targets")
+        version = journal["new_version"]
+        if not isinstance(version, str):
+            raise InstallerError("transaction has no new version")
+        for name, digest in new_agents.items():
+            if not isinstance(name, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+                raise InstallerError("transaction has malformed agent target record")
+            source = paths.data_root / str(version) / "agents" / name
+            if not source.is_file():
+                raise InstallerError(f"version tree is missing agent source {source}")
+            write_atomic(paths.agents_dir / name, source.read_bytes())
+            touched = True
+    else:
+        old_agents = journal.get("old_agents") or {}
+        if not isinstance(old_agents, dict):
+            raise InstallerError("transaction has malformed agent records")
+        for name in old_agents:
+            if not isinstance(name, str):
+                raise InstallerError("transaction has malformed agent record")
+            target = paths.agents_dir / name
+            if target.exists() or target.is_symlink():
+                target.unlink()
+                touched = True
+    if touched and paths.agents_dir.exists():
+        fsync_directory(paths.agents_dir)
 
 
 def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
@@ -975,6 +1232,28 @@ def restore_launcher(paths: Paths, state: dict[str, object]) -> None:
         fsync_directory(paths.bin_dir)
 
 
+def restore_stable_root(paths: Paths, state: dict[str, object]) -> None:
+    """Restore the stable_root symlink to its pre-transaction state.
+
+    Symmetric with restore_launcher: a no-op removal, or a temp symlink beside
+    the target replaced via os.replace so a crash leaves one of two valid
+    pointers. The preflight refuses any non-symlink at paths.stable_root, so a
+    managed state here can only be absent or a symlink pointing at a version
+    directory.
+    """
+    removed = False
+    if paths.stable_root.exists() or paths.stable_root.is_symlink():
+        paths.stable_root.unlink()
+        removed = True
+    if state.get("exists"):
+        ensure_directory(paths.data_root)
+        temporary = paths.data_root / f".concord-stable-restore-{os.getpid()}"
+        temporary.symlink_to(state["target"])
+        replace_durable(temporary, paths.stable_root)
+    elif removed:
+        fsync_directory(paths.data_root)
+
+
 def rollback_version(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
     version = journal["activation_version"]
     if not isinstance(version, str):
@@ -1011,9 +1290,11 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
         if operation == "uninstall" and journal["activation_version"] and (paths.data_root / str(journal["activation_version"])).exists():
             raise InstallerError("transaction conflict: uninstalled version data reappeared")
         adapter_expected = journal["new_adapter"]
+        agents_expected = journal.get("new_agents") or {}
         launcher_expected = journal["new_launcher"]
         config_expected = journal["new_config"]
         manifest_expected = journal["new_manifest"]
+        stable_root_expected = journal.get("new_stable_root", {"exists": False})
     else:
         version = journal["activation_version"]
         records = journal["old_version_records"]
@@ -1024,9 +1305,11 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
         if isinstance(cleanup_version, str) and not version_matches(paths.data_root / cleanup_version, cleanup_records):
             raise InstallerError("transaction conflict: prior version data is not intact")
         adapter_expected = journal["old_adapter"]
+        agents_expected = journal.get("old_agents") or {}
         launcher_expected = journal["old_launcher"]
         config_expected = journal["old_config"]
         manifest_expected = journal["old_manifest"]
+        stable_root_expected = journal.get("old_stable_root", {"exists": False})
     for name in ADAPTER_FILES:
         if committed:
             digest = adapter_expected.get(name) if isinstance(adapter_expected, dict) else None
@@ -1035,8 +1318,28 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
             expected = adapter_expected[name] if isinstance(adapter_expected, dict) and name in adapter_expected else {"exists": False}
         if not state_matches(paths.tools_dir / name, expected):
             raise InstallerError(f"transaction conflict at adapter {name}")
+    # Agents are dynamic, so iterate over the union of expected names rather
+    # than a static list. committed=True expects every name in new_agents;
+    # committed=False expects every name in old_agents (the pre-transaction set).
+    if committed:
+        expected_agent_names = set(agents_expected) if isinstance(agents_expected, dict) else set()
+        expected_digests = agents_expected if isinstance(agents_expected, dict) else {}
+    else:
+        expected_agent_names = set(agents_expected) if isinstance(agents_expected, dict) else set()
+        expected_digests = {}
+    for name in sorted(expected_agent_names):
+        if committed:
+            digest = expected_digests.get(name)
+            expected_state = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
+        else:
+            state = agents_expected.get(name) if isinstance(agents_expected, dict) else None
+            expected_state = state if isinstance(state, dict) else {"exists": False}
+        if not state_matches(paths.agents_dir / name, expected_state):
+            raise InstallerError(f"transaction conflict at agent {name}")
     if not state_matches(paths.launcher, launcher_expected):
         raise InstallerError("transaction conflict at launcher")
+    if not state_matches(paths.stable_root, stable_root_expected):
+        raise InstallerError("transaction conflict at stable root")
     if not state_matches(paths.config_file, config_expected):
         raise InstallerError("transaction conflict at OpenCode config")
     if not state_matches(paths.data_root / MANIFEST_NAME, manifest_expected):
@@ -1055,9 +1358,24 @@ def ensure_rollback_safe(journal: dict[str, object], paths: Paths) -> None:
         current = file_state(path)
         if current.get("exists") and not state_matches(path, old) and not state_matches(path, new):
             raise InstallerError(f"transaction conflict at adapter {name}; refusing rollback")
+    old_agents = journal.get("old_agents") or {}
+    new_agents = journal.get("new_agents") or {}
+    if isinstance(old_agents, dict) and isinstance(new_agents, dict):
+        candidate_names = set(old_agents) | set(new_agents)
+        for name in candidate_names:
+            old_state = old_agents.get(name) if isinstance(old_agents.get(name), dict) else {"exists": False}
+            new_digest = new_agents.get(name)
+            new_state = {"exists": True, "kind": "file", "sha256": new_digest} if isinstance(new_digest, str) else {"exists": False}
+            path = paths.agents_dir / name
+            current = file_state(path)
+            if current.get("exists") and not state_matches(path, old_state) and not state_matches(path, new_state):
+                raise InstallerError(f"transaction conflict at agent {name}; refusing rollback")
     current_launcher = file_state(paths.launcher)
     if current_launcher.get("exists") and not state_matches(paths.launcher, journal["old_launcher"]) and not state_matches(paths.launcher, journal["new_launcher"]):
         raise InstallerError("transaction conflict at launcher; refusing rollback")
+    current_stable_root = file_state(paths.stable_root)
+    if current_stable_root.get("exists") and not state_matches(paths.stable_root, journal["old_stable_root"]) and not state_matches(paths.stable_root, journal["new_stable_root"]):
+        raise InstallerError("transaction conflict at stable root; refusing rollback")
     current_config = file_state(paths.config_file)
     if current_config.get("exists") and not state_matches(paths.config_file, journal["old_config"]) and not state_matches(paths.config_file, journal["new_config"]):
         raise InstallerError("transaction conflict at OpenCode config; refusing rollback")
@@ -1094,7 +1412,7 @@ def cleanup_transaction(transaction_root: Path, journal: dict[str, object], path
         fsync_directory(transaction_root.parent.parent)
     except OSError:
         pass
-    for directory in (paths.tools_dir, paths.bin_dir, paths.data_root):
+    for directory in (paths.tools_dir, paths.agents_dir, paths.bin_dir, paths.data_root):
         try:
             directory.rmdir()
         except OSError:
@@ -1128,7 +1446,27 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
     for name in ADAPTER_FILES:
         state = journal["old_adapter"][name]
         restore_file(paths.tools_dir / name, state, transaction_root, f"adapter/{name}")
+    old_agents = journal.get("old_agents") or {}
+    if isinstance(old_agents, dict):
+        for name, state in old_agents.items():
+            if isinstance(name, str) and isinstance(state, dict):
+                restore_file(paths.agents_dir / name, state, transaction_root, f"agents/{name}")
+    # On rollback, anything apply_agents may have placed but old_agents did not
+    # record (i.e. brand-new files in this release) would otherwise be left
+    # orphaned in the central agents dir. The preflight refuses user-authored
+    # files there, so anything we wrote under this transaction is safe to
+    # remove. Build the orphan set from new_agents (those we may have placed)
+    # minus old_agents (those we captured before).
+    new_agents = journal.get("new_agents") or {}
+    if isinstance(new_agents, dict):
+        for name in list(new_agents):
+            if name in old_agents:
+                continue
+            target = paths.agents_dir / name
+            if target.exists() or target.is_symlink():
+                target.unlink()
     restore_launcher(paths, journal["old_launcher"])
+    restore_stable_root(paths, journal["old_stable_root"])
     restore_file(paths.config_file, journal["old_config"], transaction_root, "config")
     restore_file(paths.data_root / MANIFEST_NAME, journal["old_manifest"], transaction_root, "manifest")
     verify_states(journal, paths, committed=False)
@@ -1174,8 +1512,15 @@ def install(args: argparse.Namespace) -> int:
             destination = paths.tools_dir / relative
             if not destination.is_file() or sha256(destination) != expected:
                 raise InstallerError(f"refusing to overwrite modified managed adapter file {destination}")
+        agent_records = managed_agent_records(manifest)
+        for name, expected in agent_records.items():
+            destination = paths.agents_dir / name
+            if not destination.is_file() or sha256(destination) != expected:
+                raise InstallerError(f"refusing to overwrite modified managed agent file {destination}")
         if not paths.launcher.is_symlink() or os.readlink(paths.launcher) != manifest.get("launcher_target"):
             raise InstallerError(f"refusing to repair modified managed launcher {paths.launcher}")
+        if not paths.stable_root.is_symlink() or os.readlink(paths.stable_root) != str(paths.data_root / version):
+            raise InstallerError(f"refusing to repair modified managed stable root {paths.stable_root}")
         skill_path = str((paths.data_root / version / "skills").resolve())
         if config_plan.changed or manifest.get("skill_path") != skill_path:
             raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
@@ -1193,25 +1538,24 @@ def install(args: argparse.Namespace) -> int:
         source_stage = workspace / "version"
         (source_stage / "bin").mkdir(parents=True)
         (source_stage / "adapter" / "opencode").mkdir(parents=True)
-        (source_stage / "skills").mkdir(parents=True)
         shutil.copy2(extracted / "bin" / "concord", source_stage / "bin" / "concord")
         os.chmod(source_stage / "bin" / "concord", 0o755)
         for name in ADAPTER_FILES:
             shutil.copy2(extracted / "adapter" / "opencode" / name, source_stage / "adapter" / "opencode" / name)
-        source_skills = extracted / "skills"
-        if source_skills.exists():
-            for source in source_skills.rglob("*"):
-                relative = source.relative_to(source_skills)
-                destination = source_stage / "skills" / relative
-                if source.is_dir():
-                    destination.mkdir(parents=True, exist_ok=True)
-                elif source.is_file():
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source, destination)
+        # skills, instructions, and agents are copied only when the archive
+        # carries them. The three branches share the helper so a future
+        # required surface cannot drift from the others.
+        copy_tree_if_present(extracted / "skills", source_stage / "skills")
+        copy_tree_if_present(extracted / "instructions", source_stage / "instructions")
+        copy_tree_if_present(extracted / "agents", source_stage / "agents")
         fsync_tree(source_stage)
         managed_version_paths = [str(path.relative_to(source_stage)) for path in source_stage.rglob("*") if path.is_file()]
         version_records = file_records(source_stage, managed_version_paths)
         adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in ADAPTER_FILES}
+        agent_stage_records = {
+            path.name: sha256(path)
+            for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
+        }
         old_version = manifest.get("version") if manifest else None
         old_records = manifest.get("version_files", {}) if manifest else None
         version_root = paths.data_root / version
@@ -1226,7 +1570,9 @@ def install(args: argparse.Namespace) -> int:
             "version": version,
             "version_files": version_records,
             "adapter_files": adapter_stage_records,
+            "agent_files": agent_stage_records,
             "skill_path": str((version_root / "skills").resolve()),
+            "stable_root": str(paths.stable_root),
             "launcher_target": str((version_root / "bin" / "concord").resolve()),
             "config_path": str(paths.config_file.resolve()),
         }
@@ -1239,11 +1585,14 @@ def install(args: argparse.Namespace) -> int:
             source_stage,
             version_records,
             adapter_stage_records,
+            agent_stage_records,
             config_plan.text,
             new_manifest_bytes,
         )
         apply_version(transaction_root, journal, paths)
         advance_phase(transaction_root, journal, "version_activated")
+        apply_agents(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "agents_swapped")
         apply_adapters(transaction_root, journal, paths)
         advance_phase(transaction_root, journal, "adapter_swapped")
         apply_launcher(transaction_root, journal, paths)
@@ -1257,6 +1606,7 @@ def install(args: argparse.Namespace) -> int:
         cleanup_transaction(transaction_root, journal, paths)
     print(f"Installed Concord {version} under {version_root}.")
     print(f"OpenCode custom tools installed under {paths.tools_dir}.")
+    print(f"Concord agent definitions installed under {paths.agents_dir}.")
     print("Restart OpenCode before using the newly registered versioned skills path.")
     return 0
 
@@ -1278,11 +1628,18 @@ def uninstall(args: argparse.Namespace) -> int:
         destination = paths.tools_dir / relative
         if not destination.is_file() or sha256(destination) != expected:
             raise InstallerError(f"refusing to remove modified adapter file {destination}")
+    agent_records = managed_agent_records(manifest)
+    for name, expected in agent_records.items():
+        destination = paths.agents_dir / name
+        if destination.exists() and (not destination.is_file() or sha256(destination) != expected):
+            raise InstallerError(f"refusing to remove modified agent file {destination}")
     launcher_target = manifest["launcher_target"]
     launcher = safe_relative_target(paths.bin_dir, "concord", "launcher", allow_final_symlink=True)
     if launcher.exists() or launcher.is_symlink():
         if not launcher.is_symlink() or os.readlink(launcher) != launcher_target:
             raise InstallerError(f"refusing to remove user-authored launcher {paths.launcher}")
+    if paths.stable_root.exists() and not paths.stable_root.is_symlink():
+        raise InstallerError(f"refusing to remove unmanaged stable root {paths.stable_root}")
     skill_path = manifest["skill_path"]
     assert isinstance(skill_path, str)
     config_path = safe_relative_target(paths.config_file.parent, paths.config_file.name, "OpenCode config")
@@ -1296,11 +1653,14 @@ def uninstall(args: argparse.Namespace) -> int:
         None,
         None,
         None,
+        None,
         new_config,
         None,
     )
     apply_version(transaction_root, journal, paths)
     advance_phase(transaction_root, journal, "version_activated")
+    apply_agents(transaction_root, journal, paths)
+    advance_phase(transaction_root, journal, "agents_swapped")
     apply_adapters(transaction_root, journal, paths)
     advance_phase(transaction_root, journal, "adapter_swapped")
     apply_launcher(transaction_root, journal, paths)
@@ -1312,7 +1672,7 @@ def uninstall(args: argparse.Namespace) -> int:
     advance_phase(transaction_root, journal, "cleanup")
     verify_states(journal, paths, committed=True)
     cleanup_transaction(transaction_root, journal, paths)
-    for directory in (paths.tools_dir, paths.bin_dir, paths.data_root):
+    for directory in (paths.tools_dir, paths.agents_dir, paths.bin_dir, paths.data_root):
         try:
             directory.rmdir()
         except OSError:
@@ -1333,6 +1693,137 @@ def status(args: argparse.Namespace) -> int:
     return 0
 
 
+def project_opencode_json(project_dir: Path) -> Path:
+    """The per-project OpenCode config the installer reads and edits."""
+    return project_dir / ".opencode" / "opencode.json"
+
+
+def conduct_instruction_entry(paths: Paths) -> str:
+    """Absolute glob the project should add to its instructions[] array.
+
+    The literal `*.md` is part of the entry; OpenCode resolves it at load
+    time, and an upgrade to a new corpus is picked up without rewriting the
+    project file.
+    """
+    return str(paths.stable_root / "instructions" / "*.md")
+
+
+def plan_project_link(project_file: Path, conduct_entry: str) -> tuple[str, bool]:
+    """Compute the new project file contents and whether they differ.
+
+    Returns (new_text, changed). Refuses to clobber a project file whose
+    instructions key is present but not an array of strings — the operator
+    owns that shape and a programmatic rewrite could destroy it.
+    """
+    if not project_file.exists():
+        new_text = '{\n  "instructions": [\n    ' + json.dumps(conduct_entry) + "\n  ]\n}\n"
+        return new_text, True
+    original = project_file.read_text(encoding="utf-8")
+    try:
+        parsed = json.loads(original)
+    except json.JSONDecodeError as error:
+        raise InstallerError(f"cannot parse project opencode config {project_file}: {error}") from error
+    if not isinstance(parsed, dict):
+        raise InstallerError(
+            f"project opencode config {project_file} is not an object; add "
+            f"{conduct_entry!r} to its instructions array manually"
+        )
+    instructions = parsed.get("instructions")
+    if instructions is None:
+        # Insert "instructions": [...] before the closing brace.
+        end = original.rfind("}")
+        if end < 0:
+            raise InstallerError(f"project opencode config {project_file} has no JSON object to edit")
+        before = original[:end]
+        separator = "" if before.rstrip().endswith("{") else ","
+        addition = f'{separator}\n  "instructions": [\n    {json.dumps(conduct_entry)}\n  ]\n'
+        return original[:end] + addition + original[end:], True
+    if not isinstance(instructions, list) or not all(isinstance(value, str) for value in instructions):
+        raise InstallerError(
+            f"project opencode config {project_file} has a non-array instructions entry; "
+            f"add {conduct_entry!r} to that array manually"
+        )
+    if conduct_entry in instructions:
+        return original, False
+    # Append the entry. JSONC-style comments would be lost on round-trip, but
+    # the spec says this is plain .json.
+    new_instructions = instructions + [conduct_entry]
+    parsed["instructions"] = new_instructions
+    return json.dumps(parsed, indent=2) + "\n", True
+
+
+def remove_conduct_entry(project_file: Path, conduct_entry: str) -> tuple[str, bool]:
+    """Compute new project file contents removing the conduct entry.
+
+    Returns (new_text_or_empty, changed). When the file would have no keys
+    left after the removal, returns ("", True) so the caller deletes it.
+    """
+    if not project_file.exists():
+        return "", False
+    original = project_file.read_text(encoding="utf-8")
+    try:
+        parsed = json.loads(original)
+    except json.JSONDecodeError as error:
+        raise InstallerError(f"cannot parse project opencode config {project_file}: {error}") from error
+    if not isinstance(parsed, dict):
+        raise InstallerError(
+            f"project opencode config {project_file} is not an object; "
+            f"remove {conduct_entry!r} from its instructions array manually"
+        )
+    instructions = parsed.get("instructions")
+    if not isinstance(instructions, list) or conduct_entry not in instructions:
+        return original, False
+    new_instructions = [value for value in instructions if value != conduct_entry]
+    if not new_instructions:
+        parsed.pop("instructions", None)
+    else:
+        parsed["instructions"] = new_instructions
+    if not parsed:
+        return "", True
+    return json.dumps(parsed, indent=2) + "\n", True
+
+
+def link(args: argparse.Namespace) -> int:
+    paths = paths_for(args.root)
+    recover_transactions(paths)
+    manifest = load_manifest(paths)
+    if manifest is None:
+        raise InstallerError("cannot link a project: no Concord installation is present")
+    project_dir = Path(args.project).resolve()
+    project_file = project_opencode_json(project_dir)
+    conduct_entry = conduct_instruction_entry(paths)
+    new_text, changed = plan_project_link(project_file, conduct_entry)
+    if not changed:
+        print(f"Project {project_dir} already points at the conduct corpus; no changes made.")
+        return 0
+    ensure_directory(project_file.parent, mode=0o755)
+    write_atomic(project_file, new_text.encode("utf-8"))
+    print(f"Linked project {project_dir} to {conduct_entry}.")
+    return 0
+
+
+def unlink(args: argparse.Namespace) -> int:
+    paths = paths_for(args.root)
+    recover_transactions(paths)
+    project_dir = Path(args.project).resolve()
+    project_file = project_opencode_json(project_dir)
+    conduct_entry = conduct_instruction_entry(paths)
+    new_text, changed = remove_conduct_entry(project_file, conduct_entry)
+    if not changed:
+        print(f"Project {project_dir} has no conduct corpus entry; no changes made.")
+        return 0
+    if new_text == "":
+        project_file.unlink()
+        try:
+            project_file.parent.rmdir()
+        except OSError:
+            pass
+    else:
+        write_atomic(project_file, new_text.encode("utf-8"))
+    print(f"Unlinked project {project_dir} from the conduct corpus.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1346,7 +1837,13 @@ def main() -> int:
     )
     uninstall_parser = subparsers.add_parser("uninstall", help="remove the managed release")
     status_parser = subparsers.add_parser("status", help="recover and report installation state")
-    for command_parser in (install_parser, uninstall_parser, status_parser):
+    link_parser = subparsers.add_parser(
+        "link", help="register the conduct corpus for a project (per-project, not global)"
+    )
+    link_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
+    unlink_parser = subparsers.add_parser("unlink", help="remove the conduct corpus entry from a project")
+    unlink_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
+    for command_parser in (install_parser, uninstall_parser, status_parser, link_parser, unlink_parser):
         command_parser.add_argument("--root", type=Path, help="test root; maps home/data/config/bin under it")
     args = parser.parse_args()
     try:
@@ -1354,6 +1851,10 @@ def main() -> int:
             return install(args)
         if args.command == "uninstall":
             return uninstall(args)
+        if args.command == "link":
+            return link(args)
+        if args.command == "unlink":
+            return unlink(args)
         return status(args)
     except InstallerError as error:
         print(str(error), file=sys.stderr)

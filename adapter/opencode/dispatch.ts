@@ -551,11 +551,31 @@ async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> 
   const { entries, unreadable } = await configInstructionEntries(cwd)
   for (const path of unreadable) sources.push({ kind: "unenumerated", path })
   for (const entry of entries) {
-    if (entry.startsWith("http://") || entry.startsWith("https://") || GLOB_METACHARACTERS.test(entry)) {
+    if (entry.startsWith("http://") || entry.startsWith("https://")) {
       sources.push({ kind: "unenumerated", path: entry })
       continue
     }
     const expanded = entry.startsWith("~/") ? `${process.env.HOME ?? ""}/${entry.slice(2)}` : entry
+    // An absolute glob resolves against one fixed directory, so it can be
+    // expanded exactly: no ancestor walking, no remote fetch. The conduct
+    // corpus reaches projects this way, and CD-0063 D5 requires a corpus file
+    // that reaches an agent to be bound by content hash, not merely named.
+    if (expanded.startsWith("/") && GLOB_METACHARACTERS.test(expanded)) {
+      const separator = expanded.lastIndexOf("/")
+      const dir = expanded.slice(0, separator)
+      const pattern = expanded.slice(separator + 1)
+      const matches = await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: dir, onlyFiles: true })).catch(() => [])
+      if (matches.length === 0) sources.push({ kind: "unenumerated", path: entry })
+      for (const relative of matches.slice(0, 32)) {
+        const source = await fileProvenance("instruction_file", `${dir}/${relative}`)
+        if (source) sources.push(source)
+      }
+      continue
+    }
+    if (GLOB_METACHARACTERS.test(entry)) {
+      sources.push({ kind: "unenumerated", path: entry })
+      continue
+    }
     if (expanded.startsWith("/")) {
       const source = await fileProvenance("instruction_file", expanded)
       sources.push(source ?? { kind: "unenumerated", path: entry })

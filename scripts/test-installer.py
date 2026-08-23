@@ -59,6 +59,15 @@ class InstallerTests(unittest.TestCase):
         (source / "adapter" / "opencode").mkdir(parents=True)
         (source / "skills").mkdir()
         (source / "skills" / "concord-demo.md").write_text(f"skill:{marker or version}\n", encoding="utf-8")
+        # CD-0063 ships an always-on conduct corpus and the central agent
+        # definitions. The fixture must include them so the install path under
+        # test exercises the staging, sha256, and central placement logic.
+        (source / "instructions").mkdir()
+        for name in installer.INSTRUCTION_FILES:
+            (source / "instructions" / name).write_text(f"rule:{name}:{marker or version}\n", encoding="utf-8")
+        (source / "agents").mkdir()
+        for name in installer.AGENT_FILES:
+            (source / "agents" / name).write_text(f"agent:{name}:{marker or version}\n", encoding="utf-8")
         binary = (source / "bin" / "concord")
         binary.write_bytes((marker or version).encode("utf-8"))
         for name in installer.ADAPTER_FILES:
@@ -177,6 +186,38 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(placed.is_file(), f"{name} was not placed by the upgrade")
             self.assertIn("new", placed.read_text(encoding="utf-8"))
 
+    def test_upgrade_from_a_pre_agents_manifest_refuses_with_the_remedy(self) -> None:
+        """An installation predating central agents refuses with instructions.
+
+        The manifest key set is an equality invariant, so an older manifest
+        without agent_files and stable_root cannot be upgraded in place. The
+        refusal must name the remedy rather than leave the operator guessing,
+        and it must not fire for manifests that are wrong in some other way.
+        """
+        self.make_release("v1.0.0")
+        self.make_release("v1.1.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        del manifest["agent_files"]
+        del manifest["stable_root"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn("run uninstall, then install", second.stdout + second.stderr)
+
+        # A manifest missing an unrelated field keeps the generic refusal.
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        del manifest["skill_path"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        third = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(third.returncode, 0)
+        self.assertIn("unknown or missing fields", third.stdout + third.stderr)
+        self.assertNotIn("run uninstall, then install", third.stdout + third.stderr)
+
     def test_uninstall_removes_managed_residue_and_keeps_user_config(self) -> None:
         self.make_release("v1.0.0")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -284,7 +325,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(outside.read_text(encoding="utf-8"), '{"keep": true}\n')
 
     def test_install_process_death_at_every_phase_recovers(self) -> None:
-        phases = ("staged", "version_activated", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
+        phases = ("staged", "version_activated", "agents_swapped", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
         for index, phase in enumerate(phases, 1):
             with self.subTest(phase=phase):
                 version = f"v2.0.{index}"
@@ -302,7 +343,7 @@ class InstallerTests(unittest.TestCase):
                 self.assertFalse((self.root / "data" / "concord").exists())
 
     def test_uninstall_process_death_at_every_phase_recovers(self) -> None:
-        phases = ("staged", "version_activated", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
+        phases = ("staged", "version_activated", "agents_swapped", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
         for index, phase in enumerate(phases, 1):
             with self.subTest(phase=phase):
                 version = f"v3.0.{index}"
@@ -321,7 +362,7 @@ class InstallerTests(unittest.TestCase):
     def test_upgrade_process_death_at_every_phase_recovers_old_or_new_coherently(self) -> None:
         old_version = "v4.9.0"
         self.make_release(old_version, "old")
-        phases = ("staged", "version_activated", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
+        phases = ("staged", "version_activated", "agents_swapped", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
         for index, phase in enumerate(phases, 1):
             with self.subTest(phase=phase):
                 new_version = f"v4.0.{index}"
@@ -400,6 +441,192 @@ class InstallerTests(unittest.TestCase):
         ):
             installer.cleanup_transaction(transaction_root, {"cleanup_version": None}, paths)
         self.assertEqual(events[:2], [("rmtree", transaction_root), ("fsync", transaction_root.parent)])
+
+    # --- CD-0063: shipped operator conduct rules -----------------------
+
+    def test_install_places_instructions_and_agents_in_version_tree_and_manifest(self) -> None:
+        self.make_release("v1.0.0")
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        version_root = self.root / "data" / "concord" / "v1.0.0"
+        instructions_dir = version_root / "instructions"
+        agents_dir = version_root / "agents"
+        self.assertTrue(instructions_dir.is_dir(), "version tree is missing instructions/")
+        for name in installer.INSTRUCTION_FILES:
+            self.assertTrue((instructions_dir / name).is_file(), f"missing instruction file {name} in version tree")
+        self.assertTrue(agents_dir.is_dir(), "version tree is missing agents/")
+        for name in installer.AGENT_FILES:
+            self.assertTrue((agents_dir / name).is_file(), f"missing agent file {name} in version tree")
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(set(manifest["agent_files"]), set(installer.AGENT_FILES))
+        for name, digest in manifest["agent_files"].items():
+            self.assertTrue(installer.SHA256_RE.fullmatch(digest))
+        for name in installer.AGENT_FILES:
+            placed = self.root / "config" / "opencode" / "agents" / name
+            self.assertTrue(placed.is_file(), f"agent file {name} was not placed centrally")
+            self.assertEqual(installer.sha256(placed), manifest["agent_files"][name])
+        stable = self.root / "data" / "concord" / "current"
+        self.assertTrue(stable.is_symlink(), "stable root is not a symlink after install")
+        self.assertEqual(os.readlink(stable), str(self.root / "data" / "concord" / "v1.0.0"))
+        self.assertEqual(manifest["stable_root"], str(stable))
+
+    def test_upgrade_switches_stable_root_without_rewriting_project(self) -> None:
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        project_dir = self.root / "consumer"
+        project_dir.mkdir()
+        linked = self.run_installer("link", "--project", str(project_dir))
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        project_file = project_dir / ".opencode" / "opencode.json"
+        self.assertTrue(project_file.is_file())
+        before_bytes = project_file.read_bytes()
+        before_mtime = project_file.stat().st_mtime_ns
+        # An upgrade must not rewrite the project file: the stable root
+        # indirection is what guarantees that, so verify the symlink target
+        # moves while the project file is untouched.
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        stable = self.root / "data" / "concord" / "current"
+        self.assertTrue(stable.is_symlink())
+        self.assertEqual(os.readlink(stable), str(self.root / "data" / "concord" / "v1.1.0"))
+        self.assertEqual(project_file.read_bytes(), before_bytes)
+        self.assertEqual(project_file.stat().st_mtime_ns, before_mtime)
+        # The project pointer still resolves to the (now-new) corpus via the
+        # symlink, so its resolved entries point at v1.1.0.
+        instructions_root = (self.root / "data" / "concord" / "current" / "instructions").resolve()
+        self.assertEqual(instructions_root, (self.root / "data" / "concord" / "v1.1.0" / "instructions").resolve())
+
+    def test_link_is_idempotent(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        project_dir.mkdir()
+        first = self.run_installer("link", "--project", str(project_dir))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        project_file = project_dir / ".opencode" / "opencode.json"
+        first_payload = project_file.read_text(encoding="utf-8")
+        second = self.run_installer("link", "--project", str(project_dir))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(project_file.read_text(encoding="utf-8"), first_payload)
+        self.assertIn("no changes", second.stdout)
+
+    def test_link_preserves_unrelated_keys_and_entries(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        project_file = project_dir / ".opencode" / "opencode.json"
+        project_file.parent.mkdir(parents=True)
+        unrelated_entry = "/elsewhere/conductor/notes.md"
+        project_file.write_text(
+            json.dumps(
+                {
+                    "$schema": "https://opencode.ai/config.json",
+                    "theme": "dark",
+                    "instructions": [unrelated_entry],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = self.run_installer("link", "--project", str(project_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(project_file.read_text(encoding="utf-8"))
+        self.assertEqual(config["theme"], "dark")
+        self.assertEqual(config["$schema"], "https://opencode.ai/config.json")
+        self.assertIn(unrelated_entry, config["instructions"])
+        expected_entry = str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")
+        self.assertIn(expected_entry, config["instructions"])
+        self.assertEqual(len(config["instructions"]), 2)
+
+    def test_link_refuses_non_array_instructions(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        project_file = project_dir / ".opencode" / "opencode.json"
+        project_file.parent.mkdir(parents=True)
+        project_file.write_text(json.dumps({"instructions": 42}, indent=2) + "\n", encoding="utf-8")
+        result = self.run_installer("link", "--project", str(project_dir))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("non-array", result.stderr)
+        # Original file untouched.
+        self.assertEqual(json.loads(project_file.read_text(encoding="utf-8")), {"instructions": 42})
+
+    def test_unlink_removes_only_managed_entry(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        linked = self.run_installer("link", "--project", str(project_dir))
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        project_file = project_dir / ".opencode" / "opencode.json"
+        config = json.loads(project_file.read_text(encoding="utf-8"))
+        unrelated_entry = "/elsewhere/notes.md"
+        config["instructions"].append(unrelated_entry)
+        project_file.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        result = self.run_installer("unlink", "--project", str(project_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(project_file.read_text(encoding="utf-8"))
+        self.assertNotIn(str(self.root / "data" / "concord" / "current" / "instructions" / "*.md"), config.get("instructions", []))
+        self.assertIn(unrelated_entry, config["instructions"])
+        # A second unlink without the managed entry present is silent.
+        silent = self.run_installer("unlink", "--project", str(project_dir))
+        self.assertEqual(silent.returncode, 0, silent.stderr)
+        self.assertIn("no conduct corpus entry", silent.stdout)
+        # A unlink that drops the last remaining managed entry removes the
+        # file and the .opencode directory because nothing is left.
+        project_file.write_text(json.dumps({"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]}, indent=2) + "\n", encoding="utf-8")
+        self.run_installer("unlink", "--project", str(project_dir))
+        self.assertFalse(project_file.exists())
+        self.assertFalse((project_dir / ".opencode").exists())
+
+    def test_project_never_linked_has_no_config(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        project_dir.mkdir()
+        self.assertFalse((project_dir / ".opencode" / "opencode.json").exists())
+        # An unlink without prior link is silent and idempotent.
+        result = self.run_installer("unlink", "--project", str(project_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((project_dir / ".opencode" / "opencode.json").exists())
+
+    def test_uninstall_removes_central_agents_and_current_symlink(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        for name in installer.AGENT_FILES:
+            self.assertTrue((self.root / "config" / "opencode" / "agents" / name).is_file())
+        self.assertTrue((self.root / "data" / "concord" / "current").is_symlink())
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        for name in installer.AGENT_FILES:
+            self.assertFalse((self.root / "config" / "opencode" / "agents" / name).exists())
+        self.assertFalse((self.root / "data" / "concord" / "current").exists())
+
+    def test_install_refuses_modified_central_agent_file(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        target = self.root / "config" / "opencode" / "agents" / installer.AGENT_FILES[0]
+        target.write_text("operator-tampered\n", encoding="utf-8")
+        again = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(again.returncode, 0)
+        # Preflight refuses with the user-authored wording before any
+        # transaction is opened, and the idempotent re-install guard refuses
+        # with the modified-managed wording; both surfaces meet the spec.
+        self.assertTrue(
+            "modified managed agent file" in again.stderr or "user-authored agent file" in again.stderr,
+            f"unexpected refusal message: {again.stderr!r}",
+        )
+        # Tampered file is preserved; the installer did not silently overwrite.
+        self.assertEqual(target.read_text(encoding="utf-8"), "operator-tampered\n")
 
 
 if __name__ == "__main__":

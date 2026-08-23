@@ -74,7 +74,7 @@ jobs:
             -trimpath -buildvcs=false \
             -ldflags "-X github.com/sharper-flow/concord/internal/version.Value=$VERSION" \
             -o "release/concord-$VERSION" ./cmd/concord
-          mkdir -p release/package/bin release/package/adapter/opencode release/package/skills
+          mkdir -p release/package/bin release/package/adapter/opencode release/package/skills release/package/instructions release/package/agents
           cp "release/concord-$VERSION" release/package/bin/concord
           # The installer decides which adapter files a release must contain, so
           # the packing step reads that set rather than restating it. A literal
@@ -88,9 +88,11 @@ jobs:
             cp "adapter/opencode/$adapter_name" release/package/adapter/opencode/
           done < release/adapter-files.txt
           cp -a skills/. release/package/skills/
+          cp -a instructions/. release/package/instructions/
+          cp .opencode/agents/concord-*.md release/package/agents/
           cp scripts/install.py release/concord-installer.py
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
-            -C release/package -cf - bin adapter skills | gzip -n > "release/concord-$VERSION.tar.gz"
+            -C release/package -cf - bin adapter skills instructions agents | gzip -n > "release/concord-$VERSION.tar.gz"
       - name: Generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
@@ -144,6 +146,8 @@ jobs:
 
           required = {"bin/concord"}
           required |= {f"adapter/opencode/{name}" for name in install.ADAPTER_FILES}
+          required |= {f"instructions/{name}" for name in install.INSTRUCTION_FILES}
+          required |= {f"agents/{name}" for name in install.AGENT_FILES}
           missing = sorted(required - present)
           if missing:
               raise SystemExit(

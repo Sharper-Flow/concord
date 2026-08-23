@@ -76,8 +76,17 @@ jobs:
             -o "release/concord-$VERSION" ./cmd/concord
           mkdir -p release/package/bin release/package/adapter/opencode release/package/skills
           cp "release/concord-$VERSION" release/package/bin/concord
-          cp adapter/opencode/concord.ts adapter/opencode/generated-contracts.ts \
-            adapter/opencode/generated-contract-tests.ts release/package/adapter/opencode/
+          # The installer decides which adapter files a release must contain, so
+          # the packing step reads that set rather than restating it. A literal
+          # list here can fall behind ADAPTER_FILES and produce an archive the
+          # installer refuses, which is how v1.0.0 through v1.1.1 shipped
+          # without credentials.ts.
+          python3 -c 'import sys; sys.path.insert(0, "scripts"); import install; print("\n".join(install.ADAPTER_FILES))' > release/adapter-files.txt
+          test -s release/adapter-files.txt
+          while read -r adapter_name; do
+            test -n "$adapter_name"
+            cp "adapter/opencode/$adapter_name" release/package/adapter/opencode/
+          done < release/adapter-files.txt
           cp -a skills/. release/package/skills/
           cp scripts/install.py release/concord-installer.py
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
@@ -109,6 +118,39 @@ jobs:
           diff -u <(printf '%s\n' "${assets[@]}") <(printf '%s\n' "${checksummed[@]}")
           echo "Every uploaded release asset is present in the checksum manifest."
           sha256sum --check "concord-$VERSION.sha256"
+      - name: Verify the archive carries every file the installer requires
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          # Publishing an archive the installer refuses is the failure this step
+          # exists to make impossible. scripts/test-installer.py cannot catch it:
+          # it builds its fixture archive from installer.ADAPTER_FILES, so its
+          # input agrees with the installer by construction and the packing step
+          # is never consulted. This checks the real archive instead.
+          #
+          # A full `install` is not run here. Preflight requires secret-tool,
+          # gnome-keyring-daemon and a live Secret Service, which a runner does
+          # not have; test-installer.py only clears it by stubbing those onto
+          # PATH. Stubbing them here would test the stubs, so this asserts the
+          # archive's contents, which is the property that actually broke.
+          python3 - "release/upload/concord-$VERSION.tar.gz" <<'PY'
+          import sys, tarfile
+          sys.path.insert(0, "scripts")
+          import install
+
+          archive = sys.argv[1]
+          with tarfile.open(archive) as bundle:
+              present = set(bundle.getnames())
+
+          required = {"bin/concord"}
+          required |= {f"adapter/opencode/{name}" for name in install.ADAPTER_FILES}
+          missing = sorted(required - present)
+          if missing:
+              raise SystemExit(
+                  f"{archive} omits files the installer requires: {', '.join(missing)}"
+              )
+          print(f"{archive} carries every installer-required file: {', '.join(sorted(required))}")
+          PY
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:

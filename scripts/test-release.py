@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import install
 import release
 
 
@@ -405,6 +406,36 @@ class ReleaseTests(unittest.TestCase):
 
     def test_release_workflow_checkouts_have_mapping_aware_inputs(self) -> None:
         assert_release_workflow_structure(WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+    def test_release_workflow_never_names_an_adapter_file_it_copies(self) -> None:
+        """The packing step reads ADAPTER_FILES; it must not restate the set.
+
+        A literal copy list is how v1.0.0 through v1.1.1 shipped without
+        credentials.ts: install.py gained the requirement and the workflow's
+        hardcoded cp did not follow. Only copy commands are inspected, so
+        prose may still name a file while the packing step may not.
+        """
+        copy_lines = [
+            line
+            for line in WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
+            if line.lstrip().startswith("cp ") or " cp " in line
+        ]
+        for name in install.ADAPTER_FILES:
+            for line in copy_lines:
+                self.assertNotIn(
+                    f"adapter/opencode/{name}",
+                    line,
+                    msg=(
+                        f"release.yml copies adapter/opencode/{name} by name. "
+                        "Derive the set from install.ADAPTER_FILES instead, so "
+                        "the archive cannot fall behind what the installer requires."
+                    ),
+                )
+
+    def test_release_workflow_verifies_the_archive_against_installer_requirements(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("install.ADAPTER_FILES", workflow)
+        self.assertIn("omits files the installer requires", workflow)
 
     def test_workflow_validator_rejects_missing_input(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")

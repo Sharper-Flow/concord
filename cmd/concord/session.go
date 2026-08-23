@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/sessionboot"
 	"github.com/sharper-flow/concord/internal/store"
@@ -23,6 +25,18 @@ type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte,
 type sessionRunnerFunc func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
 type sessionAgentIdentityFunc func() error
 
+// sessionOrchestratorFunc verifies the orchestrator identity the session
+// requires and records the assertion as a domain event. CD-0061 D4 and D5
+// bind the two steps: the verification proves the host has the required
+// definition; the record is the evidence Concord later has if anyone asks
+// what the session asserted. Both run inside the session command so a
+// launcher-started session either has the recorded event or refuses with a
+// typed absence diagnostic.
+//
+// The function is a parameter so tests can inject an isolated temp store;
+// production wiring is hostOrchestratorIdentity below.
+type sessionOrchestratorFunc func(ctx context.Context, productID, workID string) error
+
 // hostLaneAgentIdentity asserts the registered lanes against the host the
 // session will start on.
 func hostLaneAgentIdentity() error {
@@ -31,6 +45,56 @@ func hostLaneAgentIdentity() error {
 		cwd = ""
 	}
 	return verifyLaneAgentIdentity(os.Getenv("HOME"), cwd, store.BuiltinLaneDefinitions())
+}
+
+// hostOrchestratorIdentity is the production wiring for the session's
+// orchestrator assertion. It runs the file/digest verification against
+// HOME/cwd, opens the authority store, and records the assertion in a single
+// transaction. The verification runs before any store interaction so a
+// missing definition fails closed without touching the database — the
+// session either records the assertion it required or refuses.
+func hostOrchestratorIdentity(ctx context.Context, productID, workID string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	}
+	assertion, err := verifyOrchestratorIdentity(os.Getenv("HOME"), cwd)
+	if err != nil {
+		return err
+	}
+	assertion.ProductID = productID
+	assertion.WorkID = workID
+	assertion.PrincipalRef = "principal/orchestrator"
+	assertion.ClientRef = "client/concord-session"
+	assertion.AgentRef = "agent/" + orchestratorAgentFileName
+	assertion.SessionRef = "session/" + productID
+	path, err := databasePath()
+	if err != nil {
+		return err
+	}
+	s, err := store.Open(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	eventID := orchestratorAssertionEventID(productID, workID)
+	if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, time.Now().UTC(), assertion); err != nil {
+		return err
+	}
+	return nil
+}
+
+// orchestratorAssertionEventID returns the durable event_id Concord assigns
+// to the orchestrator assertion for a session. It incorporates productID
+// (always) and workID (when present) so concurrent sessions on the same
+// authority do not collide, and a monotonic nanosecond counter so back-to-
+// back sessions on the same scope record distinct events.
+func orchestratorAssertionEventID(productID, workID string) string {
+	scope := productID
+	if workID != "" {
+		scope = workID
+	}
+	return "session-orchestrator-identity:" + scope + ":" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
 func deriveSessionBoot(ctx context.Context, database, productID, workID string) ([]byte, error) {
@@ -53,7 +117,14 @@ func runOpenCode(ctx context.Context, argv, env []string, in io.Reader, out, err
 	return cmd.Run()
 }
 
-func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool, bootstrap sessionBootstrapFunc, runner sessionRunnerFunc, identity sessionAgentIdentityFunc) int {
+// runSessionCommand is the entry point for `concord session`. The three
+// injected callbacks (bootstrap, runner, identity) make the command
+// observable for tests; the orchestrator callback adds the durable
+// orchestrator assertion CD-0061 D4 requires. Production wiring is
+// hostLaneAgentIdentity and hostOrchestratorIdentity.
+func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool,
+	bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
+	identity sessionAgentIdentityFunc, orchestrator sessionOrchestratorFunc) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, "concord session: unsupported arguments")
 		return 2
@@ -68,6 +139,10 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		return 2
 	}
 	if err := identity(); err != nil {
+		writeDiagnostic(errOut, "concord session: "+err.Error())
+		return 2
+	}
+	if err := orchestrator(context.Background(), productID, workID); err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}

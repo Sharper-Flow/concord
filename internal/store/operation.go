@@ -244,6 +244,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowContextCheckpointed:               workflowRegistration[workflowContextCheckpointedPayload](1, nil, foldWorkflowContextCheckpointed),
 	WorkflowContextBoundaryCrossed:            workflowRegistration[workflowContextBoundaryCrossedPayload](1, nil, foldWorkflowContextBoundaryCrossed),
 	WorkflowCompleted:                         workflowRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
+	EventSessionOrchestratorIdentityAsserted:  registerEventKind[orchestratorIdentityAssertedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionOrchestratorIdentityAsserted, validateSessionOrchestratorIdentityAssertedPayload),
 }
 
 func validateEventKindRegistry() error {

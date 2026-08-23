@@ -1041,3 +1041,183 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 		t.Fatal("post-migration-44 INSERT bypassed the fold guard")
 	}
 }
+
+// TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind covers
+// CD-0061 D3: the typed_agent_type, typed_agent_version, and
+// typed_agent_ruleset_digest columns on workflow_context_boundaries are
+// removed because no code reads or writes them (the reservation was orphaned
+// after CD-0027 excluded the restart dispatch that would have populated them),
+// and boundary_kind narrows to admit only 'summary', encoding CD-0027's
+// exclusion in the schema rather than only in prose.
+func TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v45.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatalf("schema manifest DDL: %v", err)
+	}
+	appliedAt := "2026-08-23T00:00:00Z"
+	for _, migration := range migrations[:45] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d (%s): %v", migration.Version, migration.Name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+			migration.Version, migration.Name, migration.checksum(), appliedAt,
+		); err != nil {
+			t.Fatalf("manifest record for migration %d: %v", migration.Version, err)
+		}
+	}
+	// Pre-migration: the three typed_agent_* columns must exist (the
+	// reservation they encode was declared and is what migration 46 removes).
+	for _, column := range []string{"typed_agent_type", "typed_agent_version", "typed_agent_ruleset_digest"} {
+		var count int
+		if err := db.QueryRowContext(ctx,
+			`SELECT count(*) FROM pragma_table_info('workflow_context_boundaries') WHERE name=?`,
+			column,
+		).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("pre-migration column %s count=%d err=%v, want 1", column, count, err)
+		}
+	}
+	// Pre-migration: the column-level CHECK on boundary_kind admits 'restart'
+	// (the table-level narrowing is migration 46).
+	preTableSQL := readTableSQL(t, ctx, db, "workflow_context_boundaries")
+	if !strings.Contains(preTableSQL, "boundary_kind IN ('summary','restart')") {
+		t.Fatalf("pre-migration column CHECK missing the legacy restart member:\n%s", preTableSQL)
+	}
+	// Apply migration 46.
+	v46 := migrations[45]
+	if v46.Version != 46 {
+		t.Fatalf("migrations[45].Version = %d, want 46", v46.Version)
+	}
+	if _, err := db.ExecContext(ctx, v46.SQL); err != nil {
+		t.Fatalf("migration %d (%s): %v", v46.Version, v46.Name, err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+		v46.Version, v46.Name, v46.checksum(), appliedAt,
+	); err != nil {
+		t.Fatalf("manifest record for migration %d: %v", v46.Version, err)
+	}
+	// The three typed_agent_* columns are gone.
+	for _, column := range []string{"typed_agent_type", "typed_agent_version", "typed_agent_ruleset_digest"} {
+		var count int
+		if err := db.QueryRowContext(ctx,
+			`SELECT count(*) FROM pragma_table_info('workflow_context_boundaries') WHERE name=?`,
+			column,
+		).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("post-migration column %s count=%d err=%v, want 0", column, count, err)
+		}
+	}
+	// Post-migration: the column-level CHECK narrows to admit only 'summary'.
+	postTableSQL := readTableSQL(t, ctx, db, "workflow_context_boundaries")
+	if strings.Contains(postTableSQL, "boundary_kind IN ('summary','restart')") {
+		t.Fatalf("post-migration column CHECK still admits 'restart':\n%s", postTableSQL)
+	}
+	if !strings.Contains(postTableSQL, "boundary_kind='summary'") {
+		t.Fatalf("post-migration column CHECK does not pin 'summary':\n%s", postTableSQL)
+	}
+	if strings.Contains(postTableSQL, "typed_agent_") {
+		t.Fatalf("post-migration table SQL still references typed_agent_:\n%s", postTableSQL)
+	}
+	// boundary_kind no longer admits 'restart' — a direct INSERT must fail at
+	// the column-level CHECK.
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatalf("fold guard: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`,
+		DeriveWorkflowActorRef("principal:v45", "client:v45", "agent:v45", "session:v45"),
+		"principal:v45", "client:v45", "agent:v45", "session:v45", "operator", "now",
+	); err != nil {
+		t.Fatalf("seed actor: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO work_items(id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at,intent_json) VALUES('work-v45','task','Work','needed',0,'standard',1,'now','now','{}')`,
+	); err != nil {
+		t.Fatalf("seed work: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('work-v45',1,1,1,'v45-restart','restart','v45-checkpoint:context-checkpoint',1,1,'restart attempted','workflow.implementation',1,?,?,'request:v45-restart','2026-08-23T00:00:00Z')`,
+		"sha256:"+strings.Repeat("a", 64),
+		DeriveWorkflowActorRef("principal:v45", "client:v45", "agent:v45", "session:v45"),
+	); err == nil {
+		t.Fatal("post-migration 'restart' boundary_kind was admitted")
+	} else if !strings.Contains(err.Error(), "boundary_kind") {
+		t.Fatalf("post-migration 'restart' was rejected, but not by the boundary_kind CHECK: %v", err)
+	}
+	// boundary_kind still admits 'summary' — the surviving path.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('work-v45',1,2,2,'v45-summary','summary','v45-checkpoint:context-checkpoint',1,1,'summary wrote','workflow.implementation',1,?,?,'request:v45-summary','2026-08-23T00:00:00Z')`,
+		"sha256:"+strings.Repeat("a", 64),
+		DeriveWorkflowActorRef("principal:v45", "client:v45", "agent:v45", "session:v45"),
+	); err != nil {
+		t.Fatalf("post-migration 'summary' boundary_kind was refused: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("release fold guard: %v", err)
+	}
+	// The fold triggers survived the rebuild: a direct INSERT with no fold
+	// guard active must still be rejected.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('work-v45',1,3,3,'v45-direct','summary','v45-checkpoint:context-checkpoint',1,1,'direct insert','workflow.implementation',1,?,?,'request:v45-direct','2026-08-23T00:00:00Z')`,
+		"sha256:"+strings.Repeat("a", 64),
+		DeriveWorkflowActorRef("principal:v45", "client:v45", "agent:v45", "session:v45"),
+	); err == nil {
+		t.Fatal("post-migration-46 direct INSERT bypassed the fold guard")
+	}
+}
+
+// readTableSQL returns the CREATE TABLE statement SQLite stored for name.
+func readTableSQL(t *testing.T, ctx context.Context, db *sql.DB, name string) string {
+	t.Helper()
+	var sql string
+	if err := db.QueryRowContext(ctx,
+		`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, name,
+	).Scan(&sql); err != nil {
+		t.Fatalf("read CREATE TABLE %s: %v", name, err)
+	}
+	return sql
+}
+
+// TestMigrationReplayFromScratchReachesHead proves every migration (including
+// the CD-0061 D3 reservation removal) replays in order to the head version on
+// a fresh database, with no step that depends on a column or CHECK constraint
+// removed by a later step.
+func TestMigrationReplayFromScratchReachesHead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-replay-cd0061.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatalf("schema manifest DDL: %v", err)
+	}
+	appliedAt := "2026-08-23T00:00:00Z"
+	for _, m := range migrations {
+		if _, err := db.ExecContext(ctx, m.SQL); err != nil {
+			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+			m.Version, m.Name, m.checksum(), appliedAt,
+		); err != nil {
+			t.Fatalf("manifest record for migration %d: %v", m.Version, err)
+		}
+	}
+	var latest int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if want := migrations[len(migrations)-1].Version; latest != want {
+		t.Fatalf("replay ended at version %d, want %d", latest, want)
+	}
+}

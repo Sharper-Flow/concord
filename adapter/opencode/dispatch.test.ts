@@ -241,18 +241,100 @@ import * as os from "node:os"
 
 test("host prompt provenance is deterministic and content-bound", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-"))
-  await Bun.write(`${dir}/AGENTS.md`, "# instructions v1\n")
-  const first = await computeHostPromptProvenance("research", dir)
-  const second = await computeHostPromptProvenance("research", dir)
-  expect(first.digest).toBe(second.digest)
-  expect(first.digest).toMatch(/^sha256:[0-9a-f]{64}$/)
-  const agentsMd = first.sources.find((s) => s.kind === "agents_md")
-  expect(agentsMd?.path).toBe(`${dir}/AGENTS.md`)
-  expect(agentsMd?.sha256).toMatch(/^sha256:/)
-  expect(first.sources.filter((s) => s.kind === "unenumerated").length).toBeGreaterThan(0)
-  await Bun.write(`${dir}/AGENTS.md`, "# instructions v2 — silently changed\n")
-  const changed = await computeHostPromptProvenance("research", dir)
-  expect(changed.digest).not.toBe(first.digest)
+  // Pointed at an empty config directory so the result depends on the fixture
+  // rather than on whatever the machine running the suite has installed.
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await Bun.write(`${dir}/AGENTS.md`, "# instructions v1\n")
+    const first = await computeHostPromptProvenance("research", dir)
+    const second = await computeHostPromptProvenance("research", dir)
+    expect(first.digest).toBe(second.digest)
+    expect(first.digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    const agentsMd = first.sources.find((s) => s.kind === "agents_md")
+    expect(agentsMd?.path).toBe(`${dir}/AGENTS.md`)
+    expect(agentsMd?.sha256).toMatch(/^sha256:/)
+    expect(first.sources.filter((s) => s.kind === "unenumerated").length).toBeGreaterThan(0)
+    await Bun.write(`${dir}/AGENTS.md`, "# instructions v2 — silently changed\n")
+    const changed = await computeHostPromptProvenance("research", dir)
+    expect(changed.digest).not.toBe(first.digest)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
+// Issue #408: the global AGENTS.md is injected into every session but sits
+// outside the spawn directory's ancestry, so the upward walk alone can never
+// reach it and it bound to nothing.
+test("host prompt provenance binds the global AGENTS.md", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-cwd-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await Bun.write(`${configDir}/AGENTS.md`, "# global v1\n")
+    const first = await computeHostPromptProvenance("research", dir)
+    const globalAgents = first.sources.find(s => s.kind === "agents_md" && s.path === `${configDir}/AGENTS.md`)
+    expect(globalAgents?.sha256).toMatch(/^sha256:/)
+
+    await Bun.write(`${configDir}/AGENTS.md`, "# global v2 — silently changed\n")
+    expect((await computeHostPromptProvenance("research", dir)).digest).not.toBe(first.digest)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
+// Issue #409: instruction files the host config declares reach every lane. They
+// are bound when they resolve exactly, and named when they cannot, so nothing
+// injected is absent from the manifest.
+test("host prompt provenance binds config-declared instruction files", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-cwd-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await Bun.write(`${configDir}/rules.md`, "# rules v1\n")
+    await Bun.write(
+      `${configDir}/opencode.jsonc`,
+      `{\n  // a comment, and a trailing comma\n  "instructions": [\n    ${JSON.stringify(`${configDir}/rules.md`)},\n    "https://example.com/remote.md",\n    "packages/*/AGENTS.md",\n  ],\n}\n`,
+    )
+    const first = await computeHostPromptProvenance("research", dir)
+
+    const bound = first.sources.find(s => s.kind === "instruction_file" && s.path === `${configDir}/rules.md`)
+    expect(bound?.sha256).toMatch(/^sha256:/)
+
+    const named = first.sources.filter(s => s.kind === "unenumerated").map(s => s.path)
+    expect(named).toContain("https://example.com/remote.md")
+    expect(named).toContain("packages/*/AGENTS.md")
+
+    await Bun.write(`${configDir}/rules.md`, "# rules v2 — silently changed\n")
+    expect((await computeHostPromptProvenance("research", dir)).digest).not.toBe(first.digest)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
+// An unparseable config is never guessed at. It is named, so the operator can
+// see that a surface exists which the manifest could not read.
+test("host prompt provenance names a config it cannot parse", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-cwd-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await Bun.write(`${configDir}/opencode.json`, "{ this is not json")
+    const result = await computeHostPromptProvenance("research", dir)
+    expect(result.sources.filter(s => s.kind === "unenumerated").map(s => s.path)).toContain(
+      `${configDir}/opencode.json`,
+    )
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
 })
 
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,

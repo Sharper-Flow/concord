@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f1928d64c2d301e2691ec5610a7103707fab6f23105cc6924ed18eeb2cfeeeff",
+  "sha256": "sha256:43bfae7fd38d652e232de2eb3cc1b51df93db4e200edcc53aba871195ab11bc3",
   "status": "accepted",
   "summary": "Repository checks name one authority class — structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py is deleted at its named structural end-state.",
   "tags": [

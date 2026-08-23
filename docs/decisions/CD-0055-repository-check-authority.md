@@ -140,8 +140,9 @@ warn-only guard over an invisible hang is noise nobody reads.
 ## Verification
 
 - The retained checks remain required and green in `.github/workflows/ci.yml`:
-  `check-tx-scope.py`, `check-reachability.py`, and the launcher
-  dependency-inventory tests.
+  `check-reachability.py` and the launcher dependency-inventory tests. The
+  transaction-scope invariant is required and green as `TestTxScope` in the Go
+  suite, which `verify` runs.
 - The store-boundary replacement lands behind #302, preserves every current
   finding class through the tool or tests, and deletes the hand-rolled lexer.
 - This record's law-coverage state is `outstanding` against #302 until then.

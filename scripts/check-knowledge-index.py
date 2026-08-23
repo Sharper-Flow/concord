@@ -613,6 +613,39 @@ def _load_generator() -> object:
     return module
 
 
+def canonical_shard_text(shard: object) -> str:
+    """The one encoding a record shard is stored in.
+
+    The --update writer and the encoding check share this, so they cannot drift
+    apart and disagree about what canonical means.
+    """
+    return json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+def check_shard_encoding(findings: list[str]) -> None:
+    """Record shards already carry the encoding --update writes.
+
+    A shard differing only in indent, key order, or trailing newline still
+    parses, so every other check passes and the drift stays invisible. The next
+    --update rewrites it, and the diff surfaces inside an unrelated change.
+    """
+    shard_dir = ROOT / "docs/knowledge/records"
+    if not shard_dir.is_dir():
+        return
+    for shard_path in sorted(shard_dir.glob("*.json")):
+        raw = shard_path.read_text(encoding="utf-8")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if raw != canonical_shard_text(parsed):
+            fail(
+                findings,
+                f"manifest: record shard is not canonically encoded: {shard_path.relative_to(ROOT)}; "
+                "run python3 scripts/check-knowledge-index.py --update",
+            )
+
+
 def check_aggregate_freshness(findings: list[str]) -> None:
     shard_dir = ROOT / "docs/knowledge/records"
     if not shard_dir.is_dir():
@@ -676,10 +709,7 @@ def update_manifest(data: object) -> list[str]:
         generator = _load_generator()
         for identifier, shard in shards.items():
             shard_path = shard_dir / f"{identifier}.json"
-            atomic_write(
-                shard_path,
-                json.dumps(shard, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-            )
+            atomic_write(shard_path, canonical_shard_text(shard))
         derived = generator.derive_aggregate(ROOT, [], template=data)
         if derived is None:
             return ["manifest: knowledge record shards failed generator validation"]
@@ -699,6 +729,7 @@ def main() -> int:
         findings = update_manifest(data)
     elif data is not None:
         findings = validate(data)
+        check_shard_encoding(findings)
         check_aggregate_freshness(findings)
     for finding in findings:
         print(finding)

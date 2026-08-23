@@ -395,9 +395,62 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestD7ConsequentialBoundariesRefuseUnresolvedOverlap"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestExternalObservationBoundaryRefusesStaleLawRevision"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestStaleLawBoundaryLeavesRecoveryReachable"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestCompactionPublishClaimRefusesStaleLawRevision"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestCompactionLinkRecoveryExemptPublishesUnderStaleLawRevision"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestResolveWorkflowConditionsAtBoundaryRefusesMergeUnderUnresolvedOverlap"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestComponentInputsAreProhibitedOnTheAgentSurface"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
+        }
+      ],
       "id": "CD-0041",
-      "issue": 375,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [

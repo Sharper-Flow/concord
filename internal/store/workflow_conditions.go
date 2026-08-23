@@ -136,6 +136,12 @@ func ResolveWorkflowConditionsAtBoundary(ctx context.Context, s *Store, workID s
 		return rollback(err)
 	}
 	defer func() { _ = leaveFold(ctx, tx) }()
+	// CD-0041 D7: accepting an external result is a consequential mutation, so
+	// the contract's law revision pins and its active Domain overlaps are
+	// revalidated in the transaction that folds the resolution.
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, workID); err != nil {
+		return rollback(err)
+	}
 	resolved, err := resolveWorkflowConditionsAtBoundaryTx(ctx, tx, workID, resolver, now)
 	if err != nil {
 		return rollback(err)
@@ -248,6 +254,12 @@ func ResolveWorkflowCondition(ctx context.Context, s *Store, workID, conditionID
 	}
 	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
 	if err := enterFold(ctx, tx); err != nil {
+		return rollback(err)
+	}
+	// CD-0041 D7: accepting an external result is a consequential mutation, so
+	// the contract's law revision pins and its active Domain overlaps are
+	// revalidated in the transaction that folds the resolution.
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, workID); err != nil {
 		return rollback(err)
 	}
 	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {

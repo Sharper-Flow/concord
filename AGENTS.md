@@ -48,6 +48,15 @@ Context is the scarcest resource in a session. Spend it on decisions.
 - **Do not restate a derivable fact.** If a generator, validator, workflow, or
   `--help` already asserts it, link to that source instead of copying it.
 
+## Asking the operator
+
+Ask one question at a time, and wait for the answer before asking the next.
+
+Write it so it stands alone: say what is being decided and what turns on it.
+Options must not carry more context than the question they answer. Leave out
+identifiers, record numbers, and internal names — a question that needs the
+codebase to parse is one the operator cannot answer.
+
 ## Prohibitions
 
 - Do not hand-edit generated files. Regenerate them. Every generated Go, TS, and

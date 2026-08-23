@@ -825,9 +825,46 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMigrationReplayFromScratchReachesHead"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionRefusesWhenOrchestratorIdentityIsAbsent"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionRecordsExactlyOneOrchestratorIdentityEvent"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestOrchestratorIdentityResolvesFromEitherSearchedDirectory"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestOrchestratorIdentityDigestIsStableAcrossInvocations"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestOrchestratorIdentityDigestChangesWhenArtifactChanges"
+        }
+      ],
       "id": "CD-0061",
-      "issue": 254,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [

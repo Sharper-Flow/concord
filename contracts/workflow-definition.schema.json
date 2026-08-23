@@ -82,6 +82,7 @@
         "consequence": {"enum": ["internal_sqlite", "cross_authority", "external_effect"]},
         "approval": {"enum": ["none", "conditional", "required"]},
         "execution_mode": {"enum": ["advance", "hold", "fenced", "checkpoint"]},
+        "required_capability": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]{1,63}$"},
         "payload": {"$ref": "#/$defs/payloadDefinition"}
       }
     },

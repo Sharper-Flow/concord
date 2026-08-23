@@ -19,6 +19,15 @@ import (
 // a per-write signature from the registered client, never by a grant.
 const CapabilityWorkerEvidence Capability = "worker_evidence"
 
+// CapabilityWorkerDispatch authorizes a registered client to invoke the
+// dispatch_worker registered workflow action (CD-0059 D3). It mirrors
+// CapabilityWorkerEvidence: registrable in a client policy but deliberately
+// absent from the grant-request vocabulary, so a worker that holds only
+// work_transition cannot dispatch a nested worker. The capability lives
+// in the policy boundary so CD-0017 D4's nested-worker rule is structural,
+// not a host-side convention.
+const CapabilityWorkerDispatch Capability = "worker_dispatch"
+
 // The three evidence-recording verbs a trusted client may sign for. The verb is
 // part of the signed bytes so a dispatch assertion cannot be presented as a
 // completion.

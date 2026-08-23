@@ -162,10 +162,15 @@ type workflowActionCheckpointedPayload struct {
 
 type workflowActionCompletedPayload struct {
 	WorkflowVersionFields
-	ActionID           string   `json:"action_id,omitempty"`
-	StepID             string   `json:"step_id"`
-	AttemptEpoch       int64    `json:"attempt_epoch"`
-	WorkerAttemptID    string   `json:"worker_attempt_id,omitempty"`
+	ActionID        string `json:"action_id,omitempty"`
+	StepID          string `json:"step_id"`
+	AttemptEpoch    int64  `json:"attempt_epoch"`
+	WorkerAttemptID string `json:"worker_attempt_id,omitempty"`
+	// CD-0059 D1/D5: dispatch_worker binds the attempt identity it
+	// authorized so the worker-dispatch evidence boundary can prove the
+	// window belongs to the claim. The fold validates the pair on the
+	// next action that opens or accepts against this step epoch.
+	WorkerLaneID       string   `json:"worker_lane_id,omitempty"`
 	ResultEvidenceRefs []string `json:"result_evidence_refs"`
 	ChangedRefs        []string `json:"changed_refs"`
 	ActorRef           string   `json:"actor_ref"`
@@ -1166,8 +1171,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
-	if p.ActionID != "accept_worker_result" && p.WorkerAttemptID != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for accept_worker_result", false, "omit worker_attempt_id for ordinary action completion")
+	if p.ActionID != "accept_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for accept_worker_result and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err

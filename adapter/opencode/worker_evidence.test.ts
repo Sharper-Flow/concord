@@ -4,9 +4,27 @@ import { canonicalWorkerEvidence, dispatchWorker, type AgentLanePacket, type Dis
 import type { CredentialStore } from "./credentials"
 import workerEvidenceVector from "./worker-evidence-vector.json"
 
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
+
 const lane = agentLanes[0]
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
+
+type ToolContext = Parameters<typeof dispatchWorker>[1] extends infer O ? (O extends { toolContext?: infer T } ? T : never) : never
+
+// Permissive authorizer: every dispatch_worker invocation acknowledges
+// with an `ok` envelope so the evidence-write path under test can run.
+const permissiveToolContext = (): ToolContext => ({
+  sessionID: "session-evidence", messageID: "message-evidence", agent: "agent-evidence",
+  directory: "/repo", worktree: "/repo-wt", abort: new AbortController().signal,
+  async ask() { return true },
+  async invoke(args: unknown) {
+    if (isRecord(args) && args.tool === "concord_work_transition" && args.operation === "workflow_action") {
+      return { schema_version: "1.0", request_id: "auth-evidence", origin: "core", tool: "concord_work_transition", operation: "workflow_action", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
+    }
+    return { outcome: "ok" }
+  },
+})
 
 function packet(): AgentLanePacket {
   return {
@@ -85,7 +103,7 @@ test("canonical encoding is order-fixed, not object-key dependent", () => {
 
 test("dispatch and completion evidence each carry a bound assertion", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded) })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), toolContext: permissiveToolContext() })
   expect(result.outcome).toBe("ok")
   expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete"])
 
@@ -104,7 +122,7 @@ test("dispatch and completion evidence each carry a bound assertion", async () =
 
 test("each evidence write carries its own nonce", async () => {
   const recorded: Record<string, unknown>[] = []
-  await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded) })
+  await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), toolContext: permissiveToolContext() })
   const nonces = recorded.map((entry) => (entry.request as any).assertion.nonce)
   expect(new Set(nonces).size).toBe(nonces.length)
 })
@@ -121,7 +139,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
       return { exitCode: 0, stdout: "", stderr: "" }
     },
   }
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded) })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded), toolContext: permissiveToolContext() })
   expect(result.outcome).toBe("ok")
   expect(spawnedArgv.join(" ")).not.toContain("signature")
   expect(spawnedArgv.join(" ")).not.toContain("assertion")
@@ -134,7 +152,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
 // assertion that leaves those fields empty cannot match the binding.
 test("failure evidence carries a bound assertion including lane identity", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: failingLaneRunner, evidenceRunner: evidenceCollector(recorded) })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: failingLaneRunner, evidenceRunner: evidenceCollector(recorded), toolContext: permissiveToolContext() })
   expect(result.outcome).toBe("error")
   expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-fail"])
 
@@ -159,7 +177,7 @@ test("every verb signs exactly the field set its CLI binding populates", async (
   const signed = new Map<string, Record<string, unknown>>()
   for (const runner of [laneRunner, failingLaneRunner]) {
     const recorded: Record<string, unknown>[] = []
-    await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded) })
+    await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded), toolContext: permissiveToolContext() })
     for (const entry of recorded) signed.set(entry.command as string, (entry.request as any).assertion)
   }
   expect([...signed.keys()].sort()).toEqual(workerEvidenceVector.cases.map((vectorCase) => vectorCase.verb).sort())
@@ -177,7 +195,7 @@ test("every verb signs exactly the field set its CLI binding populates", async (
 test("an unavailable credential fails the run instead of recording unsigned evidence", async () => {
   const recorded: Record<string, unknown>[] = []
   const broken: CredentialStore = { async getPrivateKey() { throw new Error("credential service unavailable") } }
-  const result = await dispatchWorker(packet(), { credentials: broken, runner: laneRunner, evidenceRunner: evidenceCollector(recorded) })
+  const result = await dispatchWorker(packet(), { credentials: broken, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), toolContext: permissiveToolContext() })
   expect(result.outcome).toBe("error")
   expect(result.error?.recovery_action).toBe("contact_operator")
   expect(recorded).toHaveLength(0)

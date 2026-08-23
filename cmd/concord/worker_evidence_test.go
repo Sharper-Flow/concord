@@ -242,8 +242,12 @@ func mutateWorkerEvidenceField(t *testing.T, assertion agent.WorkerEvidenceAsser
 }
 
 // seedWorkerEvidenceAttempt records the dispatch a terminal verb binds to.
-func seedWorkerEvidenceAttempt(t *testing.T, key ed25519.PrivateKey, lane store.LaneDefinition, workID, attemptID, readback string) {
+// seedWorkerEvidenceAttempt records a dispatch attempt through the CLI. A
+// worker attempt only exists behind an authorized dispatch window, so the
+// fixture opens that window before claiming the attempt.
+func seedWorkerEvidenceAttempt(t *testing.T, key ed25519.PrivateKey, lane store.LaneDefinition, dbPath, workID, attemptID, readback string) {
 	t.Helper()
+	seedAuthorizedDispatchWindow(t, dbPath, workID, attemptID)
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbDispatch, lane, workID, attemptID, readback, "nonce-seed-dispatch000001")
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 	var out, errOut bytes.Buffer
@@ -268,8 +272,10 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "concord.db")
 			t.Setenv(dbOverrideEnv, dbPath)
 			key := seedWorkerEvidenceClient(t)
-			if verb != agent.WorkerEvidenceVerbDispatch {
-				seedWorkerEvidenceAttempt(t, key, lane, "work-1", "attempt-1", readback)
+			if verb == agent.WorkerEvidenceVerbDispatch {
+				seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
+			} else {
+				seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", readback)
 			}
 			request, assertion := workerEvidenceRequest(t, verb, lane, "work-1", "attempt-1", readback, "nonce-bound-fieldset00001")
 			request["assertion"] = signWorkerEvidence(t, key, mutate(restrictWorkerEvidenceAssertion(t, assertion, vectorCase.BoundFields)))
@@ -307,7 +313,7 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
-	seedWorkerEvidenceAttempt(t, key, lane, "work-1", "attempt-1", readback)
+	seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", readback)
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", readback, "nonce-fail-nolaneidentity")
 	unbound := assertion
@@ -462,6 +468,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "concord.db")
 			t.Setenv(dbOverrideEnv, dbPath)
+			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 			key := seedWorkerEvidenceClient(t)
 			var out, errOut bytes.Buffer
 			code := runWithInput([]string{testCase.command}, strings.NewReader(testCase.build(t, key)), &out, &errOut)
@@ -474,21 +481,29 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 }
 
 // TestWorkerEvidenceAssertionCannotBeReplayed proves the nonce is consumed in
-// the same transaction as the evidence: a byte-identical second call fails.
+// the same transaction as the evidence: a byte-identical nonce in a fresh
+// window refuses on replay, not on the window gate.
 func TestWorkerEvidenceAssertionCannotBeReplayed(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
-	dispatch := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-replay0001")
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
+	dispatch1 := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-replay0001")
 
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch1), &out, &errOut); code != 0 {
 		t.Fatalf("first worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
+	// A second window for a fresh attempt reopens the window gate. The
+	// nonce from the first dispatch is what the replay defense refuses;
+	// without a fresh window, the dispatch_window gate (CD-0059 D5) would
+	// refuse on consumed-window and the nonce check would never run.
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-2")
+	dispatch2 := workerDispatchJSON(t, key, "dispatch-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-replay0001")
 	out.Reset()
 	errOut.Reset()
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "replayed") {
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch2), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "replayed") {
 		t.Fatalf("replayed worker-dispatch exit=%d stderr=%q, want replay refusal", code, errOut.String())
 	}
 }
@@ -500,6 +515,7 @@ func TestWorkerEvidenceAssertionCannotBeReplayed(t *testing.T) {
 func TestWorkerCompleteCLIRefusesAnOmittedEvidenceOriginAndUndischargedObligations(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-origin", "attempt-origin")
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
@@ -546,6 +562,7 @@ func TestWorkerCompleteCLIRefusesAnOmittedEvidenceOriginAndUndischargedObligatio
 func TestWorkerEvidenceCannotChangeATerminalResult(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 
@@ -591,6 +608,7 @@ func TestWorkerEvidenceCannotChangeATerminalResult(t *testing.T) {
 func TestWorkerEvidenceRequiresTheWorkerEvidenceCapability(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -614,6 +632,7 @@ func TestWorkerEvidenceRequiresTheWorkerEvidenceCapability(t *testing.T) {
 func TestWorkerEvidenceRefusesARevokedClient(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	key := seedWorkerEvidenceClient(t)
 	runCLIJSON(t, []string{"client", "revoke"}, map[string]any{"client_ref": workerEvidenceClientRef})
 	lane := store.BuiltinLaneDefinitions()[0]
@@ -630,6 +649,7 @@ func TestWorkerEvidenceRefusesARevokedClient(t *testing.T) {
 func TestWorkerEvidenceRecordsTheVerifiedClientAsActor(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
@@ -673,4 +693,105 @@ func mustJSON(t *testing.T, value any) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+// seedAuthorizedDispatchWindow sets up the on-disk state the
+// worker-dispatch CLI requires to admit a dispatch: a work item, its
+// workflow instance pinned to the execution step, and an authorized,
+// unconsumed dispatch_worker window bound to attemptID.
+//
+// CD-0059 D5 makes the dispatch-window integrity check structural, so the
+// pre-existing capability/signature/nonce tests in this file cannot exercise
+// the layers under the window unless the window exists. The helper folds
+// the rows directly through fold_guard so the helper is a one-call fixture
+// and the tests keep testing what they are named for.
+func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+	actor := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: store.ActorAgent}
+	actorRef, err := store.WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatalf("compute actor_ref: %v", err)
+	}
+	entry, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4)
+	if !ok {
+		t.Fatal("workflow.implementation v4 is not registered")
+	}
+	expected := int64(2)
+	resulting := expected + 1
+	startPayload := mustJSON(t, map[string]any{
+		"work_id":                workID,
+		"expected_version":       expected,
+		"resulting_version":      expected + 1,
+		"step_id":                "execution",
+		"action_id":              "dispatch_worker",
+		"attempt_epoch":          1,
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
+		"idempotency_identity":   "dispatch-open:" + attemptID,
+		"actor_ref":              actorRef,
+	})
+	completionPayload := mustJSON(t, map[string]any{
+		"work_id":              workID,
+		"expected_version":     resulting,
+		"resulting_version":    resulting + 1,
+		"step_id":              "execution",
+		"action_id":            "dispatch_worker",
+		"attempt_epoch":        1,
+		"result_evidence_refs": []string{},
+		"changed_refs":         []string{workID},
+		"actor_ref":            actorRef,
+		"worker_attempt_id":    attemptID,
+	})
+	// work_items, workflow_actors, workflow_instances, products, projects,
+	// product_projects, work_projects, and the workflow event families are
+	// fold-only, so the rows are admitted through one fold_guard session.
+	// The modernc.org/sqlite driver inconsistently binds parameters across
+	// a multi-statement exec, so each insert is run as its own prepared
+	// statement inside a single transaction.
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-1', 'Concord', 'prototype', 'operator_only', 1, '2026-08-22T00:00:00Z', '2026-08-22T00:00:00Z')`); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-1', 'Repository', 1, '2026-08-22T00:00:00Z', '2026-08-22T00:00:00Z')`); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES('product-1', 'project-1', 'primary')`); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?, 'task', ?, 'in_progress', 1, 2, '2026-08-22T00:00:00Z', '2026-08-22T00:00:00Z')`, workID, "cd0059 "+workID); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_projects(work_id,project_id,role) VALUES(?, 'project-1', 'primary')`, workID); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?, ?, ?, ?, ?, 'agent', '2026-08-22T00:00:00Z')`, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', 4, ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_started', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 1, ?)`, "dispatch-start-"+attemptID, workID, actorRef, []byte(startPayload)); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 2, ?)`, "dispatch-completed-"+attemptID, workID, actorRef, []byte(completionPayload)); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("seed dispatch window commit: %v", err)
+	}
 }

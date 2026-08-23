@@ -727,7 +727,15 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return failureEnvelope(base, err), nil
 	}
 
-	inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: Capability("work_transition"), ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+	// CD-0059 D3: per-action capability resolution is structural. The
+	// registry entry declares the capability the dispatcher must hold;
+	// legacy actions that did not declare one default to work_transition
+	// so pre-CD-0059 actions retain their authority contract.
+	requiredCapability := Capability("work_transition")
+	if action.RequiredCapability != "" {
+		requiredCapability = Capability(action.RequiredCapability)
+	}
+	inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: requiredCapability, ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}

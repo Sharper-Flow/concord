@@ -398,6 +398,14 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 			completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 			completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
 		}
+		// CD-0059 D1/D5: the dispatch_worker completion carries the
+		// authorized attempt_id into the durable record so the
+		// worker-dispatch evidence boundary can prove the window exists and
+		// has not been consumed. The start already records the attempt_epoch
+		// (above); the completion binds the attempt identity.
+		if request.ActionID == "dispatch_worker" {
+			completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
+		}
 		events = append(events, workflowTypedEvent(request.OperationID+":completed", WorkflowActionCompleted, request.WorkID, actor, request.Now, resultVersion-1, completionValues))
 	}
 

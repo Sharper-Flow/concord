@@ -107,8 +107,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version")), Optional: "readback_model (host-reported executing model); host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "evidence[] (obligation; detail 1-512 chars) — required and non-empty when evidence_origin is reported (CD-0056)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands; reported evidence must discharge every obligation the dispatching lane declares"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
-	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research; public_key: base64 Ed25519"},
-	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research"},
+	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519"},
+	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
 	{Canonical: "client-revoke", TwoWord: "client revoke", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "none"},
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
@@ -410,6 +410,14 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 // for the two result verbs, and appends the evidence — all inside one
 // transaction. Authorization that committed without its evidence, or evidence
 // that committed without its authorization, would both be defects.
+//
+// CD-0059 D5: dispatch evidence also enforces an authorized, unconsumed
+// dispatch window for (work_id, current_step). One authorization admits
+// exactly one attempt; a worker spawned outside the registered action is
+// refused at the evidence boundary, so lane work outside the adapter is
+// visible as absent evidence rather than as an indistinguishable attempt.
+// The integrity check sits beside the existing capability, signature, and
+// nonce checks so a worker that fails any one boundary fails consistently.
 func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, resolve func(store.WorkerAttempt) (store.Event, error), event store.Event, out, errOut io.Writer) int {
 	var eventIDs []string
 	var recorded error
@@ -438,6 +446,15 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 				resolved, resolveErr := resolve(attempt)
 				event = resolved
 				recorded = resolveErr
+			}
+		}
+		if binding.Verb == agent.WorkerEvidenceVerbDispatch {
+			// The dispatch window integrity check runs after the attempt
+			// lookup (a no-op for dispatch) and before the assertion
+			// validation: a worker that fails this gate cannot consume a
+			// signed assertion nonce.
+			if err := store.ValidateWorkerDispatchWindow(ctx, tx, binding.WorkID, "", binding.AttemptID); err != nil {
+				return err
 			}
 		}
 		principal, err := service.ValidateWorkerEvidenceAssertionTx(ctx, tx, assertion, binding)

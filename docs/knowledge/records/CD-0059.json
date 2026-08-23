@@ -1,0 +1,36 @@
+{
+  "date": "2026-08-22T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/worker_lanes.go",
+    "internal/store/errors.go",
+    "internal/agent/authority.go",
+    "internal/agent/mutations.go",
+    "internal/agent/worker_evidence.go",
+    "cmd/concord/main.go",
+    "adapter/opencode/dispatch.ts"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0059",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0059-worker-dispatch-action.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2be729ca33f888e3002e53fb2e37fb03323bbb7eace74f062a9ba8f2c0c4987f",
+  "status": "accepted",
+  "summary": "Lane dispatch is a registered workflow action (dispatch_worker) reached through concord_work_transition.workflow_action; its D1 policy triple matches start_execution (external_effect, approval none, fenced, generic); the per-action capability is structural — the runtime reads the action's required_capability rather than hard-coding work_transition; the dispatch_worker action requires a new worker_dispatch capability that is registrable in a client policy but structurally non-grantable, mirroring worker_evidence; the worker-dispatch evidence boundary refuses when no authorized, unconsumed dispatch window exists for (work_id, step_id, attempt_epoch), closing the integrity hole a Task-tool spawn used to leave open; the adapter authorizes before spawning.",
+  "tags": [
+    "workflow",
+    "lanes",
+    "authority",
+    "evidence",
+    "integrity"
+  ],
+  "title": "Lane dispatch is a registered workflow action"
+}

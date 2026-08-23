@@ -131,8 +131,8 @@ func TestHistoricalBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	want := map[int64]string{
 		1: "sha256:964cf4a634cc373dbe38a72a70ebe537941029c7f479ab575f7eadde8672ff37",
-		2: "sha256:60c60cb444618dee745eb5572f74c9736bf0b4526950e2dd2c896574f36a77e1",
-		3: "sha256:2430a098db46f4baeb9a7b5bafe1575849a739dd9107369e5de535c2b6badc93",
+		2: "sha256:81c3b0c3932135ccd4027e7b2f14873562df5b50f3aae314e2fec9b0be8402e5",
+		3: "sha256:15e65392ebf9418bd9ce1b1c2833a93c7025c8e3a0324f16b1e52d832d1187f3",
 	}
 	for version, expected := range want {
 		definition, ok := registry.Lookup("workflow.implementation", version)

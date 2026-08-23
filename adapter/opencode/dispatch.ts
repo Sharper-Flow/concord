@@ -394,6 +394,29 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
   return null
 }
 
+// dispatchAuthorize drives the dispatch_worker workflow action through the
+// short-lived concord CLI on the same runner transport. CD-0059 D1 requires
+// the authorization to land before any worker is spawned, so the adapter
+// only shells out to spawn after this step returns ok=true. The CLI response
+// is a closed JSON object whose outcome / error.kind determine success.
+// Returns null when the action was authorized; a typed diagnostic string
+// when it was refused or the response was malformed.
+async function dispatchAuthorize(childRunner: DispatchRunner, binary: string, request: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true } | { ok: false; kind: string; message: string }> {
+  const input = JSON.stringify(request)
+  if (Buffer.byteLength(input) > MAX_CLI_INPUT_BYTES) return { ok: false, kind: "transport_failure", message: "dispatch authorization request exceeded the bounded CLI input limit" }
+  let result: { exitCode: number; stdout: string; stderr: string }
+  try { result = await childRunner.run([binary, "invoke"], input, signal) } catch (error) { return { ok: false, kind: "transport_failure", message: String(error).slice(0, MAX_ERROR_BYTES) } }
+  if (result.exitCode !== 0) return { ok: false, kind: "transport_failure", message: (result.stderr || result.stdout).slice(0, MAX_ERROR_BYTES) || "dispatch authorization failed without diagnostic output" }
+  let parsed: unknown
+  try { parsed = JSON.parse(result.stdout.trim()) } catch { return { ok: false, kind: "malformed_response", message: "dispatch authorization response was not JSON" } }
+  if (!isRecord(parsed) || typeof parsed.outcome !== "string") return { ok: false, kind: "malformed_response", message: "dispatch authorization response shape was not the closed envelope" }
+  if (parsed.outcome === "ok") return { ok: true }
+  const errorObj = isRecord(parsed.error) ? parsed.error : null
+  const kind = errorObj && typeof errorObj.kind === "string" ? errorObj.kind : "unauthorized_dispatch"
+  const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch authorization refused"
+  return { ok: false, kind, message }
+}
+
 // CD-0034 / issue #103: host prompt provenance. The adapter enumerates the
 // unversioned host surfaces it can bind — the lane agent definition file, the
 // AGENTS.md chain at spawn cwd, and instruction files declared through
@@ -453,13 +476,41 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 32) }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; toolContext?: ToolContext } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
   const signal = options.signal ?? new AbortController().signal
   const childRunner = options.runner ?? runner
   const binary = options.binary ?? "opencode"
+
+  // CD-0059 D1: authorize before spawn, unconditionally. The
+  // dispatch_worker workflow action opens the worker attempt window
+  // against the current step epoch; the adapter drives the action through
+  // the host ToolContext the same way every other concord CLI command
+  // reaches the registered action surface. Without an authorizer the
+  // adapter fails closed with a typed error envelope and does not
+  // spawn a worker, so a missing authorization path cannot produce an
+  // attempt the evidence boundary would later have to refuse.
+  if (!options.toolContext || !isRecord(options.toolContext)) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", "no authorizer was supplied to dispatchWorker; dispatch_worker authorization is mandatory before spawn", "contact_operator")
+  }
+  const tc = options.toolContext
+  try {
+    const response = await (tc as { invoke?: (args: unknown) => Promise<unknown> }).invoke?.({
+      tool: "concord_work_transition",
+      operation: "workflow_action",
+      input: { work_id: (packet as Partial<AgentLanePacket>).work_id, action_id: "dispatch_worker", fields: { attempt_id: (packet as Partial<AgentLanePacket>).attempt_id } },
+    })
+    if (!isRecord(response) || response.outcome === "error") {
+      const errorObj = isRecord(response?.error) ? response.error : null
+      const kind = errorObj && typeof errorObj.kind === "string" ? errorObj.kind : "unauthorized_dispatch"
+      const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", kind, message, "reconcile_operation")
+    }
+  } catch {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker authorization hook threw", "contact_operator")
+  }
   // CD-0058: the adapter no longer asserts --model. OpenCode resolves the
   // executing model from host configuration (agent.<name>.model or a routing
   // plugin). Concord records what the host reports executed; it does not claim

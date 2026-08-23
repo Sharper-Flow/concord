@@ -224,6 +224,112 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	return ValidateWorkerHostProvenance(payload.HostProvenance)
 }
 
+// WorkerDispatchWindow is the durable authorization a registered dispatch_worker
+// action opens for a single worker attempt. CD-0059 D5 makes the worker-dispatch
+// evidence boundary refuse if no such window exists or the same window has
+// already been consumed.
+type WorkerDispatchWindow struct {
+	WorkID       string
+	StepID       string
+	AttemptID    string
+	AttemptEpoch int64
+	StartSeq     int64
+}
+
+// FindAuthorizedDispatchWindowTx reads the most recent dispatch_worker
+// authorization for (workID, stepID) inside the caller's transaction. It is
+// the single-use window the worker-dispatch CLI must consume or refuse.
+// Refusal modes return KindUnauthorizedDispatch so the caller can surface a
+// typed failure without re-classifying.
+func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, stepID string) (WorkerDispatchWindow, error) {
+	var window WorkerDispatchWindow
+	window.WorkID = workID
+	window.StepID = stepID
+	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", stepID).Scan(&window.StartSeq, &window.AttemptEpoch); err != nil {
+		if err == sql.ErrNoRows {
+			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item at the current step", false, "open a dispatch_worker authorization for this step before recording worker evidence")
+		}
+		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
+	}
+	// CD-0059 D1: the dispatch_worker completion carries the bound
+	// attempt_id — it is the value the worker-dispatch evidence must
+	// claim. A window that authorized a different attempt is not a
+	// window the worker can consume.
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_attempt_id'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq > ? ORDER BY seq ASC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", stepID, window.StartSeq).Scan(&window.AttemptID); err != nil {
+		if err == sql.ErrNoRows {
+			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker started without a completing authorization event", false, "reopen the workflow action against a fresh step epoch")
+		}
+		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization completion", true, "retry once the database is readable", err)
+	}
+	if window.AttemptID == "" {
+		return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completion did not bind attempt_id", false, "supply the closed payload for the dispatch_worker action")
+	}
+	return window, nil
+}
+
+// WorkerDispatchWindowIsOpenTx reports whether the window has already been
+// consumed by a recorded worker.dispatched event for the bound attempt_id.
+// The check is single-use: one authorization admits exactly one attempt.
+func WorkerDispatchWindowIsOpenTx(ctx context.Context, tx *sql.Tx, window WorkerDispatchWindow) (bool, error) {
+	var consumed int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND seq > ?`, string(SubjectWorkItem), window.WorkID, WorkerDispatched, window.AttemptID, window.StartSeq).Scan(&consumed); err != nil {
+		return false, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot inspect the dispatch window consumption", true, "retry once the database is readable", err)
+	}
+	return consumed == 0, nil
+}
+
+// ValidateWorkerDispatchWindow is the gate the worker-dispatch CLI runs
+// inside its authenticating transaction. It refuses if the work item has no
+// workflow instance, if no authorized window exists for (workID, stepID), if
+// the binding attempt_id disagrees with the claim, or if the same window has
+// already been consumed.
+//
+// CD-0059 D5 narrows the gate to work items that have already entered a
+// workflow: a worker attempt belongs to a work item a workflow is executing,
+// and a work item without a workflow instance is not in a state where
+// dispatch is legal. The refusal names the missing instance so an operator
+// can tell it apart from a missing authorization at an existing step.
+//
+// Pass stepID="" to let the gate resolve the workflow instance's current
+// step; the CLI uses that path because it has no independent step knowledge.
+// Empty workID is rejected as malformed.
+func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction, workID, stepID, attemptID string) error {
+	if workID == "" {
+		return newFailure(KindInvalidPayload, "worker_dispatch_window", "work_id is required for dispatch window validation", false, "supply the work item that the worker attempt belongs to")
+	}
+	if attemptID == "" {
+		return newFailure(KindInvalidPayload, "worker_dispatch_window", "attempt_id is required for dispatch window validation", false, "supply the worker attempt identity the dispatch authorizes")
+	}
+	tx, err := transactionSQL(transaction, "worker_dispatch_window")
+	if err != nil {
+		return err
+	}
+	resolvedStep := stepID
+	if resolvedStep == "" {
+		if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&resolvedStep); err != nil {
+			if err == sql.ErrNoRows {
+				return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no workflow instance exists for this work item, so dispatch is not in an authorized surface", false, "drive the work item into a registered workflow before dispatching a worker")
+			}
+			return wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the workflow instance step", true, "retry once the database is readable", err)
+		}
+	}
+	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, resolvedStep)
+	if err != nil {
+		return err
+	}
+	if window.AttemptID != attemptID {
+		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "worker attempt does not match the authorized dispatch window", false, "open a dispatch_worker authorization for this attempt or use the bound attempt_id")
+	}
+	open, err := WorkerDispatchWindowIsOpenTx(ctx, tx, window)
+	if err != nil {
+		return err
+	}
+	if !open {
+		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "dispatch window has already been consumed by a recorded attempt", false, "open a fresh dispatch_worker authorization for a new attempt")
+	}
+	return nil
+}
+
 // workerProvenancePattern binds the total digest and per-source hashes.
 var workerProvenancePattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 

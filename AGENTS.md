@@ -81,7 +81,7 @@ Never call an `s.db`-backed `*Store` method from inside a transaction. Extract o
 use a tx-scoped core: an `xxxTx` function, or a small queryer interface taking
 the tx. Raising the pool size is not the fix — a second connection would read the
 pre-transaction snapshot and silently miss uncommitted writes.
-[`scripts/check-tx-scope.py`](scripts/check-tx-scope.py) enforces this textually.
+[`internal/store/txscope_test.go`](internal/store/txscope_test.go) enforces this structurally.
 
 ## Knowledge closure
 

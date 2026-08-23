@@ -1319,7 +1319,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:445f87fdde1d5e529b34b88d98e6cd67b70f18d62526f4674dcc97ba0e36813b",
+      "sha256": "sha256:ef0faca29834a025b1554b96a424c98a52849ae46a275eda02f85e91f63a0d6a",
       "status": "accepted",
       "summary": "Acknowledged consequential operations are durable across power loss via a TRUNCATE-checkpoint barrier that syncs the whole WAL even under synchronous=NORMAL; ordinary writes stay NORMAL and are durable through the last boundary; the barrier lives at the acknowledgement layer, not inside fence primitives.",
       "tags": [
@@ -1442,7 +1442,7 @@
       "date": "2026-08-21T00:00:00Z",
       "evidence": [
         "scripts/check-reachability.py",
-        "scripts/check-tx-scope.py",
+        "internal/store/txscope_test.go",
         "internal/store/boundary_test.go"
       ],
       "home_domain_id": "product-root:concord",
@@ -1456,9 +1456,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:97e9fc349decaa3d3290ce4c8538c30bb3e531b5b93405f7042d20b468497844",
+      "sha256": "sha256:f1928d64c2d301e2691ec5610a7103707fab6f23105cc6924ed18eeb2cfeeeff",
       "status": "accepted",
-      "summary": "Repository checks name one authority class — structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py retained as the declared textual exception.",
+      "summary": "Repository checks name one authority class — structural, real-tool, textual-guard, or warn-only. Invariants owned by types, tests, or generated digests are not restated by scanners; genuine static analysis wraps a pinned real tool and declares only exceptions; hand-written textual guards are legal only for invisible-failure classes with documented false-positive shape and a named retirement end-state; heuristic verdicts never block. check-store-boundary.py is replaced under the real-tool rule and check-tx-scope.py is deleted at its named structural end-state.",
       "tags": [
         "validators",
         "policy",

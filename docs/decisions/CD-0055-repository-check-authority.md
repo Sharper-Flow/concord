@@ -11,8 +11,8 @@
   [`priorities.md`](../priorities.md) P1,
   [`capability-placement.md`](../capability-placement.md) §3
 - **Preserves:** the coordination plane's prior exclusion of heuristic
-  authority; the invariants `check-tx-scope.py` and `check-store-boundary.py`
-  guard; CD-0047's computed reachability
+  authority; the invariants `internal/store/txscope_test.go` and
+  `internal/store/boundary_test.go` guard; CD-0047's computed reachability
 - **Supersedes:** nothing
 
 ## Context
@@ -91,14 +91,12 @@ a probabilistic or judgment-shaped verdict is D4 and never blocks.
 - The launcher dependency-inventory tests are D2's toolchain-backed shape in
   its structural home — the language's own parser, executed as tests — and
   stand.
-- `check-tx-scope.py` is retained under D3. Its failure class qualifies: with
-  the pool pinned to one connection (`internal/store/store.go`), a nested
-  `s.db` call during an open transaction parks on the connection channel
-  forever — no error, no timeout, a hanging test. Its docstring already
-  documents the false-positive shape. The structural end-state that retires it:
-  a type or lint construct that makes the transaction-scoped queryer the only
-  reachable handle inside transaction scope, at which point the guard is
-  deleted, not extended.
+- `check-tx-scope.py` was retained under D3 until the structural end-state it
+  named existed. That end-state is `internal/store/txscope_test.go`: a
+  function receiving a live transaction handle may not hold a `*Store`, every
+  `Transact` closure delegates to one transaction-scoped core, and no nil check
+  is written against an interface-typed handle, which cannot fire. The guard is
+  deleted under D3, not extended.
 - `check-store-boundary.py` is replaced under D2, not extended. Its invariant —
   raw SQLite stays inside `internal/store` — is real, but its implementation is
   a growing hand-rolled Go/SQL front end: the D2 violation at accretion scale.

@@ -42,6 +42,22 @@ const laneRunner: DispatchRunner = {
   },
 }
 
+// A worker that reports its own failure is the reachable worker-fail path
+// (CD-0056 D7): the report is admissible, and its status is the failure.
+const failedRunOutput = () => [
+  JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
+  JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-1", part: { type: "text", text: JSON.stringify({ ...laneReport(), status: "failed" }) } }),
+  JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
+].join("\n")
+
+const failingLaneRunner: DispatchRunner = {
+  async run(argv) {
+    if (argv[1] === "run") return { exitCode: 0, stdout: failedRunOutput(), stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  },
+}
+
 function evidenceCollector(recorded: Record<string, unknown>[]): DispatchRunner {
   return {
     async run(argv, input) {
@@ -54,14 +70,17 @@ function evidenceCollector(recorded: Record<string, unknown>[]): DispatchRunner 
 // The Go encoder produced this vector. Agreement here is what makes the
 // signature meaningful: a TypeScript encoder that drifts would sign bytes the
 // core never verifies, and the boundary would fail open at the adapter.
-test("the TypeScript canonical encoder matches the Go vector byte for byte", () => {
-  const encoded = canonicalWorkerEvidence(workerEvidenceVector as Record<string, unknown>)
-  expect(Buffer.from(encoded).toString("base64")).toBe(workerEvidenceVector.canonical_base64)
-})
+for (const vectorCase of workerEvidenceVector.cases) {
+  test(`the TypeScript canonical encoder matches the Go vector byte for byte for ${vectorCase.verb}`, () => {
+    const encoded = canonicalWorkerEvidence(vectorCase.assertion as Record<string, unknown>)
+    expect(Buffer.from(encoded).toString("base64")).toBe(vectorCase.canonical_base64)
+  })
+}
 
 test("canonical encoding is order-fixed, not object-key dependent", () => {
-  const reversed = Object.fromEntries(Object.entries(workerEvidenceVector).reverse())
-  expect(Buffer.from(canonicalWorkerEvidence(reversed)).toString("base64")).toBe(workerEvidenceVector.canonical_base64)
+  const vectorCase = workerEvidenceVector.cases[0]
+  const reversed = Object.fromEntries(Object.entries(vectorCase.assertion).reverse())
+  expect(Buffer.from(canonicalWorkerEvidence(reversed)).toString("base64")).toBe(vectorCase.canonical_base64)
 })
 
 test("dispatch and completion evidence each carry a bound assertion", async () => {
@@ -107,6 +126,50 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
   expect(spawnedArgv.join(" ")).not.toContain("signature")
   expect(spawnedArgv.join(" ")).not.toContain("assertion")
   expect(JSON.stringify(result)).not.toContain("signature")
+})
+
+// A failure is evidence about the same attempt as its dispatch, so it claims
+// the same identity. The CLI enriches lane identity from the stored attempt row
+// for both terminal verbs (cmd/concord/main.go applyWorkerEvidence), so an
+// assertion that leaves those fields empty cannot match the binding.
+test("failure evidence carries a bound assertion including lane identity", async () => {
+  const recorded: Record<string, unknown>[] = []
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: failingLaneRunner, evidenceRunner: evidenceCollector(recorded) })
+  expect(result.outcome).toBe("error")
+  expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-fail"])
+
+  const assertion = (recorded[1].request as any).assertion
+  expect(assertion.verb).toBe("worker-fail")
+  expect(assertion.work_id).toBe("work-1")
+  expect(assertion.attempt_id).toBe("attempt-1")
+  expect(assertion.lane_id).toBe(lane.id)
+  expect(assertion.lane_version).toBe(lane.version)
+  expect(assertion.lane_digest).toBe(lane.digest)
+  expect(assertion.readback_model).toBe(READBACK_MODEL)
+  expect(assertion.failure_kind).toBe("worker_error")
+})
+
+// The signed field set is the boundary, not any one verb's fields. The shared
+// vector declares what the CLI binding populates per verb, and the Go side
+// proves that declaration against the CLI, so an adapter that signs a
+// different set fails here rather than at a caller's evidence write.
+const SIGNING_ENVELOPE_FIELDS = ["client_ref", "issued_at", "nonce", "signature"]
+
+test("every verb signs exactly the field set its CLI binding populates", async () => {
+  const signed = new Map<string, Record<string, unknown>>()
+  for (const runner of [laneRunner, failingLaneRunner]) {
+    const recorded: Record<string, unknown>[] = []
+    await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded) })
+    for (const entry of recorded) signed.set(entry.command as string, (entry.request as any).assertion)
+  }
+  expect([...signed.keys()].sort()).toEqual(workerEvidenceVector.cases.map((vectorCase) => vectorCase.verb).sort())
+
+  for (const vectorCase of workerEvidenceVector.cases) {
+    const assertion = signed.get(vectorCase.verb)
+    expect(assertion).toBeDefined()
+    const want = [...vectorCase.bound_fields, ...SIGNING_ENVELOPE_FIELDS].sort()
+    expect(Object.keys(assertion as Record<string, unknown>).sort()).toEqual(want)
+  }
 })
 
 // Without a credential the adapter cannot authorize evidence. A run that cannot

@@ -532,13 +532,18 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
         lane_digest: lane.digest,
         readback_model: readback.readback_model,
       })
-      // The worker-fail binding at the CLI boundary carries the attempt, the
-      // readback model, and the failure kind only, so the assertion claims
-      // exactly those (internal/agent/worker_evidence.go).
+      // Both terminal verbs bind lane identity: the CLI enriches lane_id,
+      // lane_version, and lane_digest from the stored attempt row before it
+      // compares the assertion (cmd/concord/main.go applyWorkerEvidence), so a
+      // failure assertion must claim them too. The field set each verb signs is
+      // pinned per verb by worker-evidence-vector.json.
       : await signWorkerEvidence(credentials, {
         verb: "worker-fail",
         work_id: packet.work_id,
         attempt_id: packet.attempt_id,
+        lane_id: lane.id,
+        lane_version: lane.version,
+        lane_digest: lane.digest,
         readback_model: readback.readback_model,
         failure_kind: terminal.failure_kind,
       })

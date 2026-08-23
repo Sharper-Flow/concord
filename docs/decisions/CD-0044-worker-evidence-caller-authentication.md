@@ -43,10 +43,21 @@ registry with its rotation history and revocation state, Ed25519 verification,
 the length-prefixed canonical byte format, and the `agent_nonce_replay` table.
 
 The signed bytes bind the caller and the exact evidence identity: client, verb,
-work, attempt, lane identity and digest, routing policy version and digest, the
-outcome-determining model fields, the host provenance digest, issue time, and a
-nonce. A signature captured for one attempt authorizes nothing for another, and
-a dispatch assertion cannot be presented as a completion.
+work, attempt, lane identity and digest, the readback model, the failure kind,
+the host provenance digest, issue time, and a nonce. A signature captured for
+one attempt authorizes nothing for another, and a dispatch assertion cannot be
+presented as a completion.
+
+[CD-0058](CD-0058-no-model-routing.md) supersedes the model-routing part of that
+enumeration. This decision originally bound the routing policy version and
+digest and the declared model fields. Concord no longer resolves a model, so the
+readback model is the only model field the assertion carries.
+
+Each verb binds the subset that applies to it, and unused fields are signed as
+empty. `worker-dispatch` binds the host provenance digest; both terminal verbs
+bind lane identity, which the CLI reads from the stored attempt row;
+`worker-fail` also binds the failure kind. The shared vector declares that field
+set per verb, and both sides test against it.
 
 The canonical encoding is pinned by a shared vector that the Go encoder and the
 adapter mirror both test against. A drift between the two would let one side

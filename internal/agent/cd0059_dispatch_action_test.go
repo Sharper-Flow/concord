@@ -10,12 +10,12 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability proves
@@ -74,7 +74,7 @@ func TestWorkerDispatchCapabilityIsStructurallyNonGrantable(t *testing.T) {
 	// Open a fresh store and register a client whose policy carries
 	// worker_dispatch + a grantable capability. The grant issuance path
 	// must refuse to encode worker_dispatch into the bearer grant.
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestWorkerDispatchCapabilityIsStructurallyNonGrantable(t *testing.T) {
 // is refused at registration time.
 func TestWorkerDispatchCapabilityIsInTheClientPolicyAllowList(t *testing.T) {
 	ctx := context.Background()
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // Result payloads rendered from store structs carry a join no compiler checks:
@@ -199,7 +200,7 @@ type domainReadPayloads struct {
 func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

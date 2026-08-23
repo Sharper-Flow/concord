@@ -22,10 +22,11 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "portfolio.db"))
+	s, err := storetest.OpenNamed(t.TempDir(), "portfolio.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func seedPortfolioParityFixture(t *testing.T, s *store.Store) {
 }
 
 func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
-	s, err := store.Open(context.Background(), t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +251,7 @@ func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
 }
 
 func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
-	s, err := store.Open(context.Background(), t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +314,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 }
 
 func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
-	s, err := store.Open(context.Background(), t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +403,7 @@ func TestBudgetFieldsRefuseOrBoundResultsStructurally(t *testing.T) {
 }
 
 func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
-	s, err := store.Open(context.Background(), t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +541,7 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 	runRuntimeGit(t, repo, "commit", "-q", "-m", "knowledge")
 	commit := strings.TrimSpace(runRuntimeGit(t, repo, "rev-parse", "HEAD"))
 
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

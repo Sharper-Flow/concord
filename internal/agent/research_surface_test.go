@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // CD-0025: author a pack through the tool surface, then declare reliance on
@@ -22,7 +23,7 @@ func researchSurfaceFixture(t *testing.T) (*store.Store, *Service, Grant, string
 func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, string) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

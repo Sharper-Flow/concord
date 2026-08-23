@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 func TestCanonicalHostApprovalVector(t *testing.T) {
@@ -406,7 +406,7 @@ func grantRequest(privateKey ed25519.PrivateKey, nonce string) GrantRequest {
 
 func openAgentDB(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

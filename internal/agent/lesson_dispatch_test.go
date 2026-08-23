@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // CD-0026: a lesson is published through the archive tool surface with a
@@ -22,7 +23,7 @@ import (
 func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, string) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

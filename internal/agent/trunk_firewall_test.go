@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // trunkFirewallFixture returns a service whose resolver reports the given
@@ -17,7 +18,7 @@ import (
 func trunkFirewallFixture(t *testing.T, mainWorktree bool) (*Service, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

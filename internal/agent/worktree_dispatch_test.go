@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 // A real git repository exercises the actual ExecGitRunner seam: native
@@ -29,7 +30,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, string, string) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, t.TempDir()+"/concord.db")
+	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

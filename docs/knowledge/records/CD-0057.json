@@ -1,10 +1,8 @@
 {
   "date": "2026-08-22T00:00:00Z",
   "evidence": [
-    "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
-    "contracts/agent-lane-report.schema.json",
-    "internal/store/worker_lanes.go",
-    "adapter/opencode/dispatch.ts"
+    "docs/decisions/CD-0051-conformance-falsifier-quantity.md",
+    "internal/store/conformance_test.go"
   ],
   "home_domain_id": "durable-authority",
   "id": "CD-0057",
@@ -19,11 +17,11 @@
   },
   "sha256": "sha256:9f509a2e9e15ad5f4ed73520c74b1db5b7440342ff579bdd6db2ad59047d53c3",
   "status": "accepted",
-  "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
+  "summary": "The accepted commit-duration falsifier verdict requires a clean unpaced control: a majority of paced production-like rounds exceeding the unchanged 100ms P99 target still sets threshold_status=exceeded, but a fired verdict additionally requires the in-run unpaced acceptance round to exceed the same target, so a paced overshoot with a clean control resolves to falsifier_status=inconclusive with the reason host scheduling. Correctness precedence, population authority, and CD-0051 D2's diagnostic wall and begin-wait measurements are unchanged.",
   "tags": [
-    "lanes",
-    "evidence",
-    "workers"
+    "conformance",
+    "concurrency",
+    "falsifier"
   ],
-  "title": "A lane report discharges its lane's evidence obligations"
+  "title": "The commit-duration falsifier requires a clean unpaced control"
 }

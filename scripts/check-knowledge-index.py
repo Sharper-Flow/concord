@@ -421,6 +421,29 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     validate_dispositions(data.get("dispositions"), paths, findings)
 
     by_id = {record.get("id"): record for record in records if isinstance(record, dict) and isinstance(record.get("id"), str)}
+
+    # A record's sha256 binds it to the bytes of its target document, but title
+    # and summary are free prose that no hash covers. A record authored by
+    # copying a sibling therefore resolves to the right document while
+    # describing a different decision, and concord_knowledge answers with the
+    # wrong summary for a correctly-hashed law.
+    #
+    # Distinctness is the enforceable invariant. Matching a title against the
+    # target document's H1 is not: 18 of 69 records deliberately carry a short
+    # label rather than the document heading ("Concord state authority" for
+    # "SQLite as Concord's sole durable authority"), so heading equality would
+    # reject the convention rather than the defect.
+    for field in ("title", "summary"):
+        seen: dict[str, str] = {}
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            value, identifier = record.get(field), record.get("id")
+            if not isinstance(value, str) or not value.strip() or not isinstance(identifier, str):
+                continue
+            owner = seen.setdefault(value.strip(), identifier)
+            if owner != identifier:
+                fail(findings, f"manifest.records[{identifier}]: {field} duplicates {owner}; each record must describe its own law")
     if schema_version == "1.2" and isinstance(registry, dict):
         accepted_laws = {
             record.get("id")

@@ -162,6 +162,12 @@ const (
 	KindUnauthorized                 FailureKind = "unauthorized"
 	KindStaleLawRevision             FailureKind = "stale_law_revision"
 	KindDomainOverlap                FailureKind = "domain_overlap"
+	// KindUnauthorizedDispatch marks a worker-dispatch evidence write that
+	// names a work item with no authorized, unconsumed dispatch window at
+	// the current step epoch. CD-0059 makes this refusal structural: one
+	// authorization admits exactly one attempt, and a worker spawned
+	// outside the registered action is visible as absent evidence.
+	KindUnauthorizedDispatch FailureKind = "unauthorized_dispatch"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

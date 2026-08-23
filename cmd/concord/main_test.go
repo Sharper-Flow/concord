@@ -544,6 +544,11 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	t.Setenv(dbOverrideEnv, dbPath)
 	workerKey := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
+	// Seed the first dispatch window before each dispatch: the
+	// dispatch_window gate resolves the active window from the most
+	// recent dispatch_worker start, so seeding all three up front would
+	// bind the gate to attempt-3 before attempt-1 ever dispatches.
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch1")
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
@@ -556,6 +561,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 		t.Fatalf("worker-complete exit=%d stderr=%q", code, errOut.String())
 	}
 
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-2")
 	failedDispatch := workerDispatchJSON(t, workerKey, "dispatch-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch2")
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(failedDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("failed worker-dispatch exit=%d stderr=%q", code, errOut.String())
@@ -568,6 +574,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	// CD-0058: a completion whose readback differs from the dispatch readback
 	// is accepted as a normal completion. The readback is whatever the host
 	// reported, and the only model evidence Concord records.
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-3")
 	divergentDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch3")
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(divergentDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("divergent worker-dispatch exit=%d stderr=%q", code, errOut.String())
@@ -617,7 +624,9 @@ func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))
+			dbPath := filepath.Join(t.TempDir(), "concord.db")
+			t.Setenv(dbOverrideEnv, dbPath)
+			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 			value := map[string]any{}
 			if err := json.Unmarshal([]byte(workerDispatchJSON(t, seedWorkerEvidenceClient(t), "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-identity-dispatch01")), &value); err != nil {
 				t.Fatal(err)
@@ -638,6 +647,7 @@ func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
 func TestWorkerCLIAcceptsRecordedFallbackAndCompletesOnMatchingReadback(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	workerKey := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := "openai/gpt-5.6-luna"

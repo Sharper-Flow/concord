@@ -108,11 +108,17 @@ type WorkflowPayloadDefinition struct {
 }
 
 type WorkflowActionDefinition struct {
-	ID            string                    `json:"id"`
-	Consequence   ActionConsequence         `json:"consequence"`
-	Approval      ActionApproval            `json:"approval"`
-	ExecutionMode ActionExecutionMode       `json:"execution_mode,omitempty"`
-	Payload       WorkflowPayloadDefinition `json:"payload"`
+	ID            string              `json:"id"`
+	Consequence   ActionConsequence   `json:"consequence"`
+	Approval      ActionApproval      `json:"approval"`
+	ExecutionMode ActionExecutionMode `json:"execution_mode,omitempty"`
+	// RequiredCapability names the agent capability the dispatcher must
+	// present to invoke this action. It is structural: the runtime reads it
+	// from the registry entry instead of branching on actionID. A zero
+	// value (empty string) carries no enforcement, mirroring the pre-CD-0059
+	// surface for legacy actions and tests that do not assert a capability.
+	RequiredCapability string                    `json:"required_capability,omitempty"`
+	Payload            WorkflowPayloadDefinition `json:"payload"`
 }
 
 type WorkflowStep struct {
@@ -653,17 +659,30 @@ func builtinWorkflowV2(definition WorkflowDefinition) WorkflowDefinition {
 		return definition
 	}
 	acceptance := WorkflowActionDefinition{
-		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance,
+		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance, RequiredCapability: "work_transition",
 		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
 			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
 			{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
 		}},
 	}
-	definition.AvailableActions = append(definition.AvailableActions, acceptance.ID)
-	definition.ActionDefinitions = append(definition.ActionDefinitions, acceptance)
+	// CD-0059 D1/D2/D3: dispatch_worker is the registered action that opens
+	// the worker attempt window against the current step epoch. The
+	// RequiredCapability is worker_dispatch rather than work_transition so
+	// a worker holding only work_transition cannot dispatch a nested worker
+	// (CD-0017 D4 becomes structural rather than convention). The lane
+	// identity is recorded with the worker-dispatch CLI on consumption;
+	// the authorization itself only needs to bind the attempt_id.
+	dispatch := WorkflowActionDefinition{
+		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: "worker_dispatch",
+		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
+			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
+		}},
+	}
+	definition.AvailableActions = append(definition.AvailableActions, acceptance.ID, dispatch.ID)
+	definition.ActionDefinitions = append(definition.ActionDefinitions, acceptance, dispatch)
 	for i := range definition.StepGraph.Steps {
 		if definition.StepGraph.Steps[i].Kind == WorkflowStepExternalEffect {
-			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, acceptance.ID)
+			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, acceptance.ID, dispatch.ID)
 		}
 	}
 	return definition
@@ -946,6 +965,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
 	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
 	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"dispatch_worker":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
 }
 

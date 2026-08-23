@@ -14567,7 +14567,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 2,
-              "digest": "sha256:60c60cb444618dee745eb5572f74c9736bf0b4526950e2dd2c896574f36a77e1",
+              "digest": "sha256:81c3b0c3932135ccd4027e7b2f14873562df5b50f3aae314e2fec9b0be8402e5",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 4,
@@ -14784,7 +14784,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 2,
-          "digest": "sha256:60c60cb444618dee745eb5572f74c9736bf0b4526950e2dd2c896574f36a77e1"
+          "digest": "sha256:81c3b0c3932135ccd4027e7b2f14873562df5b50f3aae314e2fec9b0be8402e5"
         },
         "expected_version": 10,
         "action_id": "accept_worker_result",

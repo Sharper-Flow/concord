@@ -53,7 +53,8 @@ def v12_fixture() -> dict:
             "id": "spec-1", "kind": "spec", "path": "docs/spec.md", "status": "accepted",
             "date": "2026-08-10T00:00:00Z", "title": "Decision", "summary": "Summary", "tags": [],
             "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
-            "home_domain_id": "product-root:concord", "sha256": "sha256:" + "a" * 64,
+            "home_domain_id": "product-root:concord", "product_wide_rationale": "Product-wide law binding every child Domain.",
+            "sha256": "sha256:" + "a" * 64,
         }],
     }
 
@@ -205,11 +206,13 @@ def test_v12_rejects_historical_law_applicability_without_home() -> None:
             "id": "spec-2", "kind": "spec", "path": "docs/spec-2.md", "status": "accepted",
             "date": "2026-08-10T00:00:00Z", "title": "Successor", "summary": "Summary", "tags": [],
             "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
-            "home_domain_id": "product-root:concord", "law_relations": [{"kind": "supersedes", "target_id": "spec-1"}],
+            "home_domain_id": "product-root:concord", "product_wide_rationale": "Successor law binds every child Domain.",
+            "law_relations": [{"kind": "supersedes", "target_id": "spec-1"}],
             "sha256": "sha256:" + "b" * 64,
         })
         (root / "docs/spec-2.md").write_text("successor\n", encoding="utf-8")
         del value["records"][0]["home_domain_id"]
+        del value["records"][0]["product_wide_rationale"]
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False)
 
@@ -353,6 +356,7 @@ def taxonomy_fixture(root: Path, kind: str, path: str, status: str) -> dict:
         record["id"] = Path(path).stem
     if kind not in checker.LAW_BEARING_KINDS:
         record.pop("home_domain_id", None)
+        record.pop("product_wide_rationale", None)
     return value
 
 
@@ -454,3 +458,40 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             function()
     print("knowledge checker tests passed")
+
+
+def test_root_home_requires_a_stated_product_wide_rationale() -> None:
+    """The root is reachable by deciding nothing, so it carries a stated claim."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        (root / "docs").mkdir()
+        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        value = v12_fixture()
+        with mock.patch.object(checker, "ROOT", root):
+            assert checker.validate(value, check_hashes=False) == []
+            for blank in (None, "", "   "):
+                missing = copy.deepcopy(value)
+                if blank is None:
+                    del missing["records"][0]["product_wide_rationale"]
+                else:
+                    missing["records"][0]["product_wide_rationale"] = blank
+                findings = checker.validate(missing, check_hashes=False)
+                assert any("must state product_wide_rationale" in finding for finding in findings), (blank, findings)
+
+
+def test_only_root_homed_law_states_a_product_wide_rationale() -> None:
+    """A child home has decided already; the claim would contradict it."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        (root / "docs").mkdir()
+        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        value = v12_fixture()
+        value["domain_registry"]["domains"].append({
+            "domain_id": "child", "name": "Child", "purpose": "A child Domain",
+            "parent_domain_id": "product-root:concord", "status": "current",
+            "architecture_relations": [],
+        })
+        value["records"][0]["home_domain_id"] = "child"
+        with mock.patch.object(checker, "ROOT", root):
+            findings = checker.validate(value, check_hashes=False)
+        assert any("only root-homed law states product_wide_rationale" in finding for finding in findings), findings

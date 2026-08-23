@@ -160,7 +160,12 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		}
 		prompt = "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	}
-	if err := runner(context.Background(), []string{"opencode", "--prompt", prompt}, os.Environ(), in, out, errOut); err != nil {
+	// The session starts the host as the agent whose identity it just
+	// asserted and recorded. Omitting the selection would record evidence
+	// for an agent that never ran, because the host answers an unselected
+	// name with the operator's default agent and exits zero (CD-0049 D2).
+	argv := []string{"opencode", "--agent", orchestratorAgentName, "--prompt", prompt}
+	if err := runner(context.Background(), argv, os.Environ(), in, out, errOut); err != nil {
 		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
 		return 1
 	}

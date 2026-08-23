@@ -25,6 +25,13 @@ func laneAgentFileName(laneID string) string {
 // directories so the provenance record and the assertion agree.
 const orchestratorAgentFileName = "concord-orchestrator.md"
 
+// orchestratorAgentName is the name the session selects when it starts the
+// host. It is derived from the definition file name rather than written out,
+// because the host takes an agent's name from its definition file stem: a
+// session that selects any other string resolves to the operator's default
+// agent and starts anyway, which is the substitution CD-0049 D2 names.
+var orchestratorAgentName = strings.TrimSuffix(orchestratorAgentFileName, ".md")
+
 // OrchestratorIdentityType is the Concord-owned role constant the assertion
 // records. Naming a role is not authoring a persona; CD-0049 Invariant 4
 // keeps persona authorship out of Concord.

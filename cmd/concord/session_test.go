@@ -40,14 +40,18 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 	if bootstrapCalls != 1 {
 		t.Fatalf("bootstrap calls=%d", bootstrapCalls)
 	}
-	if len(argv) != 3 || argv[0] != "opencode" || argv[1] != "--prompt" {
+	if len(argv) != 5 || argv[0] != "opencode" {
 		t.Fatalf("argv=%q", argv)
 	}
-	start := strings.IndexByte(argv[2], '{')
-	if start < 0 || !strings.Contains(argv[2][:start], "core-derived authority") {
-		t.Fatalf("prompt omitted boot header: %q", argv[2])
+	if selected := selectedAgentName(t, argv); selected != orchestratorAgentName {
+		t.Fatalf("session selected agent %q, want %q", selected, orchestratorAgentName)
 	}
-	if err := sessionboot.Validate([]byte(argv[2][start:])); err != nil {
+	prompt := hostPrompt(t, argv)
+	start := strings.IndexByte(prompt, '{')
+	if start < 0 || !strings.Contains(prompt[:start], "core-derived authority") {
+		t.Fatalf("prompt omitted boot header: %q", prompt)
+	}
+	if err := sessionboot.Validate([]byte(prompt[start:])); err != nil {
 		t.Fatalf("prompt packet invalid: %v", err)
 	}
 }
@@ -74,15 +78,16 @@ func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "")
 	bootstrapCalls := 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
-	var prompt string
-	runner := func(_ context.Context, argv []string, _ []string, _ io.Reader, _, _ io.Writer) error {
-		prompt = argv[2]
+	var argv []string
+	runner := func(_ context.Context, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+		argv = append([]string(nil), got...)
 		return nil
 	}
 	var out, errOut bytes.Buffer
 	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) error { return nil }); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errOut.String())
 	}
+	prompt := hostPrompt(t, argv)
 	if bootstrapCalls != 0 || prompt != "Concord identity: product_id=product-1" {
 		t.Fatalf("calls=%d prompt=%q", bootstrapCalls, prompt)
 	}
@@ -257,6 +262,85 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	if !strings.HasPrefix(payload.RulesetDigest, "sha256:") {
 		t.Fatalf("ruleset_digest = %q, want sha256:<hex>", payload.RulesetDigest)
 	}
+}
+
+// TestSessionStartsTheOrchestratorAgentItAsserted covers CD-0061 Invariant 3:
+// a session that proceeds has recorded the orchestrator identity it asserted.
+// Verifying a definition on disk and then starting the host without selecting
+// it records evidence for an agent that never ran, because the host answers an
+// unselected name with the operator's default agent and exits zero (CD-0049
+// D2). The assertion's resolved definition path and the started agent name are
+// therefore checked against each other, not against a literal.
+func TestSessionStartsTheOrchestratorAgentItAsserted(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	for _, lane := range store.BuiltinLaneDefinitions() {
+		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
+	}
+	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName)
+	t.Setenv("HOME", home)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	dbPath := filepath.Join(t.TempDir(), "concord-selection.db")
+	t.Setenv("CONCORD_DB_PATH", dbPath)
+	var argv []string
+	runner := func(_ context.Context, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+		argv = append([]string(nil), got...)
+		return nil
+	}
+	var out, errOut bytes.Buffer
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
+		runner,
+		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },
+		recordOrchestratorIdentityAt(home, cwd),
+	); code != 0 {
+		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
+	}
+	selected := selectedAgentName(t, argv)
+	recorded, err := readRecordedAssertion(t, dbPath)
+	if err != nil {
+		t.Fatalf("read assertion: %v", err)
+	}
+	definition := ""
+	for _, src := range recorded.Sources {
+		if src.Kind == "orchestrator_definition" {
+			definition = src.Path
+		}
+	}
+	if definition == "" {
+		t.Fatal("assertion recorded no orchestrator_definition source")
+	}
+	if want := strings.TrimSuffix(filepath.Base(definition), ".md"); selected != want {
+		t.Fatalf("session started agent %q but asserted definition %q", selected, definition)
+	}
+}
+
+// selectedAgentName returns the value the session passed to the host's --agent
+// flag. It fails the test when the session started the host without selecting
+// an agent, which is the substitution defect these tests exist to catch.
+func selectedAgentName(t *testing.T, argv []string) string {
+	t.Helper()
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "--agent" {
+			return argv[i+1]
+		}
+	}
+	t.Fatalf("session started the host without selecting an agent: argv=%q", argv)
+	return ""
+}
+
+// hostPrompt returns the value the session passed to the host's --prompt flag.
+// Reading it by flag rather than by index keeps these tests honest about what
+// the session sends when the argv shape changes.
+func hostPrompt(t *testing.T, argv []string) string {
+	t.Helper()
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "--prompt" {
+			return argv[i+1]
+		}
+	}
+	t.Fatalf("session started the host without a prompt: argv=%q", argv)
+	return ""
 }
 
 // TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact covers

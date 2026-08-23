@@ -50,7 +50,7 @@ jobs:
           CONCORD_REQUIRE_BUN: "1"
         run: python3 scripts/check-agent-contracts.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-law-coverage.py && python3 scripts/test-reachability.py
+        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-law-coverage.py && python3 scripts/test-reachability.py && python3 scripts/test-complexity.py
       - name: Check Go formatting
         run: test -z "$(gofmt -l .)"
       - name: Tidy Go modules
@@ -61,6 +61,8 @@ jobs:
         run: go vet ./...
       - name: Validate product reachability
         run: python3 scripts/check-reachability.py
+      - name: Validate cognitive-complexity budget
+        run: python3 scripts/check-complexity.py
       - name: Test with race detector
         # internal/agent under -race runs at ~575-595s on 2-core runners —
         # 96-99% of the 10m default. The suite outgrew the default timeout;

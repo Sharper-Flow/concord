@@ -147,6 +147,32 @@ def test_uppercase_hash_is_rejected() -> None:
     assert any("invalid sha256 proof" in finding for finding in findings)
 
 
+def test_records_may_not_share_a_title_or_summary() -> None:
+    # A record copied from a sibling keeps its sha256 honest - the hash still
+    # binds the bytes of its own target document - while the unhashed prose
+    # describes a different law. Distinctness is what catches that.
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        (root / "docs").mkdir()
+        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / "docs/other.md").write_text("other\n", encoding="utf-8")
+        with mock.patch.object(checker, "ROOT", root):
+            for field, other in (("title", "summary"), ("summary", "title")):
+                value = v12_fixture()
+                second = copy.deepcopy(value["records"][0])
+                second.update(id="spec-2", path="docs/other.md")
+                second[other] = "Distinct " + str(second[other])
+                value["records"].append(second)
+                findings = checker.validate(value, check_hashes=False)
+                assert any(f"spec-2]: {field} duplicates spec-1" in finding for finding in findings), findings
+
+            distinct = v12_fixture()
+            second = copy.deepcopy(distinct["records"][0])
+            second.update(id="spec-2", path="docs/other.md", title="Distinct title", summary="Distinct summary")
+            distinct["records"].append(second)
+            assert checker.validate(distinct, check_hashes=False) == []
+
+
 def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)

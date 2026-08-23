@@ -51,7 +51,7 @@ type DomainListRequest struct {
 
 type DomainListResult struct {
 	ResultMeta
-	Registry *DomainRegistryView `json:"registry,omitempty"`
+	Registry *DomainRegistryView `json:"registry"`
 	Domains  []DomainSummary     `json:"domains"`
 }
 
@@ -80,7 +80,7 @@ type DomainDetailRequest struct {
 
 type DomainDetailResult struct {
 	ResultMeta
-	Registry   *DomainRegistryView  `json:"registry,omitempty"`
+	Registry   *DomainRegistryView  `json:"registry"`
 	Domain     DomainSummary        `json:"domain"`
 	CurrentLaw []DomainLawRecord    `json:"current_law"`
 	Relations  []DomainRelationView `json:"relations"`
@@ -105,7 +105,7 @@ type DomainActiveWorkRequest struct {
 
 type DomainActiveWorkResult struct {
 	ResultMeta
-	Registry *DomainRegistryView    `json:"registry,omitempty"`
+	Registry *DomainRegistryView    `json:"registry"`
 	Work     []DomainActiveWorkItem `json:"work"`
 }
 
@@ -123,7 +123,7 @@ type DomainAttachmentsRequest struct {
 
 type DomainAttachmentsResult struct {
 	ResultMeta
-	Registry    *DomainRegistryView  `json:"registry,omitempty"`
+	Registry    *DomainRegistryView  `json:"registry"`
 	Domain      DomainSummary        `json:"domain"`
 	Attachments DomainAttachmentView `json:"attachments"`
 }
@@ -144,9 +144,112 @@ type DomainOverlapsRequest struct {
 
 type DomainOverlapsResult struct {
 	ResultMeta
-	Registry  *DomainRegistryView `json:"registry,omitempty"`
+	Registry  *DomainRegistryView `json:"registry"`
 	Pairs     []DomainOverlapPair `json:"pairs"`
 	Truncated bool                `json:"truncated"`
+}
+
+// Every Domain result type embeds ResultMeta, and Go promotes an embedded
+// struct's fields into a whole-struct marshal. Those meta fields belong to the
+// envelope, and each Domain result schema closes its object shape without
+// declaring any of them, so a Domain result value is not itself a wire payload.
+//
+// The payload types below are that wire projection. Each one names every field
+// the agent surface carries and nothing else, so reaching an agent requires an
+// explicit entry here: a field added to a result type — promoted or declared —
+// stays off the wire until it is named, and a field named here has nowhere to
+// hide from the schema.
+//
+// The payload types reuse a result type's element structs wherever the two
+// shapes are identical. DomainAttachmentView is the one place they are not:
+// DomainResourceAttachment is the attachment write request's element type and
+// carries the purpose and environments an attachment is recorded with, neither
+// of which the read surface declares.
+
+type DomainListPayload struct {
+	Registry *DomainRegistryView `json:"registry"`
+	Domains  []DomainSummary     `json:"domains"`
+}
+
+func NewDomainListPayload(result DomainListResult) DomainListPayload {
+	return DomainListPayload{Registry: result.Registry, Domains: sliceOrEmpty(result.Domains)}
+}
+
+type DomainDetailPayload struct {
+	Registry   *DomainRegistryView  `json:"registry"`
+	Domain     DomainSummary        `json:"domain"`
+	CurrentLaw []DomainLawRecord    `json:"current_law"`
+	Relations  []DomainRelationView `json:"relations"`
+}
+
+func NewDomainDetailPayload(result DomainDetailResult) DomainDetailPayload {
+	return DomainDetailPayload{Registry: result.Registry, Domain: result.Domain, CurrentLaw: sliceOrEmpty(result.CurrentLaw), Relations: sliceOrEmpty(result.Relations)}
+}
+
+type DomainActiveWorkPayload struct {
+	Registry *DomainRegistryView    `json:"registry"`
+	Work     []DomainActiveWorkItem `json:"work"`
+}
+
+func NewDomainActiveWorkPayload(result DomainActiveWorkResult) DomainActiveWorkPayload {
+	return DomainActiveWorkPayload{Registry: result.Registry, Work: sliceOrEmpty(result.Work)}
+}
+
+// DomainResourceAttachmentPayload is the read projection of a resource
+// attachment edge: the attached resource's identity, which is all the Domain
+// attachments surface declares.
+type DomainResourceAttachmentPayload struct {
+	ResourceID string `json:"resource_id"`
+}
+
+type DomainAttachmentViewPayload struct {
+	ProjectEdges    []DomainProjectAttachment         `json:"project_attachments"`
+	ResourceEdges   []DomainResourceAttachmentPayload `json:"resource_attachments"`
+	ProjectVersion  int64                             `json:"project_set_version"`
+	ResourceVersion int64                             `json:"resource_set_version"`
+}
+
+type DomainAttachmentsPayload struct {
+	Registry    *DomainRegistryView         `json:"registry"`
+	Domain      DomainSummary               `json:"domain"`
+	Attachments DomainAttachmentViewPayload `json:"attachments"`
+}
+
+func NewDomainAttachmentsPayload(result DomainAttachmentsResult) DomainAttachmentsPayload {
+	resources := make([]DomainResourceAttachmentPayload, 0, len(result.Attachments.ResourceEdges))
+	for _, edge := range result.Attachments.ResourceEdges {
+		resources = append(resources, DomainResourceAttachmentPayload{ResourceID: edge.ResourceID})
+	}
+	return DomainAttachmentsPayload{
+		Registry: result.Registry,
+		Domain:   result.Domain,
+		Attachments: DomainAttachmentViewPayload{
+			ProjectEdges:    sliceOrEmpty(result.Attachments.ProjectEdges),
+			ResourceEdges:   resources,
+			ProjectVersion:  result.Attachments.ProjectVersion,
+			ResourceVersion: result.Attachments.ResourceVersion,
+		},
+	}
+}
+
+type DomainOverlapsPayload struct {
+	Registry  *DomainRegistryView `json:"registry"`
+	Pairs     []DomainOverlapPair `json:"pairs"`
+	Truncated bool                `json:"truncated"`
+}
+
+func NewDomainOverlapsPayload(result DomainOverlapsResult) DomainOverlapsPayload {
+	return DomainOverlapsPayload{Registry: result.Registry, Pairs: sliceOrEmpty(result.Pairs), Truncated: result.Truncated}
+}
+
+// sliceOrEmpty renders an absent collection as an empty JSON array. Every
+// Domain read schema requires its collections, so a nil slice would marshal to
+// null and be refused.
+func sliceOrEmpty[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
 }
 
 func readDomainRegistry(ctx context.Context, q queryer, product string) (*DomainRegistryView, error) {

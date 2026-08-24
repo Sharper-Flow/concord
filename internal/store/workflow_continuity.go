@@ -166,7 +166,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 			return out, err
 		}
 		if len(contract.SpecMandate) != 0 {
-			homeProjectID, homeLocatorID, homeErr := workflowLawHomeTx(ctx, tx, req.Work)
+			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, tx, req.Work)
 			if homeErr != nil {
 				return out, homeErr
 			}

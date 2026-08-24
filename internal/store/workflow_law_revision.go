@@ -92,7 +92,7 @@ func deriveWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string
 	if len(mandated) == 0 {
 		return []WorkflowLawRevision{}, nil
 	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 	if mandateErr != nil {
 		return mandateErr
 	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
@@ -256,31 +256,39 @@ func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, con
 	return revisions, nil
 }
 
-func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID string) error {
+// checkWorkflowLawStaleness is the queryer-shared staleness half of the
+// consequential boundary. It reports the accepted successor that supersedes a
+// law revision this contract pins, or nil when the contract's law mandate is
+// current. It says nothing about Domain overlap.
+func checkWorkflowLawStaleness(ctx context.Context, q queryer, workID string) (*StaleLawRevision, error) {
 	var contractVersion int64
 	var mandateJSON string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion, &mandateJSON); err == sql.ErrNoRows {
-		return nil
+	if err := q.QueryRowContext(ctx, `SELECT contract_version,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion, &mandateJSON); err == sql.ErrNoRows {
+		return nil, nil
 	} else if err != nil {
-		return wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read active workflow contract", true, "retry once the workflow projection is readable", err)
+		return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read active workflow contract", true, "retry once the workflow projection is readable", err)
 	}
 	var mandated []string
 	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
 	}
 	var mandateErr error
-	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, tx, workID, contractVersion, mandated)
+	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, q, workID, contractVersion, mandated)
 	if mandateErr != nil {
-		return mandateErr
+		return nil, mandateErr
 	}
 	if len(mandated) == 0 {
-		return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
+		return nil, nil
 	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, q, workID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	stale, err := findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, workID, contractVersion, mandated)
+	return findStaleWorkflowLawRevision(ctx, q, homeProjectID, homeLocatorID, workID, contractVersion, mandated)
+}
+
+func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	stale, err := checkWorkflowLawStaleness(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
@@ -305,36 +313,17 @@ func CheckWorkflowConsequentialBoundaryTx(ctx context.Context, transaction *Tran
 	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
 }
 
-func checkWorkflowLawRevisionStalenessDB(ctx context.Context, db *sql.DB, workID string) error {
-	var contractVersion int64
-	var mandateJSON string
-	if err := db.QueryRowContext(ctx, `SELECT contract_version,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion, &mandateJSON); err == sql.ErrNoRows {
-		return nil
-	} else if err != nil {
-		return wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read active workflow contract", true, "retry once the workflow projection is readable", err)
-	}
-	var mandated []string
-	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
-	}
-	var mandateErr error
-	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, db, workID, contractVersion, mandated)
-	if mandateErr != nil {
-		return mandateErr
-	}
-	if len(mandated) == 0 {
-		return nil
-	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeDB(ctx, db, workID)
-	if err != nil {
+// workflowContractStalenessDB is the advisory staleness predicate behind the
+// read-only action-policy lookup in WorkflowActionDefinitionFor. It runs the
+// staleness half only, over the pool and outside any transaction, so it holds
+// no check-then-act guarantee and refuses nothing on its own: an overlap or a
+// concurrent law cutover is caught later by the authoritative path. Callers
+// that need the guard must use CheckWorkflowConsequentialBoundaryTx, which
+// adds the Domain overlap half inside the transaction that owns the write.
+func workflowContractStalenessDB(ctx context.Context, db *sql.DB, workID string) error {
+	stale, err := checkWorkflowLawStaleness(ctx, db, workID)
+	if err != nil || stale == nil {
 		return err
-	}
-	stale, err := findStaleWorkflowLawRevision(ctx, db, homeProjectID, homeLocatorID, workID, contractVersion, mandated)
-	if err != nil {
-		return err
-	}
-	if stale == nil {
-		return nil
 	}
 	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract consumes a superseded law revision", false, "request_approval")
 	failure.StaleLawRevision = stale

@@ -604,3 +604,26 @@ func insertSupersededLaw(t *testing.T, s *Store, lawID, hash string) {
 		t.Fatal(err)
 	}
 }
+
+func TestWorkflowLawStalenessTxRunsOverlapOnEmptyMandate(t *testing.T) {
+	s, _ := seedOverlapProjection(t, "law-staleness-overlap-left", "law-staleness-overlap-right", false)
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	err = checkWorkflowLawRevisionStalenessTx(ctx, tx, "law-staleness-overlap-left")
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindDomainOverlap {
+		t.Fatalf("empty-mandate boundary check error=%v, want domain_overlap from the overlap half", err)
+	}
+}
+
+func TestWorkflowContractStalenessDBIgnoresOverlapAdvisoryOnly(t *testing.T) {
+	s, _ := seedOverlapProjection(t, "law-staleness-advisory-left", "law-staleness-advisory-right", false)
+	err := workflowContractStalenessDB(context.Background(), s.DatabaseForTesting(), "law-staleness-advisory-left")
+	if err != nil {
+		t.Fatalf("advisory staleness predicate error=%v, want nil: the predicate answers staleness only and must not surface Domain overlap", err)
+	}
+}

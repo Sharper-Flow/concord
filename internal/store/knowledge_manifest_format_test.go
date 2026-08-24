@@ -127,8 +127,8 @@ func TestMarshalLiveKnowledgeManifestIsByteIdentical(t *testing.T) {
 	t.Fatalf("%s changed length after a Go round trip: authored %d lines, emitted %d lines", liveKnowledgeManifestPath, len(want), len(got))
 }
 
-// canonicalOrderManifest builds a manifest entirely in Go, with the unmodeled
-// top-level keys in a Go map whose iteration order the runtime randomizes.
+// canonicalOrderManifest builds a manifest entirely in Go, with policy keys in
+// a Go map whose iteration order the runtime randomizes.
 func canonicalOrderManifest(t *testing.T) KnowledgeManifest {
 	t.Helper()
 	return KnowledgeManifest{

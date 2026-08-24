@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -207,5 +208,34 @@ func TestKnowledgeSearchFailsClosedWithoutDegradedOptIn(t *testing.T) {
 	}
 	if resp.Error == nil || resp.Error.Kind == "" {
 		t.Fatalf("refusal carried no typed error: %+v", resp.Error)
+	}
+}
+
+func TestKnowledgeUnprocessedReadEnumeratesSortedPaths(t *testing.T) {
+	s, service, grant, _, _ := agentJobsKnowledgeFixture(t, false)
+	resp := dispatchRead(t, s, service, InvokeRequest{
+		Tool:      "concord_knowledge",
+		Operation: "unprocessed",
+		Input:     json.RawMessage(`{"product_id":"prod-alpha","limit":50}`),
+	}, agentJobsEnvelope(grant, "proj-web", "prod-alpha"))
+	if resp.Outcome != OutcomeOK {
+		t.Fatalf("knowledge unprocessed outcome=%s error=%+v", resp.Outcome, resp.Error)
+	}
+	if resp.QueryID != "PM1.Q15" || resp.Authority != AuthorityAuthoritative {
+		t.Fatalf("metadata query_id=%q authority=%q", resp.QueryID, resp.Authority)
+	}
+	var page struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.Unmarshal(resp.Result, &page); err != nil {
+		t.Fatalf("unmarshal unprocessed page: %v", err)
+	}
+	if !sort.StringsAreSorted(page.Paths) {
+		t.Fatalf("paths are not sorted: %v", page.Paths)
+	}
+	for _, path := range page.Paths {
+		if !strings.HasPrefix(path, "docs/") || !strings.HasSuffix(path, ".md") {
+			t.Fatalf("path is outside the knowledge root: %q", path)
+		}
 	}
 }

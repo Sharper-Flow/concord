@@ -239,6 +239,13 @@ type knowledgeResolveInput struct {
 	KnowledgeID string `json:"knowledge_id"`
 }
 
+type knowledgeUnprocessedInput struct {
+	ProductID string    `json:"product_id"`
+	ProjectID string    `json:"project_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit"`
+}
+
 type runtime struct {
 	Store           *store.Store
 	Authority       *Service
@@ -1251,6 +1258,48 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return failureEnvelope(base, err), nil
 		}
 		return r.q10(base, q)
+	case "concord_knowledge.unprocessed":
+		var in knowledgeUnprocessedInput
+		if err := decodeOperationInput(input, &in); err != nil {
+			return base, err
+		}
+		if in.ProductID == "" {
+			in.ProductID = r.Envelope.SelectedProductID
+		}
+		var home store.KnowledgeHome
+		var homeErr error
+		if in.ProductID != "" || in.ProjectID != "" {
+			home, homeErr = r.Store.ResolveKnowledgeQueryHome(ctx, in.ProductID, in.ProjectID, store.KnowledgeHome{}, "PM1.Q15")
+		} else {
+			home, homeErr = r.knowledgeHome(ctx)
+		}
+		if homeErr != nil {
+			return failureEnvelope(base, homeErr), nil
+		}
+		paths, err := r.Store.ReadUnprocessedKnowledgeDocs(ctx, home)
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		limit := in.Limit
+		if limit == 0 {
+			limit = in.Page.Limit
+		}
+		limit = r.boundedLimit(limit)
+		if limit == 0 || limit > 100 {
+			limit = 100
+		}
+		if len(paths) > limit {
+			paths = paths[:limit]
+		}
+		meta := store.ResultMeta{
+			QueryID:         "PM1.Q15",
+			ContractVersion: "PM1/1.0",
+			ResolvedScope:   store.ResolvedScope{ProductID: in.ProductID, ProjectID: in.ProjectID},
+			Authority:       "authoritative",
+			Freshness:       store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)},
+			OrderingKeys:    []string{"path"},
+		}
+		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"paths": paths})
 	case "concord_domain.list", "concord_domain.detail", "concord_domain.active_work", "concord_domain.attachments", "concord_domain.overlaps":
 		var in domainReadInput
 		if err := decodeOperationInput(input, &in); err != nil {

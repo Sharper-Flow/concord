@@ -1771,6 +1771,30 @@
         }
       ]
     },
+    "knowledge_unprocessed_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "$ref": "#/$defs/limit"
+            }
+          }
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        }
+      }
+    },
     "product_context": {
       "type": "object",
       "additionalProperties": false,
@@ -2417,6 +2441,24 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "unprocessed_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paths"
+      ],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
           }
         }
       }

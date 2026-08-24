@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:50daf6218638df9236b8c151429e20f16bfe58fc82b712d25613767b1051a1ae"
+const ManifestDigest = "sha256:3ee5b24a4a9daac28c72779cecb627245b531d00f6257ea9803e65ff4655e671"
 
 type OperationKind string
 
@@ -56,6 +56,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_trace.research", Tool: "concord_work_trace", Operation: "research", Kind: OperationKind("read"), QueryID: "PM1.Q11", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_trace_research_input", ResultSchema: "research_pack"},
 	{ID: "concord_knowledge.search", Tool: "concord_knowledge", Operation: "search", Kind: OperationKind("read"), QueryID: "PM1.Q9", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "knowledge_search_input", ResultSchema: "knowledge_page"},
 	{ID: "concord_knowledge.resolve_note", Tool: "concord_knowledge", Operation: "resolve_note", Kind: OperationKind("read"), QueryID: "PM1.Q10", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "knowledge_resolve_input", ResultSchema: "canonical_note_result"},
+	{ID: "concord_knowledge.unprocessed", Tool: "concord_knowledge", Operation: "unprocessed", Kind: OperationKind("read"), QueryID: "PM1.Q15", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "knowledge_unprocessed_input", ResultSchema: "unprocessed_page"},
 	{ID: "concord_work_define.capture", Tool: "concord_work_define", Operation: "capture", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Consequence: OperationConsequence("intent"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_define_capture_input", ResultSchema: "mutation_result"},
 	{ID: "concord_work_define.revise_intent", Tool: "concord_work_define", Operation: "revise_intent", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Consequence: OperationConsequence("intent"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_define_revise_input", ResultSchema: "mutation_result"},
 	{ID: "concord_work_define.research_pack_create", Tool: "concord_work_define", Operation: "research_pack_create", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("research"), Consequence: OperationConsequence("research"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_define_research_pack_create_input", ResultSchema: "mutation_result"},
@@ -153,6 +154,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"knowledge_resolve_input":                    {Required: []string{}, Properties: []string{"work_id", "knowledge_id", "requested_budget_seconds"}},
 	"knowledge_scopes_input":                     {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "tag_ids"}},
 	"knowledge_search_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "allow_degraded", "page", "budget", "domain_id", "requested_budget_seconds"}},
+	"knowledge_unprocessed_input":                {Required: []string{}, Properties: []string{"product_id", "project_id", "page", "limit"}},
 	"mutation_result":                            {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id"}},
 	"observed_universe":                          {Required: []string{"shape", "applied_scope", "coverage", "total_kind", "canonical_identity_key"}, Properties: []string{"shape", "applied_scope", "anchor_token", "structure_digest", "coverage", "observed_count", "observed_refs", "total_kind", "total_value", "completion_evidence", "canonical_identity_key", "omissions"}},
 	"operator_choice":                            {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
@@ -186,6 +188,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"resource_claims_page":                       {Required: []string{"claims"}, Properties: []string{"claims"}},
 	"scope":                                      {Required: []string{}, Properties: []string{"product_id", "project_ids", "work_ids", "scope_version"}},
 	"session_boot_packet":                        {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "work_id", "continuity"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "work_id", "continuity"}},
+	"unprocessed_page":                           {Required: []string{"paths"}, Properties: []string{"paths"}},
 	"work_browse_blocked_input":                  {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "work_id", "kind", "depth", "page", "budget", "requested_budget_seconds"}},
 	"work_browse_list_input":                     {Required: []string{"page"}, Properties: []string{"product_id", "project_ids", "work_ids", "lifecycle", "kind", "tag_ids", "priority_min", "priority_max", "detail", "terminal_since", "page", "budget", "requested_budget_seconds"}},
 	"work_browse_messages_input":                 {Required: []string{"product_id", "work_id"}, Properties: []string{"product_id", "work_id", "page", "budget", "requested_budget_seconds"}},

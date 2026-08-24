@@ -1966,6 +1966,30 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "knowledge_unprocessed_input": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
+        "page": {
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "$ref": "#/$defs/limit"
+            }
+          },
+          "type": "object"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "type": "object"
+    },
     "law_id": {
       "maxLength": 256,
       "minLength": 2,
@@ -3493,6 +3517,24 @@ const GeneratedPayloadSchemaDocument = `{
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "unprocessed_page": {
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
     },
     "urgency": {
       "enum": [

@@ -32,9 +32,9 @@
     },
     {
       "function": "internal/agent.(runtime).read",
-      "measured": 189,
+      "measured": 208,
       "state": "unmeasured",
-      "reason": "Flat dispatch over 27 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 181 to 189 when the observation reads (#423/#424) and the CD-0068 message channel each added dispatch arms."
+      "reason": "Flat dispatch over 28 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 189 to 208 when concord_knowledge.unprocessed added a repository read arm."
     },
     {
       "function": "internal/agent.validateSchemaValue",

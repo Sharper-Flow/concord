@@ -10,7 +10,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:22b68782e3f6625b54aef7a917681d01c4aace895776934a328d145de2fb6c50",
+  "sha256": "sha256:fc7b291b5e064b0acedb54e5edae20c2ec2551a4fdc09a5ecfacf5e5f84c5abf",
   "status": "published",
   "summary": "Advisory order for the open issue set. Collects the blocking edges stated across individual issues, then ranks every open issue with the reason it sits where it does. Carries no authority: issues own the work and priorities.md owns the priority order.",
   "tags": [

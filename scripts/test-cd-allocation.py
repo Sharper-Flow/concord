@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -18,11 +19,16 @@ checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)
 
 
-def git(root: Path, *arguments: str) -> None:
-    subprocess.run(["git", *arguments], cwd=root, check=True, capture_output=True)
+def git(root: Path, *arguments: str, when: str | None = None) -> None:
+    environment = None
+    if when is not None:
+        environment = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+    subprocess.run(
+        ["git", *arguments], cwd=root, check=True, capture_output=True, env=environment
+    )
 
 
-class CDAllocationTests(unittest.TestCase):
+class RepoFixture(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
@@ -43,10 +49,32 @@ class CDAllocationTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def commit(self, message: str) -> None:
+    def commit(self, message: str, when: str | None = None) -> None:
         git(self.root, "add", "docs/concord-knowledge-index.v1.json")
-        git(self.root, "commit", "--quiet", "-m", message)
+        git(self.root, "commit", "--quiet", "-m", message, when=when)
 
+    def seed_peer(self, identifiers: list[str], when: str, name: str = "peer") -> None:
+        """Create a branch claiming identifiers, then return to a fresh branch off main."""
+        git(self.root, "checkout", "--quiet", "-b", name, "main")
+        self.write_manifest(identifiers)
+        self.commit(f"{name} claim", when=when)
+        git(self.root, "checkout", "--quiet", "main")
+
+    def start_branch(self, name: str = "mine") -> None:
+        git(self.root, "checkout", "--quiet", "-b", name, "main")
+
+    def peer_check(self, **overrides: object) -> list[str]:
+        arguments: dict[str, object] = {
+            "root": self.root,
+            "against": "main",
+            "no_fetch": True,
+            "peer_namespace": "refs/heads",
+        }
+        arguments.update(overrides)
+        return checker.check(**arguments)  # type: ignore[arg-type]
+
+
+class CDAllocationTests(RepoFixture):
     def test_clean_new_record_passes(self) -> None:
         self.write_manifest(["CD-0001", "CD-0002"])
         self.assertEqual(
@@ -106,6 +134,67 @@ class CDAllocationTests(unittest.TestCase):
 
         self.assertEqual(len(findings), 1)
         self.assertIn("duplicate JSON key: records", findings[0])
+
+
+class ConcurrentClaimTests(RepoFixture):
+    def test_peer_claiming_a_different_id_passes(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0002"], when="2026-01-01T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001", "CD-0003"])
+        self.commit("mine claim", when="2026-01-02T00:00:00Z")
+
+        self.assertEqual(self.peer_check(), [])
+
+    def test_earlier_peer_claim_makes_this_branch_renumber(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0002"], when="2026-01-01T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001", "CD-0002"])
+        self.commit("mine claim", when="2026-01-02T00:00:00Z")
+
+        findings = self.peer_check()
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("concurrent-claim", findings[0])
+        self.assertIn("CD-0002", findings[0])
+        self.assertIn("refs/heads/peer", findings[0])
+        self.assertIn("later claimant", findings[0])
+        self.assertIn("renumber-cd.py", findings[0])
+
+    def test_later_peer_claim_leaves_this_branch_alone(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0002"], when="2026-01-03T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001", "CD-0002"])
+        self.commit("mine claim", when="2026-01-02T00:00:00Z")
+
+        self.assertEqual(self.peer_check(), [])
+
+    def test_own_branch_is_not_a_peer(self) -> None:
+        self.start_branch()
+        self.write_manifest(["CD-0001", "CD-0002"])
+        self.commit("mine claim", when="2026-01-02T00:00:00Z")
+
+        self.assertEqual(self.peer_check(), [])
+
+    def test_uncommitted_claim_yields_to_any_peer(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0002"], when="2030-01-01T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001", "CD-0002"])
+
+        findings = self.peer_check()
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("concurrent-claim", findings[0])
+
+    def test_next_free_accounts_for_peer_claims(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0007"], when="2026-01-01T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001"])
+
+        nxt = checker.next_free(
+            root=self.root, against="main", peer_namespace="refs/heads"
+        )
+
+        self.assertEqual(nxt, "CD-0008")
 
 
 if __name__ == "__main__":

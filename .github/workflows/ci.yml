@@ -37,6 +37,8 @@ jobs:
         run: python3 scripts/check-doc-links.py
       - name: Validate agent instructions
         run: python3 scripts/check-agents-md.py
+      - name: Validate script test coverage
+        run: python3 scripts/check-script-tests.py
       - name: Validate CD allocation
         run: |
           git fetch origin main --quiet
@@ -50,7 +52,7 @@ jobs:
           CONCORD_REQUIRE_BUN: "1"
         run: python3 scripts/check-agent-contracts.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-reachability.py && python3 scripts/test-complexity.py
+        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-reachability.py && python3 scripts/test-complexity.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py
       - name: Check Go formatting
         run: test -z "$(gofmt -l .)"
       - name: Tidy Go modules

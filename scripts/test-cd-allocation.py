@@ -42,10 +42,17 @@ class RepoFixture(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def write_manifest(self, identifiers: list[str]) -> None:
+    def write_manifest(
+        self, identifiers: list[str], paths: dict[str, str] | None = None
+    ) -> None:
+        records: list[dict[str, str]] = []
+        for identifier in identifiers:
+            record = {"id": identifier}
+            if paths is not None and identifier in paths:
+                record["path"] = paths[identifier]
+            records.append(record)
         (self.root / "docs/concord-knowledge-index.v1.json").write_text(
-            json.dumps({"records": [{"id": identifier} for identifier in identifiers]})
-            + "\n",
+            json.dumps({"records": records}) + "\n",
             encoding="utf-8",
         )
 
@@ -53,10 +60,16 @@ class RepoFixture(unittest.TestCase):
         git(self.root, "add", "docs/concord-knowledge-index.v1.json")
         git(self.root, "commit", "--quiet", "-m", message, when=when)
 
-    def seed_peer(self, identifiers: list[str], when: str, name: str = "peer") -> None:
+    def seed_peer(
+        self,
+        identifiers: list[str],
+        when: str,
+        name: str = "peer",
+        paths: dict[str, str] | None = None,
+    ) -> None:
         """Create a branch claiming identifiers, then return to a fresh branch off main."""
         git(self.root, "checkout", "--quiet", "-b", name, "main")
-        self.write_manifest(identifiers)
+        self.write_manifest(identifiers, paths)
         self.commit(f"{name} claim", when=when)
         git(self.root, "checkout", "--quiet", "main")
 
@@ -184,6 +197,42 @@ class ConcurrentClaimTests(RepoFixture):
 
         self.assertEqual(len(findings), 1)
         self.assertIn("concurrent-claim", findings[0])
+
+    def test_one_record_reached_through_two_refs_is_not_a_collision(self) -> None:
+        # A merge queue builds a temporary ref per attempt, so the branch
+        # already on the remote and the queue ref both carry the same claim.
+        # Ref identity reports that branch as colliding with itself, and no
+        # renumber escapes it: the next push reproduces the pair at the new id.
+        shared = {"CD-0002": "docs/decisions/CD-0002-shared.md"}
+        self.seed_peer(
+            ["CD-0001", "CD-0002"],
+            when="2026-01-01T00:00:00Z",
+            name="origin-mine",
+            paths=shared,
+        )
+        self.start_branch(name="gh-readonly-queue-main-pr-1")
+        self.write_manifest(["CD-0001", "CD-0002"], shared)
+        self.commit("queue attempt", when="2026-01-02T00:00:00Z")
+
+        self.assertEqual(self.peer_check(), [])
+
+    def test_two_records_claiming_one_id_still_collide(self) -> None:
+        self.seed_peer(
+            ["CD-0001", "CD-0002"],
+            when="2026-01-01T00:00:00Z",
+            paths={"CD-0002": "docs/decisions/CD-0002-theirs.md"},
+        )
+        self.start_branch()
+        self.write_manifest(
+            ["CD-0001", "CD-0002"], {"CD-0002": "docs/decisions/CD-0002-mine.md"}
+        )
+        self.commit("mine claim", when="2026-01-02T00:00:00Z")
+
+        findings = self.peer_check()
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("concurrent-claim", findings[0])
+        self.assertIn("CD-0002", findings[0])
 
     def test_next_free_accounts_for_peer_claims(self) -> None:
         self.seed_peer(["CD-0001", "CD-0007"], when="2026-01-01T00:00:00Z")

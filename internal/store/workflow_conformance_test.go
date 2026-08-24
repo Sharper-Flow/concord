@@ -321,7 +321,11 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
-	completion := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, actorRef, corpusNow, result.ResultingVersion, map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForLatestVerdict(ctx, tx, workID), "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict})
+	completionActorRef := actorRef
+	if len(setup.FixtureRefs.Actors) > 1 {
+		completionActorRef = setup.FixtureRefs.Actors[1]
+	}
+	completion := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, completionActorRef, corpusNow, result.ResultingVersion, map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForLatestVerdict(ctx, tx, workID), "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict})
 	err = CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), completion)
 	_ = leaveFold(ctx, tx)
 	if err == nil {
@@ -659,6 +663,11 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	if err := replayWorkflowCorpusSetup(ctx, s, scenario.Setup, definition, actorRef, true); err != nil {
 		t.Fatal(err)
 	}
+	if definition.Definition.ChangesProductTruth != nil && *definition.Definition.ChangesProductTruth {
+		if err := seedCorpusArchitectureScope(ctx, s, scenario.Setup.FixtureRefs.WorkItem, scenario.Request.Fields); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var beforeVersion, beforeContracts int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, scenario.Setup.FixtureRefs.WorkItem).Scan(&beforeVersion); err != nil {
 		t.Fatal(err)
@@ -963,6 +972,11 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	s := openTemp(t)
 	ctx := context.Background()
 	actor := WorkflowActor{PrincipalRef: request.Grant.PrincipalRef, ClientRef: request.Grant.ClientRef, AgentRef: request.Grant.AgentRef, SessionRef: request.Grant.SessionRef, ActorClass: ActorAgent}
+	if action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 1 {
+		actor.AgentRef = "agent-reviewer"
+		actor.SessionRef = "session-reviewer"
+		actor.ActorClass = ActorOperator
+	}
 	if actor.PrincipalRef == "" {
 		return workflowObservation{}, workflowScenarioGap{"request grant does not contain an authenticated workflow actor"}
 	}
@@ -970,7 +984,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	if request.ActorRef != "" && request.ActorRef != actorRef {
+	if request.ActorRef != "" && request.ActorRef != actorRef && !(action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) {
 		return workflowObservation{}, fmt.Errorf("%s actor_ref does not match authenticated fixture actor", name)
 	}
 	registry := BuiltinWorkflowRegistry()
@@ -984,6 +998,11 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	definition := registered.Definition
 	if err := replayWorkflowCorpusSetup(ctx, s, setup, registered, actorRef, action != string(corpusActionCapture)); err != nil {
 		return workflowObservation{}, err
+	}
+	if definition.ChangesProductTruth != nil && *definition.ChangesProductTruth && (action == string(corpusActionApproveContract) || request.Fields["architecture_binding"] != nil) {
+		if err := seedCorpusArchitectureScope(ctx, s, workID, request.Fields); err != nil {
+			return workflowObservation{}, err
+		}
 	}
 	actionRegistry := BuiltinWorkflowRegistry()
 	if hasCorpusFault(setup, "missing_registry") {
@@ -1224,7 +1243,21 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		if value, ok := workflowCorpusInt(request.Fields["new_contract_version"]); ok && value > 0 {
 			newVersion = value
 		}
-		payload := map[string]any{"work_id": workID, "expected_version": request.ExpectedVersion, "resulting_version": request.ExpectedVersion + 1, "previous_contract_version": previous, "new_contract_version": newVersion, "supersede_reason": "fixture supersession", "audit_evidence": []string{"evidence-review"}}
+		domainID := "domain/corpus-main/" + workID
+		successor := map[string]any{"contract_version": newVersion, "premise": "fixture successor premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor", "immutable_subject_ref": "commit:" + strings.Repeat("b", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "law_revisions": []any{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": map[string]any{"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64), "home_domain_id": domainID, "affected_domain_ids": []string{domainID}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}}
+		expectedVersion, versionErr := workflowCurrentVersion(ctx, s, workID)
+		if versionErr != nil {
+			return workflowObservation{}, versionErr
+		}
+		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
+			delete(successor, "architecture_binding")
+			delete(successor, "law_boundary_version")
+			delete(successor, "law_revisions")
+		}
+		payload := map[string]any{"work_id": workID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1, "previous_contract_version": previous, "new_contract_version": newVersion, "supersede_reason": "fixture supersession", "audit_evidence": []string{"evidence-review"}, "successor_contract": successor}
+		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
+			delete(payload, "successor_contract")
+		}
 		event := workflowEventWithActor(request.Operation.OpID+":supersede", WorkflowContractSuperseded, workID, actorRef, payload)
 		actionErr := SupersedeWorkflowContract(ctx, s, event)
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, actionErr, nil)
@@ -1290,6 +1323,57 @@ func corpusSetupInputDeclaresLaw(input workflowCorpusEvent) bool {
 		}
 	}
 	return false
+}
+
+func seedCorpusArchitectureScope(ctx context.Context, s *Store, workID string, fields map[string]any) error {
+	rawBinding, ok := fields["architecture_binding"]
+	if !ok {
+		return workflowScenarioGap{"Product-changing approval is missing architecture_binding"}
+	}
+	raw, err := json.Marshal(rawBinding)
+	if err != nil {
+		return err
+	}
+	var binding WorkflowArchitectureBinding
+	if err := json.Unmarshal(raw, &binding); err != nil {
+		return err
+	}
+	if binding.DomainRegistryContentHash == "" || len(binding.AffectedDomainIDs) == 0 {
+		return workflowScenarioGap{"Product-changing approval has an incomplete architecture_binding"}
+	}
+	var productID string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? LIMIT 1`, workID).Scan(&productID); err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	rollback := func(cause error) error { _ = leaveFold(ctx, tx); _ = tx.Rollback(); return cause }
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now')`); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, productID, "project", "workflow-corpus-locator"); err != nil {
+		return rollback(err)
+	}
+	rootDomain := binding.AffectedDomainIDs[0]
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?)`, productID, "project", "workflow-corpus-locator", productID, rootDomain, "1.0", binding.DomainRegistryContentHash, "corpus"); err != nil {
+		return rollback(err)
+	}
+	for _, domainID := range binding.AffectedDomainIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, "project", "workflow-corpus-locator", productID, domainID, domainID, "Synthetic corpus domain", "current", binding.DomainRegistryContentHash, "corpus"); err != nil {
+			return rollback(err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any, request workflowCorpusRequest, definition WorkflowDefinition) error {
@@ -1662,8 +1746,23 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 		if input.WorkID == "" || input.EventID == "" || input.Kind == "" || input.PayloadVersion < 1 {
 			return workflowScenarioGap{"setup event is missing typed identity or payload version"}
 		}
+		if input.Kind == WorkflowContractApproved {
+			if err := composeCorpusProductContract(ctx, s, input.Payload); err != nil {
+				return err
+			}
+			if _, productAuthority := input.Payload["architecture_binding"]; productAuthority {
+				if err := seedCorpusArchitectureScope(ctx, s, input.WorkID, input.Payload); err != nil {
+					return err
+				}
+			}
+		}
 		event := workflowEventWithActor(input.EventID, input.Kind, input.WorkID, input.ActorRef, input.Payload)
 		event.PayloadVersion = input.PayloadVersion
+		if input.Kind == WorkflowContractApproved {
+			if _, productAuthority := input.Payload["architecture_binding"]; productAuthority {
+				event.PayloadVersion = 3
+			}
+		}
 		occurred, err := time.Parse(time.RFC3339Nano, input.OccurredAt)
 		if err != nil {
 			return workflowScenarioGap{"setup event has an invalid occurred_at timestamp"}
@@ -1712,7 +1811,9 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 			}
 		}
 		if input.Kind == WorkflowContractApproved && corpusSetupInputDeclaresLaw(input) {
-			if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`); err != nil {
+			lawSetup := `INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); INSERT OR IGNORE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','product','domain/corpus-main','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`
+			lawSetup = strings.Replace(lawSetup, "domain/corpus-main", "domain/corpus-main/"+input.WorkID, 1)
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, lawSetup); err != nil {
 				return err
 			}
 		}
@@ -1750,6 +1851,53 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 		if err := ensureCorpusWorkflowInitialized(ctx, s, workID, registered, corpusNow); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func composeCorpusProductContract(ctx context.Context, s *Store, payload map[string]any) error {
+	workID, _ := payload["work_id"].(string)
+	if workID == "" {
+		return workflowScenarioGap{"Product-changing contract is missing work_id"}
+	}
+	var definitionRef string
+	var definitionVersion int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+		return err
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	if !ok || registered.Definition.ChangesProductTruth == nil || !*registered.Definition.ChangesProductTruth {
+		return nil
+	}
+	if _, ok := payload["spec_mandate"]; !ok {
+		payload["spec_mandate"] = []any{}
+	}
+	if _, ok := payload["law_modifies"]; !ok {
+		payload["law_modifies"] = []any{}
+	}
+	payload["law_boundary_version"] = float64(1)
+	if _, ok := payload["law_revisions"]; !ok {
+		payload["law_revisions"] = []any{}
+	}
+	mandate, _ := payload["spec_mandate"].([]any)
+	for _, value := range mandate {
+		if value == "spec:one" {
+			payload["law_revisions"] = []any{map[string]any{"law_id": "spec:one", "content_hash": "sha256:" + strings.Repeat("a", 64)}}
+			break
+		}
+	}
+	domainID := "domain/corpus-main/" + workID
+	payload["architecture_binding"] = map[string]any{
+		"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64),
+		"home_domain_id":               domainID,
+		"affected_domain_ids":          []any{domainID},
+		"domain_modifies":              []any{},
+		"domain_relation_modifies":     []any{},
+		"law_additions":                []any{},
+		"verification_obligations":     []any{},
+	}
+	if len(mandate) != 0 {
+		payload["architecture_binding"].(map[string]any)["verification_obligations"] = []any{map[string]any{"law_id": "spec:one", "obligation_id": "verification"}}
 	}
 	return nil
 }
@@ -1999,6 +2147,14 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		var decision string
 		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT decision FROM workflow_decision_records WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&decision); err == nil {
 			observation.Authority["decision_record"] = map[string]any{"operator_accepted": decision == "accepted_decision" || decision == "insufficient_evidence"}
+		} else if projection.Contract != nil {
+			var outcome map[string]any
+			if json.Unmarshal([]byte(projection.Contract.OutcomePayload), &outcome) == nil {
+				if record, ok := outcome["decision_record"].(map[string]any); ok {
+					decision, _ = record["decision"].(string)
+					observation.Authority["decision_record"] = map[string]any{"operator_accepted": decision == "accepted_decision" || decision == "insufficient_evidence"}
+				}
+			}
 		}
 		for _, condition := range projection.Conditions {
 			conditionMap := map[string]any{"state": condition.State, "await_type": condition.AwaitType, "resolution_authority": condition.ResolutionAuthority}

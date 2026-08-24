@@ -523,7 +523,16 @@
           },
           "route_conventions": [
             "route:implementation"
-          ]
+          ],
+          "architecture_binding": {
+            "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "home_domain_id": "domain/corpus-main",
+            "affected_domain_ids": ["domain/corpus-main"],
+            "domain_modifies": [],
+            "domain_relation_modifies": [],
+            "law_additions": [],
+            "verification_obligations": []
+          }
         },
         "idempotency": {
           "key": "wf02-planning-requires-outcome-key",
@@ -792,7 +801,16 @@
           },
           "route_conventions": [
             "route:implementation"
-          ]
+          ],
+          "architecture_binding": {
+            "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "home_domain_id": "domain/corpus-main",
+            "affected_domain_ids": ["domain/corpus-main"],
+            "domain_modifies": [],
+            "domain_relation_modifies": [],
+            "law_additions": [],
+            "verification_obligations": []
+          }
         },
         "idempotency": {
           "key": "wf03-vacuous-end-state-key",
@@ -3728,7 +3746,7 @@
             }
           },
           {
-            "event_id": "wf12-self-authored-check-created-step",
+              "event_id": "wf12-self-authored-check-created-step",
             "kind": "workflow.action_started",
             "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
@@ -3736,7 +3754,7 @@
             "payload_version": 1,
             "payload": {
               "step_id": "acceptance",
-              "action_id": "replace_check",
+                "action_id": "record_verdict",
               "attempt_epoch": 1,
               "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
               "idempotency_identity": "wf12-self-authored-check-key",
@@ -5105,7 +5123,16 @@
           "proposed_route_conventions": [
             "route:undeclared-archive"
           ],
-          "required_route_conventions": []
+          "required_route_conventions": [],
+          "architecture_binding": {
+            "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "home_domain_id": "domain/corpus-main",
+            "affected_domain_ids": ["domain/corpus-main"],
+            "domain_modifies": [],
+            "domain_relation_modifies": [],
+            "law_additions": [],
+            "verification_obligations": []
+          }
         },
         "idempotency": {
           "key": "wf14-undeclared-route-convention-key",
@@ -5371,7 +5398,16 @@
           },
           "route_conventions": [
             "route:implementation"
-          ]
+          ],
+          "architecture_binding": {
+            "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "home_domain_id": "domain/corpus-main",
+            "affected_domain_ids": ["domain/corpus-main"],
+            "domain_modifies": [],
+            "domain_relation_modifies": [],
+            "law_additions": [],
+            "verification_obligations": []
+          }
         },
         "idempotency": {
           "key": "wf15-lowest-rigor-floor-key",
@@ -6199,16 +6235,16 @@
             "event_id": "work-spike-decision",
             "kind": "workflow.action_checkpointed",
             "work_id": "work-spike",
-            "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
             "payload": {
               "step_id": "complete",
-              "step_kind": "human_checkpoint",
+              "step_kind": "internal_sqlite",
               "attempt_epoch": 1,
               "checkpoint_payload": {
                 "checkpoint": {
-                  "action_id": "record_decision",
+                  "action_id": "checkpoint_context",
                   "question": "Can this be decided?",
                   "options_considered": [
                     "insufficient_evidence"
@@ -6225,7 +6261,7 @@
                 }
               },
               "resume_cursor": "decision",
-              "actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "request_id": "wf17-decision-request",
               "checkpoint_id": "wf17-decision-checkpoint",
               "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -7447,6 +7483,15 @@
           "route_conventions": [
             "route:implementation"
           ],
+          "architecture_binding": {
+            "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "home_domain_id": "domain/corpus-main",
+            "affected_domain_ids": ["domain/corpus-main"],
+            "domain_modifies": [],
+            "domain_relation_modifies": [],
+            "law_additions": [],
+            "verification_obligations": []
+          },
           "transaction": {
             "contract_approval": true,
             "approval_binding": {
@@ -7730,7 +7775,7 @@
         "operation": {
           "op_id": "wf21-attempt-epoch-winner-operation",
           "attempt_epoch": 5,
-          "step_id": "execution",
+          "step_id": "execute",
           "step_kind": "external_effect",
           "state": "pending"
         }
@@ -7991,7 +8036,7 @@
             }
           },
           {
-            "event_id": "work-ops-checkpoint",
+              "event_id": "work-ops-checkpoint",
             "kind": "workflow.action_checkpointed",
             "work_id": "work-ops",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
@@ -7999,11 +8044,11 @@
             "payload_version": 1,
             "payload": {
               "step_id": "complete",
-              "step_kind": "external_effect",
+                "step_kind": "internal_sqlite",
               "attempt_epoch": 1,
               "checkpoint_payload": {
                 "checkpoint": {
-                  "action_id": "checkpoint_run",
+                    "action_id": "checkpoint_context",
                   "cursor": "step-2"
                 }
               },
@@ -8589,7 +8634,7 @@
         "operation": {
           "op_id": "wf24-stale-attempt-operation",
           "attempt_epoch": 7,
-          "step_id": "execution",
+          "step_id": "execute",
           "step_kind": "external_effect",
           "state": "pending"
         }
@@ -12989,9 +13034,9 @@
             }
           },
           {
-            "event_id": "work-alpha-edge:wf31",
+            "event_id": "work-child-edge:wf31",
             "kind": "workflow.impact_declared",
-            "work_id": "work-alpha",
+            "work_id": "work-child",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
@@ -12999,10 +13044,10 @@
               "edge_id": "edge:wf31",
               "edge_kind": "depends_on",
               "edge_class": "hard",
-              "target_work_id": "work-child",
+              "target_work_id": "work-alpha",
               "target_kind": "work_item",
               "severity": "breaking",
-              "work_id": "work-alpha",
+              "work_id": "work-child",
               "expected_version": 6,
               "resulting_version": 7
             }

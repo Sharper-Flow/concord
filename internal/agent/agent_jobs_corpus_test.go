@@ -1066,7 +1066,7 @@ func agentJobsEnvelope(grant Grant, ambientProject, selectedProduct string) Call
 	return CallEnvelope{
 		SchemaVersion:     "1.0",
 		RequestID:         "agent-jobs-request",
-		GrantRef:          grant.Token,
+		GrantToken:        grant.Token,
 		ClientRef:         grant.ClientRef,
 		PrincipalRef:      grant.PrincipalRef,
 		SessionRef:        grant.SessionRef,

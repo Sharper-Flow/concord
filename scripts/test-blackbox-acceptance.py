@@ -536,7 +536,7 @@ def step_d_read(binary: Path, env: dict, repo: Path, grant: dict, manifest_diges
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-read-1',
-            'grant_ref': grant['grant_token'],
+            'grant_token': grant['grant_token'],
             'client_ref': grant['client_ref'],
             'principal_ref': grant['principal_ref'],
             'session_ref': grant['session_ref'],
@@ -561,7 +561,7 @@ def step_e_mutation(binary: Path, env: dict, repo: Path, grant: dict, manifest_d
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-mutation-1',
-            'grant_ref': grant['grant_token'],
+            'grant_token': grant['grant_token'],
             'client_ref': grant['client_ref'],
             'principal_ref': grant['principal_ref'],
             'session_ref': grant['session_ref'],
@@ -605,7 +605,7 @@ def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, grant: dict, m
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-workflow-1',
-            'grant_ref': grant['grant_token'],
+            'grant_token': grant['grant_token'],
             'client_ref': grant['client_ref'],
             'principal_ref': grant['principal_ref'],
             'session_ref': grant['session_ref'],
@@ -644,7 +644,7 @@ def step_g_restart_reopen(binary: Path, env: dict, repo: Path, grant: dict, mani
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-restart-1',
-            'grant_ref': grant['grant_token'],
+            'grant_token': grant['grant_token'],
             'client_ref': grant['client_ref'],
             'principal_ref': grant['principal_ref'],
             'session_ref': grant['session_ref'],
@@ -709,7 +709,7 @@ def step_h_backup_restore(binary: Path, env: dict, work: Path, repo: Path, grant
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-restored-read-1',
-            'grant_ref': grant['grant_token'],
+            'grant_token': grant['grant_token'],
             'client_ref': grant['client_ref'],
             'principal_ref': grant['principal_ref'],
             'session_ref': grant['session_ref'],

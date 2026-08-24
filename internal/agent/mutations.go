@@ -735,7 +735,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if action.RequiredCapability != "" {
 		requiredCapability = Capability(action.RequiredCapability)
 	}
-	inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: requiredCapability, ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+	inv := Invocation{GrantToken: r.Envelope.GrantToken, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: requiredCapability, ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
@@ -1794,7 +1794,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		claimScope["head_ref"] = resolvedHome.HeadRef
 	}
 	acceptedScope, _ := json.Marshal(claimScope)
-	grant, err := r.Authority.ValidateInvocation(ctx, Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID})
+	grant, err := r.Authority.ValidateInvocation(ctx, Invocation{GrantToken: r.Envelope.GrantToken, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID})
 	if err != nil {
 		return coreError(base, "unauthorized", err.Error(), "contact_operator", false), nil
 	}
@@ -1807,7 +1807,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			return result, nil
 		}
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
-		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+		inv := Invocation{GrantToken: r.Envelope.GrantToken, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 			// CD-0041 D7: publication is consequential, so the claim refuses
 			// before any git note is written when the contract's law revision
@@ -2164,7 +2164,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if !registered {
 			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
 		}
-		inv := Invocation{GrantToken: r.Envelope.GrantRef, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
+		inv := Invocation{GrantToken: r.Envelope.GrantToken, ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, ProductID: r.Envelope.SelectedProductID, ProjectID: r.Envelope.AmbientProjectID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}

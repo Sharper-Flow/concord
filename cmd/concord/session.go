@@ -65,6 +65,13 @@ func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (st
 	if err != nil {
 		return "", err
 	}
+	// A resolvable definition is not proof the host will start it under the
+	// derived handle. Establish that before the store is touched, so a
+	// session that cannot run as the agent it asserts records nothing and
+	// refuses (issue #430).
+	if err := verifyHostRegistersHandle(ctx, probeHostAgentRegistry, cwd, handle); err != nil {
+		return "", err
+	}
 	assertion.ProductID = productID
 	assertion.WorkID = workID
 	assertion.PrincipalRef = "principal/orchestrator"

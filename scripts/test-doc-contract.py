@@ -1078,6 +1078,147 @@ def test_verification_empty_section_fails() -> None:
     assert any("verification-empty" in line for line in stdout.splitlines()), stdout
 
 
+def test_structural_sql_keyword_tokens_are_not_flagged() -> None:
+    """SQL keywords and SQLite pragma values are language tokens, not prose
+    abbreviations (audit F4): expanding them on first use would put fiction
+    into technical writing. Both sides: every excluded class is silent, and
+    an ordinary unexpanded abbreviation on the same page still fires."""
+    root = sandbox()
+    body = """# Spec
+
+## Context
+
+Run EXPLAIN QUERY PLAN before PRAGMA synchronous=NORMAL, with journal_mode=TRUNCATE and a CHECK constraint on TEXT columns.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/sql-tokens.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="e")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    noisy = body.replace("Body.\n\n## Acceptance", "The FK constraint applies.\n\n## Acceptance")
+    write_spec(root, path, noisy)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ABBR=FK" in stdout
+
+
+def test_structural_rfc2119_keywords_are_not_flagged() -> None:
+    root = sandbox()
+    body = """# Spec
+
+## Context
+
+The implementation MUST refresh the cursor and MAY batch reads. Agents SHOULD retry.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/rfc2119.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="e")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    noisy = body.replace("Agents SHOULD retry.", "Agents SHOULD retry after SPOF recovery.")
+    write_spec(root, path, noisy)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ABBR=SPOF" in stdout
+
+
+def test_defined_name_tokens_are_not_flagged() -> None:
+    """Semver bump classes, the MIT license name, the CD-NNNN placeholder,
+    and protocol acronyms that are names rather than expandable phrases."""
+    root = sandbox()
+    body = """# Spec
+
+## Context
+
+A breaking title lands a MAJOR bump; the MIT license covers CD-NNNN records; SCIP/LSP own navigation.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/names.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="e")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    noisy = body.replace("SCIP/LSP own navigation.", "SCIP/LSP own navigation for POC work.")
+    write_spec(root, path, noisy)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ABBR=POC" in stdout
+
+
+def test_technical_noun_allowlist_extension_is_not_flagged() -> None:
+    root = sandbox()
+    body = """# Spec
+
+## Context
+
+The SHA pin, the NUL byte separator, WIP logs, the UI surface, IPC scope, SDK clients, and KB bounds all stay silent.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/nouns.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="e")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+
+
 def main() -> int:
     tests = [
         value

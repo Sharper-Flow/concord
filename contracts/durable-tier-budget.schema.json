@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/durable-tier-budget.schema.json",
+  "title": "Concord durable-tier budget",
+  "description": "Closed contract for the CD-0002 durable-tier binding rules, made executable by CD-0069. The bounds live once in this file: scripts/check-durable-tier.py reads them at check time, and the future compaction producer and the AJ6 scenario extension read the same numbers, so no surface restates them. An allowance is permission for one named note to exceed the byte bound while an issue tracks it - never permission to be non-markdown or to embed a state dump. The decisions inventory declares every non-markdown artifact under docs/decisions/ with a reason, so the markdown-only rule is falsifiable there without a byte bound: a new artifact fails until acknowledged, and a removed artifact fails as a stale entry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "note_roots",
+    "max_note_bytes",
+    "max_fenced_json_bytes",
+    "note_allowances",
+    "non_markdown_inventory"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "source": {
+      "description": "The accepted decision that owns this budget.",
+      "type": "string",
+      "pattern": "^docs/decisions/CD-[0-9]{4}-[a-z0-9-]+\\.md$"
+    },
+    "note_roots": {
+      "description": "The compaction-note roots CD-0002 names for distilled terminal notes. Markdown only, byte-bounded, dump-free.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^docs/[a-z0-9/_-]+$"
+      }
+    },
+    "max_note_bytes": {
+      "description": "Per-note byte bound. CD-0002 says a page, not hundreds of kilobytes; 16384 is roughly eight times a real distilled page and three orders of magnitude under the predecessor's megabyte failures. Lowering is the ratchet; raising requires a decision.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1048576
+    },
+    "max_fenced_json_bytes": {
+      "description": "Largest fenced JSON block a note may embed. A quoted example is a few lines; a state dump is kilobytes. Blocks over this bound fail regardless of the note's total size.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65536
+    },
+    "note_allowances": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "state", "reason"],
+        "properties": {
+          "path": {
+            "description": "Repository-relative path of one markdown note. Byte-bound exemptions are per-note; markdown-only and dump-free have no exemptions.",
+            "type": "string",
+            "pattern": "^docs/[a-z0-9/_-]+/([a-z0-9._-]+)\\.md$"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["outstanding", "out_of_scope"]
+          },
+          "issue": {
+            "description": "Public issue tracking an outstanding allowance. Required when outstanding; forbidden otherwise.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "non_markdown_inventory": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": {
+            "description": "One non-markdown artifact under docs/decisions/, acknowledged with a reason. Anything not listed fails.",
+            "type": "string",
+            "pattern": "^docs/decisions/.+\\.(?<!md)$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          }
+        }
+      }
+    }
+  }
+}

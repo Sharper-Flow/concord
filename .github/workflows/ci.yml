@@ -42,6 +42,7 @@ jobs:
       - name: Validate CD allocation
         run: |
           git fetch origin main --quiet
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet
           python3 scripts/check-cd-allocation.py --no-fetch
       - name: Validate JSON
         run: python3 scripts/check-json.py

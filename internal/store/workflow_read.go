@@ -170,7 +170,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 			return out, err
 		}
 		if len(contract.SpecMandate) != 0 {
-			homeProjectID, homeLocatorID, homeErr := workflowLawHomeDB(ctx, s.db, request.WorkID)
+			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, s.db, request.WorkID)
 			if homeErr != nil {
 				return out, homeErr
 			}

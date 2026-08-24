@@ -112,6 +112,26 @@ def cd_id_counts(data: dict[str, object]) -> Counter[str]:
     return counts
 
 
+def cd_record_paths(data: dict[str, object]) -> dict[str, str]:
+    """Map each CD id to the record path claiming it.
+
+    A CD id names one record. Two refs carrying the same id and the same path
+    are one claim observed twice, not two branches racing, so the path is what
+    distinguishes a collision from a duplicate observation.
+    """
+    paths: dict[str, str] = {}
+    records = data["records"]
+    assert isinstance(records, list)
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        identifier = record.get("id")
+        path = record.get("path")
+        if isinstance(identifier, str) and CD_ID_RE.fullmatch(identifier) and isinstance(path, str):
+            paths.setdefault(identifier, path)
+    return paths
+
+
 def is_ancestor(root: Path, ref: str) -> bool:
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", ref, "HEAD"],
@@ -159,14 +179,14 @@ def local_ref_name(root: Path) -> str:
     return (name or "HEAD").strip()
 
 
-def peer_claims(root: Path, against: str, namespace: str) -> dict[str, tuple[str, int]]:
+def peer_claims(root: Path, against: str, namespace: str) -> dict[str, tuple[str, int, str]]:
     baseline: set[str] = set()
     raw = git_show(root, against)
     if raw is not None:
         parsed = load_manifest(raw, against, [])
         if parsed is not None:
             baseline = set(cd_id_counts(parsed))
-    claims: dict[str, tuple[str, int]] = {}
+    claims: dict[str, tuple[str, int, str]] = {}
     for ref in peer_refs(root, namespace, against):
         payload = git_show(root, ref)
         if payload is None:
@@ -175,16 +195,34 @@ def peer_claims(root: Path, against: str, namespace: str) -> dict[str, tuple[str
         if parsed is None:
             continue
         when = claim_time(root, ref)
+        peer_paths = cd_record_paths(parsed)
         for identifier in set(cd_id_counts(parsed)) - baseline:
             held = claims.get(identifier)
             if held is None or (when, ref) < (held[1], held[0]):
-                claims[identifier] = (ref, when)
+                claims[identifier] = (ref, when, peer_paths.get(identifier, ""))
     return claims
 
 
 def collision_findings(
-    root: Path, new_ids: list[str], claims: dict[str, tuple[str, int]]
+    root: Path,
+    new_ids: list[str],
+    claims: dict[str, tuple[str, int, str]],
+    tree_paths: dict[str, str],
 ) -> list[str]:
+    """Report a CD id two different records claim.
+
+    Ref identity cannot decide this. One branch reaches the peer namespace
+    under more than one ref — a merge queue builds a temporary ref per attempt,
+    and a mirror or a rename leaves a second ref behind — and every such ref
+    carries the same claim with a later timestamp than the branch it came from.
+    Comparing refs alone reports that branch as colliding with itself, and
+    renumbering cannot resolve it because the next push reproduces the pair at
+    the new id.
+
+    The record path decides it instead. One id claimed by one path is a single
+    record however many refs carry it; one id claimed by two paths is the race
+    this check exists to catch.
+    """
     if not claims:
         return []
     mine = (local_claim_time(root), local_ref_name(root))
@@ -192,6 +230,8 @@ def collision_findings(
     for identifier in new_ids:
         held = claims.get(identifier)
         if held is None:
+            continue
+        if held[2] and held[2] == tree_paths.get(identifier):
             continue
         theirs = (held[1], held[0])
         if theirs >= mine:
@@ -244,7 +284,7 @@ def check(
             "CDs are durable and removal needs an explicit superseding record"
         )
     claims = peer_claims(root, against, peer_namespace)
-    findings.extend(collision_findings(root, new_ids, claims))
+    findings.extend(collision_findings(root, new_ids, claims, cd_record_paths(tree)))
     return findings
 
 

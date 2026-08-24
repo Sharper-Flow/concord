@@ -34,7 +34,7 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) error { return nil }); code != 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
 	if bootstrapCalls != 1 {
@@ -65,7 +65,7 @@ func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 	}
 	runner := func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil }
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) error { return nil }); code == 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code == 0 {
 		t.Fatal("packet failure started session")
 	}
 	if runs != 0 || !strings.Contains(errOut.String(), "manifest digest mismatch") {
@@ -84,7 +84,7 @@ func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) error { return nil }); code != 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errOut.String())
 	}
 	prompt := hostPrompt(t, argv)
@@ -113,7 +113,7 @@ func TestSessionRefusesToStartWhenRequiredAgentIdentityIsAbsent(t *testing.T) {
 	identity := func() error { return verifyLaneAgentIdentity("", "", store.BuiltinLaneDefinitions()) }
 	var out, errOut bytes.Buffer
 
-	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, identity, func(context.Context, string, string) error { return nil })
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, identity, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil })
 	if code != 2 {
 		t.Fatalf("exit=%d, want 2", code)
 	}
@@ -393,7 +393,7 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	// Recompute the digest from the *current* filesystem (the verification
 	// step re-reads and re-hashes every resolved artifact). The current
 	// digest must differ from the recorded first one.
-	currentAssertion, err := verifyOrchestratorIdentity(home, cwd)
+	currentAssertion, _, err := verifyOrchestratorIdentity(home, cwd)
 	if err != nil {
 		t.Fatalf("verify after mutation: %v", err)
 	}
@@ -428,10 +428,10 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 // hostOrchestratorIdentity, which reads os.Getenv/os.Getwd; the shape is
 // otherwise identical.
 func recordOrchestratorIdentityAt(home, cwd string) sessionOrchestratorFunc {
-	return func(ctx context.Context, productID, workID string) error {
-		assertion, err := verifyOrchestratorIdentity(home, cwd)
+	return func(ctx context.Context, productID, workID string) (string, error) {
+		assertion, handle, err := verifyOrchestratorIdentity(home, cwd)
 		if err != nil {
-			return err
+			return "", err
 		}
 		assertion.ProductID = productID
 		assertion.WorkID = workID
@@ -441,18 +441,18 @@ func recordOrchestratorIdentityAt(home, cwd string) sessionOrchestratorFunc {
 		assertion.SessionRef = "session/" + productID
 		path, err := databasePath()
 		if err != nil {
-			return err
+			return "", err
 		}
 		s, err := store.Open(ctx, path)
 		if err != nil {
-			return err
+			return "", err
 		}
 		defer s.Close()
 		eventID := orchestratorAssertionEventID(productID, workID)
 		if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, time.Now().UTC(), assertion); err != nil {
-			return err
+			return "", err
 		}
-		return nil
+		return handle, nil
 	}
 }
 
@@ -495,7 +495,7 @@ func convertSources(src []store.OrchestratorArtifactSource) []store.Orchestrator
 
 func convertSourcesFromPaths(t *testing.T, home, cwd, definition string) []store.OrchestratorArtifactSource {
 	t.Helper()
-	assertion, err := verifyOrchestratorIdentity(home, cwd)
+	assertion, _, err := verifyOrchestratorIdentity(home, cwd)
 	if err != nil {
 		t.Fatalf("recompute sources: %v", err)
 	}
@@ -512,3 +512,37 @@ func convertSourcesFromPaths(t *testing.T, home, cwd, definition string) []store
 // _ ensures time is referenced even when a future refactor drops every
 // direct time mention in this file; it keeps the import set honest.
 var _ = time.RFC3339Nano
+
+// A definition that renames itself via frontmatter `name:` registers under
+// that name, not its file stem. The session must select the registered name:
+// selecting the stem would start the operator's default agent while the
+// assertion described the renamed definition (issue #428's probe).
+func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	for _, lane := range store.BuiltinLaneDefinitions() {
+		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
+	}
+	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName,
+		[]byte("---\nname: op-session-renamed\nmode: all\n---\norchestrator body\n"))
+	t.Setenv("HOME", home)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "")
+	t.Setenv("CONCORD_DB_PATH", filepath.Join(t.TempDir(), "concord-renamed.db"))
+	var argv []string
+	runner := func(_ context.Context, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+		argv = append([]string(nil), got...)
+		return nil
+	}
+	var out, errOut bytes.Buffer
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
+		runner,
+		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },
+		recordOrchestratorIdentityAt(home, cwd),
+	); code != 0 {
+		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
+	}
+	if selected := selectedAgentName(t, argv); selected != "op-session-renamed" {
+		t.Fatalf("session selected agent %q, want the frontmatter name %q", selected, "op-session-renamed")
+	}
+}

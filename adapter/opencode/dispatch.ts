@@ -55,6 +55,11 @@ export interface RunSessionMetadata {
   session_id: string
 }
 
+// DispatchAuthorizer asks the core to authorize one dispatch_worker action and
+// returns the core response envelope. The caller owns the transport, so the
+// adapter never holds the authorization decision (CD-0017 D2, CD-0059 D1).
+export type DispatchAuthorizer = (request: { work_id: string; attempt_id: string }) => Promise<unknown>
+
 export interface AgentResultEnvelope {
   schema_version: "1.0"
   outcome: "ok" | "blocked" | "error"
@@ -64,7 +69,12 @@ export interface AgentResultEnvelope {
   session_id: string | null
   output?: string
   error?: {
-    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch"
+    // `unauthorized_dispatch` is the core refusing the dispatch_worker action.
+    // `transport_failure` is the adapter being unable to ask. The two are
+    // separate members because a refusal is the authorization boundary working
+    // and a transport fault is the adapter being misconfigured; collapsing
+    // them tells an operator to seek permission for a wiring defect.
+    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "unauthorized_dispatch" | "transport_failure"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
     message: string
@@ -637,7 +647,7 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; toolContext?: ToolContext } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -645,32 +655,33 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const childRunner = options.runner ?? runner
   const binary = options.binary ?? "opencode"
 
-  // CD-0059 D1: authorize before spawn, unconditionally. The
-  // dispatch_worker workflow action opens the worker attempt window
-  // against the current step epoch; the adapter drives the action through
-  // the host ToolContext the same way every other concord CLI command
-  // reaches the registered action surface. Without an authorizer the
-  // adapter fails closed with a typed error envelope and does not
-  // spawn a worker, so a missing authorization path cannot produce an
-  // attempt the evidence boundary would later have to refuse.
-  if (!options.toolContext || !isRecord(options.toolContext)) {
-    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", "no authorizer was supplied to dispatchWorker; dispatch_worker authorization is mandatory before spawn", "contact_operator")
+  // CD-0059 D1: authorize before spawn, unconditionally. The dispatch_worker
+  // workflow action opens the worker attempt window against the current step
+  // epoch. The authorizer is supplied by the caller rather than taken from the
+  // host ToolContext: ToolContext is the host's tool-call surface and declares
+  // no way to reach Concord's core, so an adapter that probed it for one would
+  // fail closed on every host and report the absence as a refusal (issue
+  // #436). The caller wires this to the same `concord invoke` transport every
+  // other operation uses.
+  if (typeof options.authorize !== "function") {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch authorizer is not configured; dispatch_worker authorization is mandatory before spawn", "contact_operator")
   }
-  const tc = options.toolContext
+  let response: unknown
   try {
-    const response = await (tc as { invoke?: (args: unknown) => Promise<unknown> }).invoke?.({
-      tool: "concord_work_transition",
-      operation: "workflow_action",
-      input: { work_id: (packet as Partial<AgentLanePacket>).work_id, action_id: "dispatch_worker", fields: { attempt_id: (packet as Partial<AgentLanePacket>).attempt_id } },
+    response = await options.authorize({
+      work_id: String((packet as Partial<AgentLanePacket>).work_id ?? ""),
+      attempt_id: String((packet as Partial<AgentLanePacket>).attempt_id ?? ""),
     })
-    if (!isRecord(response) || response.outcome === "error") {
-      const errorObj = isRecord(response?.error) ? response.error : null
-      const kind = errorObj && typeof errorObj.kind === "string" ? errorObj.kind : "unauthorized_dispatch"
-      const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
-      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", kind, message, "reconcile_operation")
-    }
   } catch {
-    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker authorization hook threw", "contact_operator")
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch authorization transport threw before reaching the core", "contact_operator")
+  }
+  if (!isRecord(response)) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch authorization returned no core response envelope", "contact_operator")
+  }
+  if (response.outcome === "error") {
+    const errorObj = isRecord(response.error) ? response.error : null
+    const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
   }
   // CD-0058: the adapter no longer asserts --model. OpenCode resolves the
   // executing model from host configuration (agent.<name>.model or a routing

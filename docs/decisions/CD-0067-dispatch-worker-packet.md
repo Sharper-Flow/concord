@@ -1,0 +1,57 @@
+# CD-0067: Dispatch Binds the Worker Packet
+
+Status: accepted
+Date: 2026-08-24
+
+## Context
+
+Issue #253: the lane worker pipeline reaches no installation. The
+dispatch_worker action (CD-0059) opens a single-use attempt window, but the
+action fields carry only `attempt_id`, so the durable record binds the window
+to an attempt identity and to nothing about the work the worker will do. The
+lane packet — lane identity, step, and inputs — lives only in the adapter, and
+the core cannot later prove which packet an authorized window was opened for.
+
+## Decision
+
+### D1. The packet is declared in the action contract
+
+`work_transition_action_input.fields.worker_packet` is a closed, declared
+object in contracts/agent-tool-surface-payloads.schema.json, required for
+`dispatch_worker`. Rejected alternatives: deriving the packet in the adapter
+without a contract field (the core then records an attempt bound to nothing it
+can name), and splitting dispatch into two actions (a second action doubles the
+window semantics CD-0059 D5 already owns).
+
+### D2. The core digests the packet and records it as attempt evidence
+
+The core does not interpret the packet. It enforces object-ness, two identity
+equalities (packet.work_id equals the action's work_id, packet.attempt_id
+equals fields.attempt_id), and records `worker_packet_digest` — sha256 over
+canonicalJSON of the packet — on the WorkflowActionCompleted event beside
+`worker_attempt_id`. `FindAuthorizedDispatchWindowTx` exposes it on
+WorkerDispatchWindow. domain_events.payload is untyped JSON, so no store
+migration is needed.
+
+### D3. Closed-object fields get a registry value type
+
+A new PayloadValueType `object` validates that a field is one strict JSON
+object. dispatch_worker declares worker_packet with that type and
+Required: true. Structural bounds beyond object-ness live in the contract
+schema, which the generator embeds; the core gate stays cheap.
+
+### D4. Reachability acceptance for #253
+
+The lane pipeline is proved reachable when the installed archive ships the
+lane files and a test drives dispatch through work_transition to the spawn
+boundary with a stubbed runner. A live model round trip is not required: it
+proves the runner, not reachability.
+
+## Consequences
+
+- Existing dispatch_worker callers must supply the packet; in-repo tests are
+  updated in the same change.
+- The evidence boundary can later refuse worker evidence whose packet digest
+  does not match the window (follow-up wiring in the adapter).
+- contracts/agent-tool-surface payload digest and generated artifacts change;
+  the generator owns them.

@@ -89,6 +89,7 @@ const (
 	PayloadRef        PayloadValueType = "ref"
 	PayloadDigest     PayloadValueType = "digest"
 	PayloadStringList PayloadValueType = "string_list"
+	PayloadObject     PayloadValueType = "object"
 )
 
 type WorkflowPayloadField struct {
@@ -592,11 +593,14 @@ func withWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 	// a worker holding only work_transition cannot dispatch a nested worker
 	// (CD-0017 D4 becomes structural rather than convention). The lane
 	// identity is recorded with the worker-dispatch CLI on consumption;
-	// the authorization itself only needs to bind the attempt_id.
+	// the authorization itself only needs to bind the attempt_id. CD-0067
+	// D2 requires the lane packet itself as a structural payload field so
+	// the fold can record its canonical digest alongside worker_attempt_id.
 	dispatch := WorkflowActionDefinition{
 		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: "worker_dispatch",
 		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
 			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
+			{Name: "worker_packet", ValueType: PayloadObject, Required: true},
 		}},
 	}
 	definition.AvailableActions = append(definition.AvailableActions, acceptance.ID, dispatch.ID)
@@ -689,7 +693,7 @@ func validPredicateKind(value PredicateKind) bool {
 func validatePayloadFields(fields []WorkflowPayloadField) bool {
 	seen := map[string]bool{}
 	for _, field := range fields {
-		if !validWorkflowID(field.Name) || seen[field.Name] || !containsString([]string{"string", "integer", "boolean", "ref", "digest", "string_list"}, string(field.ValueType)) {
+		if !validWorkflowID(field.Name) || seen[field.Name] || !containsString([]string{"string", "integer", "boolean", "ref", "digest", "string_list", "object"}, string(field.ValueType)) {
 			return false
 		}
 		seen[field.Name] = true

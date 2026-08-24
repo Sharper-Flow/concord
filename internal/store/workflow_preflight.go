@@ -537,6 +537,16 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 	case PayloadBoolean:
 		_, ok := value.(bool)
 		return ok
+	case PayloadObject:
+		// CD-0067 D3: an object field must decode to exactly one strict JSON
+		// object. UseNumber above preserves numeric literals, so the
+		// decoded form is map[string]any (with json.Number values); any
+		// other JSON type — array, scalar, null — fails closed. Structural
+		// bounds beyond object-ness live in the contract schema, which
+		// the generator embeds; this gate only enforces the registry's
+		// declaration that the value is one object.
+		_, ok := value.(map[string]any)
+		return ok
 	default:
 		return false
 	}

@@ -634,3 +634,213 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 	}
 	return tx.Commit()
 }
+
+// TestFindAuthorizedDispatchWindowSurfacesThePacketDigest proves the read
+// round-trip the post-merge audit of #446 found missing: the worker packet
+// digest the dispatch_worker fold records onto the completing
+// WorkflowActionCompleted event (TestDispatchFoldRecordsTheCanonicalPacketDigest,
+// the write-side pin) is the same value FindAuthorizedDispatchWindowTx reads
+// off that row into WorkerDispatchWindow.PacketDigest (the read side). The
+// test runs a real dispatch_worker invocation end-to-end, then opens a
+// store transaction and calls FindAuthorizedDispatchWindowTx directly, so
+// any drift in the SELECT column expression, the payload key, or the struct
+// field becomes a hard failure rather than a silent gap.
+func TestFindAuthorizedDispatchWindowSurfacesThePacketDigest(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-window-digest")
+	actor := seed.ownerActor
+	attemptID := "attempt-window-digest"
+	packet := dispatchWorkerPacket(seed.workID, "execution", attemptID)
+	packetBytes, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	canonical, err := canonicalJSON(packetBytes)
+	if err != nil {
+		t.Fatalf("canonicalJSON: %v", err)
+	}
+	wantSum := sha256.Sum256(canonical)
+	wantDigest := "sha256:" + hex.EncodeToString(wantSum[:])
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	// Open the dispatch window through the real fold so the digest is
+	// recorded by production code (not seeded into a domain_events row).
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload,
+		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "window-digest-inputs"),
+		IdempotencyIdentity: "window-digest-op", OperationID: "op-window-digest", PrincipalRef: actor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "window-digest-key", RequestID: "req-window-digest",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	}); err != nil {
+		t.Fatalf("dispatch_worker fold: %v", err)
+	}
+	// Read the window back through the production queryer that runs
+	// inside a worker-dispatch CLI transaction. cd0059 dispatch tests
+	// open transactions via s.Transact and rely on transactionSQL to
+	// expose the underlying *sql.Tx to Tx-scoped helpers; follow that
+	// pattern rather than reaching for the *sql.Tx directly.
+	var (
+		window    WorkerDispatchWindow
+		windowErr error
+	)
+	transactErr := s.Transact(ctx, func(tx *Transaction) error {
+		sqlTx, err := transactionSQL(tx, "test_window_digest")
+		if err != nil {
+			return err
+		}
+		window, windowErr = FindAuthorizedDispatchWindowTx(ctx, sqlTx, seed.workID, "execution")
+		return windowErr
+	})
+	if transactErr != nil {
+		t.Fatalf("FindAuthorizedDispatchWindowTx: %v", transactErr)
+	}
+	if window.AttemptID != attemptID {
+		t.Fatalf("window.AttemptID = %q, want %q", window.AttemptID, attemptID)
+	}
+	if window.AttemptEpoch < 1 {
+		t.Fatalf("window.AttemptEpoch = %d, want >=1 (the step epoch recorded by the fold)", window.AttemptEpoch)
+	}
+	if window.PacketDigest != wantDigest {
+		t.Fatalf("window.PacketDigest = %q, want %q (sha256 of canonicalJSON over the supplied packet)", window.PacketDigest, wantDigest)
+	}
+}
+
+// TestDispatchFoldDefensivelyRefusesAbsentWorkerPacket pins the first
+// defensive refusal in appendGenericWorkflowCompletion's dispatch_worker
+// branch (workflow_action_guards.go line 388): a payload whose fields map
+// has no worker_packet key is refused with KindInvalidPayload and appends no
+// WorkflowActionCompleted event. Preflight normally catches this first;
+// reaching the fold directly tests the defensive depth the dispatch
+// refactor of #446 retained.
+func TestDispatchFoldDefensivelyRefusesAbsentWorkerPacket(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{"attempt_id": "attempt-absent"})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	assertDispatchFoldRefuses(t, "absent worker_packet", payload,
+		"dispatch_worker worker_packet is absent from the action payload")
+}
+
+// TestDispatchFoldDefensivelyRefusesNonObjectWorkerPacket pins the second
+// defensive refusal in appendGenericWorkflowCompletion's dispatch_worker
+// branch (workflow_action_guards.go line 392): a worker_packet that decodes
+// to JSON other than a single object (here a JSON string) is refused with
+// KindInvalidPayload and appends no WorkflowActionCompleted event. Preflight
+// normally catches this first; reaching the fold directly tests the
+// defensive depth.
+func TestDispatchFoldDefensivelyRefusesNonObjectWorkerPacket(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{"attempt_id": "attempt-not-object", "worker_packet": "not-an-object"})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	assertDispatchFoldRefuses(t, "string worker_packet", payload,
+		"dispatch_worker worker_packet is not a JSON object")
+}
+
+// TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity pins the
+// third defensive refusal in appendGenericWorkflowCompletion's
+// dispatch_worker branch (workflow_action_guards.go line 397): a
+// worker_packet that decodes to an object but is missing work_id or
+// attempt_id is refused with KindInvalidPayload and appends no
+// WorkflowActionCompleted event. Preflight normally catches this first;
+// reaching the fold directly tests the defensive depth.
+func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T) {
+	packetBytes, err := json.Marshal(map[string]any{"schema_version": "1.0", "lane_id": "implement"})
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{"attempt_id": "attempt-missing-ident", "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	assertDispatchFoldRefuses(t, "worker_packet missing identity", payload,
+		"dispatch_worker worker_packet is missing work_id or attempt_id")
+}
+
+// TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall confirms the
+// reachable boundary the dispatch_worker fold sets up before canonicalJSON:
+// by the time the fold calls canonicalJSON (workflow_action_guards.go line
+// 406), the same bytes have already passed json.Unmarshal into
+// map[string]json.RawMessage (line 392), so the bytes are exactly one JSON
+// object, and the only difference between that decode and canonicalJSON is
+// the use of UseNumber. canonicalJSON's documented contract
+// (research_operations.go line 114) requires exactly one JSON value and
+// uses the standard marshaller; by construction, neither precondition can
+// fail on these bytes, so the canonicalJSON error branch (line 407) is
+// unreachable defensive depth retained for the contract and is not faked
+// here.
+func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
+	attemptID := "attempt-reaches-canonical"
+	packetBytes, err := json.Marshal(dispatchWorkerPacket("work-fold-defensive", "execution", attemptID))
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	in := dispatchFoldAssemblyInput(payload)
+	events, err := appendGenericWorkflowCompletion(in, 1, []Event{})
+	if err != nil {
+		t.Fatalf("appendGenericWorkflowCompletion returned %v, want nil (the happy path proves the canonicalJSON call is reached)", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1 (one WorkflowActionCompleted appended on success)", len(events))
+	}
+	if events[0].Kind != WorkflowActionCompleted {
+		t.Fatalf("events[0].Kind = %q, want %q", events[0].Kind, WorkflowActionCompleted)
+	}
+}
+
+// dispatchFoldAssemblyInput builds the minimal workflowActionAssemblyInput
+// appendGenericWorkflowCompletion needs to reach the dispatch_worker branch
+// and exercise its defensive refusals. The function does not touch the
+// store — it returns events or a typed failure — so no transaction or
+// fixture is required; the only field that varies between the refusal
+// cases is the payload JSON.
+func dispatchFoldAssemblyInput(payload json.RawMessage) workflowActionAssemblyInput {
+	return workflowActionAssemblyInput{
+		request: WorkflowActionExecutionRequest{
+			WorkID:          "work-fold-defensive",
+			ExpectedVersion: 100,
+			ActionID:        "dispatch_worker",
+			OperationID:     "op-fold-defensive",
+			Now:             time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
+		},
+		currentStep:  "execution",
+		payload:      payload,
+		evidenceRefs: []string{"evidence:op-fold-defensive"},
+		eventActor:   "client:cd0059:principal/operator",
+	}
+}
+
+// assertDispatchFoldRefuses drives one defensive-refusal case: it calls
+// appendGenericWorkflowCompletion with the supplied payload on a fresh
+// empty event slice, asserts the returned failure is the typed
+// KindInvalidPayload refusal with the expected detail text, and asserts no
+// WorkflowActionCompleted event was appended.
+func assertDispatchFoldRefuses(t *testing.T, label string, payload json.RawMessage, wantDetail string) {
+	t.Helper()
+	in := dispatchFoldAssemblyInput(payload)
+	events, err := appendGenericWorkflowCompletion(in, 1, []Event{})
+	if err == nil {
+		t.Fatalf("%s: appendGenericWorkflowCompletion returned nil error, want refusal %q", label, wantDetail)
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("%s: expected typed *Failure, got %T: %v", label, err, err)
+	}
+	if failure.Kind != KindInvalidPayload {
+		t.Fatalf("%s: failure kind = %s, want invalid_payload", label, failure.Kind)
+	}
+	if failure.Detail != wantDetail {
+		t.Fatalf("%s: failure detail = %q, want %q", label, failure.Detail, wantDetail)
+	}
+	if len(events) != 0 {
+		t.Fatalf("%s: events len = %d, want 0 (no WorkflowActionCompleted appended on refusal)", label, len(events))
+	}
+}

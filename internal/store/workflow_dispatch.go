@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -139,287 +138,86 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
-	staleRecovery := false
-	if request.ActionID == "supersede_contract" {
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
-			var failure *Failure
-			if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
-				return result, err
-			}
-			staleRecovery = true
-		} else {
-			return result, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-		}
-	} else if !workflowExecutionAllowsStaleRecovery(request.ActionID, request.Payload) {
+	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep}
+	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
+		return result, err
+	} else if !guards.staleRecovery && !workflowExecutionAllowsStaleRecovery(request.ActionID, request.Payload) {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			return result, err
 		}
 	}
-	if request.ActionID == "complete" {
-		if err := workflowCompletionBoundaryPreflight(request.Payload); err != nil {
-			return result, err
-		}
+	if err := runWorkflowActionGuard(guards, guardPhaseBoundary); err != nil {
+		return result, err
 	}
-	if staleRecovery {
+	if guards.staleRecovery {
 		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
 			return result, err
 		}
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return result, err
 	}
-	if request.ActionID == "link_successor" {
-		fields, fieldErr := workflowActionObject(request.Payload)
-		if fieldErr != nil {
-			return result, fieldErr
-		}
-		relationKind := workflowFieldStringDefault(fields, "relation", "forward_link")
-		if relationData := workflowFieldRaw(fields, "relation_data"); len(relationData) != 0 {
-			var relation map[string]json.RawMessage
-			if relationKind != "nested" && json.Unmarshal(relationData, &relation) == nil && workflowFieldStringDefault(relation, "kind", "") == "forward_link" {
-				relationKind = "forward_link"
-			}
-		}
-		if relationKind != "forward_link" {
-			return result, newFailure(KindInvalidRelation, "workflow_action", "nested or non-forward workflow composition is forbidden", false, "use relation=forward_link")
-		}
-		if relationData := workflowFieldRaw(fields, "relation_data"); len(relationData) != 0 {
-			var relation map[string]json.RawMessage
-			if json.Unmarshal(relationData, &relation) != nil || workflowFieldStringDefault(relation, "kind", "") != "forward_link" {
-				return result, newFailure(KindInvalidRelation, "workflow_action", "nested or non-forward workflow composition is forbidden", false, "use relation_data.kind=forward_link")
-			}
-		}
+	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {
+		return result, err
 	}
-	if actionFields, fieldsErr := workflowActionObject(request.Payload); fieldsErr == nil {
-		if nestedRaw := workflowFieldRaw(actionFields, "payload"); len(nestedRaw) != 0 {
-			var nested map[string]json.RawMessage
-			if json.Unmarshal(nestedRaw, &nested) == nil {
-				if declaredStep := workflowFieldStringDefault(nested, "current_step", ""); declaredStep != "" && declaredStep != currentStep {
-					return result, newFailure(KindInvariantViolation, "workflow_action", "workflow action payload step does not match the pinned current step", false, "reread_entities")
-				}
-			}
-		}
+	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
+		return result, err
 	}
-	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !guards.staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
 	if err != nil {
 		return result, err
 	}
-	actorNeedsRecord := false
-	if request.ActionID == "record_verdict" {
-		var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
-		recordErr := tx.QueryRowContext(ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession)
-		if recordErr == sql.ErrNoRows {
-			actorNeedsRecord = true
-		} else if recordErr != nil {
-			return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow actor", true, "retry once the workflow actor authority is readable", recordErr)
-		} else if recordedPrincipal != request.Actor.PrincipalRef || recordedClient != request.Actor.ClientRef || recordedAgent != request.Actor.AgentRef || recordedSession != request.Actor.SessionRef {
-			return result, newFailure(KindInvariantViolation, "workflow_action", "recorded workflow actor tuple does not match the authenticated actor", false, "reread workflow actor authority")
-		}
+	guards.actorRef = actorRef
+	guards.eventActor = actorRef
+	if err := runWorkflowActionGuard(guards, guardPhaseActor); err != nil {
+		return result, err
 	}
-	eventActor := actorRef
-	operatorRef := ""
-	operatorNeedsRecord := false
-	if request.OperatorActor != nil {
-		if request.ActionID != "confirm_premise" || request.OperatorActor.ActorClass != ActorOperator {
-			return result, newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation", false, "use the verified approval identity")
-		}
-		operatorRef, err = WorkflowActorRef(*request.OperatorActor)
-		if err != nil {
-			return result, err
-		}
-		if operatorRef == actorRef {
-			return result, newFailure(KindUnauthorized, "workflow_action", "operator actor cannot relabel the invoking agent", false, "approve from an independent operator identity")
-		}
-		var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
-		var recordedClass ActorClass
-		recordErr := tx.QueryRowContext(ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, operatorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession, &recordedClass)
-		if recordErr == sql.ErrNoRows {
-			operatorNeedsRecord = true
-		} else if recordErr != nil {
-			return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read operator actor", true, "retry once the database is readable", recordErr)
-		} else if recordedPrincipal != request.OperatorActor.PrincipalRef || recordedClient != request.OperatorActor.ClientRef || recordedAgent != request.OperatorActor.AgentRef || recordedSession != request.OperatorActor.SessionRef || recordedClass != ActorOperator {
-			return result, newFailure(KindInvariantViolation, "workflow_action", "recorded operator actor tuple does not match the signed assertion", false, "reread workflow actor authority")
-		}
-		eventActor = operatorRef
+	if err := guardOperatorPremiseActor(guards); err != nil {
+		return result, err
 	}
-	if request.OperationID == "" {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "durable operation ID is required", false, "retry with a stable idempotency identity")
+	if err := normalizeWorkflowActionRequest(&request); err != nil {
+		return result, err
 	}
-	if request.IdempotencyIdentity == "" {
-		request.IdempotencyIdentity = request.IdempotencyKey
+	guards.request = request
+	step, evidenceRefs, err := claimDurableWorkflowOperationTx(ctx, tx, entry, request, currentStep)
+	if err != nil {
+		return result, err
 	}
-	if len(request.IdempotencyIdentity) < 2 || len(request.IdempotencyIdentity) > 128 {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "idempotency identity is out of bounds", false, "retry with a bounded idempotency key")
+	payload := guards.defaultedPayload()
+	if err := runWorkflowActionGuard(guards, guardPhaseClaim); err != nil {
+		return result, err
 	}
-	if request.Now.IsZero() {
-		request.Now = time.Now().UTC()
+	assemblyInput := workflowActionAssemblyInput{
+		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
+		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
+		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
 	}
-	if !validDigest(request.ContractDigest) {
-		return result, newFailure(KindSchemaUnsupported, "workflow_action", "contract_digest is not a SHA-256 digest", false, "supply the current manifest digest")
-	}
-	if request.AcceptedInputsDigest == "" {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "accepted input digest is required", false, "retry with the canonical request digest")
-	}
-	if request.Tool == "" {
-		request.Tool = "concord_work_transition"
-	}
-	if request.RequestID == "" {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "request ID is required", false, "retry with the transport request ID")
-	}
-	step := workflowStep(entry.Definition, currentStep)
-	if step == nil {
-		return result, newFailure(KindInvariantViolation, "workflow_action", "current workflow step is not registered", false, "reread_entities")
-	}
-	durableStepKind := string(step.Kind)
-	if step.Kind == WorkflowStepHumanCheckpoint {
-		// durable_operations predates human checkpoints and has a closed
-		// three-value step_kind. The workflow event retains the checkpoint kind;
-		// the durable claim uses its owning SQLite transaction as authority.
-		durableStepKind = string(WorkflowStepInternalSQLite)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Definition.Version, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractDigest); err != nil {
-		return result, wrapFailure(KindIdempotencyConflict, "workflow_action", "durable workflow operation identity is already claimed: "+err.Error(), false, "retry the same request or reconcile the operation", err)
-	}
-	evidenceRefs := append([]string(nil), request.EvidenceRefs...)
-	if len(evidenceRefs) == 0 {
-		evidenceRefs = []string{"evidence:" + request.OperationID}
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',evidence_refs=? WHERE op_id=? AND attempt_epoch=?`, workflowJSON(evidenceRefs), request.OperationID, 1); err != nil {
-		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot prepare workflow evidence authority", true, "retry once the database is writable", err)
-	}
-
-	payload := request.Payload
-	if len(payload) == 0 {
-		payload = json.RawMessage(`{}`)
-	}
-	if request.ActionID == "cross_context_boundary" {
-		if fields, fieldErr := workflowActionObject(payload); fieldErr != nil {
-			return result, fieldErr
-		} else if workflowFieldStringDefault(fields, "mode", "summary") == "restart" || workflowFieldStringDefault(fields, "boundary_kind", "summary") == "restart" || fields["restart"] != nil {
-			return result, newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
-		}
-	}
-	actor := eventActor
-	events := []Event{}
-	versionCursor := request.ExpectedVersion
-	executionMode, ok := workflowActionExecutionMode(entry.Definition, request.ActionID)
-	if !ok {
-		return result, newFailure(KindInvariantViolation, "workflow_action", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
-	}
-	workflowActionEpoch, epochErr := workflowActionStartEpochForDispatch(ctx, tx, request.WorkID, currentStep, executionMode == ActionFenced)
-	if epochErr != nil {
-		return result, epochErr
-	}
-	if actorNeedsRecord {
-		events = append(events, workflowTypedEvent(request.OperationID+":actor", WorkflowActorRecorded, request.WorkID, actorRef, request.Now, versionCursor, map[string]any{"actor_ref": actorRef, "principal_ref": request.Actor.PrincipalRef, "client_ref": request.Actor.ClientRef, "agent_ref": request.Actor.AgentRef, "session_ref": request.Actor.SessionRef, "actor_class": string(request.Actor.ActorClass)}))
-		versionCursor++
-	}
-	if operatorNeedsRecord {
-		events = append(events, workflowTypedEvent(request.OperationID+":operator", WorkflowActorRecorded, request.WorkID, operatorRef, request.Now, versionCursor, map[string]any{"actor_ref": operatorRef, "principal_ref": request.OperatorActor.PrincipalRef, "client_ref": request.OperatorActor.ClientRef, "agent_ref": request.OperatorActor.AgentRef, "session_ref": request.OperatorActor.SessionRef, "actor_class": string(ActorOperator)}))
-		versionCursor++
-	}
-	if executionMode == ActionFenced {
-		resultVersion := versionCursor + 1
-		startPayload, _ := json.Marshal(map[string]any{
-			"work_id": request.WorkID, "expected_version": versionCursor, "resulting_version": resultVersion,
-			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": workflowActionEpoch,
-			"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity, "actor_ref": actor,
-		})
-		events = append(events, Event{EventID: request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: startPayload})
-		resultVersion++
-	}
-	if executionMode == ActionCheckpoint {
-		resultVersion := versionCursor + int64(len(events)-int(versionCursor-request.ExpectedVersion)) + 1
-		checkpointPayload, _ := json.Marshal(map[string]any{"action_id": request.ActionID, "fields": json.RawMessage(payload)})
-		checkpoint, _ := json.Marshal(map[string]any{
-			"work_id": request.WorkID, "expected_version": versionCursor + int64(len(events)-int(versionCursor-request.ExpectedVersion)), "resulting_version": resultVersion,
-			"step_id": currentStep, "step_kind": string(step.Kind), "attempt_epoch": workflowActionEpoch,
-			"checkpoint_payload": json.RawMessage(checkpointPayload), "resume_cursor": "", "actor_ref": actor,
-			"request_id": request.RequestID, "checkpoint_id": request.OperationID + ":checkpoint",
-			"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity,
-		})
-		events = append(events, Event{EventID: request.OperationID + ":checkpoint", Kind: WorkflowActionCheckpointed, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: checkpoint})
-	} else if request.ActionID != "complete" {
-		semantic, semanticErr := workflowSemanticActionEvents(ctx, tx, entry.Definition, request, currentStep, actor, payload, versionCursor+int64(len(events)-int(versionCursor-request.ExpectedVersion)))
-		if semanticErr != nil {
-			return result, semanticErr
-		}
-		if len(semantic) != 0 {
-			events = append(events, semantic...)
-			for _, semanticEvent := range semantic {
-				if semanticEvent.Kind != WorkflowNativeRunRecorded {
-					continue
-				}
-				var report nativeRunPayload
-				if decodePayload(semanticEvent, &report) == nil {
-					result.NativeRun = &NativeRunReport{RunID: report.RunID, Phase: report.Phase, Status: report.Status, EventID: semanticEvent.EventID, ReportingAuthorityRef: report.ReportingAuthorityRef, ActorRef: report.ActorRef, NativeSubjectRef: report.NativeSubjectRef, SubjectDigest: report.SubjectDigest, EvidenceRef: report.EvidenceRef, EvidenceDigest: report.EvidenceDigest, AssertedAt: report.AssertedAt, RecordedAt: semanticEvent.OccurredAt.UTC().Format(time.RFC3339Nano), Unverified: true}
-				}
-			}
-		}
+	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
+	if err != nil {
+		return result, err
 	}
 	if request.ActionID == "complete" {
-		// Completion is special: CompleteWorkflowTxWithRegistry performs the
-		// ordered gate and appends workflow.completed in this same transaction.
-		completion, completionErr := workflowCompletionEvent(ctx, tx, request, entry.Definition, currentStep, actor, payload)
-		if completionErr != nil {
-			return result, completionErr
-		}
-		if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion); err != nil {
-			return result, err
-		}
-		result.EventIDs = []string{completion.EventID}
-		result.ChangedRefs = []string{request.WorkID}
-		result.OperationID = request.OperationID
-		_ = tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&result.ResultingVersion)
-		if result.ResultingVersion == 0 {
-			result.ResultingVersion = request.ExpectedVersion + 1
-		}
-		result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": result.ResultingVersion}}, "next_valid_intents": []any{}, "operation_id": request.OperationID})
-		if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{fmt.Sprintf(`{"entity_kind":"work_item","id":%q,"version":%d}`, request.WorkID, result.ResultingVersion)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
-			return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
-		}
-		return result, nil
+		return applyCompleteWorkflowActionTx(ctx, tx, registry, entry, request, currentStep, guards.eventActor, payload)
 	}
-	// Continuity's typed event is the durable action boundary. Appending a
-	// generic completion after it would make the checkpoint immediately stale.
-	if request.ActionID != "checkpoint_context" && request.ActionID != "cross_context_boundary" && request.ActionID != "supersede_contract" {
-		resultVersion := request.ExpectedVersion + int64(len(events)) + 1
-		fields, fieldsErr := workflowActionObject(payload)
-		if fieldsErr != nil {
-			return result, fieldsErr
-		}
-		completionValues := map[string]any{
-			"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": workflowActionEpoch, "result_evidence_refs": evidenceRefs,
-			"changed_refs": []string{request.WorkID}, "actor_ref": actor,
-		}
-		if request.ActionID == "accept_worker_result" {
-			completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
-			completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
-		}
-		// CD-0059 D1/D5: the dispatch_worker completion carries the
-		// authorized attempt_id into the durable record so the
-		// worker-dispatch evidence boundary can prove the window exists and
-		// has not been consumed. The start already records the attempt_epoch
-		// (above); the completion binds the attempt identity.
-		if request.ActionID == "dispatch_worker" {
-			completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
-		}
-		events = append(events, workflowTypedEvent(request.OperationID+":completed", WorkflowActionCompleted, request.WorkID, actor, request.Now, resultVersion-1, completionValues))
+	assembly.events, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
+	if err != nil {
+		return result, err
 	}
+	result.NativeRun = assembly.nativeRun
 
 	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
 		return result, err
 	}
-	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
+	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: assembly.events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
 	if err != nil {
 		return result, err
 	}
 	result.EventIDs = operationResult.EventIDs
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
-	resultVersion := request.ExpectedVersion + int64(len(events))
+	resultVersion := request.ExpectedVersion + int64(len(assembly.events))
 	result.ResultingVersion = resultVersion
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
 	result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID})

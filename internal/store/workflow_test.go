@@ -483,10 +483,8 @@ func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T)
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
 				t.Fatal(err)
 			}
-			if testCase.addSecond {
-				// The helper's resolver is replaced below after the second condition
-				// has been added; this preserves one deterministic owning transaction.
-			}
+			// The case resolver replaces the helper's own, so the second condition
+			// is added before authorization and one transaction owns the boundary.
 			if testCase.addSecond {
 				if err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), request, testCase.resolver, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), testCase.authorize, testCase.mutate); err == nil {
 					t.Fatal("later preflight failure was accepted")

@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2a15ec5b42ba9bbde7c344f0e5bf5cc66fa4c55e9dc203e20afe4dd2c7bdfbe6",
+  "sha256": "sha256:e0b5d2836c04bb64725630f1a6de47dc00ede67247331ebf672d98ceffc94427",
   "status": "accepted",
   "summary": "D1 establishes that the authority system's boundary is the model's output stream, not the agent's process, because the seven agent_* tables carry no trigger, the database is same-UID writable, and signing gates issuance only; D2 withdraws the process-level adversary asserted in CD-0044's context and third rejected alternative while leaving its decisions D1-D6 and its verification list binding; D3 accepts absent tamper-evidence on the authority tables as coherent rather than deferred, closing the question CD-0008 left open; D4 divides the system into load-bearing mechanisms (git-derived scope resolution, cross_scope gate, manifest-digest pinning, typed refusals, the approval checkpoint, principal_ref) and non-load-bearing ones (Ed25519 signing, nonce replay, key rotation, grant expiry, use counts) and names issue #465 as the successor for the latter; D5 holds that a process boundary requires a separate UID and a UID-checked socket, which CD-0003 and CD-0042 foreclose; D6 closes the build-a-grant-revoke reading of issue #450, making the three revocation methods removal candidates rather than connection candidates.",
   "tags": [

@@ -13,7 +13,7 @@ function fail(): Validation { return { valid: false, evaluated: new Set() }; }
 function merge(target: Set<string>, source: Set<string>): void { for (const key of source) target.add(key); }
 function validateSchema(schema: any, value: unknown, root: Record<string, unknown>): Validation {
   if (!schema || typeof schema !== "object") return fail();
-  if (schema.$ref) { const definitions = root.$defs ?? root; const target = definitions[schema.$ref.replace("#/$defs/", "")]; return validateSchema(target, value, root); }
+  if (schema.$ref) { const definitions: Record<string, unknown> = (root.$defs as Record<string, unknown> | undefined) ?? root; const target = definitions[schema.$ref.replace("#/$defs/", "")]; return validateSchema(target, value, root); }
   if ("const" in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) return fail();
   if (schema.enum && !schema.enum.some((candidate: unknown) => JSON.stringify(candidate) === JSON.stringify(value))) return fail();
   if (schema.type) { const types = Array.isArray(schema.type) ? schema.type : [schema.type]; if (!types.some((kind: string) => kind === "null" ? value === null : kind === "array" ? Array.isArray(value) : kind === "object" ? value !== null && typeof value === "object" && !Array.isArray(value) : kind === "integer" ? typeof value === "number" && Number.isInteger(value) : typeof value === kind || kind === "number" && typeof value === "number")) return fail(); }

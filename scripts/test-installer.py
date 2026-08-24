@@ -173,6 +173,12 @@ class InstallerTests(unittest.TestCase):
         # so the set the installer packs is asserted here by name.
         for shipped in ("dispatch.ts", "generated-agent-lanes.ts", "lane_dispatch.ts", "packet.ts"):
             self.assertIn(shipped, installer.ADAPTER_FILES, f"missing lane pipeline file {shipped}")
+        # The dev-only tsconfig and vendor.d.ts are the typecheck toolchain,
+        # not adapter runtime inputs. Shipping them would add dev-only files
+        # to the installed archive, so the installer's adapter file list is
+        # asserted to exclude them by name.
+        for dev_only in ("vendor.d.ts", "tsconfig.json"):
+            self.assertNotIn(dev_only, installer.ADAPTER_FILES, f"dev-only file {dev_only} must not ship in the adapter archive")
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))

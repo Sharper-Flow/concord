@@ -56,9 +56,9 @@ func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	ctx := context.Background()
 
-	var repo string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, store.LocatorCanonicalPath, request.ProjectID).Scan(&repo); err != nil {
-		writeOperatorDiagnostic(errOut, "worktree-locate", "Project has no canonical_path locator; register the repository's canonical path locator")
+	repo, err := s.ProjectCanonicalPath(ctx, request.ProjectID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "worktree-locate", err.Error())
 		return 1
 	}
 

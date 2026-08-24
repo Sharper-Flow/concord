@@ -982,6 +982,11 @@
       "state": "outstanding"
     },
     {
+      "id": "CD-0069",
+      "issue": 463,
+      "state": "outstanding"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

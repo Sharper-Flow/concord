@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "source": "docs/decisions/CD-0069-durable-tier-enforcement.md",
+  "note_roots": [
+    "docs/work",
+    "docs/lessons"
+  ],
+  "max_note_bytes": 16384,
+  "max_fenced_json_bytes": 2048,
+  "note_allowances": [],
+  "non_markdown_inventory": [
+    {
+      "path": "docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json",
+      "reason": "Schema-bound dependency manifest for the terminal launcher decision, not machine state; the durable-tier markdown rule governs state blobs, and this artifact is reviewed law."
+    },
+    {
+      "path": "docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD",
+      "reason": "License evidence retained verbatim; license text is legal material, not distillable."
+    },
+    {
+      "path": "docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT",
+      "reason": "License evidence retained verbatim; license text is legal material, not distillable."
+    },
+    {
+      "path": "docs/decisions/license-evidence/github.com/dustin/go-humanize/v1.0.1/LICENSE",
+      "reason": "License evidence retained verbatim; license text is legal material, not distillable."
+    },
+    {
+      "path": "docs/decisions/license-evidence/golang.org/x/exp/v0.0.0-20231006140011-7918f672742d/LICENSE",
+      "reason": "License evidence retained verbatim; license text is legal material, not distillable."
+    },
+    {
+      "path": "docs/decisions/license-evidence/github.com/charmbracelet/x/exp/golden/v0.0.0-20250806222409-83e3a29d542f/LICENSE",
+      "reason": "License evidence retained verbatim; license text is legal material, not distillable."
+    }
+  ]
+}

@@ -2058,6 +2058,36 @@
       "title": "Domain-anchored observations"
     },
     {
+      "date": "2026-08-24T00:00:00Z",
+      "evidence": [
+        "scripts/check-durable-tier.py",
+        "scripts/test-durable-tier.py",
+        "docs/durable-tier-budget.v1.json",
+        "contracts/durable-tier-budget.schema.json"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "CD-0069",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0069-durable-tier-enforcement.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a8284bbcb7b06a7aa168370aa960b806463c1f71b52ec9bcd8e18c34cdf9b901",
+      "status": "accepted",
+      "summary": "D1 lands the detective layer now: check-durable-tier.py fails in CI on non-markdown artifacts under the note roots, notes over the budget byte bound, fenced JSON blocks over the dump threshold, and uninventoried non-markdown artifacts under docs/decisions, with all bounds single-sourced from docs/durable-tier-budget.v1.json and zero tolerance with no ratchet; D2 sets the bound at 16384 bytes over the compaction-note roots docs/work and docs/lessons, keeps decision records out of the byte bound as a different artifact class, and enforces markdown-only for them through a declared inventory with reasons; D3 records the producer-side strict typed parse as the contract the future compaction pipeline must satisfy, reading the same budget; D4 extends AJ6-compact-terminal-work to assert the compaction path emits an in-budget note; D5 states why three layers: the detective binds every writer at the merge chokepoint, the producer parse catches violations cheapest at write time, and the scenario observes pipeline behavior over time.",
+      "tags": [
+        "durable-tier",
+        "validator",
+        "budget",
+        "compaction"
+      ],
+      "title": "The durable tier is enforced, not advised"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "PM1",

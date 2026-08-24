@@ -187,6 +187,14 @@ type historyInput struct {
 	Page       pageInput   `json:"page"`
 	Budget     budgetInput `json:"budget"`
 }
+type observationReadInput struct {
+	WorkID string    `json:"work_id"`
+	Page   pageInput `json:"page"`
+}
+type externalObservationReadInput struct {
+	WorkID string `json:"work_id"`
+	Limit  int    `json:"limit"`
+}
 type continuityInput struct {
 	WorkID string      `json:"work_id"`
 	Page   pageInput   `json:"page"`
@@ -1089,6 +1097,30 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return response, err
 		}
 		return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	case "concord_work_trace.observations":
+		var in observationReadInput
+		if err := decodeOperationInput(input, &in); err != nil {
+			return base, err
+		}
+		now := r.Authority.now()
+		observations, err := r.Store.ObservationsForWork(ctx, in.WorkID, r.boundedLimit(in.Page.Limit))
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		meta := store.ResultMeta{QueryID: "CD-0030.R1", ContractVersion: "CD-0030/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: now.UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"recorded_at", "observation_id"}}
+		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"observations": observations})
+	case "concord_work_trace.external_observations":
+		var in externalObservationReadInput
+		if err := decodeOperationInput(input, &in); err != nil {
+			return base, err
+		}
+		now := r.Authority.now()
+		externalObservations, err := r.Store.ExternalObservationsForWork(ctx, in.WorkID, now, r.boundedLimit(in.Limit))
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		meta := store.ResultMeta{QueryID: "CD-0040.R1", ContractVersion: "CD-0040/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: now.UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"created_event_seq", "observation_id"}}
+		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"external_observations": externalObservations})
 	case "concord_work_trace.continuity":
 		var in continuityInput
 		if err := decodeOperationInput(input, &in); err != nil {

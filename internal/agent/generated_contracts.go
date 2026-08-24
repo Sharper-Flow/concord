@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:bd6c133ec0a9984c0ee0a718e9ef964917a10face4f6c5ebcb52de7ec9be9f6f"
+const ManifestDigest = "sha256:50daf6218638df9236b8c151429e20f16bfe58fc82b712d25613767b1051a1ae"
 
 type OperationKind string
 
@@ -49,6 +49,8 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_browse.resource_claims", Tool: "concord_work_browse", Operation: "resource_claims", Kind: OperationKind("read"), QueryID: "PM1.Q13", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_resource_claims_input", ResultSchema: "resource_claims_page"},
 	{ID: "concord_work_browse.messages", Tool: "concord_work_browse", Operation: "messages", Kind: OperationKind("read"), QueryID: "PM1.Q14", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_messages_input", ResultSchema: "work_messages_page"},
 	{ID: "concord_work_trace.history", Tool: "concord_work_trace", Operation: "history", Kind: OperationKind("read"), QueryID: "PM1.Q7", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_trace_history_input", ResultSchema: "work_event_page"},
+	{ID: "concord_work_trace.observations", Tool: "concord_work_trace", Operation: "observations", Kind: OperationKind("read"), QueryID: "CD-0030.R1", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_observation_input", ResultSchema: "work_observation_page"},
+	{ID: "concord_work_trace.external_observations", Tool: "concord_work_trace", Operation: "external_observations", Kind: OperationKind("read"), QueryID: "CD-0040.R1", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "external_observation_input", ResultSchema: "external_observation_page"},
 	{ID: "concord_work_trace.relations", Tool: "concord_work_trace", Operation: "relations", Kind: OperationKind("read"), QueryID: "PM1.Q8", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_trace_relations_input", ResultSchema: "work_relation_graph"},
 	{ID: "concord_work_trace.continuity", Tool: "concord_work_trace", Operation: "continuity", Kind: OperationKind("read"), QueryID: "C19.Continuity", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_trace_continuity_input", ResultSchema: "continuity_snapshot"},
 	{ID: "concord_work_trace.research", Tool: "concord_work_trace", Operation: "research", Kind: OperationKind("read"), QueryID: "PM1.Q11", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_trace_research_input", ResultSchema: "research_pack"},
@@ -136,6 +138,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"domain_relation":                            {Required: []string{"kind", "source_domain_id", "target_domain_id", "state"}, Properties: []string{"kind", "source_domain_id", "target_domain_id", "state", "governing_law_ids"}},
 	"domain_summary":                             {Required: []string{"domain_id", "name", "purpose", "status", "home_domain"}, Properties: []string{"domain_id", "name", "purpose", "parent_domain_id", "status", "home_domain"}},
 	"evidence":                                   {Required: []string{"kind", "authority", "locator_kind", "locator"}, Properties: []string{"kind", "authority", "locator_kind", "locator", "version", "digest"}},
+	"external_observation_input":                 {Required: []string{"work_id"}, Properties: []string{"work_id", "limit"}},
+	"external_observation_page":                  {Required: []string{"external_observations"}, Properties: []string{"external_observations"}},
 	"field":                                      {Required: []string{"name", "value"}, Properties: []string{"name", "value"}},
 	"initiative_add_entry_input":                 {Required: []string{"initiative_work_id", "child_work_id", "expected_version", "position", "idempotency_key"}, Properties: []string{"initiative_work_id", "child_work_id", "expected_version", "position", "required", "idempotency_key", "requested_budget_seconds"}},
 	"initiative_change_requiredness_input":       {Required: []string{"initiative_work_id", "child_work_id", "expected_version", "required", "idempotency_key"}, Properties: []string{"initiative_work_id", "child_work_id", "expected_version", "required", "idempotency_key", "requested_budget_seconds"}},
@@ -201,6 +205,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_define_revise_input":                   {Required: []string{"work_id", "expected_version", "title", "value_statement", "kind", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "title", "value_statement", "kind", "priority", "urgency", "tags", "workflow_type_ref", "reason", "idempotency_key", "evidence", "requested_budget_seconds"}},
 	"work_event_page":                            {Required: []string{"events"}, Properties: []string{"events", "next_cursor", "workflow"}},
 	"work_messages_page":                         {Required: []string{"messages"}, Properties: []string{"messages"}},
+	"work_observation_input":                     {Required: []string{"work_id"}, Properties: []string{"work_id", "page"}},
+	"work_observation_page":                      {Required: []string{"observations"}, Properties: []string{"observations"}},
 	"work_page":                                  {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
 	"work_relate_link_input":                     {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_relate_memberships_input":              {Required: []string{"work_id", "expected_version", "memberships", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "memberships", "idempotency_key", "approval", "requested_budget_seconds"}},

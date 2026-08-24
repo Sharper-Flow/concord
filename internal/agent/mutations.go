@@ -1399,7 +1399,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			if err := validateObservationExternalVariant(in.External); err != nil {
 				return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 			}
-			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
+			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "external_observations", QueryID: "CD-0040.R1", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
 			effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
 				if in.External.Kind == "capture" {
 					// The reviewed policy references are derived from the

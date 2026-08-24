@@ -19,6 +19,10 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestNativeRunVerificationParticipationAndEvidenceGate"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkTraceExternalObservationsReadPreservesD9StateWithoutEvents"
     }
   ],
   "id": "CD-0040",

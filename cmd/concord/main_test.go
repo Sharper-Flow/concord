@@ -23,6 +23,7 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 func preferredLaneModel(lane store.LaneDefinition) string {
@@ -117,6 +118,23 @@ func TestLauncherRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
 	if strings.Contains(errOut.String(), "JSON") {
 		t.Fatalf("launcher was routed through JSON handling: %q", errOut.String())
 	}
+}
+
+// freshMigratedCLIDatabase points the database override at a copy of the
+// shared migrated template and returns the path. The first in-process CLI
+// run then validates a current schema instead of replaying every migration,
+// which under the race detector costs seconds per fresh database. Tests that
+// deliberately exercise fresh-install or migration behavior construct their
+// own path instead of calling this.
+func freshMigratedCLIDatabase(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := storetest.WriteMigratedDatabase(dir, "concord.db"); err != nil {
+		t.Fatalf("materialize migrated template: %v", err)
+	}
+	path := filepath.Join(dir, "concord.db")
+	t.Setenv(dbOverrideEnv, path)
+	return path
 }
 
 func TestLauncherFirstRunRendersWithoutCreatingAuthority(t *testing.T) {
@@ -467,7 +485,7 @@ func TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands(t *testing.T) {
 	for _, command := range []string{"client-register", "grant"} {
 		for _, testCase := range cases {
 			t.Run(command+"/"+testCase.name, func(t *testing.T) {
-				t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))
+				freshMigratedCLIDatabase(t)
 				var out, errOut bytes.Buffer
 				if code := runWithInput([]string{command}, strings.NewReader(testCase.input), &out, &errOut); code == 0 {
 					t.Fatalf("input was accepted: stdout=%q stderr=%q", out.String(), errOut.String())
@@ -540,8 +558,7 @@ func TestCommandRouterRejectsUnsupportedFormsCleanly(t *testing.T) {
 }
 
 func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
+	dbPath := freshMigratedCLIDatabase(t)
 	workerKey := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	// Seed the first dispatch window before each dispatch: the
@@ -624,8 +641,7 @@ func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			dbPath := filepath.Join(t.TempDir(), "concord.db")
-			t.Setenv(dbOverrideEnv, dbPath)
+			dbPath := freshMigratedCLIDatabase(t)
 			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 			value := map[string]any{}
 			if err := json.Unmarshal([]byte(workerDispatchJSON(t, seedWorkerEvidenceClient(t), "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-identity-dispatch01")), &value); err != nil {
@@ -645,8 +661,7 @@ func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
 }
 
 func TestWorkerCLIAcceptsRecordedFallbackAndCompletesOnMatchingReadback(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
+	dbPath := freshMigratedCLIDatabase(t)
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	workerKey := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
@@ -838,8 +853,7 @@ func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
 }
 
 func TestBackupAndRestoreRoundTripViaCLI(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
+	dbPath := freshMigratedCLIDatabase(t)
 	if _, err := store.Open(context.Background(), dbPath); err != nil {
 		t.Fatal(err)
 	}
@@ -884,8 +898,7 @@ func TestBackupAndRestoreRoundTripViaCLI(t *testing.T) {
 }
 
 func TestRestoreRefusesLiveDatabaseDestination(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
+	dbPath := freshMigratedCLIDatabase(t)
 	if _, err := store.Open(context.Background(), dbPath); err != nil {
 		t.Fatal(err)
 	}
@@ -974,8 +987,7 @@ func seedCLIAuthority(t *testing.T, client, productID, projectID string) (string
 	if err := exec.Command("git", "init", "--quiet", repo).Run(); err != nil {
 		t.Fatal(err)
 	}
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
+	dbPath := freshMigratedCLIDatabase(t)
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -1252,7 +1264,7 @@ func openFreshImportStore(t *testing.T, dbPath string) *store.Store {
 }
 
 func TestPredecessorImportHappyPath(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 	payload := predecessorImportRequest(t, snapshotPath)
 
@@ -1349,7 +1361,7 @@ func TestPredecessorImportHappyPath(t *testing.T) {
 }
 
 func TestPredecessorImportIdempotentRerun(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 	payload := predecessorImportRequest(t, snapshotPath)
 
@@ -1399,7 +1411,7 @@ func TestPredecessorImportIdempotentRerun(t *testing.T) {
 }
 
 func TestPredecessorImportRefusesPartialProductOnMembershipDivergence(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 
 	firstPayload := predecessorImportRequest(t, snapshotPath)
@@ -1488,7 +1500,7 @@ func TestPredecessorImportSelectionRefusals(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dbPath := filepath.Join(t.TempDir(), "concord.db")
+			dbPath := freshMigratedCLIDatabase(t)
 			snapshotPath := writeSyntheticSnapshot(t)
 			payload := predecessorImportRequest(t, snapshotPath)
 			tc.mutate(payload)
@@ -1504,7 +1516,7 @@ func TestPredecessorImportSelectionRefusals(t *testing.T) {
 }
 
 func TestPredecessorImportDryRunDoesNotWrite(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 	payload := predecessorImportRequest(t, snapshotPath)
 	payload["dry_run"] = true
@@ -1548,7 +1560,7 @@ func TestPredecessorImportDryRunDoesNotWrite(t *testing.T) {
 }
 
 func TestPredecessorImportTruncatesWALAfterSyncDurable(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 	payload := predecessorImportRequest(t, snapshotPath)
 	code, _, diag := runPredecessorImportRequest(t, dbPath, payload)

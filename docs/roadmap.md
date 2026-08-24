@@ -1,7 +1,7 @@
 # Roadmap
 
 > **Status:** Advisory sequence. Not law.
-> **Authority:** GitHub Issues own the work. [`docs/priorities.md`](docs/priorities.md)
+> **Authority:** GitHub Issues own the work. [`docs/priorities.md`](./priorities.md)
 > owns the priority order this sequence applies. Where either disagrees with a
 > line below, this file is wrong.
 > **Derived from:** the 33 open issues at `e76d206`, 2026-08-23.
@@ -12,11 +12,11 @@ nothing more.
 
 Three inputs produce the order:
 
-1. The six ranked priorities in [`docs/priorities.md`](docs/priorities.md).
+1. The six ranked priorities in [`docs/priorities.md`](./priorities.md).
 2. Blocking edges stated in the issues themselves.
 3. Cost of delay, where an issue gets worse or harder while it waits.
 
-[`docs/floor-readiness.v1.json`](docs/floor-readiness.v1.json) is **not** an
+[`docs/floor-readiness.v1.json`](./floor-readiness.v1.json) is **not** an
 input, because it names none of these issues. It carries 39 `satisfied` items
 and 1 `out_of_scope` item, with no `outstanding` state and no `issue` field.
 That silence is itself tracked, by #213.
@@ -62,7 +62,8 @@ Priority 1. Law that points at nothing cannot govern.
 
 Priority 1 and 2. Each of these is wrong now, and none of them announce it.
 
-7. **#376** — the DB twin omits the overlap half of its Tx twin.
+7. **#376** — `checkWorkflowLawRevisionStalenessDB` omits the overlap half of
+   its transaction twin.
    Two same-named law-revision staleness checks disagree, and nothing records
    that they are allowed to.
 8. **#383** — `concord_work_trace.history` refuses pages whose events carry no
@@ -129,7 +130,7 @@ or when a change lands nearby anyway.
     log rebuild. Bites at scale.
 25. **#288** — `applyWorkflowActionRawTx` interleaves per-action guards with
     shared invariants. Regressed from 104 to 139 cognitive complexity, and
-    [`docs/complexity-budget.v1.json`](docs/complexity-budget.v1.json) tracks it,
+    [`docs/complexity-budget.v1.json`](./complexity-budget.v1.json) tracks it,
     so it is measured rather than hidden.
 26. **#406** — `(runtime).mutate` is 819 lines. The issue states that nothing
     in it is urgent or blocking.
@@ -162,6 +163,13 @@ This file states issue numbers and their order. It restates neither issue bodies
 nor their acceptance criteria, because those live in the issues and a copy here
 would drift with no check to catch it.
 
-It sits at the repository root, outside `knowledge_roots`, so
-`check-knowledge-closure.py` and `check-doc-contract.py` do not read it. No
-validator will notice when it goes stale. Delete it when it stops being true.
+The record is `docs/knowledge/records/roadmap.json`, kind `reference`. That
+record binds a `sha256` to these bytes, so `check-knowledge-index.py` fails
+whenever the file changes and the record does not. The binding proves the record
+still describes this file. It cannot prove the sequence still matches the open
+issues, and no check can, because the issues live outside the repository.
+
+Two failure modes follow. An entry can name a closed issue, and the whole
+sequence can go stale at once when the blocking edges move. Reread the file
+against `gh issue list` before trusting it, and delete it when the reread costs
+more than rebuilding the order from scratch.

@@ -1,5 +1,18 @@
 {
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-json.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-links.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-public-content.py"
+    }
+  ],
   "id": "CD-0043",
-  "issue": 461,
-  "state": "outstanding"
+  "state": "satisfied"
 }

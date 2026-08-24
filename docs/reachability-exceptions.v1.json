@@ -104,12 +104,19 @@
         "internal/agent.Invoke",
         "internal/agent.InvokeWithRegistry",
         "internal/agent.Service.ConsumeGrant",
-        "internal/agent.Service.RegisterClient",
+        "internal/agent.Service.RegisterClient"
+      ],
+      "issue": 450
+    },
+    {
+      "id": "unbuilt-revocation-surface",
+      "state": "outstanding",
+      "functions": [
         "internal/agent.Service.RevokeApproval",
         "internal/agent.Service.RevokeApprovalChallenge",
         "internal/agent.Service.RevokeGrant"
       ],
-      "issue": 450
+      "issue": 465
     },
     {
       "id": "initial-inventory-unassessed",

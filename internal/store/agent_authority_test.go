@@ -72,3 +72,44 @@ func TestTransactionAuthorityRejectsNilTransaction(t *testing.T) {
 		t.Fatalf("nil transaction error=%v, want %s", err, KindInvalidOperation)
 	}
 }
+
+// TestAuthorityTablesCarryNoIntegrityTrigger pins CD-0071 D3: the agent_*
+// tables carry no trigger, and none will be added on a tamper argument.
+//
+// The schema installs 200-odd guards over projection, archived-work, workflow,
+// and domain_events rows. None stands over the authority tables, and CD-0071 D1
+// explains why that is coherent rather than an omission: the boundary the
+// authority system enforces is the model's output, and a writer able to forge a
+// grant row is able to drop a guard in the same session.
+//
+// This test exists so the next person to reach for a trigger here has to read
+// that decision first. If it fails, CD-0071 D3 is being changed, and D5 governs
+// what a real process boundary would require.
+func TestAuthorityTablesCarryNoIntegrityTrigger(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	for _, table := range []string{
+		"agent_clients", "agent_client_keys", "agent_grants", "agent_approvals",
+		"agent_approval_challenges", "agent_nonce_replay", "agent_installation_keys",
+	} {
+		var tables int
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&tables); err != nil {
+			t.Fatalf("%s lookup: %v", table, err)
+		}
+		if tables != 1 {
+			t.Fatalf("%s is absent; CD-0071 D3 names it and the name must stay accurate", table)
+		}
+		var triggers int
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='trigger' AND tbl_name=?`, table).Scan(&triggers); err != nil {
+			t.Fatalf("%s trigger lookup: %v", table, err)
+		}
+		if triggers != 0 {
+			t.Fatalf("%s carries %d trigger(s); CD-0071 D3 accepts absent tamper-evidence on the authority tables, and D5 governs a real process boundary", table, triggers)
+		}
+	}
+}

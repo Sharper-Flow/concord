@@ -524,9 +524,22 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "validator",
+          "value": "scripts/check-json.py"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-doc-links.py"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-public-content.py"
+        }
+      ],
       "id": "CD-0043",
-      "issue": 461,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [
@@ -993,6 +1006,16 @@
       "id": "CD-0069",
       "issue": 463,
       "state": "outstanding"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestAuthorityTablesCarryNoIntegrityTrigger"
+        }
+      ],
+      "id": "CD-0071",
+      "state": "satisfied"
     },
     {
       "evidence": [

@@ -1,0 +1,5 @@
+{
+  "id": "advance-predecessor-postmortem",
+  "reason": "Predecessor design evidence, explicitly non-authorizing. The failure mechanisms it distills are bound structurally by the decisions that adopted each prevention; the record itself asserts nothing Concord can execute against.",
+  "state": "out_of_scope"
+}

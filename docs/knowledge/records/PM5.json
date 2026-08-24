@@ -1,0 +1,47 @@
+{
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q6-cross-project"
+    },
+    {
+      "criterion": 2,
+      "scenario": "Q1-project-to-product"
+    },
+    {
+      "criterion": 3,
+      "scenario": "Q6-project-to-work"
+    },
+    {
+      "criterion": 4,
+      "exemption": "No corpus scenario covers membership replacement atomicity; the guarantee is proved by the store lifecycle suite whose memberships_replaced fold asserts one event replacing the whole set, and by PM1's deduplicated populations."
+    }
+  ],
+  "date": "2026-08-24T00:00:00Z",
+  "evidence": [
+    "scenarios/product-memory-query.v1.json",
+    "internal/store/lifecycle_relations_test.go",
+    "internal/store/query_test.go"
+  ],
+  "home_domain_id": "work-coordination",
+  "id": "PM5",
+  "kind": "spec",
+  "path": "docs/product-memory-membership.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:200dd111e08c978dc42c829f2d04d244eff17ddd3409e3ee9598e21195386b03",
+  "status": "accepted",
+  "summary": "Concord Product-memory membership law: one canonical work item with typed membership edges, Product scope derived through joins and never copied, at-least-one membership with optional singular primary, atomic membership operations, and duplicate-free Product-scoped reads. The first spec record formalized under the full doc contract: Context, Contract, bound acceptance criteria, and Verification.",
+  "tags": [
+    "membership",
+    "product-memory",
+    "spec",
+    "formalization-trial"
+  ],
+  "title": "Concord Product-memory membership (PM5)"
+}

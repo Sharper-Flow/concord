@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "id": "advance-predecessor-postmortem",
+  "kind": "lesson",
+  "path": "docs/advance-postmortem.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:9bc47bf2afaeab958db52132719dd0805f615e775c1089fc044545bcdfe2fa98",
+  "status": "published",
+  "summary": "Distills public predecessor issue evidence into the failure mechanisms Concord must prevent, centered on split state authority between durable records and writable projections. It records what completed predecessor work taught; the decisions that adopted each prevention carry the authority.",
+  "tags": [
+    "predecessor",
+    "postmortem",
+    "lessons"
+  ],
+  "title": "Advance predecessor postmortem"
+}

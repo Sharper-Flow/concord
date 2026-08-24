@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "id": "installation",
+  "kind": "reference",
+  "path": "docs/installation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:aaeef0d0c46b98d79f7c2a1332ff4c7b52a2d147554dae3b109a062a115b7c85",
+  "status": "published",
+  "summary": "Operational installation guide describing what the shipped installer does: prerequisites it checks, release artifacts, upgrade, and uninstall behavior. Descriptive, not prescriptive — the installer's behavior is proved by scripts/test-installer.py and the release pipeline, so under the procedure's prescription rule the document is reference material and asserts no contract an implementation could violate.",
+  "tags": [
+    "installation",
+    "operations",
+    "guide"
+  ],
+  "title": "Installing Concord"
+}

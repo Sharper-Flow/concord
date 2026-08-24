@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "scenario",
+      "value": "Q6-cross-project"
+    },
+    {
+      "kind": "scenario",
+      "value": "Q1-project-to-product"
+    },
+    {
+      "kind": "scenario",
+      "value": "Q6-project-to-work"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestMembershipReplacementReplacesTheWholeSet"
+    }
+  ],
+  "id": "PM5",
+  "state": "satisfied"
+}

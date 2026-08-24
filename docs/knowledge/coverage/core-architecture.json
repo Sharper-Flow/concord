@@ -1,0 +1,5 @@
+{
+  "id": "core-architecture",
+  "reason": "Descriptive architecture companion with status published and no authority over implementations; the decisions and specs it cites carry their own coverage. Its link integrity is proved by scripts/check-doc-links.py.",
+  "state": "out_of_scope"
+}

@@ -4,187 +4,964 @@
   "title": "Concord durable knowledge index v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "supported_kinds", "indexed_kinds", "records"],
+  "required": [
+    "schema_version",
+    "supported_kinds",
+    "indexed_kinds",
+    "records"
+  ],
   "properties": {
-    "schema_version": {"enum": ["1.0", "1.1", "1.2"]},
-    "supported_kinds": {"type": "array", "maxItems": 7, "uniqueItems": true, "items": {"enum": ["work_note", "constitution", "decision", "spec", "lesson", "reference", "research"]}},
-    "indexed_kinds": {"type": "array", "maxItems": 7, "uniqueItems": true, "items": {"enum": ["work_note", "constitution", "decision", "spec", "lesson", "reference", "research"]}},
-    "domain_registry": {"$ref": "#/$defs/domainRegistry"},
-    "knowledge_roots": {"$ref": "#/$defs/knowledgeRoots"},
-    "exclusions": {"$ref": "#/$defs/knowledgeExclusions"},
-    "dispositions": {"$ref": "#/$defs/dispositions"},
-    "doc_contract": {"$ref": "#/$defs/docContract"},
-    "records": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/record"}}
+    "schema_version": {
+      "enum": [
+        "1.0",
+        "1.1",
+        "1.2"
+      ]
+    },
+    "supported_kinds": {
+      "type": "array",
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "work_note",
+          "constitution",
+          "decision",
+          "spec",
+          "lesson",
+          "reference",
+          "research"
+        ]
+      }
+    },
+    "indexed_kinds": {
+      "type": "array",
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "work_note",
+          "constitution",
+          "decision",
+          "spec",
+          "lesson",
+          "reference",
+          "research"
+        ]
+      }
+    },
+    "domain_registry": {
+      "$ref": "#/$defs/domainRegistry"
+    },
+    "knowledge_roots": {
+      "$ref": "#/$defs/knowledgeRoots"
+    },
+    "exclusions": {
+      "$ref": "#/$defs/knowledgeExclusions"
+    },
+    "dispositions": {
+      "$ref": "#/$defs/dispositions"
+    },
+    "doc_contract": {
+      "$ref": "#/$defs/docContract"
+    },
+    "records": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"schema_version": {"const": "1.0"}}, "required": ["schema_version"]},
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
       "then": {
-        "not": {"required": ["domain_registry"]},
-        "properties": {"records": {"items": {"allOf": [{"$ref": "#/$defs/recordV10"}, {"not": {"required": ["law_relations"]}}]}}}
+        "not": {
+          "required": [
+            "domain_registry"
+          ]
+        },
+        "properties": {
+          "records": {
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/recordV10"
+                },
+                {
+                  "not": {
+                    "required": [
+                      "law_relations"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     {
-      "if": {"properties": {"schema_version": {"const": "1.1"}}, "required": ["schema_version"]},
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.1"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
       "then": {
-        "not": {"required": ["domain_registry"]},
-        "properties": {"records": {"items": {"$ref": "#/$defs/recordV10"}}}
+        "not": {
+          "required": [
+            "domain_registry"
+          ]
+        },
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/$defs/recordV10"
+            }
+          }
+        }
       }
     },
     {
-      "if": {"properties": {"schema_version": {"const": "1.2"}}, "required": ["schema_version"]},
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.2"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
       "then": {
-        "required": ["domain_registry"],
-        "properties": {"records": {"items": {"$ref": "#/$defs/recordV12"}}}
+        "required": [
+          "domain_registry"
+        ],
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/$defs/recordV12"
+            }
+          }
+        }
       }
     }
   ],
   "$defs": {
-    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S(?:.*\\S)?$"},
-    "evidencePath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?![\\s\\S]*\\.\\.)[\\s\\S]+$"},
-    "ids": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "evidencePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?![\\s\\S]*\\.\\.)[\\s\\S]+$"
+    },
+    "ids": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
     "scopeCommon": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "product_ids", "project_ids", "tag_ids"],
+      "required": [
+        "mode",
+        "product_ids",
+        "project_ids",
+        "tag_ids"
+      ],
       "properties": {
-        "mode": {"enum": ["home", "explicit"]},
-        "product_ids": {"$ref": "#/$defs/ids"},
-        "project_ids": {"$ref": "#/$defs/ids"},
-        "component_ids": {"$ref": "#/$defs/ids"},
-        "domain_ids": {"$ref": "#/$defs/ids"},
-        "tag_ids": {"$ref": "#/$defs/ids"}
+        "mode": {
+          "enum": [
+            "home",
+            "explicit"
+          ]
+        },
+        "product_ids": {
+          "$ref": "#/$defs/ids"
+        },
+        "project_ids": {
+          "$ref": "#/$defs/ids"
+        },
+        "component_ids": {
+          "$ref": "#/$defs/ids"
+        },
+        "domain_ids": {
+          "$ref": "#/$defs/ids"
+        },
+        "tag_ids": {
+          "$ref": "#/$defs/ids"
+        }
       },
       "allOf": [
-        {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"product_ids": {"maxItems": 0}, "project_ids": {"maxItems": 0}, "tag_ids": {"maxItems": 0}}}}
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "home"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "product_ids": {
+                "maxItems": 0
+              },
+              "project_ids": {
+                "maxItems": 0
+              },
+              "tag_ids": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
       ]
     },
     "scopeV10": {
       "allOf": [
-        {"$ref": "#/$defs/scopeCommon"},
-        {"type": "object", "required": ["component_ids"], "properties": {"component_ids": {"$ref": "#/$defs/ids"}, "domain_ids": false}},
-        {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"component_ids": {"maxItems": 0}}}}
+        {
+          "$ref": "#/$defs/scopeCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "component_ids"
+          ],
+          "properties": {
+            "component_ids": {
+              "$ref": "#/$defs/ids"
+            },
+            "domain_ids": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "home"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "component_ids": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
       ]
     },
     "scopeV12": {
       "allOf": [
-        {"$ref": "#/$defs/scopeCommon"},
-        {"type": "object", "required": ["domain_ids"], "properties": {"domain_ids": {"$ref": "#/$defs/ids"}, "component_ids": false}},
-        {"if": {"properties": {"mode": {"const": "home"}}, "required": ["mode"]}, "then": {"properties": {"domain_ids": {"maxItems": 0}}}}
+        {
+          "$ref": "#/$defs/scopeCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "domain_ids"
+          ],
+          "properties": {
+            "domain_ids": {
+              "$ref": "#/$defs/ids"
+            },
+            "component_ids": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "home"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "domain_ids": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
       ]
     },
     "record": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "sha256"],
+      "required": [
+        "id",
+        "kind",
+        "path",
+        "status",
+        "date",
+        "title",
+        "summary",
+        "tags",
+        "scopes",
+        "sha256"
+      ],
       "properties": {
-        "id": {"$ref": "#/$defs/id"},
-        "kind": {"enum": ["constitution", "decision", "spec", "lesson", "reference", "research"]},
-        "path": {"type": "string", "pattern": "^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$", "maxLength": 512},
-        "status": {"enum": ["accepted", "published", "superseded"]},
-        "date": {"type": "string", "format": "date-time"},
-        "title": {"type": "string", "minLength": 1, "maxLength": 256},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "tags": {"$ref": "#/$defs/ids"},
-        "scopes": {"oneOf": [{"$ref": "#/$defs/scopeV10"}, {"$ref": "#/$defs/scopeV12"}]},
-        "successor": {"$ref": "#/$defs/id"},
-        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-        "law_relations": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/lawRelation"}},
-        "evidence": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/evidencePath"}},
-        "criterion_bindings": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/criterionBinding"}},
-        "home_domain_id": {"$ref": "#/$defs/id"},
-        "applies_to_domain_ids": {"$ref": "#/$defs/ids"},
-        "product_wide_rationale": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S(?:[\\s\\S]*\\S)?$"}
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "constitution",
+            "decision",
+            "spec",
+            "lesson",
+            "reference",
+            "research"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$",
+          "maxLength": 512
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "published",
+            "superseded"
+          ]
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "tags": {
+          "$ref": "#/$defs/ids"
+        },
+        "scopes": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/scopeV10"
+            },
+            {
+              "$ref": "#/$defs/scopeV12"
+            }
+          ]
+        },
+        "successor": {
+          "$ref": "#/$defs/id"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "law_relations": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/lawRelation"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidencePath"
+          }
+        },
+        "criterion_bindings": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/criterionBinding"
+          }
+        },
+        "home_domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "applies_to_domain_ids": {
+          "$ref": "#/$defs/ids"
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+        }
       },
       "allOf": [
-        {"if": {"properties": {"kind": {"enum": ["lesson", "reference", "research"]}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["published", "superseded"]}}}},
-        {"if": {"properties": {"kind": {"enum": ["constitution", "decision", "spec"]}}, "required": ["kind"]}, "then": {"properties": {"status": {"enum": ["accepted", "superseded"]}}}},
-        {"if": {"properties": {"kind": {"const": "decision"}}, "required": ["kind"]}, "then": {"properties": {"path": {"pattern": "^docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"}}}},
-        {"if": {"properties": {"status": {"const": "superseded"}}, "required": ["status"]}, "then": {"required": ["successor"]}},
-        {"if": {"properties": {"status": {"enum": ["accepted", "published"]}}, "required": ["status"]}, "then": {"not": {"required": ["successor"]}}},
-        {"if": {"properties": {"law_relations": {}}, "required": ["law_relations"]}, "then": {"properties": {"kind": {"enum": ["decision", "spec"]}}}},
-        {"if": {"properties": {"kind": {"enum": ["constitution", "decision", "lesson", "reference", "research"]}}, "required": ["kind"]}, "then": {"not": {"required": ["criterion_bindings"]}}}
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "lesson",
+                  "reference",
+                  "research"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "published",
+                  "superseded"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "constitution",
+                  "decision",
+                  "spec"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "accepted",
+                  "superseded"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "decision"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "pattern": "^docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "superseded"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "successor"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "accepted",
+                  "published"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "successor"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "law_relations": {}
+            },
+            "required": [
+              "law_relations"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "decision",
+                  "spec"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "constitution",
+                  "decision",
+                  "lesson",
+                  "reference",
+                  "research"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "criterion_bindings"
+              ]
+            }
+          }
+        }
       ]
     },
     "recordV10": {
       "allOf": [
-        {"$ref": "#/$defs/record"},
-        {"properties": {"scopes": {"$ref": "#/$defs/scopeV10"}}},
-        {"not": {"anyOf": [{"required": ["home_domain_id"]}, {"required": ["applies_to_domain_ids"]}, {"required": ["product_wide_rationale"]}]}}
+        {
+          "$ref": "#/$defs/record"
+        },
+        {
+          "properties": {
+            "scopes": {
+              "$ref": "#/$defs/scopeV10"
+            }
+          }
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "home_domain_id"
+                ]
+              },
+              {
+                "required": [
+                  "applies_to_domain_ids"
+                ]
+              },
+              {
+                "required": [
+                  "product_wide_rationale"
+                ]
+              }
+            ]
+          }
+        }
       ]
     },
     "recordV12": {
       "allOf": [
-        {"$ref": "#/$defs/record"},
-        {"properties": {"scopes": {"$ref": "#/$defs/scopeV12"}}},
-        {"if": {"properties": {"kind": {"enum": ["constitution", "decision", "spec"]}, "status": {"const": "accepted"}}, "required": ["kind", "status"]}, "then": {"required": ["home_domain_id"]}},
-        {"if": {"properties": {"kind": {"enum": ["lesson", "reference", "research"]}}, "required": ["kind"]}, "then": {"not": {"anyOf": [{"required": ["home_domain_id"]}, {"required": ["applies_to_domain_ids"]}, {"required": ["product_wide_rationale"]}]}}},
-        {"if": {"required": ["applies_to_domain_ids"]}, "then": {"required": ["home_domain_id"]}},
-        {"if": {"properties": {"home_domain_id": {"pattern": "^product-root:"}}, "required": ["home_domain_id"]}, "then": {"required": ["product_wide_rationale"]}, "else": {"not": {"required": ["product_wide_rationale"]}}}
+        {
+          "$ref": "#/$defs/record"
+        },
+        {
+          "properties": {
+            "scopes": {
+              "$ref": "#/$defs/scopeV12"
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "constitution",
+                  "decision",
+                  "spec"
+                ]
+              },
+              "status": {
+                "const": "accepted"
+              }
+            },
+            "required": [
+              "kind",
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "home_domain_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "lesson",
+                  "reference",
+                  "research"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "home_domain_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "applies_to_domain_ids"
+                  ]
+                },
+                {
+                  "required": [
+                    "product_wide_rationale"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "applies_to_domain_ids"
+            ]
+          },
+          "then": {
+            "required": [
+              "home_domain_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "home_domain_id": {
+                "pattern": "^product-root:"
+              }
+            },
+            "required": [
+              "home_domain_id"
+            ]
+          },
+          "then": {
+            "required": [
+              "product_wide_rationale"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "product_wide_rationale"
+              ]
+            }
+          }
+        }
       ]
     },
     "domainRegistry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "product_key", "root_domain_id", "domains"],
+      "required": [
+        "schema_version",
+        "product_key",
+        "root_domain_id",
+        "domains"
+      ],
       "properties": {
-        "schema_version": {"const": "1.0"},
-        "product_key": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
-        "root_domain_id": {"type": "string", "pattern": "^product-root:[a-z][a-z0-9-]{1,63}$"},
-        "domains": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/domain"}}
+        "schema_version": {
+          "const": "1.0"
+        },
+        "product_key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$"
+        },
+        "root_domain_id": {
+          "type": "string",
+          "pattern": "^product-root:[a-z][a-z0-9-]{1,63}$"
+        },
+        "domains": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/domain"
+          }
+        }
       }
     },
     "domain": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["domain_id", "name", "purpose", "status", "architecture_relations"],
+      "required": [
+        "domain_id",
+        "name",
+        "purpose",
+        "status",
+        "architecture_relations"
+      ],
       "properties": {
-        "domain_id": {"$ref": "#/$defs/id"},
-        "name": {"type": "string", "minLength": 1, "maxLength": 256},
-        "purpose": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "parent_domain_id": {"$ref": "#/$defs/id"},
-        "status": {"enum": ["current", "deprecated"]},
-        "architecture_relations": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/architectureRelation"}}
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "parent_domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "enum": [
+            "current",
+            "deprecated"
+          ]
+        },
+        "architecture_relations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/architectureRelation"
+          }
+        }
       }
     },
     "architectureRelation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target_domain_id"],
+      "required": [
+        "kind",
+        "target_domain_id"
+      ],
       "properties": {
-        "kind": {"enum": ["depends_on", "shares_contract_with", "replaces"]},
-        "target_domain_id": {"$ref": "#/$defs/id"},
-        "governing_law_ids": {"$ref": "#/$defs/ids"},
-        "state": {"enum": ["declared", "building", "coexisting", "cutover", "retired"]}
+        "kind": {
+          "enum": [
+            "depends_on",
+            "shares_contract_with",
+            "replaces"
+          ]
+        },
+        "target_domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "governing_law_ids": {
+          "$ref": "#/$defs/ids"
+        },
+        "state": {
+          "enum": [
+            "declared",
+            "building",
+            "coexisting",
+            "cutover",
+            "retired"
+          ]
+        }
       },
       "allOf": [
-        {"if": {"properties": {"kind": {"enum": ["depends_on", "shares_contract_with"]}}, "required": ["kind"]}, "then": {"required": ["governing_law_ids"], "properties": {"governing_law_ids": {"minItems": 1}}, "not": {"required": ["state"]}}},
-        {"if": {"properties": {"kind": {"const": "replaces"}}, "required": ["kind"]}, "then": {"required": ["state"], "not": {"required": ["governing_law_ids"]}}}
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "depends_on",
+                  "shares_contract_with"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "governing_law_ids"
+            ],
+            "properties": {
+              "governing_law_ids": {
+                "minItems": 1
+              }
+            },
+            "not": {
+              "required": [
+                "state"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "replaces"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "state"
+            ],
+            "not": {
+              "required": [
+                "governing_law_ids"
+              ]
+            }
+          }
+        }
       ]
     },
     "lawRelation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target_id"],
-      "properties": {"kind": {"enum": ["supersedes", "refines", "subordinate_to", "conflicts_with"]}, "target_id": {"$ref": "#/$defs/id"}}
+      "required": [
+        "kind",
+        "target_id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "supersedes",
+            "refines",
+            "subordinate_to",
+            "conflicts_with"
+          ]
+        },
+        "target_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
     },
     "criterionBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["criterion"],
+      "required": [
+        "criterion"
+      ],
       "properties": {
-        "criterion": {"type": "integer", "minimum": 1},
-        "scenario": {"$ref": "#/$defs/id"},
-        "exemption": {"type": "string", "minLength": 12, "maxLength": 512, "pattern": "^\\S(?:[\\s\\S]*\\S)?$"}
+        "criterion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scenario": {
+          "$ref": "#/$defs/id"
+        },
+        "exemption": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 512,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+        }
       },
       "oneOf": [
-        {"required": ["scenario"], "not": {"required": ["exemption"]}},
-        {"required": ["exemption"], "not": {"required": ["scenario"]}}
+        {
+          "required": [
+            "scenario"
+          ],
+          "not": {
+            "required": [
+              "exemption"
+            ]
+          }
+        },
+        {
+          "required": [
+            "exemption"
+          ],
+          "not": {
+            "required": [
+              "scenario"
+            ]
+          }
+        }
       ]
     },
     "knowledgeRoots": {
       "type": "array",
-      "default": ["docs/"],
+      "default": [
+        "docs/"
+      ],
       "maxItems": 16,
       "uniqueItems": true,
       "items": {
@@ -207,37 +984,84 @@
       "type": "array",
       "maxItems": 1000,
       "uniqueItems": true,
-      "items": {"$ref": "#/$defs/disposition"}
+      "items": {
+        "$ref": "#/$defs/disposition"
+      }
     },
     "disposition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "disposition", "reason"],
+      "required": [
+        "path",
+        "disposition",
+        "reason"
+      ],
       "properties": {
-        "path": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?![\\s\\S]*\\.\\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\\.md$"},
-        "disposition": {"enum": ["archived"]},
-        "reason": {"type": "string", "minLength": 1, "maxLength": 4096}
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?![\\s\\S]*\\.\\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\\.md$"
+        },
+        "disposition": {
+          "enum": [
+            "archived"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
       }
     },
     "docContract": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enforced": {"type": "boolean", "default": false},
-        "constitution": {"$ref": "#/$defs/docContractKind"},
-        "decision": {"$ref": "#/$defs/docContractKind"},
+        "enforced": {
+          "type": "boolean",
+          "default": false
+        },
+        "constitution": {
+          "$ref": "#/$defs/docContractKind"
+        },
+        "decision": {
+          "$ref": "#/$defs/docContractKind"
+        },
         "spec": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["required_sections", "ac_required"],
+          "required": [
+            "required_sections",
+            "ac_required"
+          ],
           "properties": {
-            "required_sections": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
-            "ac_required": {"type": "boolean"}
+            "required_sections": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "ac_required": {
+              "type": "boolean"
+            }
           }
         },
-        "lesson": {"$ref": "#/$defs/docContractKind"},
-        "reference": {"$ref": "#/$defs/docContractKind"},
-        "research": {"$ref": "#/$defs/docContractKind"},
+        "lesson": {
+          "$ref": "#/$defs/docContractKind"
+        },
+        "reference": {
+          "$ref": "#/$defs/docContractKind"
+        },
+        "research": {
+          "$ref": "#/$defs/docContractKind"
+        },
         "banned_phrases": {
           "type": "array",
           "default": [
@@ -250,17 +1074,87 @@
           ],
           "maxItems": 64,
           "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "activation": {
+          "description": "Numerical convergence criterion that must fully hold before enforced flips to true (issue #319). Recorded before activation; enforced=true requires this object.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_registered_findings",
+            "max_unresolved_criteria",
+            "max_false_positives",
+            "evidence"
+          ],
+          "properties": {
+            "max_registered_findings": {
+              "type": "integer",
+              "const": 0,
+              "description": "scripts/check-doc-contract.py report mode: zero findings over registered records"
+            },
+            "max_unresolved_criteria": {
+              "type": "integer",
+              "const": 0,
+              "description": "zero unbound or mis-bound acceptance criteria on spec records"
+            },
+            "max_false_positives": {
+              "type": "integer",
+              "const": 0,
+              "description": "scripts/test-doc-contract.py green and every remaining report-mode finding reviewed as a true positive"
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 12,
+              "maxLength": 1024
+            }
+          }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enforced": {
+                "const": true
+              }
+            },
+            "required": [
+              "enforced"
+            ]
+          },
+          "then": {
+            "required": [
+              "activation"
+            ]
+          }
+        }
+      ]
     },
     "docContractKind": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["required_sections", "ac_required"],
+      "required": [
+        "required_sections",
+        "ac_required"
+      ],
       "properties": {
-        "required_sections": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
-        "ac_required": {"type": "boolean"}
+        "required_sections": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "ac_required": {
+          "type": "boolean"
+        }
       }
     }
   }

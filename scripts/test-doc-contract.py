@@ -1312,6 +1312,115 @@ def test_out_of_range_criterion_binding_fails() -> None:
     assert any("criterion binding index is out of range" in line for line in stdout.splitlines()), stdout
 
 
+def test_activation_criterion_must_be_all_zero_with_bounded_evidence() -> None:
+    root = sandbox()
+    path = "docs/spec-a.md"
+    write_spec(root, path, "# Spec\n\nbody\n")
+    spec_record = record(path, sha_digest="e")
+    spec_record.pop("criterion_bindings", None)
+    base = manifest_with(root, [spec_record])
+    base["doc_contract"] = {
+        "enforced": False,
+        "spec": {"required_sections": ["Context"], "ac_required": False},
+        "activation": {
+            "max_registered_findings": 0,
+            "max_unresolved_criteria": 0,
+            "max_false_positives": 0,
+            "evidence": "x" * 20,
+        },
+    }
+    exit_code, stdout, _ = run_checker(root, base)
+    assert "activation" not in stdout, stdout
+
+    for field in ("max_registered_findings", "max_unresolved_criteria", "max_false_positives"):
+        broken = json.loads(json.dumps(base))
+        broken["doc_contract"]["activation"][field] = 1
+        _, stdout, _ = run_checker(root, broken)
+        assert f"{field} must be 0" in stdout, stdout
+
+    for bad in ("", "short", "x" * 1025):
+        broken = json.loads(json.dumps(base))
+        broken["doc_contract"]["activation"]["evidence"] = bad
+        _, stdout, _ = run_checker(root, broken)
+        assert "activation" in stdout, stdout
+
+    broken = json.loads(json.dumps(base))
+    broken["doc_contract"]["activation"]["extra"] = 1
+    _, stdout, _ = run_checker(root, broken)
+    assert "four criterion fields" in stdout, stdout
+
+
+def test_activation_sequence_requires_a_prior_committed_criterion() -> None:
+    """The two-step rule: introducing enforced=true in a git repo whose parent
+    manifest lacks the identical activation object is a finding (issue #319)."""
+    import subprocess as sp
+
+    root = sandbox()
+    manifest = root / "docs" / "concord-knowledge-index.v1.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+
+    def git(*args):
+        return sp.run(["git", *args], cwd=root, capture_output=True, text=True)
+
+    git("init", "-q", "--initial-branch=main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (root / "seed.txt").write_text("seed")
+    git("add", "-A")
+    git("commit", "-qm", "seed")
+    activation = {
+        "max_registered_findings": 0,
+        "max_unresolved_criteria": 0,
+        "max_false_positives": 0,
+        "evidence": "recorded before the flip" + "x" * 0,
+    }
+    base = {
+        "schema_version": "1.2",
+        "supported_kinds": ["spec"],
+        "indexed_kinds": ["spec"],
+        "knowledge_roots": ["docs"],
+        "records": [],
+        "doc_contract": {"enforced": False, "spec": {"required_sections": [], "ac_required": False}},
+    }
+    flipped = json.loads(json.dumps(base))
+    flipped["doc_contract"]["enforced"] = True
+    flipped["doc_contract"]["activation"] = json.loads(json.dumps(activation))
+
+    # One-change flip: parent has no activation at all.
+    manifest.write_text(json.dumps(flipped))
+    git("add", "-A")
+    git("commit", "-qm", "one-change flip")
+    findings: list[str] = []
+    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest):
+        checker.check_activation_sequence(True, activation, findings)
+    assert any("no parent manifest carrying the activation object" in f for f in findings), findings
+
+    # Two-step: parent carries the identical object, flip is clean.
+    manifest.write_text(json.dumps(base))
+    manifest.write_text(json.dumps({**base, "doc_contract": {**base["doc_contract"], "activation": activation}}))
+    git("add", "-A")
+    git("commit", "-qm", "record activation")
+    manifest.write_text(json.dumps(flipped))
+    git("add", "-A")
+    git("commit", "-qm", "flip")
+    findings = []
+    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest):
+        checker.check_activation_sequence(True, activation, findings)
+    assert not findings, findings
+
+    # Criterion changed together with the flip.
+    drifted = json.loads(json.dumps(activation))
+    drifted["evidence"] = "changed late"
+    manifest.write_text(json.dumps({**flipped, "doc_contract": {**flipped["doc_contract"], "activation": drifted}}))
+    git("add", "-A")
+    git("commit", "-qm", "drift with flip")
+    findings = []
+    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest):
+        checker.check_activation_sequence(True, drifted, findings)
+    assert any("changed together with" in f for f in findings), findings
+
+
+
 def main() -> int:
     tests = [
         value

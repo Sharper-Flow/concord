@@ -69,7 +69,7 @@ the old catalog only so evidence remains traceable.
 - Gate model: proposal → discovery → design → planning → execution → acceptance
   → release.
 - `adv_gate_complete`, `adv_gate_status` — sequential gate machine, machine-
-  enforced HITL at planning.
+  enforced human-in-the-loop (HITL) at planning.
 - **Why transfer:** the core strength; the spec-driven implementation workflow
   works extremely well. Unchanged.
 
@@ -109,7 +109,7 @@ the old catalog only so evidence remains traceable.
 - `adv_task_add`, `adv_task_list`, `adv_task_ready`, `adv_task_show`,
   `adv_task_update`, `adv_task_cancel`, `adv_task_checkpoint`,
   `adv_task_reclassify_tdd`.
-- Tasks, TDD intent, dependencies, evidence policy, contract refs.
+- Tasks, test-driven-development (TDD) intent, dependencies, evidence policy, contract refs.
 - **Why transfer:** unchanged.
 
 ### 1.6 Durable execution + safety substrate
@@ -310,8 +310,8 @@ descriptions because they are referenced from elsewhere in the docset.
 ### 3.13a Architecture spike workflow type
 - A registered workflow type, peer to the implementation change, for Initiative entries
   that **decide rather than ship**: frame question → research → options with
-  evidence → optional throwaway POC → decision record → reviewer → user
-  acceptance. Flat (has tasks, no sub-spikes), no timebox, and its POC code never
+  evidence → optional throwaway proof of concept (PoC) → decision record → reviewer → user
+  acceptance. Flat (has tasks, no sub-spikes), no timebox, and its proof-of-concept (PoC) code never
   merges to a product repo.
 - The output is a **binding decision record** that constrains downstream Initiative
   entries **until superseded** — contradiction surfaces as a conflict (reusing the

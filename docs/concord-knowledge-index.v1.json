@@ -165,6 +165,11 @@
       "path": "docs/pane-title-ownership-note.md",
       "disposition": "archived",
       "reason": "The note records observations from building the zlauncher and Advance pane-title surfaces, and it states in its own body that it carries no requirements. Its durable content is a set of constraints on a launcher surface Concord has not yet built: the title-writer precedence chain, the projection fields a title needs, and the terminal capability limits. Those constraints bind whichever change implements the CD-0014 launcher title surface, and they belong in that change's spec and its acceptance criteria, where they can be tested. Registering the note as reference would create a second, untestable statement of the same constraints beside the spec that will own them, and registering it as law would grant accepted authority to observations drawn from a predecessor product rather than from an accepted Concord decision."
+    },
+    {
+      "path": "docs/compaction-design.md",
+      "disposition": "archived",
+      "reason": "Design-history source material for compaction. The binding compaction and retention law is the accepted PM7 record (compaction-retention-policy.md), which superseded this design's proposals during acceptance; PM7's Related section carries the lineage. Registering the design as law would create a second statement of policy beside the accepted record, and registering it as reference would imply current operational content it no longer carries."
     }
   ],
   "doc_contract": {
@@ -209,7 +214,13 @@
       "it is important to note",
       "needless to say",
       "at the end of the day"
-    ]
+    ],
+    "activation": {
+      "max_registered_findings": 0,
+      "max_unresolved_criteria": 0,
+      "max_false_positives": 0,
+      "evidence": "Flip doc_contract.enforced to true only when all three hold: scripts/check-doc-contract.py reports zero findings over registered records; zero acceptance criteria are unbound or mis-bound; scripts/test-doc-contract.py is green and every then-current report-mode finding has been individually reviewed as a true positive, with that review recorded on the flipping change. Criterion recorded 2026-08-24 before any activation."
+    }
   },
   "records": [
     {
@@ -2191,6 +2202,53 @@
       "title": "Product memory domain schema"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "scenario": "Q6-cross-project"
+        },
+        {
+          "criterion": 2,
+          "scenario": "Q1-project-to-product"
+        },
+        {
+          "criterion": 3,
+          "scenario": "Q6-project-to-work"
+        },
+        {
+          "criterion": 4,
+          "exemption": "No corpus scenario covers membership replacement atomicity; the guarantee is proved by the store lifecycle suite whose memberships_replaced fold asserts one event replacing the whole set, and by PM1's deduplicated populations."
+        }
+      ],
+      "date": "2026-08-24T00:00:00Z",
+      "evidence": [
+        "scenarios/product-memory-query.v1.json",
+        "internal/store/lifecycle_relations_test.go",
+        "internal/store/query_test.go"
+      ],
+      "home_domain_id": "work-coordination",
+      "id": "PM5",
+      "kind": "spec",
+      "path": "docs/product-memory-membership.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:200dd111e08c978dc42c829f2d04d244eff17ddd3409e3ee9598e21195386b03",
+      "status": "accepted",
+      "summary": "Concord Product-memory membership law: one canonical work item with typed membership edges, Product scope derived through joins and never copied, at-least-one membership with optional singular primary, atomic membership operations, and duplicate-free Product-scoped reads. The first spec record formalized under the full doc contract: Context, Contract, bound acceptance criteria, and Verification.",
+      "tags": [
+        "membership",
+        "product-memory",
+        "spec",
+        "formalization-trial"
+      ],
+      "title": "Concord Product-memory membership (PM5)"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "PM6",
@@ -2328,6 +2386,28 @@
       "title": "Advance predecessor lessons"
     },
     {
+      "date": "2026-08-24T00:00:00Z",
+      "id": "advance-predecessor-postmortem",
+      "kind": "lesson",
+      "path": "docs/advance-postmortem.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:9bc47bf2afaeab958db52132719dd0805f615e775c1089fc044545bcdfe2fa98",
+      "status": "published",
+      "summary": "Distills public predecessor issue evidence into the failure mechanisms Concord must prevent, centered on split state authority between durable records and writable projections. It records what completed predecessor work taught; the decisions that adopted each prevention carry the authority.",
+      "tags": [
+        "predecessor",
+        "postmortem",
+        "lessons"
+      ],
+      "title": "Advance predecessor postmortem"
+    },
+    {
       "date": "2026-08-11T00:00:00Z",
       "home_domain_id": "agent-surface",
       "id": "agent-lanes-contract",
@@ -2351,6 +2431,72 @@
       "title": "Agent lane contract"
     },
     {
+      "date": "2026-08-24T00:00:00Z",
+      "id": "core-architecture",
+      "kind": "reference",
+      "path": "docs/core-architecture.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:3ef557857a32c790c337e868b0a39d92afd43624eed0d2e72fb1385eaa3f32ec",
+      "status": "published",
+      "summary": "Descriptive companion record of the Go-core architecture direction and the consolidated resilience invariants. Not accepted law: the header names priorities.md as canonical for its subject and records direction only, so under the procedure's recorded-acceptance rule it cannot take a law-bearing kind. The decisions it cites (CD-0002 and peers) carry the authority for the invariants it restates.",
+      "tags": [
+        "architecture",
+        "storage",
+        "companion"
+      ],
+      "title": "Concord core architecture"
+    },
+    {
+      "date": "2026-08-24T00:00:00Z",
+      "id": "feature-inventory",
+      "kind": "reference",
+      "path": "docs/feature-inventory.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:53eb4462af6e8520c669d6dd37509e0b1b1f404ce69c371f059499fb480af48e",
+      "status": "published",
+      "summary": "Predecessor capability inventory marked non-authorizing in its own header: every capability categorized as transfer, refactor, or new, aligned to priorities without restating them. It is snapshot evidence about the predecessor, not current operational truth, and establishes no transfer plan.",
+      "tags": [
+        "predecessor",
+        "inventory",
+        "evidence"
+      ],
+      "title": "Concord feature inventory"
+    },
+    {
+      "date": "2026-08-24T00:00:00Z",
+      "id": "installation",
+      "kind": "reference",
+      "path": "docs/installation.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:aaeef0d0c46b98d79f7c2a1332ff4c7b52a2d147554dae3b109a062a115b7c85",
+      "status": "published",
+      "summary": "Operational installation guide describing what the shipped installer does: prerequisites it checks, release artifacts, upgrade, and uninstall behavior. Descriptive, not prescriptive — the installer's behavior is proved by scripts/test-installer.py and the release pipeline, so under the procedure's prescription rule the document is reference material and asserts no contract an implementation could violate.",
+      "tags": [
+        "installation",
+        "operations",
+        "guide"
+      ],
+      "title": "Installing Concord"
+    },
+    {
       "date": "2026-08-22T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "knowledge-formalization-procedure",
@@ -2363,7 +2509,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e97ad9f880a4bcc62117abd4e6840aae79c6fef0bcbdc58f8601c917e4c9bb4d",
+      "sha256": "sha256:0cf52fbe963bb9c7a2d500452eec639a1428241f60a24a8571a827d283564f3f",
       "status": "accepted",
       "summary": "Defines how a document becomes accepted Product law, becomes registered non-law, or is dispositioned. Declares the four knowledge states, the three destinations for an unprocessed document, the two-tier kind taxonomy, the ordered kind-selection path, the acceptance-criteria rule, and the atomicity requirement binding a document edit to its recorded hash.",
       "tags": [

@@ -2,7 +2,9 @@
 
 > **Status:** Direction recorded (2026-08-02; storage layer hardened 2026-08-05).
 > Companion to [`priorities.md`](./priorities.md) and [`design-constraints.md`](./design-constraints.md).
-> **Purpose:** Record the Go-core language direction and the consolidated resilience invariant set that any core topology must satisfy. State authority is settled elsewhere (see §0). This is the single place a reader looks to understand how the runtime is layered.
+> **Purpose:** Record the Go-core language direction and the consolidated resilience invariant set that any core topology must satisfy. State authority is settled elsewhere (see §0).
+> This is the single place a reader looks to understand how the runtime is layered.
+
 > **Authority:** [`priorities.md`](./priorities.md) is canonical for ranked priorities and the operating envelope; this document is a companion that records an architecture direction within those constraints.
 
 ---
@@ -54,7 +56,7 @@ catalog. Go-core is greenfield Concord code.
 - Typed recovery and degradation: reconcile → repair → rebuild → destroy ladder;
   `Stale` / `Degraded` / `Unreconciled` / `Partial` verdicts.
 - Validation, authorization, and approval enforcement at the domain boundary.
-- RPC contract definition and all non-OpenCode business logic.
+- Remote-procedure-call (RPC) contract definition and all non-OpenCode business logic.
 
 ### TypeScript owns only the accepted TS6 adapter boundary
 

@@ -95,7 +95,13 @@ answer names exactly one destination.
 3. **Is the document accepted under this repository's authority model?** If
    no, it cannot take a law-bearing kind. Continue from question 7. A
    non-authorizing candidate document is reference material until it is
-   accepted.
+   accepted. Acceptance is recorded, never read out of the prose: a document
+   is accepted only when its own header carries an acceptance marker this
+   repository recognizes — a binding-until-superseded status bound to an
+   allocated record number, or a citation as binding from an accepted
+   constitution or decision. A header that names another document as
+   canonical for its subject, or carries no authority claim at all, means
+   not accepted — however binding the body reads.
 4. **Does the document state standing rules that govern other documents or
    decisions?** This covers rules about how records are made, classified, or
    accepted. It also covers rules about which document wins when two
@@ -105,7 +111,14 @@ answer names exactly one destination.
    consequences, under an allocated decision number?** If yes, the kind is
    `decision`.
 6. **Does the document state a testable contract that an implementation must
-   satisfy?** If yes, the kind is `spec`.
+   satisfy?** If yes, the kind is `spec`. The discriminator is prescription,
+   not testability: a spec prescribes what an implementation must satisfy,
+   and a violation is a defect in the implementation. A document that
+   describes what the shipped implementation already does — its behavior
+   proved by that implementation's own test suite — prescribes nothing, and
+   testable content alone does not make a spec. Such a document is reference
+   material, and the record's summary names the tests that verify the
+   described behavior.
 7. **Does the document record what was learned from work already completed?**
    If yes, the kind is `lesson`.
 8. **Does the document report the findings of an investigation?** If yes, the
@@ -171,6 +184,25 @@ These rules are conditional clauses in
 [the schema](../contracts/concord-knowledge-index.v1.schema.json), which is
 the authority for their exact form. The domain identifiers themselves come
 from the manifest's domain registry.
+
+## Enforcement activation
+
+`doc_contract.enforced` starts false and flips only on a numerical criterion
+recorded in the manifest before any activation: the `doc_contract.activation`
+object in [`concord-knowledge-index.v1.json`](./concord-knowledge-index.v1.json)
+names three zero-valued conditions — zero report-mode findings over registered
+records, zero unresolved acceptance criteria, and zero known false positives
+(the checker's test corpus green, plus an individual review of every
+then-current finding recorded on the flipping change). The schema requires
+the object whenever `enforced` is true, so an activation without a recorded
+criterion cannot be represented.
+
+The flip is a two-step sequence, and the checker enforces the order: the
+commit that introduces `"enforced": true` must have a parent whose manifest
+already carried the identical activation object. Recording the criterion and
+flipping enforcement in one change is a finding, not a shortcut. The check
+reads committed history; where history is unavailable (a shallow checkout)
+it is skipped, and the sequence rule rests on review.
 
 ## Coverage state
 

@@ -138,9 +138,22 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
   }
 
+  // CD-0067 D6: the dispatch_worker response carries worker_packet_digest
+  // on result; the adapter signs that exact value on the dispatch
+  // assertion. A core that answers ok without recording the digest is not
+  // the core that authored the window, so it cannot be trusted to gate
+  // evidence against it. The refusal is transport_failure because it is
+  // a server contract break, not an operator-fixable input.
+  const resultRecord = isRecord(coreResponse.result) ? coreResponse.result : null
+  const packetDigest = resultRecord && typeof resultRecord.worker_packet_digest === "string" ? resultRecord.worker_packet_digest : ""
+  if (packetDigest === "") {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker response carried no worker_packet_digest", "reconcile_operation")
+  }
+
   // Spawn: the worker authorizer is the core response we just received;
   // dispatchWorker forwards that envelope to its own authorize() seam and
   // re-validates it against outcome === "error" before spawning, so the
-  // happy-path ok envelope reaches the runner untouched.
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary })
+  // happy-path ok envelope reaches the runner untouched. packetDigest is
+  // the value the dispatch assertion will quote (D6).
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest })
 }

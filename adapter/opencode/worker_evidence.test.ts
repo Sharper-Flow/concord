@@ -8,6 +8,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
 
 const lane = agentLanes[0]
 const READBACK_MODEL = "openai/gpt-5.6-luna"
+// CD-0067 D6: the dispatchWorker options carry packetDigest so the
+// adapter can quote it on the signed assertion. Every test that
+// exercises the dispatch path passes this constant; tests that
+// probe the missing-digest refusal build their own call without it.
+const PACKET_DIGEST = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
 
 // Permissive authorizer: every dispatch_worker request acknowledges with an
@@ -91,7 +96,7 @@ test("canonical encoding is order-fixed, not object-key dependent", () => {
 
 test("dispatch and completion evidence each carry a bound assertion", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("ok")
   expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete"])
 
@@ -110,7 +115,7 @@ test("dispatch and completion evidence each carry a bound assertion", async () =
 
 test("each evidence write carries its own nonce", async () => {
   const recorded: Record<string, unknown>[] = []
-  await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer() })
+  await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   const nonces = recorded.map((entry) => (entry.request as any).assertion.nonce)
   expect(new Set(nonces).size).toBe(nonces.length)
 })
@@ -127,7 +132,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
       return { exitCode: 0, stdout: "", stderr: "" }
     },
   }
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("ok")
   expect(spawnedArgv.join(" ")).not.toContain("signature")
   expect(spawnedArgv.join(" ")).not.toContain("assertion")
@@ -140,7 +145,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
 // assertion that leaves those fields empty cannot match the binding.
 test("failure evidence carries a bound assertion including lane identity", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: failingLaneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: failingLaneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("error")
   expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-fail"])
 
@@ -165,7 +170,7 @@ test("every verb signs exactly the field set its CLI binding populates", async (
   const signed = new Map<string, Record<string, unknown>>()
   for (const runner of [laneRunner, failingLaneRunner]) {
     const recorded: Record<string, unknown>[] = []
-    await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer() })
+    await dispatchWorker(packet(), { credentials: testCredentials, runner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
     for (const entry of recorded) signed.set(entry.command as string, (entry.request as any).assertion)
   }
   expect([...signed.keys()].sort()).toEqual(workerEvidenceVector.cases.map((vectorCase) => vectorCase.verb).sort())
@@ -183,8 +188,39 @@ test("every verb signs exactly the field set its CLI binding populates", async (
 test("an unavailable credential fails the run instead of recording unsigned evidence", async () => {
   const recorded: Record<string, unknown>[] = []
   const broken: CredentialStore = { async getPrivateKey() { throw new Error("credential service unavailable") } }
-  const result = await dispatchWorker(packet(), { credentials: broken, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: broken, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("error")
   expect(result.error?.recovery_action).toBe("contact_operator")
+  expect(recorded).toHaveLength(0)
+})
+
+// CD-0067 D6: dispatch evidence carries the packet digest the core
+// recorded. complete and fail sign packet_digest as empty (the canonical
+// encoder emits a 0-byte slot regardless of whether the JSON carries the
+// key), and the shared vector pins that byte sequence. The dispatch
+// assertion is the only verb that names packet_digest in its JSON, so the
+// test asserts the dispatch side here; the byte-level agreement is the
+// vector-driven loop above.
+test("dispatch evidence carries the packet digest the core recorded", async () => {
+  const recorded: Record<string, unknown>[] = []
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+  expect(result.outcome).toBe("ok")
+  const dispatched = (recorded[0].request as any).assertion
+  expect(dispatched.packet_digest).toBe(PACKET_DIGEST)
+})
+
+// CD-0067 D6: dispatchWorker refuses to sign without the digest the
+// core recorded. The error is invalid_input — the same kind the
+// packet validator returns — so a worker that did not see the digest
+// reports the omission the same way it would report any other
+// malformed input. The run already happened on the worker side; the
+// envelope is the failure surface.
+test("dispatchWorker refuses to sign without packetDigest", async () => {
+  const recorded: Record<string, unknown>[] = []
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: laneRunner, evidenceRunner: evidenceCollector(recorded), authorize: permissiveAuthorizer() })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.message).toContain("packet digest")
   expect(recorded).toHaveLength(0)
 })

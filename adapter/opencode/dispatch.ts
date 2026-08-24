@@ -381,9 +381,12 @@ function concordBinaryPath(override?: string): string {
 // internal/agent/worker_evidence.go. The byte sequence is pinned by the shared
 // vector at worker-evidence-vector.json, which both sides test against, so a
 // drift between the two encoders fails a test rather than weakening the
-// boundary. Field order is part of the contract.
+// boundary. Field order is part of the contract. packet_digest sits between
+// host_provenance_digest and issued_at: dispatch signs the core-recorded
+// digest there, complete and fail sign an empty packet_digest because their
+// window does not bind a packet (CD-0067 D6).
 export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uint8Array {
-  const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "readback_model", "failure_kind", "host_provenance_digest", "issued_at", "nonce"]
+  const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "readback_model", "failure_kind", "host_provenance_digest", "packet_digest", "issued_at", "nonce"]
   const body = names.map((key) => {
     const value = assertion[key]
     const text = value == null ? "" : typeof value === "number" ? String(value) : String(value)
@@ -658,7 +661,7 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -753,6 +756,16 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
         ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report) }
         : { verb: "worker-complete", report: resolution.report }
 
+  // CD-0067 D6: the dispatch assertion's packet_digest quotes the value
+  // the core returned on the dispatch_worker response. The adapter does
+  // not compute the digest itself — matching Go's canonicalJSON byte-for-byte
+  // from TypeScript would couple the two languages' JSON encoders for
+  // arbitrary narrative text. The signing path therefore fails closed
+  // when the caller did not pass the digest the core recorded, so an
+  // unsigned or empty digest can never reach the evidence boundary.
+  if (!options.packetDigest) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch evidence requires the packet digest recorded by the dispatch authorization", "reconcile_operation")
+  }
   let dispatchAssertion: Record<string, unknown>
   let terminalAssertion: Record<string, unknown>
   try {
@@ -765,6 +778,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
       lane_digest: lane.digest,
       readback_model: readback.readback_model,
       host_provenance_digest: provenance.digest,
+      packet_digest: options.packetDigest,
     })
     terminalAssertion = terminal.verb === "worker-complete"
       ? await signWorkerEvidence(credentials, {
@@ -780,7 +794,10 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
       // lane_version, and lane_digest from the stored attempt row before it
       // compares the assertion (cmd/concord/main.go applyWorkerEvidence), so a
       // failure assertion must claim them too. The field set each verb signs is
-      // pinned per verb by worker-evidence-vector.json.
+      // pinned per verb by worker-evidence-vector.json. packet_digest stays
+      // absent from the JSON so the assertion carries exactly the bound fields
+      // for that verb; the canonical encoder emits an empty packet_digest slot
+      // regardless, which is what the shared vector pins.
       : await signWorkerEvidence(credentials, {
         verb: "worker-fail",
         work_id: packet.work_id,

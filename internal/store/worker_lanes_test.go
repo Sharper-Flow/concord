@@ -268,6 +268,12 @@ func workerDispatchEvent(workID, eventID string, lane LaneDefinition, overrides 
 		"capability_class":      lane.CapabilityClass,
 		"readback_model":        preferredModelForLane(lane),
 		"packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
+		// CD-0067 D6: the dispatched event carries the canonical packet
+		// digest the dispatch authorization recorded. The test helper
+		// supplies a stable sha256 so v3 appends pass the validator; a
+		// test that needs a different value can override packet_digest
+		// through the overrides map.
+		"packet_digest": "sha256:" + strings.Repeat("f", 64),
 	}
 	for key, value := range overrides {
 		payload[key] = value

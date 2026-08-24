@@ -29,6 +29,7 @@ type workerEvidenceVectorCase struct {
 		ReadbackModel        string `json:"readback_model"`
 		FailureKind          string `json:"failure_kind"`
 		HostProvenanceDigest string `json:"host_provenance_digest"`
+		PacketDigest         string `json:"packet_digest"`
 		IssuedAt             string `json:"issued_at"`
 		Nonce                string `json:"nonce"`
 	} `json:"assertion"`
@@ -66,7 +67,8 @@ func TestCanonicalWorkerEvidenceVector(t *testing.T) {
 				ClientRef: value.ClientRef, Verb: value.Verb, WorkID: value.WorkID, AttemptID: value.AttemptID,
 				LaneID: value.LaneID, LaneVersion: value.LaneVersion, LaneDigest: value.LaneDigest,
 				ReadbackModel: value.ReadbackModel, FailureKind: value.FailureKind,
-				HostProvenanceDigest: value.HostProvenanceDigest, IssuedAt: value.IssuedAt, Nonce: value.Nonce,
+				HostProvenanceDigest: value.HostProvenanceDigest, PacketDigest: value.PacketDigest,
+				IssuedAt: value.IssuedAt, Nonce: value.Nonce,
 			}
 			if value.Verb != testCase.Verb {
 				t.Fatalf("case verb = %q but its assertion claims %q", testCase.Verb, value.Verb)
@@ -143,5 +145,74 @@ func TestWorkerEvidenceCapabilityIsNotGrantRequestable(t *testing.T) {
 	}
 	if !validTrustedPolicy(TrustedClientPolicy{PrincipalRef: "operator-1", Capabilities: []Capability{CapabilityWorkerEvidence}}) {
 		t.Fatal("client policy refused the worker_evidence capability")
+	}
+}
+
+// TestWorkerEvidenceBindingMismatchOnPacketDigest pins CD-0067 D6 at the
+// agent layer: the binding carries PacketDigest for dispatch, and an
+// assertion that quotes a different value must refuse before the signature
+// is even checked. The mismatch style mirrors the existing field-by-field
+// comparison so a future field that lands on the binding follows the same
+// shape.
+func TestWorkerEvidenceBindingMismatchOnPacketDigest(t *testing.T) {
+	cases := workerEvidenceVectorCases(t)
+	var dispatchCase *workerEvidenceVectorCase
+	for i := range cases {
+		if cases[i].Verb == WorkerEvidenceVerbDispatch {
+			dispatchCase = &cases[i]
+			break
+		}
+	}
+	if dispatchCase == nil {
+		t.Fatal("shared worker evidence vector declares no dispatch case")
+	}
+	matched := WorkerEvidenceAssertion{
+		ClientRef: dispatchCase.Assertion.ClientRef, Verb: dispatchCase.Assertion.Verb,
+		WorkID: dispatchCase.Assertion.WorkID, AttemptID: dispatchCase.Assertion.AttemptID,
+		LaneID: dispatchCase.Assertion.LaneID, LaneVersion: dispatchCase.Assertion.LaneVersion,
+		LaneDigest: dispatchCase.Assertion.LaneDigest, ReadbackModel: dispatchCase.Assertion.ReadbackModel,
+		HostProvenanceDigest: dispatchCase.Assertion.HostProvenanceDigest,
+		PacketDigest:         dispatchCase.Assertion.PacketDigest,
+	}
+	binding := WorkerEvidenceBinding{
+		Verb: matched.Verb, WorkID: matched.WorkID, AttemptID: matched.AttemptID,
+		LaneID: matched.LaneID, LaneVersion: matched.LaneVersion, LaneDigest: matched.LaneDigest,
+		ReadbackModel: matched.ReadbackModel, HostProvenanceDigest: matched.HostProvenanceDigest,
+		PacketDigest: matched.PacketDigest,
+	}
+	if !workerEvidenceMatchesBinding(matched, binding) {
+		t.Fatal("matching binding refused the assertion")
+	}
+	divergent := matched
+	divergent.PacketDigest = "sha256:" + strings.Repeat("e", 64)
+	if workerEvidenceMatchesBinding(divergent, binding) {
+		t.Fatal("binding accepted an assertion with a divergent packet digest")
+	}
+	// Sanity: complete / fail also bind empty packet_digest, so the
+	// comparison's empty-on-both-sides path stays open for those verbs.
+	var completeCase *workerEvidenceVectorCase
+	for i := range cases {
+		if cases[i].Verb == WorkerEvidenceVerbComplete {
+			completeCase = &cases[i]
+			break
+		}
+	}
+	if completeCase == nil {
+		t.Fatal("shared worker evidence vector declares no complete case")
+	}
+	complete := WorkerEvidenceAssertion{
+		ClientRef: completeCase.Assertion.ClientRef, Verb: completeCase.Assertion.Verb,
+		WorkID: completeCase.Assertion.WorkID, AttemptID: completeCase.Assertion.AttemptID,
+		LaneID: completeCase.Assertion.LaneID, LaneVersion: completeCase.Assertion.LaneVersion,
+		LaneDigest: completeCase.Assertion.LaneDigest, ReadbackModel: completeCase.Assertion.ReadbackModel,
+		PacketDigest: completeCase.Assertion.PacketDigest,
+	}
+	completeBinding := WorkerEvidenceBinding{
+		Verb: complete.Verb, WorkID: complete.WorkID, AttemptID: complete.AttemptID,
+		LaneID: complete.LaneID, LaneVersion: complete.LaneVersion, LaneDigest: complete.LaneDigest,
+		ReadbackModel: complete.ReadbackModel, PacketDigest: complete.PacketDigest,
+	}
+	if !workerEvidenceMatchesBinding(complete, completeBinding) {
+		t.Fatal("complete binding refused an empty-packet-digest assertion")
 	}
 }

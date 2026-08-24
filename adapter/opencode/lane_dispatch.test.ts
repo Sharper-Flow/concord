@@ -70,8 +70,14 @@ const continuityEnvelope = (overrides: Partial<{ pinned: Record<string, unknown>
   },
 })
 
+// CD-0067 D6: the dispatch_worker response must carry worker_packet_digest on
+// result so the adapter can quote it on the signed evidence assertion. Every
+// test that exercises the happy path uses this envelope; tests that probe
+// the digest-missing refusal override result to an empty record.
+const CORE_PACKET_DIGEST = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 const coreOkEnvelope = () => envelope({
   tool: "concord_work_transition", operation: "workflow_action", outcome: "ok", authority: "authoritative", freshness: null,
+  result: { worker_packet_digest: CORE_PACKET_DIGEST },
 })
 
 const coreErrorEnvelope = (kind: string, message: string) => envelope({
@@ -230,4 +236,57 @@ test("mandate_unapproved refusal maps to outcome blocked", async () => {
   expect(result.error?.message).toContain("no pinned workflow contract")
   expect(spawned).toBe(0)
   expect(workflowCalls).toBe(0)
+})
+
+// CD-0067 D6: a core that answers ok without recording worker_packet_digest
+// is not the core that authored the window — the dispatch_worker response
+// surface must carry the digest the dispatch authorization recorded, or the
+// adapter refuses with transport_failure so a hostile or misconfigured
+// core cannot smuggle evidence past the gate. Spawn never executes.
+test("dispatch_worker response without worker_packet_digest refuses before spawn", async () => {
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") return envelope({
+      tool: "concord_work_transition", operation: "workflow_action", outcome: "ok", authority: "authoritative", freshness: null,
+      // result is an empty record — the cutover break this regression guards.
+      result: {},
+    })
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-6", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, now: () => NOW })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("transport_failure")
+  expect(result.error?.message).toContain("worker_packet_digest")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(spawned).toBe(0)
+})
+
+// CD-0067 D6: when the core records the digest, dispatchLaneWorker hands
+// the same digest to dispatchWorker via the packetDigest option, and the
+// signed dispatch assertion quotes it. The runner sees a worker-dispatch
+// evidence write whose assertion carries worker_packet_digest == the core's
+// recorded value.
+test("dispatchLaneWorker hands the core's packet digest to dispatchWorker", async () => {
+  const recorded: Record<string, unknown>[] = []
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") return coreOkEnvelope()
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = {
+    async run(argv) {
+      if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
+      if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    },
+  }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-7", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, evidenceRunner: { async run(argv, input) { recorded.push({ command: argv[1], request: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } }, now: () => NOW })
+  expect(result.outcome).toBe("ok")
+  expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete"])
+  const dispatched = (recorded[0].request as any).assertion
+  expect(dispatched.packet_digest).toBe(CORE_PACKET_DIGEST)
 })

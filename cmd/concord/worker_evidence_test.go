@@ -137,12 +137,18 @@ func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition,
 	switch verb {
 	case agent.WorkerEvidenceVerbDispatch:
 		provenanceDigest := "sha256:" + strings.Repeat("a", 64)
+		// CD-0067 D6: dispatch is the only verb that signs a packet
+		// digest; the seed keeps it in lockstep with the digest the
+		// seeded dispatch window records so the gate accepts it.
+		packetDigest := "sha256:" + strings.Repeat("c", 64)
 		assertion.HostProvenanceDigest = provenanceDigest
+		assertion.PacketDigest = packetDigest
 		request["lane_id"] = lane.ID
 		request["lane_version"] = lane.Version
 		request["lane_digest"] = lane.Digest
 		request["packet_schema_version"] = store.WorkerPacketSchemaVersion
 		request["report_schema_version"] = store.WorkerReportSchemaVersion
+		request["packet_digest"] = packetDigest
 		request["host_provenance"] = map[string]any{
 			"digest":  provenanceDigest,
 			"sources": []map[string]any{{"kind": "agent_definition", "path": ".opencode/agents/" + lane.ID + ".md", "sha256": "sha256:" + strings.Repeat("b", 64)}},
@@ -195,6 +201,8 @@ func restrictWorkerEvidenceAssertion(t *testing.T, assertion agent.WorkerEvidenc
 			restricted.FailureKind = assertion.FailureKind
 		case "host_provenance_digest":
 			restricted.HostProvenanceDigest = assertion.HostProvenanceDigest
+		case "packet_digest":
+			restricted.PacketDigest = assertion.PacketDigest
 		default:
 			t.Fatalf("no assertion field for bound field %q", field)
 		}
@@ -235,6 +243,8 @@ func mutateWorkerEvidenceField(t *testing.T, assertion agent.WorkerEvidenceAsser
 		assertion.FailureKind = string(store.WorkerFailureFallbackBlocked)
 	case "host_provenance_digest":
 		assertion.HostProvenanceDigest = "sha256:" + strings.Repeat("e", 64)
+	case "packet_digest":
+		assertion.PacketDigest = "sha256:" + strings.Repeat("f", 64)
 	default:
 		t.Fatalf("no mutation for bound field %q", field)
 	}
@@ -644,6 +654,100 @@ func TestWorkerEvidenceRefusesARevokedClient(t *testing.T) {
 	assertNoWorkerEvents(t, dbPath)
 }
 
+// TestWorkerDispatchRefusesMissingPacketDigest pins the CLI seam of CD-0067
+// D6: a dispatch request that omits packet_digest is refused before the
+// gate or the signature ever runs, so a worker that did not see the
+// core's recorded digest cannot smuggle an unsigned envelope through the
+// boundary. The test exercises three refusals — absent key, empty string,
+// and a non-sha256 value — so the regex, not a coincidental schema match,
+// is what catches the omission.
+func TestWorkerDispatchRefusesMissingPacketDigest(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
+	key := seedWorkerEvidenceClient(t)
+	lane := store.BuiltinLaneDefinitions()[0]
+	raw := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-missingdigest")
+	cases := []struct {
+		name    string
+		mutate  func(map[string]any)
+		wantSub string
+	}{
+		{name: "absent key", mutate: func(value map[string]any) { delete(value, "packet_digest") }, wantSub: "packet_digest"},
+		{name: "empty string", mutate: func(value map[string]any) { value["packet_digest"] = "" }, wantSub: "packet_digest"},
+		{name: "not a sha256", mutate: func(value map[string]any) { value["packet_digest"] = "not-a-digest" }, wantSub: "packet_digest"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			value := map[string]any{}
+			if err := json.Unmarshal([]byte(raw), &value); err != nil {
+				t.Fatal(err)
+			}
+			testCase.mutate(value)
+			mutated, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out, errOut bytes.Buffer
+			code := runWithInput([]string{"worker-dispatch"}, bytes.NewReader(mutated), &out, &errOut)
+			if code == 0 {
+				t.Fatalf("dispatch accepted the %s request; stderr=%q", testCase.name, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), testCase.wantSub) {
+				t.Fatalf("dispatch %s stderr=%q, want substring %q", testCase.name, errOut.String(), testCase.wantSub)
+			}
+			assertNoWorkerEvents(t, dbPath)
+		})
+	}
+}
+
+// TestWorkerDispatchRefusesMismatchedPacketDigest pins the store-side half
+// of CD-0067 D6: the CLI accepts the request shape (packet_digest is
+// present and well-formed), but the gate refuses because the recorded
+// digest is different. The error names the packet digest so an operator
+// can tell it apart from a missing-window refusal.
+func TestWorkerDispatchRefusesMismatchedPacketDigest(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, dbPath)
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
+	key := seedWorkerEvidenceClient(t)
+	lane := store.BuiltinLaneDefinitions()[0]
+	raw := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-mismatch001")
+	value := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		t.Fatal(err)
+	}
+	value["packet_digest"] = "sha256:" + strings.Repeat("0", 64)
+	if assertionValue, ok := value["assertion"].(map[string]any); ok {
+		assertion := agent.WorkerEvidenceAssertion{
+			ClientRef: workerEvidenceClientRef, Verb: agent.WorkerEvidenceVerbDispatch,
+			WorkID: "work-1", AttemptID: "attempt-1", LaneID: lane.ID,
+			LaneVersion: lane.Version, LaneDigest: lane.Digest,
+			ReadbackModel:        preferredLaneModel(lane),
+			HostProvenanceDigest: "sha256:" + strings.Repeat("a", 64),
+			PacketDigest:         "sha256:" + strings.Repeat("0", 64),
+			IssuedAt:             time.Now().UTC().Format(time.RFC3339Nano),
+			Nonce:                "nonce-dispatch-mismatch001",
+		}
+		assertion.Signature = ed25519.Sign(key, agent.CanonicalWorkerEvidenceAssertion(assertion))
+		assertionValue["packet_digest"] = "sha256:" + strings.Repeat("0", 64)
+		value["assertion"] = assertionValue
+	}
+	mutated, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := runWithInput([]string{"worker-dispatch"}, bytes.NewReader(mutated), &out, &errOut)
+	if code == 0 {
+		t.Fatalf("mismatched-digest dispatch accepted; stderr=%q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "packet digest") {
+		t.Fatalf("dispatch stderr=%q, want substring 'packet digest'", errOut.String())
+	}
+	assertNoWorkerEvents(t, dbPath)
+}
+
 // TestWorkerEvidenceRecordsTheVerifiedClientAsActor proves the literal
 // "worker:cli" actor string is gone: the recorded actor is a proven identity.
 func TestWorkerEvidenceRecordsTheVerifiedClientAsActor(t *testing.T) {
@@ -746,6 +850,11 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		"changed_refs":         []string{workID},
 		"actor_ref":            actorRef,
 		"worker_attempt_id":    attemptID,
+		// CD-0067 D6: the seeded dispatch_window must carry the packet
+		// digest the worker-evidence assertion claims, so the gate
+		// accepts the dispatched record rather than refusing it for
+		// the empty-digest cutover case.
+		"worker_packet_digest": "sha256:" + strings.Repeat("c", 64),
 	})
 	// work_items, workflow_actors, workflow_instances, products, projects,
 	// product_projects, work_projects, and the workflow event families are

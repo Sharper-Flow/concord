@@ -183,7 +183,7 @@ func TestWorkerDispatchRefusesWithoutAnAuthorizedWindow(t *testing.T) {
 		t.Fatalf("fixture version = %d, want 4", version)
 	}
 	err := s.Transact(ctx, func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-illegal")
+		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-illegal", "sha256:"+strings.Repeat("a", 64))
 	})
 	if err == nil {
 		t.Fatal("dispatch without an authorized window was accepted")
@@ -229,7 +229,7 @@ func TestWorkerDispatchRefusesAWorkItemWithNoWorkflowInstance(t *testing.T) {
 	// workflow_instances row; that lookup returns sql.ErrNoRows because
 	// the row does not exist, which is the hatch CD-0059 D5 closes.
 	err := s.Transact(ctx, func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(ctx, tx, "work-no-instance", "", "attempt-illegal")
+		return ValidateWorkerDispatchWindow(ctx, tx, "work-no-instance", "", "attempt-illegal", "sha256:"+strings.Repeat("a", 64))
 	})
 	if err == nil {
 		t.Fatal("dispatch against a work item with no workflow instance was accepted")
@@ -268,6 +268,12 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal dispatch packet: %v", err)
 	}
+	reuseCanonical, err := canonicalJSON(packetPayload)
+	if err != nil {
+		t.Fatalf("canonicalJSON: %v", err)
+	}
+	reuseSum := sha256.Sum256(reuseCanonical)
+	reuseDigest := "sha256:" + hex.EncodeToString(reuseSum[:])
 	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-reuse", "worker_packet": json.RawMessage(packetPayload)})
 	if err != nil {
 		t.Fatalf("marshal dispatch fields: %v", err)
@@ -275,7 +281,7 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
 		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "dispatch-inputs"),
+		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "reuse-open-op"),
 		IdempotencyIdentity: "reuse-open-op", OperationID: "op-reuse-open", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "reuse-open-key", RequestID: "req-reuse-open",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -284,7 +290,7 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	}
 	// First worker-dispatch check: the window is open.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-reuse")
+		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-reuse", reuseDigest)
 	}); err != nil {
 		t.Fatalf("first dispatch_window check refused: %v", err)
 	}
@@ -295,7 +301,7 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	}
 	// Reuse must be refused.
 	reuseErr := s.Transact(ctx, func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-reuse")
+		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-reuse", reuseDigest)
 	})
 	if reuseErr == nil {
 		t.Fatal("second dispatch_window check was accepted; single-use violated")
@@ -309,11 +315,14 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	}
 }
 
-// TestDispatchFoldRecordsTheCanonicalPacketDigest proves CD-0067 D2: a
+// TestDispatchFoldRecordsTheCanonicalPacketDigest proves CD-0067 D2/D6: a
 // successful dispatch_worker fold writes worker_packet_digest on the
 // WorkflowActionCompleted event, computed as sha256 over canonicalJSON of the
-// packet the caller supplied. The digest is what later worker-evidence
-// boundaries compare against the worker's reported packet.
+// packet the caller supplied, AND returns that same digest on the
+// WorkflowActionExecutionResult.Result JSON so the adapter can quote it on
+// the signed evidence assertion without re-deriving the canonicalJSON bytes.
+// The digest is what later worker-evidence boundaries compare against the
+// worker's reported packet.
 func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
@@ -334,14 +343,15 @@ func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal fields: %v", err)
 	}
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+	result, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
 		Payload: fieldsPayload,
 		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "digest-inputs"),
 		IdempotencyIdentity: "digest-open-op", OperationID: "op-digest-open", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "digest-open-key", RequestID: "req-digest-open",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("dispatch_worker failed: %v", err)
 	}
 	var storedDigest string
@@ -351,6 +361,21 @@ func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 	}
 	if storedDigest != wantDigest {
 		t.Fatalf("worker_packet_digest = %q, want %q", storedDigest, wantDigest)
+	}
+	// D6: the same digest must surface on the action result the adapter
+	// reads, so the dispatch assertion can quote it byte-for-byte. Any
+	// other verb's result must NOT carry worker_packet_digest, so
+	// unrelated callers see no schema drift.
+	if len(result.Result) == 0 {
+		t.Fatal("dispatch_worker result.Result is empty, want the digest-bearing envelope")
+	}
+	var resultMap map[string]any
+	if err := json.Unmarshal(result.Result, &resultMap); err != nil {
+		t.Fatalf("result.Result is not JSON object: %v", err)
+	}
+	gotDigest, _ := resultMap["worker_packet_digest"].(string)
+	if gotDigest != wantDigest {
+		t.Fatalf("result.Result.worker_packet_digest = %q, want %q", gotDigest, wantDigest)
 	}
 }
 
@@ -709,6 +734,167 @@ func TestFindAuthorizedDispatchWindowSurfacesThePacketDigest(t *testing.T) {
 	}
 }
 
+// TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest pins the
+// happy path the CD-0067 D6 wiring depends on: with the correct digest the
+// gate accepts, so a worker that quotes the value the core recorded flows.
+// Wrong digest, empty digest, and a pre-CD-0067 window (no recorded digest)
+// each refuse with the typed failure an operator can act on. The four
+// subtests share one fixture because each branch depends on the same window
+// state, and only the digest argument varies.
+func TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-window-enforce")
+	actor := seed.ownerActor
+	attemptID := "attempt-window-enforce"
+	packet := dispatchWorkerPacket(seed.workID, "execution", attemptID)
+	packetBytes, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	canonical, err := canonicalJSON(packetBytes)
+	if err != nil {
+		t.Fatalf("canonicalJSON: %v", err)
+	}
+	wantSum := sha256.Sum256(canonical)
+	wantDigest := "sha256:" + hex.EncodeToString(wantSum[:])
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload,
+		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "enforce-inputs"),
+		IdempotencyIdentity: "enforce-op", OperationID: "op-enforce", PrincipalRef: actor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "enforce-key", RequestID: "req-enforce",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	}); err != nil {
+		t.Fatalf("dispatch_worker fold: %v", err)
+	}
+	// Happy path: the digest the dispatch authorization recorded is the
+	// digest the assertion claims. The gate accepts without a single-use
+	// error so the dispatched event lands first.
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", attemptID, wantDigest)
+	}); err != nil {
+		t.Fatalf("matching-digest check refused: %v", err)
+	}
+	if err := seedWorkerDispatchedForAttempt(t, s, seed.workID, attemptID); err != nil {
+		t.Fatalf("consume window: %v", err)
+	}
+	wrongDigest := "sha256:" + strings.Repeat("0", 64)
+	wrongErr := s.Transact(ctx, func(tx *Transaction) error {
+		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", attemptID, wrongDigest)
+	})
+	if wrongErr == nil {
+		t.Fatal("wrong-digest gate was accepted")
+	}
+	var wrongFailure *Failure
+	if !errors.As(wrongErr, &wrongFailure) {
+		t.Fatalf("wrong-digest gate returned %v, want typed failure", wrongErr)
+	}
+	if wrongFailure.Kind != KindUnauthorizedDispatch {
+		t.Fatalf("wrong-digest failure kind = %s, want unauthorized_dispatch", wrongFailure.Kind)
+	}
+	if !strings.Contains(wrongFailure.Detail, "packet digest") {
+		t.Fatalf("wrong-digest detail = %q, want it to name the packet digest", wrongFailure.Detail)
+	}
+	emptyErr := s.Transact(ctx, func(tx *Transaction) error {
+		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", attemptID, "")
+	})
+	if emptyErr == nil {
+		t.Fatal("empty-digest gate was accepted")
+	}
+	var emptyFailure *Failure
+	if !errors.As(emptyErr, &emptyFailure) {
+		t.Fatalf("empty-digest gate returned %v, want typed failure", emptyErr)
+	}
+	if emptyFailure.Kind != KindInvalidPayload {
+		t.Fatalf("empty-digest failure kind = %s, want invalid_payload", emptyFailure.Kind)
+	}
+	if !strings.Contains(emptyFailure.Detail, "packet_digest") {
+		t.Fatalf("empty-digest detail = %q, want it to name packet_digest", emptyFailure.Detail)
+	}
+}
+
+// TestValidateWorkerDispatchWindowRefusesPreCD0067Window pins the clean
+// cutover decision: a window whose completion event predates CD-0067 has no
+// worker_packet_digest key, and the gate refuses with the typed cutover
+// failure so the operator knows to open a fresh authorization. The test
+// seeds the pre-CD-0067 completion event by hand the way the CLI test helper
+// does, then runs the gate through a fresh transaction.
+func TestValidateWorkerDispatchWindowRefusesPreCD0067Window(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-pre-cd0067")
+	actor := seed.ownerActor
+	// Seed the WorkflowActionStarted event the window's start_seq
+	// resolves against, plus a completion that does NOT carry
+	// worker_packet_digest (the pre-CD-0067 shape). seedDispatchFixture
+	// already pinned the workflow instance to "execution"; the two
+	// domain_events below ride the standard fold path.
+	startPayload := mustJSON(map[string]any{
+		"work_id": seed.workID, "expected_version": 4, "resulting_version": 5,
+		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 1,
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
+		"idempotency_identity":   "pre-cutover-open",
+		"actor_ref":              actor,
+	})
+	completionPayload := mustJSON(map[string]any{
+		"work_id":              seed.workID,
+		"expected_version":     5,
+		"resulting_version":    6,
+		"step_id":              "execution",
+		"action_id":            "dispatch_worker",
+		"attempt_epoch":        1,
+		"result_evidence_refs": []string{},
+		"changed_refs":         []string{seed.workID},
+		"actor_ref":            actor,
+		"worker_attempt_id":    "attempt-pre-cd0067",
+		// No worker_packet_digest key — the pre-CD-0067 shape.
+	})
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		sqlTx, err := transactionSQL(tx, "test_pre_cd0067")
+		if err != nil {
+			return err
+		}
+		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+			"pre-cutover-start", WorkflowActionStarted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 1, []byte(startPayload)); err != nil {
+			return err
+		}
+		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+			"pre-cutover-completed", WorkflowActionCompleted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 2, []byte(completionPayload)); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed pre-CD-0067 window: %v", err)
+	}
+	// Run the gate with a non-empty digest; the recorded digest is empty,
+	// so the cutover refusal must fire.
+	err = s.Transact(ctx, func(tx *Transaction) error {
+		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-pre-cd0067", "sha256:"+strings.Repeat("d", 64))
+	})
+	if err == nil {
+		t.Fatal("pre-CD-0067 window with non-empty digest was accepted")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("pre-CD-0067 gate returned %v, want typed failure", err)
+	}
+	if failure.Kind != KindUnauthorizedDispatch {
+		t.Fatalf("pre-CD-0067 failure kind = %s, want unauthorized_dispatch", failure.Kind)
+	}
+	if !strings.Contains(failure.Detail, "packet binding") {
+		t.Fatalf("pre-CD-0067 detail = %q, want it to name the packet binding cutover", failure.Detail)
+	}
+}
+
 // TestDispatchFoldDefensivelyRefusesAbsentWorkerPacket pins the first
 // defensive refusal in appendGenericWorkflowCompletion's dispatch_worker
 // branch (workflow_action_guards.go line 388): a payload whose fields map
@@ -784,7 +970,7 @@ func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
 		t.Fatalf("marshal payload: %v", err)
 	}
 	in := dispatchFoldAssemblyInput(payload)
-	events, err := appendGenericWorkflowCompletion(in, 1, []Event{})
+	events, digest, err := appendGenericWorkflowCompletion(in, 1, []Event{})
 	if err != nil {
 		t.Fatalf("appendGenericWorkflowCompletion returned %v, want nil (the happy path proves the canonicalJSON call is reached)", err)
 	}
@@ -793,6 +979,9 @@ func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
 	}
 	if events[0].Kind != WorkflowActionCompleted {
 		t.Fatalf("events[0].Kind = %q, want %q", events[0].Kind, WorkflowActionCompleted)
+	}
+	if !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("dispatch_worker worker packet digest = %q, want sha256:hex", digest)
 	}
 }
 
@@ -826,7 +1015,7 @@ func dispatchFoldAssemblyInput(payload json.RawMessage) workflowActionAssemblyIn
 func assertDispatchFoldRefuses(t *testing.T, label string, payload json.RawMessage, wantDetail string) {
 	t.Helper()
 	in := dispatchFoldAssemblyInput(payload)
-	events, err := appendGenericWorkflowCompletion(in, 1, []Event{})
+	events, digest, err := appendGenericWorkflowCompletion(in, 1, []Event{})
 	if err == nil {
 		t.Fatalf("%s: appendGenericWorkflowCompletion returned nil error, want refusal %q", label, wantDetail)
 	}
@@ -842,5 +1031,8 @@ func assertDispatchFoldRefuses(t *testing.T, label string, payload json.RawMessa
 	}
 	if len(events) != 0 {
 		t.Fatalf("%s: events len = %d, want 0 (no WorkflowActionCompleted appended on refusal)", label, len(events))
+	}
+	if digest != "" {
+		t.Fatalf("%s: digest = %q, want empty on refusal", label, digest)
 	}
 }

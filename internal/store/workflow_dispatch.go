@@ -201,7 +201,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if request.ActionID == "complete" {
 		return applyCompleteWorkflowActionTx(ctx, tx, registry, entry, request, currentStep, guards.eventActor, payload)
 	}
-	assembly.events, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
+	var workerPacketDigest string
+	assembly.events, workerPacketDigest, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
 	if err != nil {
 		return result, err
 	}
@@ -220,7 +221,15 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	resultVersion := request.ExpectedVersion + int64(len(assembly.events))
 	result.ResultingVersion = resultVersion
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
-	result.Result, _ = json.Marshal(map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID})
+	resultMap := map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID}
+	// CD-0067 D6: the dispatch_worker response surfaces worker_packet_digest
+	// on result only when the action was dispatch_worker. Every other verb
+	// keeps the existing minimal envelope so unrelated callers see no
+	// schema drift.
+	if workerPacketDigest != "" {
+		resultMap["worker_packet_digest"] = workerPacketDigest
+	}
+	result.Result, _ = json.Marshal(resultMap)
 	durableChangedRef, _ := json.Marshal(changedRef)
 	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)

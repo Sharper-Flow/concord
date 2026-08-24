@@ -61,6 +61,19 @@ never forwarded to the core, which records the packet digest instead. The
 installed archive ships dispatch.ts, packet.ts, lane_dispatch.ts, and
 generated-agent-lanes.ts.
 
+### D6. The signed digest quotes the core
+
+The dispatch assertion's packet_digest is the value the core returned in the
+dispatch_worker response, not a value the adapter computes. Matching Go's
+canonicalJSON byte-for-byte from TypeScript would couple the two languages'
+JSON encoders for arbitrary narrative text; quoting the recorded digest needs
+no such contract and still binds the evidence to the packet the core digested
+and authorized. A window whose recorded digest is empty predates this
+decision: the evidence boundary refuses it and the operator opens a fresh
+authorization. The canonical assertion format gains packet_digest (signed
+empty for complete and fail); the shared worker-evidence vector repins both
+encoders.
+
 ## Consequences
 
 - Existing dispatch_worker callers must supply the packet; in-repo tests are

@@ -98,13 +98,11 @@
       "reason": "Research authoring reaches the agent surface under CD-0025, but these specific mutation and read paths do not. Which of them the agent surface is meant to expose has not been assessed."
     },
     {
-      "id": "superseded-agent-entrypoints",
+      "id": "test-only-invoke-entrypoint",
       "state": "outstanding",
       "functions": [
         "internal/agent.Invoke",
-        "internal/agent.InvokeWithRegistry",
-        "internal/agent.Service.ConsumeGrant",
-        "internal/agent.Service.RegisterClient"
+        "internal/agent.InvokeWithRegistry"
       ],
       "issue": 450
     },

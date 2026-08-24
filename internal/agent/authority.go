@@ -100,12 +100,6 @@ func (s *Service) RegisterTrustedClient(ctx context.Context, registration Client
 	return s.Store.RegisterTrustedClient(ctx, store.TrustedClientRecord{ClientRef: registration.ClientRef, Status: "active", PrincipalRef: registration.Policy.PrincipalRef, CapabilitiesJSON: policy.capabilities, ProductScopeJSON: policy.products, ProjectScopeJSON: policy.projects}, store.TrustedClientKeyRecord{ClientRef: registration.ClientRef, KeyID: registration.KeyID, PublicKey: []byte(registration.PublicKey), Status: "active"}, now)
 }
 
-// RegisterClient is retained only as an internal compatibility name; trusted
-// client registration always requires an explicit authority policy.
-func (s *Service) RegisterClient(ctx context.Context, registration ClientRegistration) error {
-	return s.RegisterTrustedClient(ctx, registration)
-}
-
 type canonicalPolicyJSON struct{ capabilities, products, projects string }
 
 func canonicalPolicy(policy TrustedClientPolicy) canonicalPolicyJSON {
@@ -419,13 +413,6 @@ func (s *Service) ValidateInvocation(ctx context.Context, in Invocation) (Grant,
 	}
 	return s.validateGrantRecord(record, in, s.now())
 }
-func (s *Service) ConsumeGrant(ctx context.Context, in Invocation) error {
-	if err := s.authorityReady("agent_consume_grant"); err != nil {
-		return err
-	}
-	_, err := s.consumeGrant(ctx, nil, in, true)
-	return err
-}
 
 // ValidateAndConsumeGrantTx is the mutation authorization boundary. The caller
 // owns tx and must commit it together with the authorized domain effect.
@@ -470,13 +457,7 @@ func (s *Service) consumeGrant(ctx context.Context, tx *store.Transaction, in In
 		return Grant{}, errors.New("invalid grant token")
 	}
 	hash := sha256Bytes([]byte(in.GrantToken))
-	var record store.GrantRecord
-	var err error
-	if tx != nil {
-		record, err = store.GrantTx(ctx, tx, hash)
-	} else {
-		record, err = s.Store.Grant(ctx, hash)
-	}
+	record, err := store.GrantTx(ctx, tx, hash)
 	if err != nil {
 		return Grant{}, errors.New("unknown grant")
 	}
@@ -487,12 +468,7 @@ func (s *Service) consumeGrant(ctx context.Context, tx *store.Transaction, in In
 	if !consume {
 		return g, nil
 	}
-	if tx != nil {
-		err = store.ConsumeGrantTx(ctx, tx, hash, in.ClientRef, s.now().Format(time.RFC3339Nano))
-	} else {
-		err = s.Store.ConsumeGrant(ctx, hash, in.ClientRef, s.now().Format(time.RFC3339Nano))
-	}
-	if err != nil {
+	if err := store.ConsumeGrantTx(ctx, tx, hash, in.ClientRef, s.now().Format(time.RFC3339Nano)); err != nil {
 		return Grant{}, errors.New("grant consumption lost authorization race")
 	}
 	return g, nil

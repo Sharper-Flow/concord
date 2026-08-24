@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run deterministic public contract checks and optional Bun validation."""
+"""Run deterministic public contract checks and optional Bun validation, including the adapter typecheck."""
 from __future__ import annotations
 import copy, hashlib, importlib.util, json, os
 import shutil, subprocess, sys, tempfile
@@ -744,11 +744,19 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
                 print(f"adapter test suite missing: {sorted(expected_suites - present_suites)}", file=sys.stderr); return 1
             adapter_tests = subprocess.run([bun, "test", "adapter/opencode"], cwd=ROOT)
             if adapter_tests.returncode: return adapter_tests.returncode
+            # Typecheck the adapter against the vendored host surface in
+            # adapter/opencode/vendor.d.ts. The dev-only tsconfig and ambient
+            # declarations live inside adapter/opencode; neither ships
+            # (install.ADAPTER_FILES is the source of truth for the archive).
+            # Run after the test suite so behavioural failures surface first.
+            typecheck = subprocess.run([bun, "x", "typescript@5.9.3", "-p", "adapter/opencode"], cwd=ROOT)
+            if typecheck.returncode:
+                print("adapter typecheck failed; see tsc output", file=sys.stderr); return typecheck.returncode
             source = (ROOT / "adapter/opencode/concord.ts").read_text(encoding="utf-8")
             exports = re.findall(r"export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(", source)
             if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_initiative", "work_transition", "work_relate", "work_compact"]:
                 print(f"adapter export drift: {exports}", file=sys.stderr); return 1
-        print("agent contract check passed (Bun syntax/build)")
+        print("agent contract check passed (Bun syntax/build/typecheck)")
     else:
         for path in (ROOT / "adapter/opencode/generated-contracts.ts", ROOT / "adapter/opencode/generated-contract-tests.ts"):
             text = path.read_text(encoding="utf-8")

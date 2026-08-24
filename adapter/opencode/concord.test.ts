@@ -104,7 +104,7 @@ test("single core response rejects invalid trailing content", async () => {
 })
 
 const grantResponse = () => ({ manifest_digest: manifestDigest, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", scope_version: "1" })
-const contextFor = (ask: () => Promise<void> = async () => {}, controller = new AbortController()): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: controller.signal, ask })
+const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController()): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: controller.signal, ask })
 const assertAdapterEnvelope = (value: any) => {
   expect(validateGeneratedEnvelope(value), JSON.stringify(value)).toBe(true)
   expect(value.origin).toBe("adapter")

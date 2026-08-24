@@ -76,7 +76,7 @@ function zodSchema(schema: any, root: Record<string, any>): any {
 
 function argsSchema(toolName: string): any {
   const z = tool.schema
-  const variants = contractOperations.filter((op: any) => op.tool === toolName).map((op: any) => z.object({ operation: z.literal(op.id.slice(op.id.indexOf(".") + 1)), input: zodSchema(payloadSchemas[op.input_schema.split("/").pop()!], payloadSchemas as any) }).strict())
+  const variants = contractOperations.filter((op: any) => op.tool === toolName).map((op: any) => z.object({ operation: z.literal(op.id.slice(op.id.indexOf(".") + 1)), input: zodSchema((payloadSchemas as Record<string, unknown>)[op.input_schema.split("/").pop()!], payloadSchemas as any) }).strict())
   return z.union(variants as any)
 }
 

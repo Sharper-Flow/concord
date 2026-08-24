@@ -457,6 +457,47 @@ def check_workflow_contracts() -> list[str]:
         findings.append(f"scenarios/workflow-engine.v1.json: structural validation failed: {exc}")
     return findings
 
+def _check_cd0043_lane_methodology() -> list[str]:
+    """Prove the shipped artifact carries no lane methodology (CD-0043 D1/D3).
+
+    CD-0043 made three repository facts decided state rather than accident:
+    the lane packet has no methodology property (a rejected alternative, kept
+    rejected), the lane registry version stays at the version the decision
+    preserved, and `skills/` ships as README-only emptiness. Until #461 no
+    check asserted any of them, so the first drifted edit would have passed
+    silently. Methodology reaching a worker is host instructions through
+    `CONCORD_HOST_INSTRUCTIONS` (D2), bound by CD-0034's provenance gate, so
+    nothing here re-checks that channel.
+    """
+    packet = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
+    registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8"))
+    skills_dir = ROOT / "skills"
+    entries = sorted(entry.name for entry in skills_dir.iterdir()) if skills_dir.is_dir() else []
+    return cd0043_lane_methodology_findings(packet, registry, entries)
+
+def cd0043_lane_methodology_findings(packet_schema: object, registry: object, skills_entries: list[str]) -> list[str]:
+    """Pure form of the CD-0043 D1/D3 check, over already-parsed documents."""
+    findings: list[str] = []
+    properties = packet_schema.get("properties", {}) if isinstance(packet_schema, dict) else {}
+    if not isinstance(properties, dict):
+        findings.append("contracts/agent-lane-packet.schema.json: properties must be an object")
+    elif "methodology" in properties:
+        findings.append(
+            "contracts/agent-lane-packet.schema.json: a 'methodology' property is rejected by CD-0043; "
+            "host instructions through CONCORD_HOST_INSTRUCTIONS are the sole channel"
+        )
+    version = registry.get("version") if isinstance(registry, dict) else None
+    if version != 1:
+        findings.append(
+            f"contracts/agent-lanes.v1.json: registry version {version!r} moves; CD-0043 pinned version 1 "
+            "and a bump needs a superseding decision"
+        )
+    if sorted(skills_entries) != ["README.md"]:
+        findings.append(
+            f"skills/: CD-0043 D3 ships the boundary as README.md only (a decided emptiness); found {sorted(skills_entries)}"
+        )
+    return findings
+
 def _check_evidence_obligation_vocabulary() -> list[str]:
     """Prove the lane evidence obligation join (CD-0056 D2).
 
@@ -618,6 +659,7 @@ def main() -> int:
     for path, required in lane_schema_expectations.items():
         lane_findings.extend(_check_closed_schema(path, required))
     lane_findings.extend(_check_evidence_obligation_vocabulary())
+    lane_findings.extend(_check_cd0043_lane_methodology())
     lane_findings.extend(_check_envelope_operation_vocabulary())
     lane_generator = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-lanes.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
     if lane_generator.returncode:

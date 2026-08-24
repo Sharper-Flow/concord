@@ -155,6 +155,13 @@ def test_uppercase_hash_is_rejected() -> None:
     assert any("invalid sha256 proof" in finding for finding in findings)
 
 
+def test_non_spec_record_cannot_carry_criterion_bindings() -> None:
+    value = fixture()
+    value["records"][0]["criterion_bindings"] = [{"criterion": 1, "scenario": "WF01-capture-late-outcome"}]
+    findings = checker.validate(value, check_hashes=False)
+    assert any("criterion_bindings are only allowed on spec records" in finding for finding in findings), findings
+
+
 def test_records_may_not_share_a_title_or_summary() -> None:
     # A record copied from a sibling keeps its sha256 honest - the hash still
     # binds the bytes of its own target document - while the unhashed prose

@@ -37,12 +37,18 @@ import argparse
 import json
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from evidence_anchors import scenario_exists  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_FINDINGS = 1000
 MAX_SENTENCE_WORDS = 40
+MIN_CRITERION_EXEMPTION = 12
+MAX_CRITERION_EXEMPTION = 512
 # The record kinds a doc contract may address, in taxonomy order. A kind absent
 # from the manifest's doc_contract is not checked at all; a kind present is
 # checked against its outline, its acceptance-criteria rule, and the STE subset.
@@ -404,6 +410,66 @@ def check_gherkin(
     return parse_gherkin_criteria(lines, section[0], section[1], path, findings)
 
 
+@lru_cache(maxsize=128)
+def resolved_scenario_exists(scenario_id: str) -> bool:
+    return scenario_exists(scenario_id)
+
+
+def check_criterion_bindings(
+    record: dict,
+    criteria_count: int,
+    path: Path,
+    findings: list[str],
+) -> None:
+    bindings = record.get("criterion_bindings")
+    if bindings is None:
+        if record.get("kind") == "spec":
+            for criterion in range(1, criteria_count + 1):
+                findings.append(f"criterion is unresolved: {path.relative_to(ROOT)} [{criterion}]")
+        return
+    if record.get("kind") != "spec":
+        findings.append(f"criterion bindings forbidden: {path.relative_to(ROOT)}")
+    if not isinstance(bindings, list):
+        findings.append(f"criterion bindings invalid: {path.relative_to(ROOT)} (must be an array)")
+        return
+    seen: set[int] = set()
+    bound: set[int] = set()
+    for number, binding in enumerate(bindings):
+        prefix = f"{path.relative_to(ROOT)} criterion_bindings[{number}]"
+        if not isinstance(binding, dict) or set(binding) not in ({"criterion", "scenario"}, {"criterion", "exemption"}):
+            findings.append(f"criterion binding invalid: {prefix} (criterion and exactly one scenario or exemption required)")
+            continue
+        criterion = binding.get("criterion")
+        if not isinstance(criterion, int) or isinstance(criterion, bool) or criterion < 1:
+            findings.append(f"criterion binding index invalid: {prefix}")
+            continue
+        if criterion in seen:
+            findings.append(f"criterion binding duplicate index: {path.relative_to(ROOT)} [{criterion}]")
+        seen.add(criterion)
+        if criterion > criteria_count:
+            findings.append(f"criterion binding index is out of range: {path.relative_to(ROOT)} [{criterion}]")
+            continue
+        bound.add(criterion)
+        if "scenario" in binding:
+            scenario = binding["scenario"]
+            if not isinstance(scenario, str) or not 0 < len(scenario) <= 256 or scenario != scenario.strip():
+                findings.append(f"criterion binding scenario invalid: {prefix}")
+            elif not resolved_scenario_exists(scenario):
+                findings.append(f"criterion binding names no scenario: {path.relative_to(ROOT)} [{criterion}] ({scenario})")
+        else:
+            exemption = binding["exemption"]
+            if (
+                not isinstance(exemption, str)
+                or not MIN_CRITERION_EXEMPTION <= len(exemption) <= MAX_CRITERION_EXEMPTION
+                or exemption != exemption.strip()
+            ):
+                findings.append(f"criterion exemption reason invalid: {path.relative_to(ROOT)} [{criterion}] (12-512 trimmed characters required)")
+    if record.get("kind") == "spec":
+        for criterion in range(1, criteria_count + 1):
+            if criterion not in bound:
+                findings.append(f"criterion is unresolved: {path.relative_to(ROOT)} [{criterion}]")
+
+
 def check_no_gherkin(lines: list[str], path: Path, findings: list[str]) -> None:
     """ac_required false means an acceptance-criteria section is forbidden.
 
@@ -632,8 +698,10 @@ def check_record(
     if spec.get("ac_required", False):
         criteria_count = check_gherkin(lines, absolute, findings)
         check_verification_coverage(lines, criteria_count, absolute, findings)
+        check_criterion_bindings(record, criteria_count, absolute, findings)
     else:
         check_no_gherkin(lines, absolute, findings)
+        check_criterion_bindings(record, 0, absolute, findings)
 
     segments, line_text = split_into_segments(lines)
     # Replace lines with the scrubbed content for content checks so HTML

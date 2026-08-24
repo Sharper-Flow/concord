@@ -90,6 +90,7 @@ def record(path: str, sha_digest: str = "a") -> dict:
             "domain_ids": [], "tag_ids": [],
         },
         "home_domain_id": "product-root:concord",
+        "criterion_bindings": [{"criterion": 1, "scenario": "WF01-capture-late-outcome"}],
         "sha256": "sha256:" + sha_digest * 64,
     }
 
@@ -678,6 +679,7 @@ def non_spec_record(kind: str, path: str, sha_digest: str = "a") -> dict:
     entry = record(path, sha_digest)
     entry["id"], entry["kind"], entry["status"] = f"{kind}-1", kind, "published"
     entry.pop("home_domain_id", None)
+    entry.pop("criterion_bindings", None)
     return entry
 
 
@@ -1021,6 +1023,9 @@ def test_ac_split_triggers_pass() -> None:
     path = "docs/split-triggers.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="g2")])
+    manifest["records"][0]["criterion_bindings"].append(
+        {"criterion": 2, "exemption": "A recorded reason for this exemption."}
+    )
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 0, (exit_code, stdout, stderr)
 
@@ -1217,6 +1222,94 @@ Body.
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 0, stdout
 
+
+# ---------------------------------------------------------------------------
+# Typed criterion resolution
+# ---------------------------------------------------------------------------
+
+
+SCENARIO_ID = "WF01-capture-late-outcome"
+
+
+def criterion_manifest(root: Path, path: str, binding: dict | None) -> dict:
+    write_spec(root, path, VALID_BODY)
+    manifest = manifest_with(root, [record(path, sha_digest="criterion")])
+    manifest["records"][0]["criterion_bindings"] = [] if binding is None else [binding]
+    return manifest
+
+
+def test_criterion_binding_to_existing_scenario_passes() -> None:
+    root = sandbox()
+    path = "docs/bound.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": SCENARIO_ID})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_criterion_binding_to_unknown_scenario_fails() -> None:
+    root = sandbox()
+    path = "docs/unknown-scenario.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": "SCENARIO-does-not-exist"})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion binding names no scenario" in line for line in stdout.splitlines()), stdout
+
+
+def test_unbound_criterion_fails() -> None:
+    root = sandbox()
+    path = "docs/unbound.md"
+    manifest = criterion_manifest(root, path, None)
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion is unresolved" in line for line in stdout.splitlines()), stdout
+
+
+def test_criterion_binding_without_resolution_kind_fails() -> None:
+    root = sandbox()
+    path = "docs/missing-resolution.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion binding invalid" in line for line in stdout.splitlines()), stdout
+
+
+def test_criterion_exemption_without_reason_fails() -> None:
+    root = sandbox()
+    path = "docs/empty-exemption.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "exemption": ""})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion exemption reason invalid" in line for line in stdout.splitlines()), stdout
+
+
+def test_criterion_exemption_with_too_short_reason_fails() -> None:
+    root = sandbox()
+    path = "docs/short-exemption.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "exemption": "too short"})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion exemption reason invalid" in line for line in stdout.splitlines()), stdout
+
+
+def test_duplicate_criterion_binding_fails() -> None:
+    root = sandbox()
+    path = "docs/duplicate-binding.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": SCENARIO_ID})
+    manifest["records"][0]["criterion_bindings"].append(
+        {"criterion": 1, "exemption": "A recorded reason for this exemption."}
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion binding duplicate index" in line for line in stdout.splitlines()), stdout
+
+
+def test_out_of_range_criterion_binding_fails() -> None:
+    root = sandbox()
+    path = "docs/out-of-range.md"
+    manifest = criterion_manifest(root, path, {"criterion": 2, "scenario": SCENARIO_ID})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion binding index is out of range" in line for line in stdout.splitlines()), stdout
 
 
 def main() -> int:

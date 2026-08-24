@@ -341,11 +341,10 @@ func TestMarshalKnowledgeManifestMatchesKnowledgeIndexGenerator(t *testing.T) {
 }
 
 // eightKeyLessonRepoFixture seeds a git knowledge home whose manifest carries
-// every top-level key the v1 contract declares, including the three the Go
-// model does not project onto a field: knowledge_roots, exclusions, and
-// doc_contract. Those three carry live policy — the doc contract gate and the
-// research exclusion — so a publication that drops them disables repository
-// law.
+// every top-level key the v1 contract declares, including policy fields that a
+// publication must preserve: knowledge_roots, exclusions, and doc_contract.
+// Those fields carry live policy, so a publication that drops them disables
+// repository law.
 func eightKeyLessonRepoFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -453,8 +452,7 @@ func TestPublishLessonRecordPreservesEveryTopLevelManifestKey(t *testing.T) {
 	if len(after) != len(before) {
 		t.Fatalf("top-level key count changed: before %v, after %v", sortedKeys(before), sortedKeys(after))
 	}
-	// The three unmodeled keys must survive byte-identical: the publication
-	// owns records, not policy.
+	// Policy keys must survive semantically: publication owns records, not policy.
 	for _, key := range []string{"knowledge_roots", "exclusions", "doc_contract"} {
 		var want, got any
 		if err := json.Unmarshal(before[key], &want); err != nil {

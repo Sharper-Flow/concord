@@ -270,6 +270,12 @@ func marshalKnowledgeManifest(manifest KnowledgeManifest) ([]byte, error) {
 	values["schema_version"] = manifest.SchemaVersion
 	values["supported_kinds"] = manifest.SupportedKinds
 	values["indexed_kinds"] = manifest.IndexedKinds
+	if len(manifest.KnowledgeRoots) > 0 {
+		values["knowledge_roots"] = manifest.KnowledgeRoots
+	}
+	if len(manifest.Exclusions) > 0 {
+		values["exclusions"] = manifest.Exclusions
+	}
 	if manifest.SchemaVersion == "1.2" {
 		values["domain_registry"] = manifest.DomainRegistry
 	}

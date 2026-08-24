@@ -986,6 +986,26 @@
     {
       "input_invalid_cases": [
         {
+          "unknown": true
+        }
+      ],
+      "input_schema": "knowledge_unprocessed_input",
+      "input_valid": {},
+      "operation": "concord_knowledge.unprocessed",
+      "result_invalid_cases": [
+        {
+          "paths": [],
+          "unknown": true
+        }
+      ],
+      "result_schema": "unprocessed_page",
+      "result_valid": {
+        "paths": []
+      }
+    },
+    {
+      "input_invalid_cases": [
+        {
           "idempotency_key": "id-1",
           "kind": "task",
           "project_ids": [
@@ -2850,5 +2870,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:50daf6218638df9236b8c151429e20f16bfe58fc82b712d25613767b1051a1ae"
+  "manifest_digest": "sha256:3ee5b24a4a9daac28c72779cecb627245b531d00f6257ea9803e65ff4655e671"
 }

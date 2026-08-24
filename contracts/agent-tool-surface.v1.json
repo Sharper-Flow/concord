@@ -60,7 +60,8 @@
       "description": "Search and resolve durable knowledge.",
       "operations": [
         "concord_knowledge.search",
-        "concord_knowledge.resolve_note"
+        "concord_knowledge.resolve_note",
+        "concord_knowledge.unprocessed"
       ]
     },
     {
@@ -509,6 +510,27 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_knowledge.unprocessed",
+      "tool": "concord_knowledge",
+      "kind": "read",
+      "query_id": "PM1.Q15",
+      "input_schema": "#/schemas/knowledge_unprocessed_input",
+      "result_schema": "#/schemas/unprocessed_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "limit",
         "output_bytes": 65536,
         "versions": [
           "1.0"
@@ -1360,6 +1382,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_resolve_input",
       "closed": true
     },
+    "knowledge_unprocessed_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_unprocessed_input",
+      "closed": true
+    },
     "product_context": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_context",
       "closed": true
@@ -1414,6 +1440,10 @@
     },
     "canonical_note_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/canonical_note_result",
+      "closed": true
+    },
+    "unprocessed_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/unprocessed_page",
       "closed": true
     },
     "work_define_capture_input": {
@@ -1669,6 +1699,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:f93a483ad5cd329795909bec364e723da9a5193d0697121ef5c36d95b6fc91bb",
-  "digest": "sha256:50daf6218638df9236b8c151429e20f16bfe58fc82b712d25613767b1051a1ae"
+  "payload_digest": "sha256:4d8107bc95f7d28235c77a2b46d55f5c269dd53303757287b2373b7f8964a8bf",
+  "digest": "sha256:3ee5b24a4a9daac28c72779cecb627245b531d00f6257ea9803e65ff4655e671"
 }

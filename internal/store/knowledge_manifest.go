@@ -75,8 +75,8 @@ var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true
 // manifestRootKeys is the declared top-level vocabulary of the knowledge
 // manifest contract. The value records whether this package projects the key
 // onto a KnowledgeManifest field. A false value marks repository policy the
-// store does not interpret — knowledge roots, exclusions, and the prose
-// contract — which must survive a parse and re-marshal verbatim, because
+// store does not interpret — the prose contract — which must survive a parse
+// and re-marshal verbatim, because
 // rewriting the manifest to append a record must never silently repeal it.
 // TestKnowledgeManifestVocabularyMatchesSchema binds this set to
 // contracts/concord-knowledge-index.v1.schema.json.
@@ -87,8 +87,8 @@ var manifestRootKeys = map[string]bool{
 	"domain_registry": true,
 	"records":         true,
 	"dispositions":    true,
-	"knowledge_roots": false,
-	"exclusions":      false,
+	"knowledge_roots": true,
+	"exclusions":      true,
 	"doc_contract":    false,
 }
 

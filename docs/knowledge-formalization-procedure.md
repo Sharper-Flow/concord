@@ -27,8 +27,8 @@ exactly one of four states.
 **Unprocessed.** The manifest holds no record for the file. The document is
 not law for this Product, however much it reads like a specification. An
 agent must never treat an unprocessed document as authority. The negative is
-authoritative only through the knowledge read surface; text search is not a
-substitute for it.
+authoritative only through `concord_knowledge.unprocessed`; text search is not
+a substitute for it.
 
 **Law.** A record exists, its kind is law-bearing, and its status is
 `accepted`. Only `constitution`, `decision`, and `spec` can reach this state.

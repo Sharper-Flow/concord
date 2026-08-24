@@ -514,6 +514,35 @@ def _check_evidence_obligation_vocabulary() -> list[str]:
         json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8")),
     )
 
+def _check_lane_agent_selectability() -> list[str]:
+    """Prove a lane definition is dispatchable but not operator-selectable (CD-0070).
+
+    Two frontmatter keys carry this and they pull in opposite directions. Run
+    mode refuses a subagent-mode target and silently substitutes the default
+    agent, so CD-0064 D1 requires a primary-capable mode. The host then cycles
+    every primary-capable agent whose hidden flag is unset, which is how a
+    worker lane became selectable as the operator's session agent.
+
+    The generator's own `--check` proves the definitions match the generator,
+    which is self-consistency rather than proof: a change to both sides passes
+    it. These assertions read the definitions directly, so dropping either key
+    fails here regardless of what the generator emits.
+    """
+    findings: list[str] = []
+    manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8"))
+    for lane in manifest.get("lanes", []):
+        relative = Path(".opencode/agents") / f"concord-{lane['id']}.md"
+        try:
+            frontmatter = (ROOT / relative).read_text(encoding="utf-8").split("---\n", 2)[1]
+        except (OSError, IndexError):
+            findings.append(f"{relative}: lane definition is absent or carries no frontmatter block")
+            continue
+        if "\nhidden: true\n" not in f"\n{frontmatter}":
+            findings.append(f"{relative}: lane definition must declare `hidden: true` (CD-0070 D1)")
+        if "\nmode: all\n" not in f"\n{frontmatter}":
+            findings.append(f"{relative}: lane definition must declare `mode: all` (CD-0064 D1)")
+    return findings
+
 def _obligation_enum(document: object, label: str, findings: list[str]) -> list[str] | None:
     node = document
     for key in ("$defs", "evidence_obligation", "enum"):
@@ -661,6 +690,7 @@ def main() -> int:
     lane_findings.extend(_check_evidence_obligation_vocabulary())
     lane_findings.extend(_check_cd0043_lane_methodology())
     lane_findings.extend(_check_envelope_operation_vocabulary())
+    lane_findings.extend(_check_lane_agent_selectability())
     lane_generator = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-lanes.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
     if lane_generator.returncode:
         lane_findings.append(lane_generator.stderr.strip() or lane_generator.stdout.strip() or "lane generator failed")

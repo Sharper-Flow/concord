@@ -1,6 +1,7 @@
 ---
 description: Concord research lane — Investigate bounded questions and return source-backed findings.
 mode: all
+hidden: true
 tools:
   task: false
 permission:

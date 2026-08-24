@@ -508,26 +508,41 @@ func expiryPassed(stored string, now time.Time) (time.Time, bool) {
 	return parsed, !parsed.After(now)
 }
 
+// grantRefusal types a refusal to establish authority for a call. Every exit
+// from validateGrantRecord is such a refusal: the grant is absent, expired,
+// bound to a different invocation, spent, missing the capability, or carries a
+// record too corrupt to define a scope. All of them are the authorization
+// boundary working, so all of them carry `unauthorized`.
+//
+// An untyped error would reach the caller as `internal_error` with recovery
+// `contact_operator` and retry_safe false, which tells an agent Concord
+// malfunctioned. CD-0017 D4's nested-worker refusal and CD-0059 D3's
+// non-grantable capability both arrive here, and both are correct outcomes
+// rather than defects (issue #437).
+func grantRefusal(detail string) error {
+	return newRuntimeFailure("unauthorized", detail, "contact_operator", false)
+}
+
 func (s *Service) validateGrantRecord(record store.GrantRecord, in Invocation, now time.Time) (Grant, error) {
 	var g Grant
 	expiresAt, expired := expiryPassed(record.ExpiresAt, now)
 	if record.ClientStatus != "active" || record.ClientKeyID != record.ActiveKeyID || record.RevokedAt != "" || record.ManifestDigest != ManifestDigest || expired {
-		return g, errors.New("grant expired or revoked")
+		return g, grantRefusal("grant expired or revoked")
 	}
 	if record.ClientRef != in.ClientRef || record.PrincipalRef != in.PrincipalRef || record.SessionRef != in.SessionRef || record.AgentRef != in.AgentRef || record.Directory != in.Directory || record.Worktree != in.Worktree || in.ManifestDigest != record.ManifestDigest {
-		return g, errors.New("invocation binding mismatch")
+		return g, grantRefusal("invocation binding mismatch")
 	}
 	if record.MaxUses > 0 && record.UsedCount >= record.MaxUses {
-		return g, errors.New("grant use limit reached")
+		return g, grantRefusal("grant use limit reached")
 	}
 	if err := json.Unmarshal([]byte(record.CapabilitiesJSON), &g.Capabilities); err != nil || !containsCapability(g.Capabilities, in.RequiredCapability) {
-		return g, errors.New("grant capability missing")
+		return g, grantRefusal("grant capability missing")
 	}
 	if err := json.Unmarshal([]byte(record.ProductScopeJSON), &g.ProductScope); err != nil {
-		return g, err
+		return g, grantRefusal("grant product scope is unreadable")
 	}
 	if err := json.Unmarshal([]byte(record.ProjectScopeJSON), &g.ProjectScope); err != nil {
-		return g, err
+		return g, grantRefusal("grant project scope is unreadable")
 	}
 	g.RecordID, g.PrincipalRef, g.ClientRef, g.SessionRef, g.AgentRef = record.RecordID, record.PrincipalRef, record.ClientRef, record.SessionRef, record.AgentRef
 	g.Directory, g.Worktree, g.ClientKeyID = record.Directory, record.Worktree, record.ClientKeyID
@@ -537,19 +552,19 @@ func (s *Service) validateGrantRecord(record store.GrantRecord, in Invocation, n
 	// scope satisfies containment by missing every lookup. Reject it rather
 	// than let a corrupt record widen the grant.
 	if err := json.Unmarshal([]byte(record.ScopeSnapshotJSON), &g.ScopeSnapshot); err != nil {
-		return Grant{}, errors.New("grant scope snapshot is unreadable")
+		return Grant{}, grantRefusal("grant scope snapshot is unreadable")
 	}
 	if err := json.Unmarshal([]byte(record.CandidateProductsJSON), &g.CandidateProducts); err != nil {
-		return Grant{}, errors.New("grant candidate products are unreadable")
+		return Grant{}, grantRefusal("grant candidate products are unreadable")
 	}
 	g.Token = in.GrantToken
 	g.IssuedAt, _ = time.Parse(time.RFC3339Nano, record.IssuedAt)
 	g.ExpiresAt = expiresAt
 	if in.ProductID != "" && !contains(g.ProductScope, in.ProductID) {
-		return g, errors.New("product outside grant scope")
+		return g, grantRefusal("product outside grant scope")
 	}
 	if in.ProjectID != "" && !contains(g.ProjectScope, in.ProjectID) {
-		return g, errors.New("project outside grant scope")
+		return g, grantRefusal("project outside grant scope")
 	}
 	return g, nil
 }

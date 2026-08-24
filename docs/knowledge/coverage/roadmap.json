@@ -1,0 +1,5 @@
+{
+  "id": "roadmap",
+  "reason": "Planning material with status published, not law. It recommends an order for open issues and states in its own header that issues own the work and priorities.md owns the priority order; it asserts no rule an implementation could satisfy or violate, so no anchor could bind to it. The one property it carries is that its entries name live open issues in the correct order, and no check in this repository can prove that, because the issues live outside it. The record's sha256 proves only that the record still describes the current bytes. That gap is stated in the file's own maintenance section rather than hidden behind a coverage anchor.",
+  "state": "out_of_scope"
+}

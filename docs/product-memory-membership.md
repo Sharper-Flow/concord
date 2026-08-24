@@ -9,9 +9,26 @@
 > is optional for both Products and work items.
 > **Research basis:** public predecessor lessons plus official/public models from
 > Linear, GitLab, GitHub Projects, Changesets, Jira, and Bugzilla. No benchmark or
-> PoC is part of this decision.
+> proof of concept (PoC) is part of this decision.
 > **Does not decide:** PM6 canonical note placement, C15 managed-resource identity,
 > TS5 authorization/context mechanics, exact DDL/indexes, or agent tools.
+
+## Context
+
+Concord coordinates work for one operator across Products and Projects. The
+binding inputs are the accepted PM1 query contract, PM2 global authority, PM3
+typed projection model, and PM4 lifecycle and relation semantics. This record
+decides how membership itself is stored and read: which Projects make up each
+Product, which Projects one work item touches, and how Product scope derives
+without ever being copied onto the work item.
+
+## Contract
+
+The binding contract is sections 1 through 7: the membership model, the
+Product-scope and cross-Product rules, stable identity and locators, atomic
+membership operations, the query contract, and the structural invariants.
+Section 8 records the alternatives the operator rejected; sections 9 through
+11 record deferred scope, falsifiers, and sources, and carry no obligation.
 
 ## 1. Decision
 
@@ -284,8 +301,41 @@ Reopen PM5 if:
   https://docs.gitlab.com/ee/user/project/issues/related_issues.html
 - GitHub Projects: https://docs.github.com/en/issues/planning-and-tracking-with-projects/about-projects
 - Changesets: https://github.com/changesets/changesets
-- Jira issue linking: https://confluence.atlassian.com/spaces/ADMINJIRASERVER/pages/938847862/Configuring+issue+linking
+- Jira issue linking: `https://confluence.atlassian.com/spaces/ADMINJIRASERVER/pages/938847862/Configuring+issue+linking`
 - Bugzilla dependencies: https://bz.apache.org/bugzilla/docs/en/html/using/understanding.html
 
 External models are comparison evidence. PM1's accepted jobs/oracles, PM2–PM4,
 operator choices, and the falsifiers above remain controlling.
+
+## Acceptance criteria
+
+- Given a work item with memberships in two Projects
+  When a caller reads that work item
+  Then one canonical record carries both memberships.
+
+- Given a Project that belongs to one Product
+  When a caller resolves the Project to its Product
+  Then the resolution names exactly that Product.
+
+- Given a Project with member work items
+  When a caller lists work through the Project
+  Then the listing returns those work items.
+
+- Given a work item whose memberships change in one operation
+  When the operation commits
+  Then the stored membership set equals the requested set completely.
+
+## Verification
+
+- Criterion 1 is proved by the bound `Q6-cross-project` scenario, whose
+  fixture carries two Project memberships and asserts one canonical record.
+- Criterion 2 is proved by the bound `Q1-project-to-product` scenario, which
+  resolves a Project to its Product through the authoritative join.
+- Criterion 3 is proved by the bound `Q6-project-to-work` scenario, which
+  lists work through Project membership.
+- Criterion 4 has no corpus scenario; it is proved by the store test
+  `TestMembershipReplacementReplacesTheWholeSet`
+  (internal/store/lifecycle_relations_test.go), which replaces a two-member
+  set with a different two-member set and asserts the committed projection
+  equals the requested set with the removed edge gone. Section 10 records
+  the falsifiers for each guarantee.

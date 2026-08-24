@@ -1046,6 +1046,32 @@
     {
       "evidence": [
         {
+          "kind": "scenario",
+          "value": "Q6-cross-project"
+        },
+        {
+          "kind": "scenario",
+          "value": "Q1-project-to-product"
+        },
+        {
+          "kind": "scenario",
+          "value": "Q6-project-to-work"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-doc-contract.py"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMembershipReplacementReplacesTheWholeSet"
+        }
+      ],
+      "id": "PM5",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
           "kind": "go_test",
           "value": "internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact"
         }
@@ -1106,6 +1132,11 @@
       "state": "out_of_scope"
     },
     {
+      "id": "advance-predecessor-postmortem",
+      "reason": "Predecessor design evidence, explicitly non-authorizing. The failure mechanisms it distills are bound structurally by the decisions that adopted each prevention; the record itself asserts nothing Concord can execute against.",
+      "state": "out_of_scope"
+    },
+    {
       "evidence": [
         {
           "kind": "generated",
@@ -1114,6 +1145,21 @@
       ],
       "id": "agent-lanes-contract",
       "state": "satisfied"
+    },
+    {
+      "id": "core-architecture",
+      "reason": "Descriptive architecture companion with status published and no authority over implementations; the decisions and specs it cites carry their own coverage. Its link integrity is proved by scripts/check-doc-links.py.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "feature-inventory",
+      "reason": "Predecessor capability snapshot marked non-authorizing in its own header; it establishes no proposition this repository can prove or violate, and refreshes against public sources rather than executable evidence.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "installation",
+      "reason": "Operational guide with status published. It instructs an operator through installer behavior; the installer itself is proved by scripts/test-installer.py and the release pipeline rather than by a coverage anchor on this record.",
+      "state": "out_of_scope"
     },
     {
       "id": "knowledge-formalization-procedure",

@@ -2,7 +2,7 @@
 
 Concord releases support Linux amd64 only. The published release contains the
 binary, a reproducible bundle with the OpenCode adapter, a SHA-256 checksum
-file, an SBOM, and the installer itself.
+file, a software bill of materials (SBOM), and the installer itself.
 
 ## Prerequisites
 

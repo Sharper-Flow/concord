@@ -1,0 +1,5 @@
+{
+  "id": "installation",
+  "reason": "Operational guide with status published. It instructs an operator through installer behavior; the installer itself is proved by scripts/test-installer.py and the release pipeline rather than by a coverage anchor on this record.",
+  "state": "out_of_scope"
+}

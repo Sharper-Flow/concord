@@ -53,7 +53,7 @@ MAX_CRITERION_EXEMPTION = 512
 # from the manifest's doc_contract is not checked at all; a kind present is
 # checked against its outline, its acceptance-criteria rule, and the STE subset.
 DOC_CONTRACT_KINDS = ("constitution", "decision", "spec", "lesson", "reference", "research")
-DOC_CONTRACT_FIELDS = {"enforced", *DOC_CONTRACT_KINDS, "banned_phrases"}
+DOC_CONTRACT_FIELDS = {"enforced", *DOC_CONTRACT_KINDS, "banned_phrases", "activation"}
 DEFAULT_ABBREVIATION_ALLOWLIST = frozenset(
     {
         "JSON", "API", "CLI", "TUI", "SQL", "WAL", "CI", "PR", "ADV", "TS",
@@ -178,6 +178,16 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
     if "enforced" in contract and not isinstance(contract["enforced"], bool):
         findings.append("manifest.doc_contract: enforced must be a boolean")
         contract["enforced"] = False
+    activation = contract.get("activation")
+    if activation is not None:
+        if not isinstance(activation, dict) or set(activation) != {"max_registered_findings", "max_unresolved_criteria", "max_false_positives", "evidence"}:
+            findings.append("manifest.doc_contract.activation: must carry exactly the four criterion fields")
+        else:
+            for field in ("max_registered_findings", "max_unresolved_criteria", "max_false_positives"):
+                if activation[field] != 0:
+                    findings.append(f"manifest.doc_contract.activation: {field} must be 0")
+            if not isinstance(activation["evidence"], str) or not (12 <= len(activation["evidence"].strip()) <= 1024):
+                findings.append("manifest.doc_contract.activation: evidence must be trimmed text of 12-1024 characters")
 
     for kind in DOC_CONTRACT_KINDS:
         body = contract.get(kind)
@@ -734,6 +744,74 @@ def report_only(findings: list[str], noun: str) -> int:
     return 0
 
 
+def check_activation_sequence(enforced: bool, activation: object, findings: list[str]) -> None:
+    """The enforced flip is a two-step sequence: the activation object must
+    land in an earlier change than the flip itself (issue #319).
+
+    When enforcement is on, the commit that introduced `"enforced": true`
+    must have a parent whose manifest already carried the identical
+    activation object. The check consults git history through the owning
+    module boundary (no direct subprocess use here) and is skipped without
+    a finding when history is unavailable — a shallow checkout cannot prove
+    either direction. The activation-recording change is itself unenforced,
+    so its own run never reaches this check.
+    """
+    if not enforced:
+        return
+    parent_activation = _parent_manifest_activation()
+    if parent_activation is _NO_HISTORY:
+        return
+    if parent_activation is None:
+        findings.append(
+            "activation-sequence: the enforcing change has no parent manifest "
+            "carrying the activation object; record the criterion in an earlier change"
+        )
+    elif parent_activation != activation:
+        findings.append(
+            "activation-sequence: the activation object changed together with "
+            "the enforcement flip; the criterion must be recorded unchanged beforehand"
+        )
+
+
+_NO_HISTORY = object()
+
+
+def _parent_manifest_activation() -> object:
+    import subprocess
+
+    def git(*args: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=30
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return result.stdout if result.returncode == 0 else None
+
+    current = git("rev-parse", "HEAD")
+    if current is None:
+        return _NO_HISTORY
+    # The manifest may be dirty in a working tree; the sequence check reads
+    # committed state only. Find the last commit that changed the manifest's
+    # enforced flag, then read the manifest as its parent had it.
+    log = git("log", "-1", "--format=%H", "-S", '"enforced": true', "--", str(MANIFEST.relative_to(ROOT)))
+    if not log:
+        return _NO_HISTORY
+    parent = git("rev-parse", log.strip() + "~1")
+    if parent is None:
+        return _NO_HISTORY
+    blob = git("show", parent.strip() + ":" + str(MANIFEST.relative_to(ROOT)))
+    if blob is None:
+        # The parent commit exists but carries no manifest: no activation
+        # object could have been recorded there.
+        return None
+    try:
+        document = json.loads(blob)
+    except json.JSONDecodeError:
+        return None
+    return document.get("doc_contract", {}).get("activation")
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -753,6 +831,7 @@ def main(argv: list[str]) -> int:
         return report(findings, "doc contract")
 
     enforced = bool(contract.get("enforced", False))
+    check_activation_sequence(enforced, contract.get("activation"), findings)
     report_only_mode = args.report_only or not enforced
     banned: tuple[str, ...] = tuple(contract.get("banned_phrases", DEFAULT_BANNED_PHRASES))
     abbreviations = DEFAULT_ABBREVIATION_ALLOWLIST

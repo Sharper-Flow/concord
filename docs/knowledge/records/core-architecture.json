@@ -1,0 +1,22 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "id": "core-architecture",
+  "kind": "reference",
+  "path": "docs/core-architecture.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3ef557857a32c790c337e868b0a39d92afd43624eed0d2e72fb1385eaa3f32ec",
+  "status": "published",
+  "summary": "Descriptive companion record of the Go-core architecture direction and the consolidated resilience invariants. Not accepted law: the header names priorities.md as canonical for its subject and records direction only, so under the procedure's recorded-acceptance rule it cannot take a law-bearing kind. The decisions it cites (CD-0002 and peers) carry the authority for the invariants it restates.",
+  "tags": [
+    "architecture",
+    "storage",
+    "companion"
+  ],
+  "title": "Concord core architecture"
+}

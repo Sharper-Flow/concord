@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func workCreatedEvent(id, eventID string) Event {
@@ -575,4 +577,67 @@ func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
 	event.PayloadVersion = 2
 	err := applyWorkEvent(t, s, event, workVersion("work-subject", 0))
 	assertFailureKind(t, err, KindInvalidPayload)
+}
+
+// PM5 criterion 4: a membership replacement commits the requested set
+// completely — the removed edge is gone, the added edge is present, and
+// nothing else about the work item changed.
+func TestMembershipReplacementReplacesTheWholeSet(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "work-replace")
+	ctx := context.Background()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		projectCreatedEvent("project-2", "work-replace-project-2"),
+		operationEvent("work-replace-product-project-2", "product_project.added", SubjectProduct, "product", map[string]any{
+			"product_id": "product", "project_id": "project-2", "role": "secondary", "reason": "test",
+			"expected_version": 2, "resulting_version": 3,
+		}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 2, VersionRef(SubjectProject, "project-2"): 0}}); err != nil {
+		t.Fatalf("create second project: %v", err)
+	}
+	replace := func(version int64, memberships string) {
+		t.Helper()
+		payload := []byte(`{"memberships":` + memberships + `,"expected_version":` + strconv.FormatInt(version, 10) + `,"resulting_version":` + strconv.FormatInt(version+1, 10) + `}`)
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "work-replace-m-" + strconv.FormatInt(version, 10), Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-replace", Actor: "operator", OccurredAt: time.Unix(version+10, 0).UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-replace"): version}}); err != nil {
+			t.Fatalf("replace at version %d: %v", version, err)
+		}
+	}
+	rowsFor := func() map[string]string {
+		t.Helper()
+		rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT project_id,role FROM work_projects WHERE work_id='work-replace'`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		out := map[string]string{}
+		for rows.Next() {
+			var project, role string
+			if err := rows.Scan(&project, &role); err != nil {
+				t.Fatal(err)
+			}
+			out[project] = role
+		}
+		return out
+	}
+
+	// seedWork leaves one secondary membership on `project` at version 2;
+	// replace it with a two-member set, then replace that with a set that
+	// drops project-1 and adds project-2.
+	replace(2, `[{"project_id":"project","role":"secondary"},{"project_id":"project-2","role":"primary"}]`)
+	afterFirst := rowsFor()
+	if len(afterFirst) != 2 || afterFirst["project"] != "secondary" || afterFirst["project-2"] != "primary" {
+		t.Fatalf("first replacement did not commit the requested set: %v", afterFirst)
+	}
+	replace(3, `[{"project_id":"project-2","role":"primary"},{"project_id":"project","role":"secondary"}]`)
+	replace(4, `[{"project_id":"project-2","role":"secondary"}]`)
+	afterThird := rowsFor()
+	if len(afterThird) != 1 {
+		t.Fatalf("replacement did not commit exactly the requested set: %v", afterThird)
+	}
+	if _, stillPresent := afterThird["project"]; stillPresent {
+		t.Fatalf("removed membership survived the replacement: %v", afterThird)
+	}
+	if afterThird["project-2"] != "secondary" {
+		t.Fatalf("role change did not commit with the replacement: %v", afterThird)
+	}
 }

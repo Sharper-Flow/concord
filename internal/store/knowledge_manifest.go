@@ -32,6 +32,9 @@ const (
 	// belongs in a child Domain.
 	maxManifestRootHomeRationale = 512
 	maxManifestRelations         = 64
+	maxCriterionBindings         = 1000
+	minCriterionExemption        = 12
+	maxCriterionExemption        = 512
 )
 
 var knowledgeKindsClosed = map[string]bool{
@@ -197,7 +200,8 @@ type KnowledgeRecord struct {
 	// carry this record's guidance. The offline validator fails when an
 	// evidence path no longer exists — the structural law/implementation
 	// drift audit (CD-0026).
-	Evidence []string `json:"evidence,omitempty"`
+	Evidence          []string                    `json:"evidence,omitempty"`
+	CriterionBindings []KnowledgeCriterionBinding `json:"criterion_bindings,omitempty"`
 	// ProductWideRationale states why this record's behavior fits no child
 	// Domain. It is required when the home is the Product root and forbidden
 	// otherwise. The root is the only home reachable without deciding
@@ -207,6 +211,12 @@ type KnowledgeRecord struct {
 	homeDomainPresent           bool
 	appliesToDomainsPresent     bool
 	productWideRationalePresent bool
+}
+
+type KnowledgeCriterionBinding struct {
+	Criterion int    `json:"criterion"`
+	Scenario  string `json:"scenario,omitempty"`
+	Exemption string `json:"exemption,omitempty"`
 }
 
 // UndecidedRootHomeRationale marks a root home the CD-0041 D9.2 upcast
@@ -545,6 +555,9 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 	}
 	if record.ProductWideRationale != "" {
 		entry["product_wide_rationale"] = record.ProductWideRationale
+	}
+	if len(record.CriterionBindings) > 0 {
+		entry["criterion_bindings"] = record.CriterionBindings
 	}
 	return entry
 }
@@ -1182,6 +1195,28 @@ func validateKnowledgeRecord(record KnowledgeRecord, supported, indexed map[stri
 }
 
 func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string) error {
+	if len(record.CriterionBindings) > maxCriterionBindings {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many criterion bindings", false, "supply at most one thousand criterion bindings")
+	}
+	seenCriteria := map[int]bool{}
+	for _, binding := range record.CriterionBindings {
+		if record.Kind != "spec" {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion bindings are only valid on spec records", false, "move criterion bindings to a spec record")
+		}
+		if binding.Criterion < 1 || seenCriteria[binding.Criterion] {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding index is invalid or duplicated", false, "use one positive index for each criterion")
+		}
+		seenCriteria[binding.Criterion] = true
+		if (binding.Scenario == "") == (binding.Exemption == "") {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding must carry exactly one scenario or exemption", false, "bind the criterion to a scenario or record an exemption")
+		}
+		if binding.Scenario != "" && !validManifestID(binding.Scenario) {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion scenario is empty, oversized, or not clean", false, "use a bounded scenario ID")
+		}
+		if binding.Exemption != "" && (utf8.RuneCountInString(binding.Exemption) < minCriterionExemption || utf8.RuneCountInString(binding.Exemption) > maxCriterionExemption || strings.TrimSpace(binding.Exemption) != binding.Exemption) {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion exemption is not a bounded reason", false, "use a trimmed exemption reason of twelve to five hundred twelve characters")
+		}
+	}
 	if len(record.Evidence) > 32 {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many evidence paths", false, "supply at most thirty-two evidence paths")
 	}

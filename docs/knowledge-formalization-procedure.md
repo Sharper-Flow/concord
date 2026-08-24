@@ -223,12 +223,10 @@ Every acceptance criterion in a `spec` must resolve either to an executable
 scenario identifier or to a typed exemption carrying a reason. A criterion
 that resolves to neither is a claim with no way to fail.
 
-This requirement is stated here and is not yet enforced. No validator
-currently checks that a criterion graduates. The gap is tracked as audit
-finding F3 on
-[issue #295](https://github.com/Sharper-Flow/concord/issues/295). Until that
-work lands, a reader must not infer from a passing build that criteria have
-graduated.
+The manifest record carries `criterion_bindings`. The document body does not
+carry binding syntax. The doc-contract checker resolves scenario names and
+rejects unbound or invalid criteria. An exemption is a recorded reason, not
+silence.
 
 ## Atomicity of the edit and its record
 

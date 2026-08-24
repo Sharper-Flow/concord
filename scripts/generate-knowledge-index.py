@@ -44,6 +44,7 @@ ALLOWED_RECORD = {
     "sha256",
     "law_relations",
     "evidence",
+    "criterion_bindings",
     "home_domain_id",
     "applies_to_domain_ids",
     "product_wide_rationale",
@@ -52,6 +53,7 @@ REQUIRED_RECORD = ALLOWED_RECORD - {
     "successor",
     "law_relations",
     "evidence",
+    "criterion_bindings",
     "home_domain_id",
     "applies_to_domain_ids",
     "product_wide_rationale",
@@ -127,6 +129,37 @@ def validate_scopes(scopes: object, schema_version: str, prefix: str, findings: 
         findings.append(f"{prefix}: home scopes cannot contain explicit IDs")
 
 
+def validate_criterion_bindings(record: dict[str, object], prefix: str, findings: list[str]) -> None:
+    bindings = record.get("criterion_bindings")
+    if bindings is None:
+        return
+    if record.get("kind") != "spec":
+        findings.append(f"{prefix}: criterion_bindings are only allowed on spec records")
+    if not isinstance(bindings, list) or len(bindings) > 1000:
+        findings.append(f"{prefix}: criterion_bindings must be a bounded array")
+        return
+    seen: set[int] = set()
+    for number, binding in enumerate(bindings):
+        binding_prefix = f"{prefix}.criterion_bindings[{number}]"
+        if not isinstance(binding, dict) or set(binding) not in ({"criterion", "scenario"}, {"criterion", "exemption"}):
+            findings.append(f"{binding_prefix}: binding must carry criterion and exactly one scenario or exemption")
+            continue
+        criterion = binding.get("criterion")
+        if not isinstance(criterion, int) or isinstance(criterion, bool) or criterion < 1:
+            findings.append(f"{binding_prefix}: criterion must be a positive integer")
+        elif criterion in seen:
+            findings.append(f"{binding_prefix}: duplicate criterion index {criterion}")
+        else:
+            seen.add(criterion)
+        if "scenario" in binding and not clean_text(binding.get("scenario"), 256):
+            findings.append(f"{binding_prefix}: scenario must be a clean bounded ID")
+        if "exemption" in binding and (
+            not clean_text(binding.get("exemption"), 512)
+            or len(binding["exemption"]) < 12
+        ):
+            findings.append(f"{binding_prefix}: exemption must be a trimmed reason of 12-512 characters")
+
+
 def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str]) -> None:
     if not isinstance(record, dict):
         findings.append(f"{prefix}: shard must be an object")
@@ -173,6 +206,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
     if not unique_ids(record["tags"]):
         findings.append(f"{prefix}: invalid tags")
     validate_scopes(record["scopes"], schema_version, prefix, findings)
+    validate_criterion_bindings(record, prefix, findings)
 
     if not isinstance(record["sha256"], str) or len(record["sha256"]) != 71 or not record["sha256"].startswith("sha256:") or any(char not in "0123456789abcdef" for char in record["sha256"][7:]):
         findings.append(f"{prefix}: invalid sha256 proof")

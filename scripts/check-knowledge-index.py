@@ -21,7 +21,7 @@ MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
 ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "dispositions", "doc_contract", "records"}
 ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
-ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
+ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
 ALLOWED_SCOPES_V10 = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 ALLOWED_SCOPES_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 ALLOWED_DOMAIN_REGISTRY = {"schema_version", "product_key", "root_domain_id", "domains"}
@@ -41,6 +41,9 @@ LAW_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with"}
 DISPOSITIONS = {"archived"}
 MAX_DISPOSITIONS = 1000
 MAX_DISPOSITION_REASON = 4096
+MAX_CRITERION_BINDINGS = 1000
+MIN_CRITERION_EXEMPTION = 12
+MAX_CRITERION_EXEMPTION = 512
 DISPOSITION_PATH_RE = re.compile(r"^(?![\s\S]*\.\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\.md$")
 # Which authored docs paths may carry a record is declared once, as the
 # $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
@@ -247,6 +250,38 @@ def validate_dispositions(dispositions: object, record_paths: set[str], findings
             fail(findings, f"{prefix}: path is both a record and a disposition: {path}")
 
 
+def validate_criterion_bindings(record: dict[str, object], prefix: str, findings: list[str]) -> None:
+    bindings = record.get("criterion_bindings")
+    if bindings is None:
+        return
+    if record.get("kind") != "spec":
+        fail(findings, f"{prefix}: criterion_bindings are only allowed on spec records")
+    if not isinstance(bindings, list) or len(bindings) > MAX_CRITERION_BINDINGS:
+        fail(findings, f"{prefix}: criterion_bindings must be a bounded array")
+        return
+    seen: set[int] = set()
+    for number, binding in enumerate(bindings):
+        binding_prefix = f"{prefix}.criterion_bindings[{number}]"
+        if not isinstance(binding, dict) or set(binding) not in ({"criterion", "scenario"}, {"criterion", "exemption"}):
+            fail(findings, f"{binding_prefix}: binding must carry criterion and exactly one scenario or exemption")
+            continue
+        criterion = binding.get("criterion")
+        if not isinstance(criterion, int) or isinstance(criterion, bool) or criterion < 1:
+            fail(findings, f"{binding_prefix}: criterion must be a positive integer")
+        elif criterion in seen:
+            fail(findings, f"{binding_prefix}: duplicate criterion index {criterion}")
+        else:
+            seen.add(criterion)
+        if "scenario" in binding and not valid_id(binding.get("scenario")):
+            fail(findings, f"{binding_prefix}: scenario must be a clean bounded ID")
+        if "exemption" in binding and (
+            not isinstance(binding.get("exemption"), str)
+            or not MIN_CRITERION_EXEMPTION <= len(binding["exemption"]) <= MAX_CRITERION_EXEMPTION
+            or binding["exemption"] != binding["exemption"].strip()
+        ):
+            fail(findings, f"{binding_prefix}: exemption must be a trimmed reason of 12-512 characters")
+
+
 def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     findings: list[str] = []
     if not isinstance(data, dict):
@@ -293,7 +328,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         unknown = set(record) - ALLOWED_RECORD
         if unknown:
             fail(findings, f"{prefix}: unknown fields: {sorted(unknown)}")
-        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
+        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
         missing = required - set(record)
         if missing:
             fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
@@ -321,6 +356,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             ids.add(identifier)
 
         kind = record["kind"]
+        validate_criterion_bindings(record, prefix, findings)
         if not isinstance(kind, str) or kind not in RECORD_KINDS or kind not in indexed:
             fail(findings, f"{prefix}: record kind is not indexed: {kind}")
         path = record["path"]

@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4bf04548b5a9d190ad703dc5834f6190a32e9b162275d79f83cb97148c2eda97",
+  "sha256": "sha256:e1d16babec84918fa07d565d451ca89bc1e0978252a7fa067eca972b160c9c30",
   "status": "accepted",
-  "summary": "D1 declares worker_packet as a closed object under work_transition_action_input.fields, required for dispatch_worker; D2 binds canonicalJSON+SHA256 of the packet as worker_packet_digest on WorkflowActionCompleted and exposes it on WorkerDispatchWindow via FindAuthorizedDispatchWindowTx, with two identity guards (packet.work_id==action.work_id, packet.attempt_id==fields.attempt_id) refusing closed; D3 adds PayloadObject to the registry value types so the preflight gate enforces object-ness cheaply; D4 accepts reachability for #253 once the lane pipeline installs and a stubbed runner drives dispatch through work_transition; D5 routes dispatch through work_transition.workflow_action with fields.lane_id as tool-level vocabulary the adapter consumes and never forwards, and ships dispatch.ts, packet.ts, lane_dispatch.ts, and generated-agent-lanes.ts in the installed archive.",
+  "summary": "D1 declares worker_packet as a closed object under work_transition_action_input.fields, required for dispatch_worker; D2 binds canonicalJSON+SHA256 of the packet as worker_packet_digest on WorkflowActionCompleted and exposes it on WorkerDispatchWindow via FindAuthorizedDispatchWindowTx, with two identity guards (packet.work_id==action.work_id, packet.attempt_id==fields.attempt_id) refusing closed; D3 adds PayloadObject to the registry value types so the preflight gate enforces object-ness cheaply; D4 accepts reachability for #253 once the lane pipeline installs and a stubbed runner drives dispatch through work_transition; D5 routes dispatch through work_transition.workflow_action with fields.lane_id as tool-level vocabulary the adapter consumes and never forwards, and ships dispatch.ts, packet.ts, lane_dispatch.ts, and generated-agent-lanes.ts in the installed archive; D6 makes the dispatch assertion's packet_digest quote the value the core returned (no adapter-side canonicalJSON coupling) and refuses pre-cutover windows whose recorded digest is empty.",
   "tags": [
     "dispatch",
     "worker-packet",

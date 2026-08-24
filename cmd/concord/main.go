@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -104,7 +105,7 @@ func formatRequiredFields(fields []commandField) string {
 var commandSpecs = []commandSpec{
 	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research"},
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_ref", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
-	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version")), Optional: "readback_model (host-reported executing model); host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
+	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "evidence[] (obligation; detail 1-512 chars) — required and non-empty when evidence_origin is reported (CD-0056)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands; reported evidence must discharge every obligation the dispatching lane declares"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519"},
@@ -233,6 +234,12 @@ func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, term
 
 const dbOverrideEnv = "CONCORD_DB_PATH"
 
+// workerPacketDigestPattern bounds the dispatch evidence's packet_digest to
+// the sha256:hex shape the core's canonicalJSON pipeline produces. The CLI
+// enforces it at the worker-dispatch boundary; the store gate enforces the
+// same value against the digest the dispatch_worker completion recorded.
+var workerPacketDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
 func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, fmt.Sprintf("concord: unsupported arguments: %s", strings.Join(append([]string{command}, args...), " ")))
@@ -293,6 +300,13 @@ type workerDispatchRequest struct {
 	LaneDigest          string `json:"lane_digest"`
 	PacketSchemaVersion string `json:"packet_schema_version"`
 	ReportSchemaVersion string `json:"report_schema_version"`
+	// PacketDigest is the canonical lane-packet digest the dispatch_worker
+	// authorization recorded on its completion. CD-0067 D6 makes the
+	// adapter quote this value on its signed assertion; the store gate
+	// then refuses evidence whose digest does not match the window. The
+	// field is required so a missing digest cannot silently weaken the
+	// boundary.
+	PacketDigest string `json:"packet_digest"`
 	// ReadbackModel records the model the host reports as having executed
 	// the attempt (CD-0058 D2). Concord asserts nothing about which model
 	// should have run; this is the sole model evidence the store retains.
@@ -360,6 +374,17 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			writeOperatorDiagnostic(errOut, command, "worker-dispatch v3 evidence requires host_provenance (CD-0034: host injection is permitted only when recorded)")
 			return 1
 		}
+		// CD-0067 D6: the dispatch assertion quotes the digest the core
+		// recorded on the dispatch_worker authorization. The adapter
+		// never computes the digest itself, so the CLI is the seam that
+		// guarantees the value the assertion claims is the value the
+		// core recorded. A missing or malformed digest is a refused
+		// request — the gate then checks the recorded digest equals
+		// what the adapter signed.
+		if !workerPacketDigestPattern.MatchString(request.PacketDigest) {
+			writeOperatorDiagnostic(errOut, command, "worker-dispatch requires packet_digest (sha256:64 hex) — the canonical lane-packet digest the dispatch authorization recorded (CD-0067)")
+			return 1
+		}
 		binding := agent.WorkerEvidenceBinding{
 			Verb:                 agent.WorkerEvidenceVerbDispatch,
 			WorkID:               request.WorkID,
@@ -369,8 +394,9 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			LaneDigest:           request.LaneDigest,
 			ReadbackModel:        request.ReadbackModel,
 			HostProvenanceDigest: request.HostProvenance.Digest,
+			PacketDigest:         request.PacketDigest,
 		}
-		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel}
+		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-complete":
 		var request workerCompleteRequest
@@ -457,8 +483,10 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			// The dispatch window integrity check runs after the attempt
 			// lookup (a no-op for dispatch) and before the assertion
 			// validation: a worker that fails this gate cannot consume a
-			// signed assertion nonce.
-			if err := store.ValidateWorkerDispatchWindow(ctx, tx, binding.WorkID, "", binding.AttemptID); err != nil {
+			// signed assertion nonce. CD-0067 D6 makes packet digest part
+			// of the gate so evidence that quotes a different packet is
+			// refused before the signature is verified.
+			if err := store.ValidateWorkerDispatchWindow(ctx, tx, binding.WorkID, "", binding.AttemptID, binding.PacketDigest); err != nil {
 				return err
 			}
 		}

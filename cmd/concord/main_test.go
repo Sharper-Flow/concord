@@ -691,10 +691,15 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 		packet = packetVersion[0]
 	}
 	provenanceDigest := "sha256:" + strings.Repeat("a", 64)
+	// CD-0067 D6: the dispatched request carries the canonical packet
+	// digest the dispatch authorization recorded. The dispatch window
+	// the seedAuthorizedDispatchWindow helper folds already carries a
+	// matching digest, so the test seed keeps them in lockstep.
+	packetDigest := "sha256:" + strings.Repeat("c", 64)
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
 		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
-		ReadbackModel: readbackModel, HostProvenanceDigest: provenanceDigest, Nonce: nonce,
+		ReadbackModel: readbackModel, HostProvenanceDigest: provenanceDigest, PacketDigest: packetDigest, Nonce: nonce,
 	}
 	if mutate != nil {
 		assertion = mutate(assertion)
@@ -704,6 +709,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"readback_model":        readbackModel,
 		"packet_schema_version": packet, "report_schema_version": store.WorkerReportSchemaVersion,
+		"packet_digest": packetDigest,
 		// CD-0032: v3 dispatch evidence requires declared host provenance.
 		"host_provenance": map[string]any{
 			"digest":  provenanceDigest,

@@ -22,6 +22,10 @@ const permissiveAuthorizer = (): DispatchAuthorizer => async () => coreOk()
 
 const lane = agentLanes[0]
 const READBACK_MODEL = "openai/gpt-5.6-luna"
+// CD-0067 D6: dispatchWorker needs packetDigest on the happy path so the
+// signed assertion can quote the value the core recorded. Tests that
+// exercise the refusal branch omit it deliberately.
+const PACKET_DIGEST = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 const packet = (): AgentLanePacket => ({
   schema_version: "1.0",
   attempt_id: "attempt-1",
@@ -82,7 +86,7 @@ test("packet validation is closed before any runner call", async () => {
   let calls = 0
   const invalid = { ...packet(), inputs: { task: "" } }
   expect(validateAgentLanePacket(invalid)).toBe(false)
-  const result = await dispatchWorker(invalid, { credentials: testCredentials, runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(invalid, { credentials: testCredentials, runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(calls).toBe(0)
@@ -90,27 +94,27 @@ test("packet validation is closed before any runner call", async () => {
 
 test("unknown lane identity fails closed before spawn", async () => {
   const unknown = { ...packet(), lane_id: "unknown" }
-  const result = await dispatchWorker(unknown, { credentials: testCredentials, runner: { async run() { throw new Error("must not spawn") } }, authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(unknown, { credentials: testCredentials, runner: { async run() { throw new Error("must not spawn") } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
 })
 
 test("spawn failure is a typed blocked outcome with bounded diagnostic", async () => {
   let argv: string[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, binary: "opencode-test", runner: { async run(args) { argv = args; throw new Error("spawn failed") } }, authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, binary: "opencode-test", runner: { async run(args) { argv = args; throw new Error("spawn failed") } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("blocked")
   expect(result.error?.kind).toBe("blocked")
   expect(argv).toEqual(["opencode-test", "run", "--agent", "concord-research", "--format", "json", JSON.stringify(packet())])
 })
 
 test("spawn returning a non-zero exit code is typed as an error", async () => {
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run() { return { exitCode: 1, stdout: "", stderr: "provider unavailable" } } }, authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run() { return { exitCode: 1, stdout: "", stderr: "provider unavailable" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("error")
 })
 
 test("matching recorded session metadata returns bounded ok envelope", async () => {
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(), authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("ok")
   expect(result.agent).toBe("concord-research")
   expect(result.readback_model).toBe(READBACK_MODEL)
@@ -123,7 +127,7 @@ test("dispatch obtains readback from a sanitized session export", async () => {
   const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: { async run(argv, input, signal) { calls.push(argv); return base.run(argv, input, signal) } },
     evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(),
+    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("ok")
   expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "run"], ["opencode", "export"]])
@@ -158,7 +162,7 @@ test("a dispatch executed by a substituted agent fails closed with no worker evi
   const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: workerRunner(READBACK_MODEL, runOutput(), "adv"),
     evidenceRunner: { async run(argv) { evidenceCalls.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(),
+    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("agent_identity_mismatch")
@@ -173,7 +177,7 @@ test("a successful run records dispatch evidence before completion evidence", as
     concordBinary: "concord-test",
     runner: workerRunner(),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(),
+    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("ok")
   expect(calls.map((call) => call.argv)).toEqual([["concord-test", "worker-dispatch"], ["concord-test", "worker-complete"]])
@@ -202,7 +206,7 @@ test("a run whose evidence cannot be recorded is not reported as a success", asy
   const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: workerRunner(),
     evidenceRunner: { async run(argv) { return refuse(argv) } },
-    authorize: permissiveAuthorizer(),
+    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("error")
@@ -215,7 +219,7 @@ test("a completion that cannot be recorded is not reported as a success", async 
   const result = await dispatchWorker(packet(), { credentials: testCredentials,
     runner: workerRunner(),
     evidenceRunner: { async run(argv) { recorded++; return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(),
+    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(recorded).toBe(2)
   expect(result.outcome).toBe("error")
@@ -229,7 +233,7 @@ test("generic host agents are not dispatchable and never spawn or record", async
     const result = await dispatchWorker({ ...packet(), lane_id: generic }, { credentials: testCredentials,
       runner: { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } },
       evidenceRunner: { async run() { recorded++; return { exitCode: 0, stdout: "", stderr: "" } } },
-      authorize: permissiveAuthorizer(),
+      authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
     })
     expect(result.outcome).toBe("error")
     expect(result.error?.kind).toBe("invalid_input")
@@ -245,20 +249,20 @@ test("the registered lane set is closed and every agent name is Concord-owned", 
 
 test("the adapter does not declare a model — argv carries no --model", async () => {
   let argv: string[] = []
-  await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run(args) { argv = args; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } }, authorize: permissiveAuthorizer() })
+  await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run(args) { argv = args; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(argv).not.toContain("--model")
 })
 
 test("the readback shape is recorded verbatim regardless of host configuration", async () => {
   const hostExecuted = "zai-coding-plan/glm-5.3"
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(hostExecuted), authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(hostExecuted), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(hostExecuted)
 })
 
 test("an unknown readback is recorded as-is and not refused", async () => {
   const hostExecuted = "openai/not-declared"
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(hostExecuted), authorize: permissiveAuthorizer() })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(hostExecuted), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(hostExecuted)
 })
@@ -422,7 +426,7 @@ async function terminalEvidence(output: string) {
     concordBinary: "concord-test",
     runner: workerRunner(READBACK_MODEL, output),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(),
+    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   return { result, verbs: calls.map((call) => call.argv[1]), payloads: calls.map((call) => JSON.parse(call.input)) }
 }

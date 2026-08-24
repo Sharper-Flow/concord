@@ -48,6 +48,15 @@ type WorkerDispatchedPayload struct {
 	CapabilityClass     string `json:"capability_class"`
 	PacketSchemaVersion string `json:"packet_schema_version"`
 	ReportSchemaVersion string `json:"report_schema_version"`
+	// PacketDigest is the canonical lane-packet digest the dispatch
+	// authorization recorded (CD-0067 D2). The dispatched event carries
+	// it so the audit trail names the exact packet the worker ran, not
+	// only the attempt identity. Required at the v3 evidence boundary:
+	// the worker-dispatch gate refuses a payload whose digest was not
+	// the value the dispatch_worker authorization recorded, and a
+	// pre-CD-0067 window without a recorded digest refuses every
+	// dispatch with a typed cutover failure (D6).
+	PacketDigest string `json:"packet_digest"`
 	// HostProvenance is the declared record of unversioned host prompt
 	// surfaces that shape the worker's behavior (issue #103 / CD-0034):
 	// the adapter enumerates what it can bind — agent definition file,
@@ -205,6 +214,14 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	if event.SubjectType != SubjectWorkItem || event.SubjectID == "" || payload.AttemptID == "" || !laneIDPattern.MatchString(payload.LaneID) || payload.LaneVersion < 1 || !laneDigestPattern.MatchString(payload.LaneDigest) || !workerVersionPattern.MatchString(payload.CapabilityClass) || payload.PacketSchemaVersion != WorkerPacketSchemaVersion || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
 		return invalidWorkerPayload("worker.dispatched payload has invalid identity")
 	}
+	// CD-0067 D6: the dispatched event carries the packet digest the
+	// authorization recorded, so a forged dispatch that swaps the
+	// digest cannot land as evidence. v3 is the cutover; payloads
+	// carried over by v1/v2 upcasters are not legal here because the
+	// register boundary runs at append time after upcasting.
+	if !workerProvenancePattern.MatchString(payload.PacketDigest) {
+		return invalidWorkerPayload("worker.dispatched packet_digest must be a sha256 digest")
+	}
 	if payload.ReadbackModel != "" && !workerModelPattern.MatchString(payload.ReadbackModel) {
 		return invalidWorkerPayload("worker.dispatched readback_model has invalid shape")
 	}
@@ -228,8 +245,10 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 // action opens for a single worker attempt. CD-0059 D5 makes the worker-dispatch
 // evidence boundary refuse if no such window exists or the same window has
 // already been consumed. CD-0067 D2 carries the canonical lane-packet digest
-// alongside the bound attempt_id so the worker-dispatch evidence boundary can
-// later refuse evidence whose reported packet does not match the window.
+// alongside the bound attempt_id, and CD-0067 D6 makes ValidateWorkerDispatchWindow
+// compare that digest against the value the dispatch evidence claims; a window
+// whose recorded digest is empty predates the boundary and refuses with a typed
+// cutover failure so the operator opens a fresh authorization.
 type WorkerDispatchWindow struct {
 	WorkID       string
 	StepID       string
@@ -244,6 +263,10 @@ type WorkerDispatchWindow struct {
 // the single-use window the worker-dispatch CLI must consume or refuse.
 // Refusal modes return KindUnauthorizedDispatch so the caller can surface a
 // typed failure without re-classifying.
+//
+// CD-0067 D6: the read surfaces PacketDigest as an empty string for any
+// completion that did not record worker_packet_digest; the gate owns the
+// empty-versus-non-empty refusal so this read does not double-classify.
 func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, stepID string) (WorkerDispatchWindow, error) {
 	var window WorkerDispatchWindow
 	window.WorkID = workID
@@ -260,9 +283,9 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, ste
 	// window the worker can consume. CD-0067 D2 reads the canonical
 	// lane-packet digest recorded next to worker_attempt_id so the
 	// evidence boundary can compare it against the worker's reported
-	// packet. Empty digest is acceptable: pre-CD-0067 seeds do not
-	// carry the key, and the digest enforcement is wired in a
-	// follow-up; the read does not refuse on emptiness here.
+	// packet. Empty digest is the pre-CD-0067 case the gate refuses
+	// with a typed cutover failure (D6); the read still surfaces it as
+	// an empty string.
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_attempt_id'),''), COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq > ? ORDER BY seq ASC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", stepID, window.StartSeq).Scan(&window.AttemptID, &window.PacketDigest); err != nil {
 		if err == sql.ErrNoRows {
 			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker started without a completing authorization event", false, "reopen the workflow action against a fresh step epoch")
@@ -289,8 +312,9 @@ func WorkerDispatchWindowIsOpenTx(ctx context.Context, tx *sql.Tx, window Worker
 // ValidateWorkerDispatchWindow is the gate the worker-dispatch CLI runs
 // inside its authenticating transaction. It refuses if the work item has no
 // workflow instance, if no authorized window exists for (workID, stepID), if
-// the binding attempt_id disagrees with the claim, or if the same window has
-// already been consumed.
+// the binding attempt_id disagrees with the claim, if the binding packet
+// digest disagrees with the recorded digest (or the window predates the
+// digest), or if the same window has already been consumed.
 //
 // CD-0059 D5 narrows the gate to work items that have already entered a
 // workflow: a worker attempt belongs to a work item a workflow is executing,
@@ -298,15 +322,25 @@ func WorkerDispatchWindowIsOpenTx(ctx context.Context, tx *sql.Tx, window Worker
 // dispatch is legal. The refusal names the missing instance so an operator
 // can tell it apart from a missing authorization at an existing step.
 //
+// CD-0067 D6: packetDigest is the value the dispatch assertion quotes; the
+// gate compares it against the digest the dispatch_worker completion recorded.
+// An empty recorded digest means the authorization predates the boundary and
+// the operator must open a fresh authorization; a non-empty mismatch means
+// the worker is trying to dispatch against a packet the core did not
+// authorize. Both refuse closed.
+//
 // Pass stepID="" to let the gate resolve the workflow instance's current
 // step; the CLI uses that path because it has no independent step knowledge.
 // Empty workID is rejected as malformed.
-func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction, workID, stepID, attemptID string) error {
+func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction, workID, stepID, attemptID, packetDigest string) error {
 	if workID == "" {
 		return newFailure(KindInvalidPayload, "worker_dispatch_window", "work_id is required for dispatch window validation", false, "supply the work item that the worker attempt belongs to")
 	}
 	if attemptID == "" {
 		return newFailure(KindInvalidPayload, "worker_dispatch_window", "attempt_id is required for dispatch window validation", false, "supply the worker attempt identity the dispatch authorizes")
+	}
+	if packetDigest == "" {
+		return newFailure(KindInvalidPayload, "worker_dispatch_window", "packet_digest is required for dispatch window validation", false, "supply the packet digest the dispatch authorization recorded")
 	}
 	tx, err := transactionSQL(transaction, "worker_dispatch_window")
 	if err != nil {
@@ -327,6 +361,12 @@ func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction,
 	}
 	if window.AttemptID != attemptID {
 		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "worker attempt does not match the authorized dispatch window", false, "open a dispatch_worker authorization for this attempt or use the bound attempt_id")
+	}
+	if window.PacketDigest == "" {
+		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "dispatch window predates packet binding (CD-0067)", false, "open a fresh dispatch_worker authorization for a new attempt")
+	}
+	if window.PacketDigest != packetDigest {
+		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "worker packet digest does not match the authorized dispatch window", false, "open a dispatch_worker authorization for this packet or dispatch the bound packet")
 	}
 	open, err := WorkerDispatchWindowIsOpenTx(ctx, tx, window)
 	if err != nil {
@@ -656,7 +696,12 @@ func workerAttemptByIDCore(ctx context.Context, q queryer, attemptID string) (Wo
 
 // upcastWorkerDispatchedV2 stamps legacy v2 dispatch evidence with an honest
 // provenance marker: recorded before host prompt provenance was declared
-// (CD-0034), so the injection surfaces are unknown by construction.
+// (CD-0034), so the injection surfaces are unknown by construction. CD-0067
+// D6: the v3 payload also needs packet_digest, and the legacy v2 record
+// never carried one. Pre-cutover data is rewritten to a sentinel digest
+// that satisfies the v3 validator; the dispatch-window gate separately
+// refuses empty digests on windows that did not record one, so the placeholder
+// never reaches the worker-evidence boundary.
 func upcastWorkerDispatchedV2(event Event) (Event, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -667,6 +712,11 @@ func upcastWorkerDispatchedV2(event Event) (Event, error) {
 			"digest":  "sha256:" + strings.Repeat("0", 64),
 			"sources": []map[string]any{{"kind": "unenumerated"}},
 		}
+	}
+	if _, exists := payload["packet_digest"]; !exists {
+		payload["packet_digest"] = "sha256:" + strings.Repeat("0", 64)
+	} else if v, ok := payload["packet_digest"].(string); !ok || v == "" {
+		payload["packet_digest"] = "sha256:" + strings.Repeat("0", 64)
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

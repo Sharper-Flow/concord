@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:624c22f1c13593aa8b700eaa8cdab7ea4886a6a996dd84b26fa4027df96ba60f",
+  "sha256": "sha256:113b06bd2ce2fe1c518d6ab869cb235351ce2b28d412dcfb07f3e018c92ff9ea",
   "status": "accepted",
   "summary": "PM7's projection-pruning mechanism (eligibility predicate, bounded maintenance run, storage-pressure threshold, work_projection_pruned event, archived_work_linked projection) is deferred by decision rather than built: the authority guarantees (git note and domain_events authority, work-ID immutability, link-before-removal, git-rebuildable historical projections, live/historical query union, research cleanup) stand with executable evidence, live projections are accepted as unbounded at pre-floor scale with three recorded revisit triggers, and backup retention and VACUUM stay out of scope under PM10. Deliberate absences (core event pruning, WIP-byte CAS, process-exhaust receipts) stay absent. The PM7 coverage record closes as satisfied.",
   "tags": [

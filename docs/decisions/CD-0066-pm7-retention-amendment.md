@@ -5,9 +5,8 @@
 - **Scope:** PM7 (`docs/compaction-retention-policy.md`) pruning mechanism
   disposition; retention guarantees Concord states today; backup retention
   scope; issues #326, #325
-- **Approval:** Operator selected the amendment option in the #326 decision
-  frame on 2026-08-24 (this session's decision checkpoint; option "B: Amend
-  PM7")
+- **Approval:** Operator selected option B, amend PM7, on 2026-08-24, recorded in
+  [issue #326 comment](https://github.com/Sharper-Flow/concord/issues/326#issuecomment-5390292254)
 - **Related:** PM7, PM8, PM9, PM10 (unchanged), CD-0002, CD-0009, CD-0063
 - **Preserves:** the authority split (git note for distilled knowledge,
   `domain_events` for exact history and replay); work-ID immutability; the

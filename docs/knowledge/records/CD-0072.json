@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "evidence": [
+    "internal/agent/authority.go",
+    "internal/store/worktrees.go",
+    "docs/predecessor-operational-coverage.md"
+  ],
+  "home_domain_id": "repository-verification",
+  "id": "CD-0072",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0072-unguarded-trunk-file-writes.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:555db11455e7dede976cd5fb2344d38e3be4ddd64667a08a0d3d297a17ebde74",
+  "status": "accepted",
+  "summary": "Raw file writes to the trunk checkout through host tooling are deliberately unguarded: the predecessor enforced that half in an editor-host write-interception hook, and no Concord surface can hold such a control because capability-placement section 1 offers no interception point inside another tool's write path. The operator accepted the loss on 2026-08-21 rather than shipping an editor plugin. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and git-fact reclamation remain in force and are not presented as equivalent. The predecessor-coverage record splits its row and cites this decision.",
+  "tags": [
+    "trunk",
+    "worktree",
+    "safety",
+    "coverage"
+  ],
+  "title": "File-write trunk protection is accepted as unguarded"
+}

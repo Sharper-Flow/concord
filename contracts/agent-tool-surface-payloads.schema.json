@@ -1147,6 +1147,39 @@
         }
       }
     },
+    "work_observation_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        }
+      }
+    },
+    "external_observation_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 10
+        }
+      }
+    },
     "work_trace_continuity_input": {
       "type": "object",
       "additionalProperties": false,
@@ -1554,10 +1587,7 @@
             ],
             "properties": {
               "observation_id": {
-                "type": "string",
-                "pattern": "^obs:[0-9a-f]{16}$",
-                "minLength": 20,
-                "maxLength": 20
+                "$ref": "#/$defs/id"
               },
               "work_id": {
                 "$ref": "#/$defs/id"
@@ -2065,6 +2095,192 @@
         },
         "workflow": {
           "$ref": "#/$defs/workflow_read"
+        }
+      }
+    },
+    "work_observation_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observations"
+      ],
+      "properties": {
+        "observations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "observation_id",
+              "work_id",
+              "statement",
+              "recorded_at"
+            ],
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^obs:[0-9a-f]{16}$",
+                "minLength": 20,
+                "maxLength": 20
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "refs": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "tags": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                }
+              },
+              "recorded_at": {
+                "type": "string",
+                "minLength": 20,
+                "maxLength": 40
+              }
+            }
+          }
+        }
+      }
+    },
+    "external_observation_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_observations"
+      ],
+      "properties": {
+        "external_observations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "observation_id",
+              "subject_kind",
+              "subject_ref",
+              "capture_method",
+              "captured_at",
+              "reporting_authority_ref",
+              "observed_universe",
+              "freshness_policy_ref",
+              "divergence_policy_ref",
+              "verification_state",
+              "freshness_state"
+            ],
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^xobs:[0-9a-f]{16}$",
+                "minLength": 21,
+                "maxLength": 21
+              },
+              "subject_kind": {
+                "type": "string",
+                "enum": [
+                  "native_run",
+                  "git_position",
+                  "recovery_artifact",
+                  "environment"
+                ]
+              },
+              "subject_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "capture_method": {
+                "type": "string",
+                "enum": [
+                  "trusted_client_report",
+                  "git_probe"
+                ]
+              },
+              "captured_at": {
+                "type": "string",
+                "minLength": 20,
+                "maxLength": 64
+              },
+              "reporting_authority_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "subject_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "observed_universe": {
+                "$ref": "#/$defs/observed_universe"
+              },
+              "freshness_policy_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "divergence_policy_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "verification_state": {
+                "type": "string",
+                "enum": [
+                  "unverified",
+                  "verified",
+                  "diverged_expected",
+                  "diverged_unexpected",
+                  "unverifiable"
+                ]
+              },
+              "verification_method": {
+                "type": "string",
+                "enum": [
+                  "trusted_client_report",
+                  "git_probe"
+                ]
+              },
+              "verified_at": {
+                "type": "string",
+                "minLength": 20,
+                "maxLength": 64
+              },
+              "verifying_authority_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "freshness_state": {
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "stale",
+                  "unverified",
+                  "unverifiable",
+                  "diverged_expected",
+                  "diverged_unexpected"
+                ]
+              }
+            }
+          }
         }
       }
     },

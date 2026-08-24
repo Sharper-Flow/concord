@@ -48,6 +48,8 @@
       "description": "Trace work history and relations.",
       "operations": [
         "concord_work_trace.history",
+        "concord_work_trace.observations",
+        "concord_work_trace.external_observations",
         "concord_work_trace.continuity",
         "concord_work_trace.relations",
         "concord_work_trace.research"
@@ -360,6 +362,48 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_trace.observations",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "CD-0030.R1",
+      "input_schema": "#/schemas/work_observation_input",
+      "result_schema": "#/schemas/work_observation_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "limit",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_trace.external_observations",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "CD-0040.R1",
+      "input_schema": "#/schemas/external_observation_input",
+      "result_schema": "#/schemas/external_observation_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "limit",
         "output_bytes": 65536,
         "versions": [
           "1.0"
@@ -1292,6 +1336,14 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_history_input",
       "closed": true
     },
+    "work_observation_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_input",
+      "closed": true
+    },
+    "external_observation_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_input",
+      "closed": true
+    },
     "work_trace_continuity_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_continuity_input",
       "closed": true
@@ -1334,6 +1386,14 @@
     },
     "work_event_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_event_page",
+      "closed": true
+    },
+    "work_observation_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_page",
+      "closed": true
+    },
+    "external_observation_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_page",
       "closed": true
     },
     "continuity_snapshot": {
@@ -1609,6 +1669,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:9678d80289c901393a7171c146fa3bccaee680d1e27f1930c51f191b0245063d",
-  "digest": "sha256:bd6c133ec0a9984c0ee0a718e9ef964917a10face4f6c5ebcb52de7ec9be9f6f"
+  "payload_digest": "sha256:f93a483ad5cd329795909bec364e723da9a5193d0697121ef5c36d95b6fc91bb",
+  "digest": "sha256:50daf6218638df9236b8c151429e20f16bfe58fc82b712d25613767b1051a1ae"
 }

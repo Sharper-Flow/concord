@@ -272,6 +272,10 @@
         {
           "kind": "go_test",
           "value": "internal/agent.TestObservationRecordDispatchContinuityAndNonAuthority"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkTraceObservationsReadsAllRowsForRequestedWork"
         }
       ],
       "id": "CD-0030",
@@ -398,6 +402,10 @@
         {
           "kind": "go_test",
           "value": "internal/store.TestNativeRunVerificationParticipationAndEvidenceGate"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkTraceExternalObservationsReadPreservesD9StateWithoutEvents"
         }
       ],
       "id": "CD-0040",

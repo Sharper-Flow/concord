@@ -578,10 +578,7 @@ const GeneratedPayloadSchemaDocument = `{
             "additionalProperties": false,
             "properties": {
               "observation_id": {
-                "maxLength": 20,
-                "minLength": 20,
-                "pattern": "^obs:[0-9a-f]{16}$",
-                "type": "string"
+                "$ref": "#/$defs/id"
               },
               "recorded_at": {
                 "maxLength": 40,
@@ -1323,6 +1320,148 @@ const GeneratedPayloadSchemaDocument = `{
         "authority",
         "locator_kind",
         "locator"
+      ],
+      "type": "object"
+    },
+    "external_observation_input": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 10,
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id"
+      ],
+      "type": "object"
+    },
+    "external_observation_page": {
+      "additionalProperties": false,
+      "properties": {
+        "external_observations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "capture_method": {
+                "enum": [
+                  "trusted_client_report",
+                  "git_probe"
+                ],
+                "type": "string"
+              },
+              "captured_at": {
+                "maxLength": 64,
+                "minLength": 20,
+                "type": "string"
+              },
+              "divergence_policy_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "freshness_policy_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "freshness_state": {
+                "enum": [
+                  "verified",
+                  "stale",
+                  "unverified",
+                  "unverifiable",
+                  "diverged_expected",
+                  "diverged_unexpected"
+                ],
+                "type": "string"
+              },
+              "observation_id": {
+                "maxLength": 21,
+                "minLength": 21,
+                "pattern": "^xobs:[0-9a-f]{16}$",
+                "type": "string"
+              },
+              "observed_universe": {
+                "$ref": "#/$defs/observed_universe"
+              },
+              "reporting_authority_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "subject_digest": {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "subject_kind": {
+                "enum": [
+                  "native_run",
+                  "git_position",
+                  "recovery_artifact",
+                  "environment"
+                ],
+                "type": "string"
+              },
+              "subject_ref": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              "verification_method": {
+                "enum": [
+                  "trusted_client_report",
+                  "git_probe"
+                ],
+                "type": "string"
+              },
+              "verification_state": {
+                "enum": [
+                  "unverified",
+                  "verified",
+                  "diverged_expected",
+                  "diverged_unexpected",
+                  "unverifiable"
+                ],
+                "type": "string"
+              },
+              "verified_at": {
+                "maxLength": 64,
+                "minLength": 20,
+                "type": "string"
+              },
+              "verifying_authority_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "observation_id",
+              "subject_kind",
+              "subject_ref",
+              "capture_method",
+              "captured_at",
+              "reporting_authority_ref",
+              "observed_universe",
+              "freshness_policy_ref",
+              "divergence_policy_ref",
+              "verification_state",
+              "freshness_state"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "external_observations"
       ],
       "type": "object"
     },
@@ -4414,6 +4553,83 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "messages"
+      ],
+      "type": "object"
+    },
+    "work_observation_input": {
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id"
+      ],
+      "type": "object"
+    },
+    "work_observation_page": {
+      "additionalProperties": false,
+      "properties": {
+        "observations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "observation_id": {
+                "maxLength": 20,
+                "minLength": 20,
+                "pattern": "^obs:[0-9a-f]{16}$",
+                "type": "string"
+              },
+              "recorded_at": {
+                "maxLength": 40,
+                "minLength": 20,
+                "type": "string"
+              },
+              "refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              "statement": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "tags": {
+                "items": {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "observation_id",
+              "work_id",
+              "statement",
+              "recorded_at"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "observations"
       ],
       "type": "object"
     },

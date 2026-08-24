@@ -34,7 +34,7 @@ test("transport and approval boundaries stay fail-closed", () => {
   expect(source).toContain("operation_conflict")
   expect(credentialSource).toContain("secret-tool")
   expect(source).not.toContain("console.log")
-  expect(source).not.toContain("grant_token:")
+  expect(source).not.toContain("grant_token: \"")
 })
 
 test("grant bootstrap sends typed assertion arrays and preserves the canonical vector", async () => {

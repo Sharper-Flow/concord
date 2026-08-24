@@ -287,7 +287,7 @@ func GrantTx(ctx context.Context, transaction *Transaction, tokenHash []byte) (G
 func grant(ctx context.Context, q queryer, tokenHash []byte) (GrantRecord, error) {
 	var g GrantRecord
 	if err := q.QueryRowContext(ctx, `SELECT g.grant_ref,g.principal_ref,g.client_ref,g.session_ref,g.agent_ref,g.directory,g.worktree,g.client_key_id,g.manifest_digest,g.capabilities_json,g.product_scope_json,g.project_scope_json,g.issued_at,g.expires_at,COALESCE(g.revoked_at,''),g.max_uses,g.used_count,g.scope_version,g.scope_snapshot_json,g.candidate_products_json,c.status,k.key_id FROM agent_grants g JOIN agent_clients c ON c.client_ref=g.client_ref JOIN agent_client_keys k ON k.client_ref=g.client_ref AND k.status='active' WHERE g.grant_hash=?`, tokenHash).Scan(&g.RecordID, &g.PrincipalRef, &g.ClientRef, &g.SessionRef, &g.AgentRef, &g.Directory, &g.Worktree, &g.ClientKeyID, &g.ManifestDigest, &g.CapabilitiesJSON, &g.ProductScopeJSON, &g.ProjectScopeJSON, &g.IssuedAt, &g.ExpiresAt, &g.RevokedAt, &g.MaxUses, &g.UsedCount, &g.ScopeVersion, &g.ScopeSnapshotJSON, &g.CandidateProductsJSON, &g.ClientStatus, &g.ActiveKeyID); err != nil {
-		return g, wrapFailure(KindProjectionNotFound, "agent_grant_read", "unknown grant", false, "issue a valid grant", err)
+		return g, wrapFailure(KindProjectionNotFound, "agent_grant_read", "unknown grant_token: supply the bearer token the grant verb returned as grant_token, not the non-secret record reference grant_ref", false, "issue a valid grant", err)
 	}
 	return g, nil
 }

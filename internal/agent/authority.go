@@ -409,7 +409,7 @@ func (s *Service) ValidateInvocation(ctx context.Context, in Invocation) (Grant,
 	}
 	record, err := s.Store.Grant(ctx, sha256Bytes([]byte(in.GrantToken)))
 	if err != nil {
-		return Grant{}, errors.New("unknown grant")
+		return Grant{}, errors.New("unknown grant_token: supply the bearer token the grant verb returned as grant_token, not the non-secret record reference grant_ref")
 	}
 	return s.validateGrantRecord(record, in, s.now())
 }
@@ -459,7 +459,7 @@ func (s *Service) consumeGrant(ctx context.Context, tx *store.Transaction, in In
 	hash := sha256Bytes([]byte(in.GrantToken))
 	record, err := store.GrantTx(ctx, tx, hash)
 	if err != nil {
-		return Grant{}, errors.New("unknown grant")
+		return Grant{}, errors.New("unknown grant_token: supply the bearer token the grant verb returned as grant_token, not the non-secret record reference grant_ref")
 	}
 	g, err := s.validateGrantRecord(record, in, s.now())
 	if err != nil {

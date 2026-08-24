@@ -850,7 +850,7 @@ func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.St
 }
 
 func mutationEnvelope(grant Grant, scopeVersion string) CallEnvelope {
-	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", GrantRef: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
+	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 }
 
 func signedHostApproval(privateKey ed25519.PrivateKey, challenge, digest string, scope, versions map[string]any, session, agent, worktree string, issued time.Time, nonce string) *HostApprovalAssertion {

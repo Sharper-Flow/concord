@@ -22,7 +22,7 @@ const maxInputBytes = 65536
 type CallEnvelope struct {
 	SchemaVersion       string                 `json:"schema_version"`
 	RequestID           string                 `json:"request_id"`
-	GrantRef            string                 `json:"grant_ref"`
+	GrantToken          string                 `json:"grant_token"`
 	ClientRef           string                 `json:"client_ref"`
 	PrincipalRef        string                 `json:"principal_ref"`
 	SessionRef          string                 `json:"session_ref"`
@@ -73,8 +73,8 @@ func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
 	if err := dec.Decode(&trailing); err != io.EOF {
 		return request, CallEnvelope{}, errors.New("call envelope contains trailing JSON")
 	}
-	if env.SchemaVersion == "" || env.RequestID == "" || env.GrantRef == "" || env.ManifestDigest == "" {
-		return request, CallEnvelope{}, errors.New("call envelope is missing schema_version, request_id, grant_ref, or manifest_digest")
+	if env.SchemaVersion == "" || env.RequestID == "" || env.GrantToken == "" || env.ManifestDigest == "" {
+		return request, CallEnvelope{}, errors.New("call envelope is missing schema_version, request_id, grant_token, or manifest_digest")
 	}
 	return request, env, nil
 }
@@ -329,7 +329,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
-	inv := Invocation{GrantToken: env.GrantRef, ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
+	inv := Invocation{GrantToken: env.GrantToken, ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
 	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		identity, identityExtractErr := extractMutationWorkIdentity(request.Input)
 		if identityExtractErr != nil {

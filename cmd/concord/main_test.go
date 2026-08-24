@@ -85,13 +85,13 @@ func TestDatabaseOverrideRefusesRepositoryLocalPath(t *testing.T) {
 }
 
 func TestInvokeNeverEchoesGrantToken(t *testing.T) {
-	grantRef := strings.Repeat("a", 63) + "b"
-	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","grant_ref":"` + grantRef + `","client_ref":"c","scope_version":"","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{}}`)
+	grantToken := strings.Repeat("a", 63) + "b"
+	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","grant_token":"` + grantToken + `","client_ref":"c","scope_version":"","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{}}`)
 	var out, errOut bytes.Buffer
 	if code := runInvoke(raw, nil, nil, &out, &errOut); code != 0 {
 		t.Fatalf("runInvoke exit=%d stderr=%q", code, errOut.String())
 	}
-	if strings.Contains(out.String(), grantRef) || strings.Contains(errOut.String(), grantRef) {
+	if strings.Contains(out.String(), grantToken) || strings.Contains(errOut.String(), grantToken) {
 		t.Fatal("grant token leaked through invoke output")
 	}
 }
@@ -820,7 +820,7 @@ func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
 	}
 	invokeRaw := runCLIJSON(t, []string{"invoke"}, map[string]any{
 		"call_envelope": map[string]any{
-			"schema_version": "1.0", "request_id": "request-e2e", "grant_ref": grant.GrantToken,
+			"schema_version": "1.0", "request_id": "request-e2e", "grant_token": grant.GrantToken,
 			"client_ref": grant.ClientRef, "principal_ref": grant.PrincipalRef,
 			"session_ref": grant.SessionRef, "agent_ref": grant.AgentRef, "directory": repo, "worktree": repo,
 			"ambient_project_id": "project-1", "selected_product_id": "product-1", "scope_version": grant.ScopeVersion,

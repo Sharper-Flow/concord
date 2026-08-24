@@ -231,7 +231,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_product_view", Operation: "resolve", Input: json.RawMessage(`{"project_id":"project-1"}`)}
-	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "request-1", GrantRef: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
+	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "request-1", GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 }
 
 func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
-	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","grant_ref":"grant-1"},"tool":"concord_product_view","operation":"resolve","input":{}}`
+	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","grant_token":"grant-1"},"tool":"concord_product_view","operation":"resolve","input":{}}`
 	for _, suffix := range []string{" {}", " garbage"} {
 		if _, _, err := DecodeInvokeRequest([]byte(valid + suffix)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
 			t.Fatalf("suffix %q error = %v, want trailing JSON rejection", suffix, err)
@@ -283,7 +283,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Need","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)}
-	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", GrantRef: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
+	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)

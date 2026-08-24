@@ -23,7 +23,7 @@ The envelope contains:
 ```text
 schema_version
 request_id
-grant_ref                   # opaque core-issued capability grant
+grant_token                 # opaque core-issued capability grant (bearer secret)
 client_ref
 ambient_project_id
 selected_product_id?       # absent while unresolved/ambiguous
@@ -102,13 +102,15 @@ which TS3/TS7 must report under PM1's authority contract.
 
 ### 4.1 Principal source and grant proof
 
-`grant_ref` is an opaque, unguessable, core-issued capability grant. Its authoritative
-record binds the attributable human, agent, or delegated automation principal,
-trusted client, allowed Product/Project scope, capability classes, issue/expiry, and
-revocation state. The core resolves `principal_ref` from this grant and validates it
-on every invocation. Tool input cannot name or impersonate a principal, widen scope,
-or add capabilities. If the transport cannot provide a valid grant, the call is
-denied.
+`grant_token` is an opaque, unguessable, core-issued capability grant carried as a bearer
+secret. Its authoritative record binds the attributable human, agent, or delegated
+automation principal, trusted client, allowed Product/Project scope, capability classes,
+issue/expiry, and revocation state. The core resolves `principal_ref` from this grant
+and validates it on every invocation. Tool input cannot name or impersonate a
+principal, widen scope, or add capabilities. If the transport cannot provide a valid
+grant, the call is denied. The non-secret record reference for the same grant is
+returned by the `grant` verb as `grant_ref`; supplying it where the token belongs is
+refused distinguishably.
 
 `client_ref` identifies the calling integration for audit and must match the grant
 binding; it is not independent authority. Grant secrets are

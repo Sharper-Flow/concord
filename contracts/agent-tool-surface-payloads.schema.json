@@ -2740,6 +2740,9 @@
                     "non-breaking"
                   ]
                 },
+                "lane_id": {
+                  "$ref": "#/$defs/id"
+                },
                 "new_contract_version": {},
                 "next_read_expectations": {},
                 "notice_id": {},

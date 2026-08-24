@@ -3,6 +3,8 @@ import { tool, type ToolContext } from "@opencode-ai/plugin"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { contractOperations, canonicalAssertion, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
+import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
+import { errorEnvelopeForLane } from "./dispatch"
 
 const MAX_STDERR = 8192
 const GRANT_TTL_MS = 50 * 60 * 1000
@@ -239,6 +241,64 @@ export const knowledge = tool({ description: "Concord knowledge", args: argsSche
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_define", args, context) })
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_domain", args, context) })
 export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_initiative", args, context) })
-export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_transition", args, context) })
+export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: any, context: ToolContext) => executeWorkTransition(args, context) })
 export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_relate", args, context) })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_compact", args, context) })
+
+// laneDispatchRequest decides whether a work_transition invocation routes to
+// the lane dispatcher (CD-0067 D5) or falls through to the generic core
+// transport. It is a pure helper so the routing decision can be tested
+// without standing up the dispatch path.
+//
+// Returns:
+//   - null: the invocation is not a dispatch_worker request; the caller must
+//     use the generic transport.
+//   - { error: string }: the request is a dispatch_worker request but lacks
+//     the tool-level lane_id vocabulary the adapter needs to derive the
+//     packet. The caller returns a typed invalid_input envelope.
+//   - LaneDispatchInput: the request is a well-formed dispatch_worker call
+//     with object-form fields and a string lane_id. The caller forwards it
+//     to dispatchLaneWorker.
+export function laneDispatchRequest(args: any): LaneDispatchInput | { error: string } | null {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return null
+  const input = (args as { input?: unknown }).input
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null
+  const inner = input as Record<string, unknown>
+  if (inner.action_id !== "dispatch_worker") return null
+  const fields = inner.fields
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+    return { error: "dispatch_worker requires fields.lane_id naming the target lane" }
+  }
+  const laneId = (fields as Record<string, unknown>).lane_id
+  if (typeof laneId !== "string" || laneId.length === 0) {
+    return { error: "dispatch_worker requires fields.lane_id naming the target lane" }
+  }
+  if (typeof inner.work_id !== "string" || typeof inner.expected_version !== "number" || typeof inner.idempotency_key !== "string") {
+    return null
+  }
+  return { work_id: inner.work_id, expected_version: inner.expected_version, idempotency_key: inner.idempotency_key, lane_id: laneId }
+}
+
+// executeWorkTransition is the work_transition tool body. dispatch_worker is
+// routed through dispatchLaneWorker (CD-0067 D5); every other workflow_action
+// falls through to the generic core transport. The dispatch path shares the
+// same transport seam as every other adapter tool, so a host-side caller
+// receives the same envelope shape on either branch.
+async function executeWorkTransition(args: any, context: ToolContext): Promise<unknown> {
+  if (args?.operation === "workflow_action") {
+    const request = laneDispatchRequest(args)
+    if (request && "error" in request) {
+      const fields = args?.input?.fields
+      const partial: { lane_id?: string } = {}
+      if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+        const candidate = (fields as Record<string, unknown>).lane_id
+        if (typeof candidate === "string") partial.lane_id = candidate
+      }
+      return errorEnvelopeForLane(null, partial, "error", "invalid_input", request.error, "retry_same_request")
+    }
+    if (request) {
+      return dispatchLaneWorker(request, { context, invoke: invokeConcordOperation })
+    }
+  }
+  return invokeConcordOperation("concord_work_transition", args, context)
+}

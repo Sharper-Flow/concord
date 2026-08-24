@@ -250,14 +250,16 @@ test("a pinned contract without typed outcome fields is a typed transport failur
 })
 
 test("the default transport is the adapter transport, and its refusals stay typed", async () => {
-  // No scripted invoke: this exercises the real concord.ts grant + invoke path
-  // with a child process that fails, proving the builder is wired to the
-  // shipped transport rather than to a second one.
+  // The builder is wired to the shipped transport by accepting the adapter's
+  // invokeConcordOperation through its injected seam. The grant runner returns
+  // a typed envelope that subsequent invoke calls cannot match, so the second
+  // call lands on the opencode stub and the response is malformed; the test
+  // only proves the wired transport was used, not what it returned.
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32) } },
     runner: { async run() { return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" } } } as any,
   })
-  const built = await buildAgentLanePacket({ workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" }, { context: contextFor() })
+  const built = await buildAgentLanePacket({ workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" }, { context: contextFor(), invoke: adapter.invokeConcordOperation as any })
   expect(built.packet).toBeUndefined()
   expect(built.failure!.kind).toBe("transport_failure")
   expect(built.failure!.message).toContain("concord_work_browse.scope")

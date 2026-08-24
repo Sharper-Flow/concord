@@ -5390,6 +5390,9 @@ const GeneratedPayloadSchemaDocument = `{
                   ],
                   "type": "string"
                 },
+                "lane_id": {
+                  "$ref": "#/$defs/id"
+                },
                 "law_modifies": {
                   "items": {
                     "$ref": "#/$defs/law_id"

@@ -362,6 +362,17 @@ function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>,
   return { ...baseEnvelope(lane, packet, outcome), error: { kind, retry_safe: outcome !== "blocked", recovery_action, message: message.slice(0, MAX_ERROR_BYTES) } }
 }
 
+// errorEnvelopeForLane is the public re-export of the private errorEnvelope
+// helper. Lane dispatch (CD-0067 D5) constructs AgentResultEnvelope failures
+// before any lane has been validated against the registry, so the caller can
+// pass lane === null with a partial packet (for example, just {lane_id}); the
+// helper mirrors dispatch.ts's internal contract exactly so envelopes
+// returned from the dispatch path are structurally indistinguishable from
+// envelopes returned here.
+export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: AgentResultEnvelope["error"]["kind"], message: string, recovery_action: AgentResultEnvelope["error"]["recovery_action"] = "contact_operator"): AgentResultEnvelope {
+  return errorEnvelope(lane, packet, outcome, kind, message, recovery_action)
+}
+
 function concordBinaryPath(override?: string): string {
   return override ?? process.env.CONCORD_BIN ?? "concord"
 }

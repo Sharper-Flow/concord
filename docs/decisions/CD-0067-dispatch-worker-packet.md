@@ -47,6 +47,20 @@ lane files and a test drives dispatch through work_transition to the spawn
 boundary with a stubbed runner. A live model round trip is not required: it
 proves the runner, not reachability.
 
+### D5. The dispatch entry surface is work_transition
+
+The orchestrator cannot author a lane packet — bounds and lane digests are
+machine-derived — so the adapter completes the request. The orchestrator calls
+`concord_work_transition` workflow_action with `action_id: dispatch_worker` and
+`fields.lane_id`, the one parameter that cannot be derived (workflow step ids
+and lane ids do not map one-to-one). The adapter derives product identity and
+step from `concord_work_trace.continuity`, generates the attempt id, builds the
+packet from recorded state, and performs the core invoke with the enriched
+fields. `lane_id` is tool-level vocabulary (shared fields enumeration) and is
+never forwarded to the core, which records the packet digest instead. The
+installed archive ships dispatch.ts, packet.ts, lane_dispatch.ts, and
+generated-agent-lanes.ts.
+
 ## Consequences
 
 - Existing dispatch_worker callers must supply the packet; in-repo tests are

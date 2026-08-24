@@ -1,5 +1,4 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { invokeConcordOperation } from "./concord"
 import { validateAgentLanePacket, type AgentLanePacket } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 
@@ -50,7 +49,7 @@ export type ConcordInvoke = (toolName: string, args: { operation: string; input:
 
 export interface AgentLanePacketDeps {
   context: ToolContext
-  invoke?: ConcordInvoke
+  invoke: ConcordInvoke
 }
 
 function failure(kind: AgentLanePacketFailureKind, message: string, extra: Omit<AgentLanePacketFailure, "kind" | "message"> = {}): { failure: AgentLanePacketFailure } {
@@ -71,7 +70,7 @@ async function readOperation(
   input: Record<string, unknown>,
   deps: AgentLanePacketDeps,
 ): Promise<{ result: Record<string, unknown>; failure?: undefined } | { result?: undefined; failure: AgentLanePacketFailure }> {
-  const transport = deps.invoke ?? invokeConcordOperation
+  const transport = deps.invoke
   const response = await transport(toolName, { operation, input }, deps.context)
   if (!isRecord(response)) return failure("transport_failure", `${toolName}.${operation} returned no envelope`)
   if (response.outcome !== "ok") {

@@ -32,8 +32,12 @@ MANIFEST_NAME = "install-manifest.json"
 ADAPTER_FILES = (
     "concord.ts",
     "credentials.ts",
-    "generated-contracts.ts",
+    "dispatch.ts",
+    "generated-agent-lanes.ts",
     "generated-contract-tests.ts",
+    "generated-contracts.ts",
+    "lane_dispatch.ts",
+    "packet.ts",
 )
 INSTRUCTION_FILES = (
     "README.md",

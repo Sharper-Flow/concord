@@ -168,6 +168,11 @@ class InstallerTests(unittest.TestCase):
         """
         added = "credentials.ts"
         self.assertIn(added, installer.ADAPTER_FILES)
+        # CD-0067 D4: the lane pipeline ships as four adapter files. Removing
+        # any of them from the installed archive would break #253 reachability,
+        # so the set the installer packs is asserted here by name.
+        for shipped in ("dispatch.ts", "generated-agent-lanes.ts", "lane_dispatch.ts", "packet.ts"):
+            self.assertIn(shipped, installer.ADAPTER_FILES, f"missing lane pipeline file {shipped}")
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))

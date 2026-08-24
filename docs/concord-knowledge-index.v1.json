@@ -2248,6 +2248,27 @@
       "title": "Concord priorities"
     },
     {
+      "date": "2026-08-23T00:00:00Z",
+      "id": "roadmap",
+      "kind": "reference",
+      "path": "docs/roadmap.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:22b68782e3f6625b54aef7a917681d01c4aace895776934a328d145de2fb6c50",
+      "status": "published",
+      "summary": "Advisory order for the open issue set. Collects the blocking edges stated across individual issues, then ranks every open issue with the reason it sits where it does. Carries no authority: issues own the work and priorities.md owns the priority order.",
+      "tags": [
+        "navigation",
+        "planning"
+      ],
+      "title": "Open issue sequence"
+    },
+    {
       "date": "2026-08-08T00:00:00Z",
       "home_domain_id": "workflow-engine",
       "id": "workflow-engine-contract",

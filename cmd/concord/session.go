@@ -31,11 +31,14 @@ type sessionAgentIdentityFunc func() error
 // definition; the record is the evidence Concord later has if anyone asks
 // what the session asserted. Both run inside the session command so a
 // launcher-started session either has the recorded event or refuses with a
-// typed absence diagnostic.
+// typed absence diagnostic. On success it returns the invocation handle the
+// host registers the resolved definition under; the session must select that
+// name when it starts the host, so the agent that runs is the agent the
+// assertion recorded.
 //
 // The function is a parameter so tests can inject an isolated temp store;
 // production wiring is hostOrchestratorIdentity below.
-type sessionOrchestratorFunc func(ctx context.Context, productID, workID string) error
+type sessionOrchestratorFunc func(ctx context.Context, productID, workID string) (string, error)
 
 // hostLaneAgentIdentity asserts the registered lanes against the host the
 // session will start on.
@@ -53,14 +56,14 @@ func hostLaneAgentIdentity() error {
 // transaction. The verification runs before any store interaction so a
 // missing definition fails closed without touching the database — the
 // session either records the assertion it required or refuses.
-func hostOrchestratorIdentity(ctx context.Context, productID, workID string) error {
+func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = ""
 	}
-	assertion, err := verifyOrchestratorIdentity(os.Getenv("HOME"), cwd)
+	assertion, handle, err := verifyOrchestratorIdentity(os.Getenv("HOME"), cwd)
 	if err != nil {
-		return err
+		return "", err
 	}
 	assertion.ProductID = productID
 	assertion.WorkID = workID
@@ -70,18 +73,18 @@ func hostOrchestratorIdentity(ctx context.Context, productID, workID string) err
 	assertion.SessionRef = "session/" + productID
 	path, err := databasePath()
 	if err != nil {
-		return err
+		return "", err
 	}
 	s, err := store.Open(ctx, path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer s.Close()
 	eventID := orchestratorAssertionEventID(productID, workID)
 	if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, time.Now().UTC(), assertion); err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	return handle, nil
 }
 
 // orchestratorAssertionEventID returns the durable event_id Concord assigns
@@ -142,8 +145,17 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
-	if err := orchestrator(context.Background(), productID, workID); err != nil {
+	handle, err := orchestrator(context.Background(), productID, workID)
+	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
+		return 2
+	}
+	if handle == "" {
+		// The verification inside the orchestrator callback resolves a
+		// definition or refuses; an empty handle means the resolved
+		// definition registered under no name, so the host cannot be told
+		// which agent to run. CD-0049 D4 admits no degraded start.
+		writeDiagnostic(errOut, "concord session: orchestrator definition resolved without an invocation handle")
 		return 2
 	}
 	prompt := "Concord identity: product_id=" + productID
@@ -160,7 +172,14 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		}
 		prompt = "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	}
-	if err := runner(context.Background(), []string{"opencode", "--prompt", prompt}, os.Environ(), in, out, errOut); err != nil {
+	// The session starts the host as the agent whose identity it just
+	// asserted and recorded, selecting it by the handle the host registers
+	// the resolved definition under. Omitting the selection — or selecting
+	// any other string — records evidence for an agent that never ran,
+	// because the host answers an unselected name with the operator's
+	// default agent and exits zero (CD-0049 D2).
+	argv := []string{"opencode", "--agent", handle, "--prompt", prompt}
+	if err := runner(context.Background(), argv, os.Environ(), in, out, errOut); err != nil {
 		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
 		return 1
 	}

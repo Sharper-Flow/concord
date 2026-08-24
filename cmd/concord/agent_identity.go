@@ -25,6 +25,51 @@ func laneAgentFileName(laneID string) string {
 // directories so the provenance record and the assertion agree.
 const orchestratorAgentFileName = "concord-orchestrator.md"
 
+// orchestratorAgentName is the fallback name the session selects when the
+// definition carries no `name:` frontmatter. The host takes an agent's
+// invocation handle from its frontmatter `name:` when present and from the
+// definition file stem otherwise: a session that selects any other string
+// resolves to the operator's default agent and starts anyway, which is the
+// substitution CD-0049 D2 names.
+var orchestratorAgentName = strings.TrimSuffix(orchestratorAgentFileName, ".md")
+
+// orchestratorInvocationHandle returns the name the host registers the
+// resolved definition under: the frontmatter `name:` value when the
+// definition carries one, else the file stem. Renaming via `name:` is not an
+// alias — the stem stops resolving — so selection by stem alone silently
+// falls back to the operator's default agent on a renamed definition.
+// The scan is a conservative subset of the host's YAML: a `name:` line at
+// column 0 inside the leading frontmatter block, value trimmed, symmetric
+// quotes stripped. Anything else reads as the stem.
+func orchestratorInvocationHandle(resolved string) string {
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return orchestratorAgentName
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
+		return orchestratorAgentName
+	}
+	for _, line := range lines[1:] {
+		trimmed := strings.TrimRight(line, "\r")
+		if trimmed == "---" {
+			break
+		}
+		value, ok := strings.CutPrefix(trimmed, "name:")
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(value)
+		if len(name) >= 2 && (name[0] == '"' && name[len(name)-1] == '"' || name[0] == '\'' && name[len(name)-1] == '\'') {
+			name = name[1 : len(name)-1]
+		}
+		if name != "" {
+			return name
+		}
+	}
+	return orchestratorAgentName
+}
+
 // OrchestratorIdentityType is the Concord-owned role constant the assertion
 // records. Naming a role is not authoring a persona; CD-0049 Invariant 4
 // keeps persona authorship out of Concord.
@@ -121,13 +166,16 @@ const manifestSeparator = "\n---\n"
 //
 // An absent or unresolvable definition is a typed failure naming the
 // required identity, the observed absence, and the paths searched, because
-// CD-0049 D4 admits no degraded start.
-func verifyOrchestratorIdentity(home, cwd string) (store.OrchestratorIdentityAssertion, error) {
+// CD-0049 D4 admits no degraded start. The returned handle is the name the
+// host registers the resolved definition under; the session must select
+// exactly it (CD-0049 D2).
+func verifyOrchestratorIdentity(home, cwd string) (store.OrchestratorIdentityAssertion, string, error) {
 	dirs := agentSearchDirectories(home, cwd)
 	resolved, err := firstOrchestratorDefinition(dirs)
 	if err != nil {
-		return store.OrchestratorIdentityAssertion{}, err
+		return store.OrchestratorIdentityAssertion{}, "", err
 	}
+	handle := orchestratorInvocationHandle(resolved)
 	sources := collectOrchestratorArtifactSources(resolved, cwd)
 	digest := computeOrchestratorRulesetDigest(sources)
 	return store.OrchestratorIdentityAssertion{
@@ -135,7 +183,7 @@ func verifyOrchestratorIdentity(home, cwd string) (store.OrchestratorIdentityAss
 		Version:       OrchestratorIdentityVersion,
 		RulesetDigest: digest,
 		Sources:       sources,
-	}, nil
+	}, handle, nil
 }
 
 // firstOrchestratorDefinition returns the first searched directory that

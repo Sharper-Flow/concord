@@ -36,6 +36,7 @@ other aliases are accepted:
 | `worker-dispatch` | — |
 | `worker-complete` | — |
 | `worker-fail` | — |
+| `worktree-locate` | — |
 
 `grant` and `invoke` use only their single-word forms. A first installation
 normally registers the client, runs `product-create` (which atomically creates

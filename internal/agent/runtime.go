@@ -1645,7 +1645,19 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		for _, ref := range e.EvidenceRefs {
 			evidence = append(evidence, map[string]any{"kind": "artifact", "authority": "product_memory", "locator_kind": "reference", "locator": ref})
 		}
-		events = append(events, map[string]any{"event_id": e.EventID, "kind": e.Kind, "version": e.Seq, "occurred_at": e.OccurredAt, "actor": e.Actor, "reason": e.Reason, "evidence": evidence})
+		// `reason` and `actor` are optional in work_event_page and carry a
+		// minimum length: an ordinary lifecycle event has neither, so the
+		// keys are omitted rather than emitted empty. A present-but-empty
+		// optional field fails the generated schema and refuses the whole
+		// page (issue #383).
+		event := map[string]any{"event_id": e.EventID, "kind": e.Kind, "version": e.Seq, "occurred_at": e.OccurredAt, "evidence": evidence}
+		if e.Actor != "" {
+			event["actor"] = e.Actor
+		}
+		if e.Reason != "" {
+			event["reason"] = e.Reason
+		}
+		events = append(events, event)
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"events": events})
 }

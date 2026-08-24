@@ -74,7 +74,7 @@ func checkMandatedLawsTx(ctx context.Context, tx *sql.Tx, workID string, mandate
 	if len(mandated) == 0 {
 		return validateLawModificationSubset(mandated, modified)
 	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
@@ -197,48 +197,10 @@ func validateLawModificationSubset(mandated, modified []string) error {
 	return nil
 }
 
-func workflowLawHomeTx(ctx context.Context, tx *sql.Tx, workID string) (string, string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? ORDER BY ph.project_id,ph.locator_id`, workID)
-	if err != nil {
-		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
-	}
-	var homes [][2]string
-	for rows.Next() {
-		var project, locator string
-		if err := rows.Scan(&project, &locator); err != nil {
-			rows.Close()
-			return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
-		}
-		duplicate := false
-		for _, home := range homes {
-			duplicate = duplicate || home[0] == project && home[1] == locator
-		}
-		if !duplicate {
-			homes = append(homes, [2]string{project, locator})
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return "", "", err
-	}
-	if len(homes) == 1 {
-		return homes[0][0], homes[0][1], nil
-	}
-	if len(homes) > 1 {
-		return "", "", newFailure(KindAmbiguousScope, "check_mandated_laws", "workflow resolves to multiple canonical Git law homes", false, "resolve one Product knowledge home")
-	}
-	var project, locator string
-	err = tx.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&project, &locator)
-	if err == sql.ErrNoRows {
-		return "", "", newFailure(KindUnknownScope, "check_mandated_laws", "workflow has no canonical Git law home", false, "designate a Product home or primary Project locator")
-	}
-	if err != nil {
-		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the primary Git law home", true, "retry once the workflow scope is readable", err)
-	}
-	return project, locator, nil
-}
-
-func workflowLawHomeDB(ctx context.Context, db *sql.DB, workID string) (string, string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? ORDER BY ph.project_id,ph.locator_id`, workID)
+// workflowLawHome resolves the workflow's canonical Git law home over whichever
+// read handle the caller already holds, per the store's queryer contract.
+func workflowLawHome(ctx context.Context, q queryer, workID string) (string, string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? ORDER BY ph.project_id,ph.locator_id`, workID)
 	if err != nil {
 		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
 	}
@@ -253,6 +215,9 @@ func workflowLawHomeDB(ctx context.Context, db *sql.DB, workID string) (string, 
 			homes = append(homes, [2]string{project, locator})
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
+	}
 	if len(homes) == 1 {
 		return homes[0][0], homes[0][1], nil
 	}
@@ -260,7 +225,7 @@ func workflowLawHomeDB(ctx context.Context, db *sql.DB, workID string) (string, 
 		return "", "", newFailure(KindAmbiguousScope, "check_mandated_laws", "workflow resolves to multiple canonical Git law homes", false, "resolve one Product knowledge home")
 	}
 	var project, locator string
-	err = db.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&project, &locator)
+	err = q.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&project, &locator)
 	if err == sql.ErrNoRows {
 		return "", "", newFailure(KindUnknownScope, "check_mandated_laws", "workflow has no canonical Git law home", false, "designate a Product home or primary Project locator")
 	}

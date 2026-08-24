@@ -92,7 +92,7 @@ func deriveWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string
 	if len(mandated) == 0 {
 		return []WorkflowLawRevision{}, nil
 	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 	if mandateErr != nil {
 		return mandateErr
 	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 	if len(mandated) == 0 {
 		return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
 	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeTx(ctx, tx, workID)
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return err
 	}

@@ -187,9 +187,7 @@ func currentWorkflowLawMandate(specMandate []string, binding *WorkflowArchitectu
 	return architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
 }
 
-func currentWorkflowLawMandateFromProjection(ctx context.Context, q interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}, workID string, contractVersion int64, specMandate []string) ([]string, error) {
+func currentWorkflowLawMandateFromProjection(ctx context.Context, q queryer, workID string, contractVersion int64, specMandate []string) ([]string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT law_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=? ORDER BY law_id`, workID, contractVersion)
 	if err != nil {
 		return nil, err

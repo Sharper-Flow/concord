@@ -22,7 +22,10 @@ is shared with `scripts/check-floor-readiness.py`.
 """
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,9 +49,114 @@ from evidence_anchors import (  # noqa: E402
 MANIFEST = ROOT / "docs/law-coverage.v1.json"
 SCHEMA = ROOT / "contracts/law-coverage.schema.json"
 INDEX = ROOT / "docs/concord-knowledge-index.v1.json"
+ISSUE_STATE = ROOT / "docs/law-coverage-issue-state.v1.json"
+ISSUE_REPO = "Sharper-Flow/concord"
 
 ALLOWED_ROOT = {"schema_version", "source", "records"}
 ALLOWED_RECORD = {"id", "state", "evidence", "issue", "reason"}
+
+
+def load_issue_states(findings: list[str]) -> dict[str, str] | None:
+    """Load the offline issue-state snapshot that backs pointer validation.
+
+    An outstanding record's accountability dies with its owning issue, so the
+    validator must reject a pointer whose issue is closed or unknown. CI has no
+    network guarantee, so the deterministic form reads a committed snapshot;
+    `--update-issue-state` is the authoritative online form that refreshes it
+    (issue #324).
+    """
+    if not ISSUE_STATE.is_file():
+        findings.append(
+            "issue-state snapshot is missing: docs/law-coverage-issue-state.v1.json "
+            "(run scripts/check-law-coverage.py --update-issue-state)"
+        )
+        return None
+    try:
+        document = json.loads(ISSUE_STATE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        findings.append(f"issue-state snapshot is unreadable: {exc}")
+        return None
+    if (
+        not isinstance(document, dict)
+        or document.get("schema_version") != "1.0"
+        or not isinstance(document.get("generated_at"), str)
+        or not isinstance(document.get("issues"), dict)
+    ):
+        findings.append(
+            "issue-state snapshot must carry schema_version 1.0, generated_at, and an issues map"
+        )
+        return None
+    states: dict[str, str] = {}
+    for key, value in document["issues"].items():
+        if not isinstance(key, str) or not key.isdigit() or value not in ("open", "closed"):
+            findings.append(
+                f"issue-state snapshot entry {key!r} must be a decimal issue number mapped to open or closed"
+            )
+            continue
+        states[key] = value
+    return states
+
+
+def check_outstanding_pointer(record: dict, prefix: str, issue_states: dict[str, str] | None, findings: list[str]) -> None:
+    """An outstanding record survives only while its owning issue is live."""
+    pointer = str(record.get("issue"))
+    if issue_states is None:
+        return
+    if pointer not in issue_states:
+        findings.append(
+            f"{prefix}: outstanding issue {pointer} is absent from the issue-state snapshot "
+            "(run scripts/check-law-coverage.py --update-issue-state)"
+        )
+    elif issue_states[pointer] != "open":
+        findings.append(
+            f"{prefix}: outstanding issue {pointer} is {issue_states[pointer]}; "
+            "outstanding law must point at a live issue"
+        )
+
+
+def update_issue_state() -> int:
+    """The authoritative online form: refresh the snapshot from the issue tracker."""
+    try:
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"cannot read coverage manifest: {exc}", file=sys.stderr)
+        return 1
+    numbers = sorted(
+        {
+            record["issue"]
+            for record in manifest.get("records", [])
+            if isinstance(record, dict)
+            and record.get("state") == "outstanding"
+            and isinstance(record.get("issue"), int)
+        }
+    )
+    states: dict[str, str] = {}
+    for number in numbers:
+        result = subprocess.run(
+            ["gh", "issue", "view", str(number), "--repo", ISSUE_REPO, "--json", "state"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"issue {number}: gh failed: {result.stderr.strip()}", file=sys.stderr)
+            return 1
+        try:
+            state = json.loads(result.stdout).get("state")
+        except json.JSONDecodeError:
+            print(f"issue {number}: gh returned unparseable output", file=sys.stderr)
+            return 1
+        if state not in ("OPEN", "CLOSED"):
+            print(f"issue {number}: unexpected state {state!r}", file=sys.stderr)
+            return 1
+        states[str(number)] = state.lower()
+    snapshot = {
+        "schema_version": "1.0",
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "issues": dict(sorted(states.items(), key=lambda item: int(item[0]))),
+    }
+    ISSUE_STATE.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {ISSUE_STATE.relative_to(ROOT)} covering {len(states)} outstanding issue(s)")
+    return 0
 
 
 def _load_generator() -> object:
@@ -125,6 +233,8 @@ def check_schema_states() -> list[str]:
 
 
 def main() -> int:
+    if "--update-issue-state" in sys.argv[1:]:
+        return update_issue_state()
     findings: list[str] = check_schema_states()
     manifest = load_json(MANIFEST, findings)
     if not isinstance(manifest, dict):
@@ -142,6 +252,7 @@ def main() -> int:
         return report(findings, "law coverage")
 
     declared: list[str] = []
+    issue_states: dict[str, str] | None = load_issue_states(findings)
     for record in records:
         if not isinstance(record, dict):
             findings.append("record must be an object")
@@ -159,6 +270,9 @@ def main() -> int:
 
         if not check_state_obligations(record, prefix, findings):
             continue
+
+        if record.get("state") == "outstanding":
+            check_outstanding_pointer(record, prefix, issue_states, findings)
 
         if record.get("state") == "satisfied":
             evidence = record.get("evidence")

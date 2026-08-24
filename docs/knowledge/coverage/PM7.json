@@ -1,5 +1,22 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPublishCompactionLinkPreflightsRequiredResearchConsumer"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTerminalResearchCleanupRefusesRequiredCompaction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestQ10OrphanWorkNoteRemainsNotCompacted"
+    }
+  ],
   "id": "PM7",
-  "issue": 219,
-  "state": "outstanding"
+  "state": "satisfied"
 }

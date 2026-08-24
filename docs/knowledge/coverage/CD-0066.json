@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-law-coverage.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-law-coverage.py"
+    }
+  ],
+  "id": "CD-0066",
+  "state": "satisfied"
+}

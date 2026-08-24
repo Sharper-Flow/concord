@@ -517,7 +517,7 @@
     },
     {
       "id": "CD-0043",
-      "issue": 253,
+      "issue": 461,
       "state": "outstanding"
     },
     {
@@ -975,6 +975,11 @@
       ],
       "id": "CD-0067",
       "state": "satisfied"
+    },
+    {
+      "id": "CD-0068",
+      "issue": 459,
+      "state": "outstanding"
     },
     {
       "evidence": [

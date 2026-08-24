@@ -5,8 +5,9 @@
 - **Scope:** What the agent authority system defends against; the adversary named
   in CD-0044; the tamper-evidence deferral in CD-0008; which authority mechanisms
   follow from the corrected boundary; issue #450
-- **Approval:** Operator asked whether the grant system is warranted before any
-  extension of it, and accepted this record as the first answer
+- **Approval:** Operator accepted the authority-boundary decision on 2026-08-24,
+  recorded in
+  [issue #450 comment](https://github.com/Sharper-Flow/concord/issues/450#issuecomment-5402538688)
 - **Related:** CD-0005 D5, CD-0008 (storage tamper-evidence deferral), CD-0044,
   CD-0037 D5, CD-0017 D4, CD-0003, CD-0042
 - **Preserves:** Git-derived scope resolution; the `cross_scope` gate; manifest

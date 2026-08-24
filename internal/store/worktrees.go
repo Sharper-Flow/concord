@@ -486,6 +486,24 @@ func worktreeRepoRootTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReques
 	return normalized, nil
 }
 
+// ValidateWorktreeClaimIntent is the exported form of the claim's own intent
+// validation, for callers that derive a claim's inputs and must know the
+// claim will accept them before attempting it. The store owns the validation;
+// it never owns the derivation (issue #316: the claim verifies intent, it
+// does not author it).
+func ValidateWorktreeClaimIntent(branch, baseSHA, path string) error {
+	if !worktreeBranchPattern.MatchString(branch) {
+		return newFailure(KindInvalidOperation, "worktree_claim", "branch is not a bounded git ref name", false, "supply a plain branch name without spaces or shell characters")
+	}
+	if !worktreeSHAPattern.MatchString(baseSHA) {
+		return newFailure(KindInvalidOperation, "worktree_claim", "base is not a full commit SHA", false, "pin the exact base commit SHA")
+	}
+	if !filepath.IsAbs(path) {
+		return newFailure(KindInvalidOperation, "worktree_claim", "worktree path must be absolute", false, "supply an absolute filesystem path")
+	}
+	return nil
+}
+
 func worktreeEntryByClaim(ctx context.Context, q queryer, opID string) (WorktreeEntry, error) {
 	var e WorktreeEntry
 	var facts string

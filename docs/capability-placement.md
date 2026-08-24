@@ -146,6 +146,7 @@ re-evaluation, never "set and forget."
 | `morph_edit` vs `edit` routing | Instruction (always-on) | Behavioral policy every agent needs. |
 | `/adv-triage` methodology | Skill (→ workflow type per `workflows.md`) | Procedural; on-demand. |
 | `oc-test-gate`, `oc-ci-wait`, `oc-fresh` | Host scripts | Standalone executables, cross-tool. |
+| Worktree locator derivation (`concord worktree-locate`) | Core CLI verb (read-only) | The inputs are authority data — the Project's registered `canonical_path` locator — so only the core can read them without duplicating database access (issue #316). A host script would double-hop through this verb; the adapter owns no path or branch policy; `internal/store` stays verifier-only (`worktree_claim` verifies intent, never authors it). |
 | Spec / change records | Durable state | Source of truth. |
 
 ---

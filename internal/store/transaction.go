@@ -3,13 +3,22 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 // Transaction is an opaque unit of work owned by Store. Callers can pass it
 // back to store-owned operations, but cannot execute SQL or control its
 // lifecycle directly.
 type Transaction struct {
-	tx *sql.Tx
+	tx    *sql.Tx
+	clock func() time.Time
+}
+
+func (t *Transaction) now() time.Time {
+	if t == nil || t.clock == nil {
+		return time.Now().UTC()
+	}
+	return t.clock().UTC()
 }
 
 func transactionSQL(tx *Transaction, op string) (*sql.Tx, error) {
@@ -33,7 +42,7 @@ func (s *Store) Transact(ctx context.Context, fn func(*Transaction) error) error
 	if err != nil {
 		return wrapFailure(KindUnavailable, "transaction", "cannot begin transaction", true, "retry once the database is writable", err)
 	}
-	transaction := &Transaction{tx: tx}
+	transaction := &Transaction{tx: tx, clock: s.Clock}
 	committed := false
 	defer func() {
 		if !committed {

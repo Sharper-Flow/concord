@@ -55,7 +55,7 @@ func CreateResearchPack(ctx context.Context, s *Store, req CreateResearchPackReq
 	if packID == "" {
 		packID = newResearchID("pack")
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := s.now().Format(time.RFC3339Nano)
 	var lifecycle string
 	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id = ?`, req.OwnerWorkID).Scan(&lifecycle); err == sql.ErrNoRows {
 		_ = tx.Rollback()
@@ -81,7 +81,7 @@ func CreateResearchPack(ctx context.Context, s *Store, req CreateResearchPackReq
 		_ = tx.Rollback()
 		return out, err
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: packID, Revision: 1}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: packID, Revision: 1}); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -139,7 +139,7 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 		_ = tx.Rollback()
 		return out, err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := s.now().Format(time.RFC3339Nano)
 	newRevision := pack.CurrentRevision + 1
 	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,?,?,?,?,?,?,?,?)`, req.PackID, newRevision, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now, "current"); err != nil {
 		_ = tx.Rollback()
@@ -163,7 +163,7 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 		_ = tx.Rollback()
 		return out, err
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID, Revision: newRevision}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID, Revision: newRevision}); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -292,7 +292,7 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 			return out, researchConstraint("cannot cite a source that is absent from this revision", err)
 		}
 	}
-	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, s.now()); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -301,7 +301,7 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 		_ = tx.Rollback()
 		return out, err
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID, Revision: revision, ID: req.Finding.FindingID}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID, Revision: revision, ID: req.Finding.FindingID}); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -399,7 +399,7 @@ func addResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest,
 		_ = tx.Rollback()
 		return out, researchConstraint("cannot write source", err)
 	}
-	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, s.now()); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -408,7 +408,7 @@ func addResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest,
 		_ = tx.Rollback()
 		return out, err
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID, Revision: revision, ID: req.Source.SourceID}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID, Revision: revision, ID: req.Source.SourceID}); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -482,7 +482,7 @@ func BindResearchConsumer(ctx context.Context, s *Store, req BindResearchConsume
 		_ = tx.Rollback()
 		return out, researchUnavailable("cannot read research revision", err)
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := s.now().Format(time.RFC3339Nano)
 	accepted := req.Consumer.AcceptedAt
 	if accepted == "" {
 		accepted = now
@@ -492,7 +492,7 @@ func BindResearchConsumer(ctx context.Context, s *Store, req BindResearchConsume
 		_ = tx.Rollback()
 		return out, researchConstraint("consumer binding already exists or is invalid", err)
 	}
-	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, s.now()); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -501,7 +501,7 @@ func BindResearchConsumer(ctx context.Context, s *Store, req BindResearchConsume
 		_ = tx.Rollback()
 		return out, err
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID, Revision: req.Revision, ID: req.Consumer.ConsumerWorkID}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID, Revision: req.Revision, ID: req.Consumer.ConsumerWorkID}); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -565,11 +565,11 @@ func UnbindResearchConsumer(ctx context.Context, s *Store, req UnbindResearchCon
 		_ = tx.Rollback()
 		return out, newFailure(KindInvariantViolation, "research_mutation", "consumer unbind postcondition did not hold", false, "retry the consumer unbind")
 	}
-	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, s.now()); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID, Revision: req.Revision, ID: req.ConsumerWorkID, Consumer: &out}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID, Revision: req.Revision, ID: req.ConsumerWorkID, Consumer: &out}); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -622,7 +622,7 @@ func PruneResearchRevisions(ctx context.Context, s *Store, req ResearchPackMutat
 		return 0, researchUnavailable("cannot verify pruned revisions", err)
 	}
 	if count > 0 {
-		if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+		if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, s.now()); err != nil {
 			_ = tx.Rollback()
 			return 0, err
 		}
@@ -644,7 +644,7 @@ func PruneResearchRevisions(ctx context.Context, s *Store, req ResearchPackMutat
 		_ = tx.Rollback()
 		return 0, newFailure(KindInvariantViolation, "research_mutation", "revision pruning postcondition did not hold", false, "retry pruning after repairing revision bindings")
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID, Count: int(count)}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID, Count: int(count)}); err != nil {
 		_ = tx.Rollback()
 		return 0, err
 	}
@@ -703,7 +703,7 @@ func DeleteResearchPack(ctx context.Context, s *Store, req ResearchPackMutationR
 		_ = tx.Rollback()
 		return newFailure(KindInvariantViolation, "research_mutation", "research deletion postcondition did not hold", false, "retry the research deletion")
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -758,7 +758,7 @@ func SetResearchFreshness(ctx context.Context, s *Store, req SetResearchFreshnes
 		_ = tx.Rollback()
 		return researchUnavailable("cannot write research freshness", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=(SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=current_revision),expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.PackID, time.Now().UTC().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=(SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=current_revision),expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.PackID, s.now().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
 		_ = tx.Rollback()
 		return researchUnavailable("cannot write research freshness summary", err)
 	}
@@ -771,7 +771,7 @@ func SetResearchFreshness(ctx context.Context, s *Store, req SetResearchFreshnes
 		_ = tx.Rollback()
 		return newFailure(KindInvariantViolation, "research_mutation", "research freshness postcondition did not hold", false, "retry the freshness review")
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -815,7 +815,7 @@ func BindResearchFindingSource(ctx context.Context, s *Store, req ResearchFindin
 		_ = tx.Rollback()
 		return researchConstraint("cannot bind finding source", err)
 	}
-	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, s.now()); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -824,7 +824,7 @@ func BindResearchFindingSource(ctx context.Context, s *Store, req ResearchFindin
 		_ = tx.Rollback()
 		return researchUnavailable("cannot verify finding source binding", err)
 	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, researchResult{PackID: req.PackID, Revision: req.Revision, ID: req.FindingID + "/" + req.SourceID}); err != nil {
+	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID, Revision: req.Revision, ID: req.FindingID + "/" + req.SourceID}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -845,10 +845,10 @@ func CreateResearchPackWithinTx(ctx context.Context, transaction *Transaction, r
 	if err != nil {
 		return ResearchPack{}, err
 	}
-	return createResearchPackWithinRawTx(ctx, tx, req)
+	return createResearchPackWithinRawTx(ctx, tx, req, transaction.now())
 }
 
-func createResearchPackWithinRawTx(ctx context.Context, tx *sql.Tx, req CreateResearchPackRequest) (ResearchPack, error) {
+func createResearchPackWithinRawTx(ctx context.Context, tx *sql.Tx, req CreateResearchPackRequest, observedAt time.Time) (ResearchPack, error) {
 	var out ResearchPack
 	if req.OwnerWorkID == "" {
 		return out, researchInvalid("owner_work_id is required")
@@ -871,7 +871,7 @@ func createResearchPackWithinRawTx(ctx context.Context, tx *sql.Tx, req CreateRe
 	if packID == "" {
 		packID = newResearchID("pack")
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := observedAt.UTC().Format(time.RFC3339Nano)
 	var lifecycle string
 	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id = ?`, req.OwnerWorkID).Scan(&lifecycle); err == sql.ErrNoRows {
 		return out, researchNotFound("owner work item does not exist")
@@ -902,10 +902,10 @@ func AppendResearchRevisionWithinTx(ctx context.Context, transaction *Transactio
 	if err != nil {
 		return ResearchRevision{}, err
 	}
-	return appendResearchRevisionWithinRawTx(ctx, tx, req)
+	return appendResearchRevisionWithinRawTx(ctx, tx, req, transaction.now())
 }
 
-func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req AppendResearchRevisionRequest) (ResearchRevision, error) {
+func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req AppendResearchRevisionRequest, observedAt time.Time) (ResearchRevision, error) {
 	var out ResearchRevision
 	if req.PackID == "" || req.ExpectedVersion < 1 {
 		return out, researchInvalid("pack_id and positive expected_version are required")
@@ -923,7 +923,7 @@ func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req Appe
 	if err != nil {
 		return out, err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := observedAt.UTC().Format(time.RFC3339Nano)
 	newRevision := pack.CurrentRevision + 1
 	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,?,?,?,?,?,?,?,?)`, req.PackID, newRevision, revision.Question, revision.ScopeIn, revision.ScopeOut, revision.DoneWhen, revision.Method, now, "current"); err != nil {
 		return out, researchConstraint("cannot append research revision", err)
@@ -954,10 +954,10 @@ func RecordResearchFindingWithinTx(ctx context.Context, transaction *Transaction
 	if err != nil {
 		return ResearchFinding{}, err
 	}
-	return recordResearchFindingWithinRawTx(ctx, tx, req, update)
+	return recordResearchFindingWithinRawTx(ctx, tx, req, update, transaction.now())
 }
 
-func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, update bool) (ResearchFinding, error) {
+func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, update bool, observedAt time.Time) (ResearchFinding, error) {
 	var out ResearchFinding
 	if err := validateFinding(req.Finding); err != nil {
 		return out, err
@@ -1027,7 +1027,7 @@ func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req Resea
 			return out, researchConstraint("cannot cite a source that is absent from this revision", err)
 		}
 	}
-	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, observedAt); err != nil {
 		return out, err
 	}
 	out, err = readFindingTx(ctx, tx, req.PackID, revision, req.Finding.FindingID)
@@ -1040,7 +1040,7 @@ func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req Resea
 // AddResearchSourceWithinTx runs the AddResearchSource core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
-func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest, update bool) (ResearchSource, error) {
+func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest, update bool, observedAt time.Time) (ResearchSource, error) {
 	var out ResearchSource
 	if err := validateSource(req.Source); err != nil {
 		return out, err
@@ -1084,7 +1084,7 @@ func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSour
 	if err != nil {
 		return out, researchConstraint("cannot write source", err)
 	}
-	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	if err := bumpResearchPack(ctx, tx, req.PackID, req.ExpectedVersion, observedAt); err != nil {
 		return out, err
 	}
 	out, err = readSourceTx(ctx, tx, req.PackID, revision, req.Source.SourceID)
@@ -1102,10 +1102,10 @@ func SetResearchFreshnessWithinTx(ctx context.Context, transaction *Transaction,
 	if err != nil {
 		return err
 	}
-	return setResearchFreshnessWithinRawTx(ctx, tx, req)
+	return setResearchFreshnessWithinRawTx(ctx, tx, req, transaction.now())
 }
 
-func setResearchFreshnessWithinRawTx(ctx context.Context, tx *sql.Tx, req SetResearchFreshnessRequest) error {
+func setResearchFreshnessWithinRawTx(ctx context.Context, tx *sql.Tx, req SetResearchFreshnessRequest, observedAt time.Time) error {
 	if req.PackID == "" || req.ExpectedVersion < 1 || !validResearchFreshness(req.Freshness) {
 		return researchInvalid("pack_id, expected_version, and a closed freshness value are required")
 	}
@@ -1126,7 +1126,7 @@ func setResearchFreshnessWithinRawTx(ctx context.Context, tx *sql.Tx, req SetRes
 	if _, err := tx.ExecContext(ctx, `UPDATE active_research_revisions SET freshness=? WHERE pack_id=? AND revision=?`, req.Freshness, req.PackID, targetRevision); err != nil {
 		return researchUnavailable("cannot write research freshness", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=(SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=current_revision),expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.PackID, time.Now().UTC().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET freshness=(SELECT freshness FROM active_research_revisions WHERE pack_id=? AND revision=current_revision),expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, req.PackID, observedAt.UTC().Format(time.RFC3339Nano), req.PackID, req.ExpectedVersion); err != nil {
 		return researchUnavailable("cannot write research freshness summary", err)
 	}
 	var got string
@@ -1147,17 +1147,17 @@ func RecordResearchFindingWithinTxUpsert(ctx context.Context, transaction *Trans
 	if err != nil {
 		return ResearchFinding{}, err
 	}
-	return recordResearchFindingWithinTxUpsertRaw(ctx, tx, req)
+	return recordResearchFindingWithinTxUpsertRaw(ctx, tx, req, transaction.now())
 }
 
-func recordResearchFindingWithinTxUpsertRaw(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest) (ResearchFinding, error) {
+func recordResearchFindingWithinTxUpsertRaw(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, observedAt time.Time) (ResearchFinding, error) {
 	var exists int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, req.PackID, req.Finding.Revision, req.Finding.FindingID).Scan(&exists)
 	switch {
 	case err == nil:
-		return recordResearchFindingWithinRawTx(ctx, tx, req, true)
+		return recordResearchFindingWithinRawTx(ctx, tx, req, true, observedAt)
 	case err == sql.ErrNoRows:
-		return recordResearchFindingWithinRawTx(ctx, tx, req, false)
+		return recordResearchFindingWithinRawTx(ctx, tx, req, false, observedAt)
 	default:
 		return ResearchFinding{}, researchUnavailable("cannot inspect finding", err)
 	}
@@ -1169,17 +1169,17 @@ func RecordResearchSourceWithinTx(ctx context.Context, transaction *Transaction,
 	if err != nil {
 		return ResearchSource{}, err
 	}
-	return recordResearchSourceWithinTxRaw(ctx, tx, req)
+	return recordResearchSourceWithinTxRaw(ctx, tx, req, transaction.now())
 }
 
-func recordResearchSourceWithinTxRaw(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest) (ResearchSource, error) {
+func recordResearchSourceWithinTxRaw(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest, observedAt time.Time) (ResearchSource, error) {
 	var exists int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_sources WHERE pack_id=? AND revision=? AND source_id=?`, req.PackID, req.Source.Revision, req.Source.SourceID).Scan(&exists)
 	switch {
 	case err == nil:
-		return addResearchSourceWithinTx(ctx, tx, req, true)
+		return addResearchSourceWithinTx(ctx, tx, req, true, observedAt)
 	case err == sql.ErrNoRows:
-		return addResearchSourceWithinTx(ctx, tx, req, false)
+		return addResearchSourceWithinTx(ctx, tx, req, false, observedAt)
 	default:
 		return ResearchSource{}, researchUnavailable("cannot inspect source", err)
 	}

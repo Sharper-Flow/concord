@@ -479,7 +479,7 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 		return ApplyOperationResult{}, err
 	}
 	if request.OccurredAt.IsZero() {
-		request.OccurredAt = time.Now().UTC()
+		request.OccurredAt = tx.now()
 	}
 	payload, err := json.Marshal(map[string]any{
 		"work_id": request.FromWorkID, "expected_version": request.FromExpectedVersion, "resulting_version": request.FromExpectedVersion + 1,

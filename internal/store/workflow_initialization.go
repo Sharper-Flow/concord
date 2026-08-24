@@ -26,6 +26,9 @@ func InitializeWorkflowTx(ctx context.Context, transaction *Transaction, request
 	if err != nil {
 		return err
 	}
+	if request.Now.IsZero() {
+		request.Now = transaction.now()
+	}
 	return initializeWorkflowRawTx(ctx, tx, request)
 }
 
@@ -37,7 +40,7 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		return newFailure(KindInvalidOperation, "workflow_initialize", "work ID and registered definition are required", false, "resolve the workflow definition before initialization")
 	}
 	if request.Now.IsZero() {
-		request.Now = time.Now().UTC()
+		request.Now = nowFromClock(nil)
 	}
 	if _, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Version: request.Definition.Definition.Version, Digest: request.Definition.Digest}); err != nil {
 		return err

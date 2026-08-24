@@ -190,7 +190,7 @@ func (s *Store) applyLocatorEvent(ctx context.Context, projectID, kind string, l
 		"value": locator.Value, "normalized_value": locator.NormalizedValue,
 		"expected_version": expected, "resulting_version": expected + 1,
 	})
-	return ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: locatorEventID(kind, locator.ID), Kind: kind, SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, projectID): expected}})
+	return ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: locatorEventID(kind, locator.ID), Kind: kind, SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, projectID): expected}})
 }
 
 func locatorEventID(kind, id string) string {

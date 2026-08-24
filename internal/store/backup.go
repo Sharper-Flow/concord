@@ -109,7 +109,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return manifest, wrapFailure(KindUnavailable, "backup", "backup was cancelled before it started", true, "retry the backup", err)
 	}
 
-	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
+	createdAt := s.now().Format(time.RFC3339Nano)
 	snapshotID := options.SnapshotID
 	if snapshotID == "" {
 		snapshotID = newSnapshotID()
@@ -175,7 +175,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return manifest, backupErr
 	}
 
-	manifest, err = verifyBackupFile(ctx, destination, CurrentSchemaVersion())
+	manifest, err = verifyBackupFile(ctx, destination, CurrentSchemaVersion(), s.Clock)
 	if err != nil {
 		_ = os.Remove(destination)
 		return BackupManifest{}, err
@@ -211,7 +211,7 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	if _, err := time.Parse(time.RFC3339Nano, manifest.CreatedAt); err != nil {
 		return BackupManifest{}, newFailure(KindInvalidPayload, "verify_backup", "backup manifest creation time is invalid", false, "create a fresh verified backup")
 	}
-	verified, err := verifyBackupFile(ctx, destination, max)
+	verified, err := verifyBackupFile(ctx, destination, max, nil)
 	if err != nil {
 		return BackupManifest{}, err
 	}
@@ -338,7 +338,7 @@ func RestoreBackup(ctx context.Context, source, destination string) (BackupManif
 		return BackupManifest{}, restoreErr
 	}
 
-	verifiedStage, err := verifyBackupFile(ctx, stage, manifest.SchemaVersion)
+	verifiedStage, err := verifyBackupFile(ctx, stage, manifest.SchemaVersion, nil)
 	if err != nil {
 		return BackupManifest{}, err
 	}
@@ -438,7 +438,7 @@ func projectionDigest(ctx context.Context, db *sql.DB) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func verifyBackupFile(ctx context.Context, destination string, supportedMax int) (BackupManifest, error) {
+func verifyBackupFile(ctx context.Context, destination string, supportedMax int, clock func() time.Time) (BackupManifest, error) {
 	info, err := os.Stat(destination)
 	if err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot stat backup snapshot", true, "restore the snapshot path and retry", err)
@@ -480,7 +480,7 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int)
 	}
 	result.SourceEventMaxSeq = result.EventWatermark
 	result.FileSHA256 = result.DBChecksum
-	result.BackupTime = time.Now().UTC().Format(time.RFC3339Nano)
+	result.BackupTime = nowFromClock(clock).Format(time.RFC3339Nano)
 	return result, nil
 }
 

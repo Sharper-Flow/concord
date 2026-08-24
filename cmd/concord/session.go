@@ -88,7 +88,7 @@ func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (st
 	}
 	defer s.Close()
 	eventID := orchestratorAssertionEventID(productID, workID)
-	if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, time.Now().UTC(), assertion); err != nil {
+	if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, s.Now(), assertion); err != nil {
 		return "", err
 	}
 	return handle, nil

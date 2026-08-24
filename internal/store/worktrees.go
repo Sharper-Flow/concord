@@ -225,6 +225,9 @@ func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req Worktree
 	if err != nil {
 		return WorktreeClaimResult{}, err
 	}
+	if req.Now.IsZero() {
+		req.Now = transaction.now()
+	}
 	return claimWorktreeRawTx(ctx, tx, req)
 }
 
@@ -248,7 +251,7 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReques
 	}
 	now := req.Now
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = nowFromClock(nil)
 	}
 	setID := WorktreeSetID(req.WorkID)
 
@@ -380,6 +383,9 @@ func ReclaimWorktreeTx(ctx context.Context, transaction *Transaction, req Worktr
 	if err != nil {
 		return WorktreeEntry{}, err
 	}
+	if req.Now.IsZero() {
+		req.Now = transaction.now()
+	}
 	return reclaimWorktreeRawTx(ctx, tx, req)
 }
 
@@ -394,7 +400,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	}
 	now := req.Now
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = nowFromClock(nil)
 	}
 	setID := WorktreeSetID(req.WorkID)
 

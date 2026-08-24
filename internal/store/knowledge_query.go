@@ -94,10 +94,10 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q9", "store is not open", false, "open a store before querying knowledge")
 	}
-	return queryQ9(ctx, s.db, req)
+	return queryQ9(ctx, s.db, req, s.now())
 }
 
-func queryQ9(ctx context.Context, q queryer, req Q9Request) (Q9Result, error) {
+func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time) (Q9Result, error) {
 	var out Q9Result
 	resolvedHome, err := resolveKnowledgeQueryHome(ctx, q, req.Product, req.Project, req.Home, "PM1.Q9")
 	if err != nil {
@@ -169,7 +169,7 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request) (Q9Result, error) {
 		}
 		cursor = &encoded
 	}
-	meta := knowledgeWatermarkMeta("PM1.Q9", req.Home, watermark, authority)
+	meta := knowledgeWatermarkMeta("PM1.Q9", req.Home, watermark, authority, observedAt)
 	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, ProjectID: req.Project}
 	if authority == "authoritative" {
 		meta.Omissions = append(meta.Omissions, knowledgeCoverageOmissions(ctx, q, req.Home, watermark)...)

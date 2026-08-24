@@ -37,8 +37,33 @@ const (
 
 // Store is an open handle to the local authority.
 type Store struct {
-	db   *sql.DB
-	path string
+	db    *sql.DB
+	path  string
+	Clock func() time.Time
+}
+
+func (s *Store) now() time.Time {
+	if s == nil || s.Clock == nil {
+		return time.Now().UTC()
+	}
+	return s.Clock().UTC()
+}
+
+// Now returns the store clock value for callers that compose durable records.
+func (s *Store) Now() time.Time { return s.now() }
+
+func nowFromClock(clock func() time.Time) time.Time {
+	if clock == nil {
+		return time.Now().UTC()
+	}
+	return clock().UTC()
+}
+
+func firstClock(clocks []func() time.Time) func() time.Time {
+	if len(clocks) == 0 {
+		return nil
+	}
+	return clocks[0]
 }
 
 // DatabaseForTesting exposes the raw handle only to tests and fixtures.
@@ -100,12 +125,12 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	// absorbed by the busy timeout.
 	db.SetMaxOpenConns(1)
 
-	s := &Store{db: db, path: path}
+	s := &Store{db: db, path: path, Clock: func() time.Time { return time.Now().UTC() }}
 	if err := s.verifyPragmas(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(ctx, db, s.Clock); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -114,7 +139,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, wrapFailure(KindUnavailable, "open", "cannot secure the database file", true,
 			"check database file permissions", err)
 	}
-	if err := ensureInstallationKey(ctx, db); err != nil {
+	if err := ensureInstallationKey(ctx, db, s.now()); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -127,13 +152,17 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 // ensureInstallationKey creates the one authority-owned cursor signing key.
 // INSERT is idempotent so concurrent short-lived opens converge on one key.
-func ensureInstallationKey(ctx context.Context, db *sql.DB) error {
+func ensureInstallationKey(ctx context.Context, db *sql.DB, createdAt ...time.Time) error {
+	when := nowFromClock(nil)
+	if len(createdAt) > 0 {
+		when = createdAt[0]
+	}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return wrapFailure(KindUnavailable, "open", "cannot create the installation cursor key", true,
 			"retry once the operating system random source is available", err)
 	}
-	_, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, time.Now().UTC().Format(time.RFC3339Nano))
+	_, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, when.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return wrapFailure(KindUnavailable, "open", "cannot persist the installation cursor key", true,
 			"retry once the database is writable", err)

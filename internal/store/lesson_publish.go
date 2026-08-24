@@ -152,7 +152,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	}
 	now := req.Now
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = nowFromClock(nil)
 	}
 	date := now.UTC().Format("2006-01-02T00:00:00Z")
 	sum := sha256.Sum256([]byte(req.Content))

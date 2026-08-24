@@ -93,7 +93,7 @@ func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCre
 	if request.Reason == "" {
 		request.Reason = "operator bootstrap"
 	}
-	when := time.Now().UTC()
+	when := s.now()
 	productPayload, _ := json.Marshal(map[string]string{
 		"display_name": request.DisplayName, "stage_maturity": request.StageMaturity,
 		"stage_audience_commitment": request.StageAudienceCommitment,
@@ -127,7 +127,7 @@ func (s *Store) CreateProjectForProduct(ctx context.Context, request ProjectCrea
 	if request.Reason == "" {
 		request.Reason = "operator bootstrap"
 	}
-	when := time.Now().UTC()
+	when := s.now()
 	projectPayload, _ := json.Marshal(projectCreatedEventPayload(request.DisplayName, request.StageMaturityOverride, request.StageAudienceCommitmentOverride))
 	projectPayloadVersion := 1
 	if request.StageMaturityOverride != "" {
@@ -186,7 +186,7 @@ func (s *Store) ChangeProjectStage(ctx context.Context, request ProjectStageChan
 	}
 	encoded, _ := json.Marshal(payload)
 	return ApplyOperationWithResult(ctx, s, Operation{
-		Events:           []Event{{EventID: operatorEventID("project.stage_changed", request.ProjectID), Kind: "project.stage_changed", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: encoded}},
+		Events:           []Event{{EventID: operatorEventID("project.stage_changed", request.ProjectID), Kind: "project.stage_changed", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: encoded}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, request.ProjectID): request.ExpectedVersion},
 	})
 }
@@ -206,7 +206,7 @@ func (s *Store) AddProductProjectMembership(ctx context.Context, request Product
 		"reason": request.Reason, "expected_version": request.ExpectedVersion, "resulting_version": request.ExpectedVersion + 1,
 	})
 	return ApplyOperationWithResult(ctx, s, Operation{
-		Events:           []Event{{EventID: operatorEventID("product_project.added", request.ProductID+":"+request.ProjectID), Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: payload}},
+		Events:           []Event{{EventID: operatorEventID("product_project.added", request.ProductID+":"+request.ProjectID), Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedVersion},
 	})
 }

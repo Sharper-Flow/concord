@@ -141,6 +141,21 @@ func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 	}
 }
 
+func TestPublishLessonRecordUsesOneInjectedPublicationDate(t *testing.T) {
+	repo := lessonRepoFixture(t)
+	want := time.Date(2042, 12, 31, 23, 59, 59, 0, time.UTC)
+	published, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, LessonPublication{
+		LessonID: "lesson-injected-clock", Title: "Injected publication date", Summary: "The publication date comes from the injected clock.",
+		Content: "# Injected publication date\n", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProjectIDs: []string{"project-1"}}, Now: want,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Record.Date != "2042-12-31T00:00:00Z" || !strings.HasPrefix(published.Record.Path, "docs/lessons/2042-12-31-") {
+		t.Fatalf("record=%+v", published.Record)
+	}
+}
+
 func commitCount(t *testing.T, repo string) int {
 	t.Helper()
 	out, err := exec.Command("git", "-C", repo, "rev-list", "--count", "HEAD").Output()

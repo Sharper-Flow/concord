@@ -48,7 +48,7 @@ func beginResearchMutation(ctx context.Context, s *Store, identity ResearchMutat
 			_ = tx.Rollback()
 			return nil, nil, false, newFailure(KindIdempotencyConflict, "research_mutation", "idempotency key was used for a different request", false, "use a new idempotency key")
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, time.Now().UTC().Format(time.RFC3339Nano), identity.PrincipalRef, identity.Tool, identity.OperationKind, identity.IdempotencyKey); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, s.now().Format(time.RFC3339Nano), identity.PrincipalRef, identity.Tool, identity.OperationKind, identity.IdempotencyKey); err != nil {
 			_ = tx.Rollback()
 			return nil, nil, false, researchUnavailable("cannot record idempotent replay", err)
 		}
@@ -61,12 +61,12 @@ func beginResearchMutation(ctx context.Context, s *Store, identity ResearchMutat
 	return tx, nil, false, nil
 }
 
-func finishResearchMutation(ctx context.Context, tx *sql.Tx, identity ResearchMutationIdentity, digest string, result researchResult) error {
+func finishResearchMutation(ctx context.Context, tx *sql.Tx, identity ResearchMutationIdentity, digest string, observedAt time.Time, result researchResult) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return researchUnavailable("cannot encode research result", err)
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := observedAt.UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,replayed_count,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,0,?,?)`, identity.PrincipalRef, identity.Tool, identity.OperationKind, identity.IdempotencyKey, digest, newResearchID("op"), string(data), now, now)
 	if err != nil {
 		return researchConstraint("cannot record research idempotency identity", err)
@@ -204,8 +204,8 @@ func lockResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 	}
 	return p, nil
 }
-func bumpResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64) error {
-	res, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, time.Now().UTC().Format(time.RFC3339Nano), id, expected)
+func bumpResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64, observedAt time.Time) error {
+	res, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, observedAt.UTC().Format(time.RFC3339Nano), id, expected)
 	if err != nil {
 		return researchUnavailable("cannot advance research pack version", err)
 	}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
@@ -470,7 +469,7 @@ func writeProductAndProjects(ctx context.Context, s *store.Store, request *impor
 		return false, nil
 	}
 	primary := resolved.primaryProject
-	now := time.Now().UTC()
+	now := s.Now()
 	productPayload, _ := json.Marshal(map[string]string{
 		"display_name":              request.Product.DisplayName,
 		"stage_maturity":            request.Product.StageMaturity,
@@ -566,7 +565,7 @@ func writeSecondaryProjects(ctx context.Context, s *store.Store, request *import
 				return nil, 0, lookupErr
 			}
 		}
-		now := time.Now().UTC()
+		now := s.Now()
 		projectPayload, _ := json.Marshal(map[string]any{"display_name": project.DisplayName})
 		membershipPayload, _ := json.Marshal(map[string]any{
 			"product_id":        request.Product.ProductID,
@@ -640,7 +639,7 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 			continue
 		}
 		valueStatement := fmt.Sprintf("Migrated from Advance predecessor change %s (phase %s, %s). Re-contract before execution.", change.ChangeID, change.SnapshotPhase, importOperatorActor)
-		now := time.Now().UTC()
+		now := s.Now()
 		workPayload, _ := json.Marshal(map[string]any{
 			"work_kind":       "task",
 			"title":           importWorkTitle(snapshotChangeTitle(resolved, change.ChangeID)),

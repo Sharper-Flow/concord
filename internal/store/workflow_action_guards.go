@@ -218,7 +218,7 @@ func normalizeWorkflowActionRequest(request *WorkflowActionExecutionRequest) err
 		return newFailure(KindInvalidOperation, "workflow_action", "idempotency identity is out of bounds", false, "retry with a bounded idempotency key")
 	}
 	if request.Now.IsZero() {
-		request.Now = time.Now().UTC()
+		request.Now = nowFromClock(nil)
 	}
 	if !validDigest(request.ContractDigest) {
 		return newFailure(KindSchemaUnsupported, "workflow_action", "contract_digest is not a SHA-256 digest", false, "supply the current manifest digest")

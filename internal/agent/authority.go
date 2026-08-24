@@ -40,7 +40,11 @@ type Service struct {
 }
 
 func NewService(authority *store.Store) *Service {
-	return &Service{Store: authority, Now: func() time.Time { return time.Now().UTC() }, MaxClockSkew: defaultClockSkew, NonceRetention: 24 * time.Hour}
+	var now Clock
+	if authority != nil {
+		now = authority.Clock
+	}
+	return &Service{Store: authority, Now: now, MaxClockSkew: defaultClockSkew, NonceRetention: 24 * time.Hour}
 }
 
 func authorityUnavailable(op string) error {

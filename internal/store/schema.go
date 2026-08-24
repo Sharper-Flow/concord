@@ -2546,7 +2546,7 @@ const (
 // timeout does not, a single blocked attempt is retried within a bounded
 // budget, and each retry re-checks the read-only fast path so a waiter returns
 // as soon as the winner commits.
-func Migrate(ctx context.Context, db *sql.DB) error {
+func Migrate(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
 	deadline := time.Now().Add(migrationLockBudget)
 	delay := migrationRetryInitialDelay
 	for {
@@ -2557,7 +2557,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		if current {
 			return nil
 		}
-		err = migrateOnce(ctx, db)
+		err = migrateOnce(ctx, db, clock...)
 		if err == nil {
 			return nil
 		}
@@ -2631,7 +2631,7 @@ func migrationLockContended(err error) bool {
 	return strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "database table is locked")
 }
 
-func migrateOnce(ctx context.Context, db *sql.DB) error {
+func migrateOnce(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
@@ -2671,7 +2671,7 @@ func migrateOnce(ctx context.Context, db *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,
-			m.Version, m.Name, m.checksum(), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano)); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))

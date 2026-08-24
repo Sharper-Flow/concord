@@ -52,8 +52,38 @@ DEFAULT_ABBREVIATION_ALLOWLIST = frozenset(
     {
         "JSON", "API", "CLI", "TUI", "SQL", "WAL", "CI", "PR", "ADV", "TS",
         "PM", "CD", "MCP", "AST", "RFC", "LLM", "ID", "UUID", "HTTP",
+        # Software technical nouns and units (ASD-STE100 §1 permits domain
+        # terms; these are names, not expandable phrase abbreviations):
+        "ADR", "AI", "ANSI", "ASCII", "CAS", "CDP", "CGO", "CLA", "CPU",
+        "CRDT", "CRUD", "CQRS", "DB", "DDL", "DSL", "EAV", "EARS", "ESC",
+        "FFI", "FTS", "GUI", "IDE", "IO", "IPC", "KB", "KV", "LMDB", "MB",
+        "MVCC", "NUL", "OID", "OS", "OSS", "POSIX", "RCA", "RDF", "README",
+        "REST", "SDK", "SDLC", "SGR", "SHA", "SLSA", "SLO", "SSRF", "UTF",
+        "UID", "URL", "UTC", "UI", "WASM", "WIP",
     }
 )
+# Uppercase words that are tokens of the languages being documented, not
+# abbreviations of an author's prose. SQL keywords and SQLite pragma values
+# appear verbatim in documents about queries, schemas, and durability
+# settings; expanding them on first use would put fiction into technical
+# writing ("Structured Query Language (SELECT)" is wrong — SELECT is the
+# token, not the abbreviation).
+SQL_KEYWORD_TOKENS = frozenset(
+    {
+        "AND", "CHECK", "DELETE", "EXPLAIN", "FULL", "IS", "NOT", "PLAN",
+        "PRAGMA", "QUERY", "STRICT", "TEXT", "TRUNCATE", "UPDATE",
+        "INSERT", "SELECT", "WHERE", "FROM", "NORMAL",
+    }
+)
+# RFC 2119 requirement keywords quoted uppercase in requirement statements.
+# Their meaning is defined by the cited RFC, not by the document at hand.
+RFC2119_KEYWORDS = frozenset({"MUST", "SHALL", "SHOULD", "MAY", "REQUIRED", "OPTIONAL"})
+# Version-bump classes named by the semver policy (Conventional Commit
+# titles map type/breaking to MAJOR and MINOR), the MIT license name, the
+# CD-NNNN record-number placeholder, and the Language Server Protocol —
+# each a defined name, not an expandable phrase abbreviation.
+DEFINED_NAME_TOKENS = frozenset({"MAJOR", "MINOR", "MIT", "NNNN", "LSP", "SCIP"})
+STRUCTURAL_TOKEN_EXCLUSIONS = SQL_KEYWORD_TOKENS | RFC2119_KEYWORDS | DEFINED_NAME_TOKENS
 DEFAULT_BANNED_PHRASES = (
     "in order to",
     "utilize",
@@ -557,7 +587,7 @@ def check_abbreviations(
         for line_no in line_numbers:
             line = lines[line_no - 1]
             for abbr in ABBR_RE.findall(line):
-                if abbr in allowlist or abbr in seen_abbreviations:
+                if abbr in allowlist or abbr in STRUCTURAL_TOKEN_EXCLUSIONS or abbr in seen_abbreviations:
                     continue
                 seen_abbreviations.add(abbr)
                 if not has_expansion(line, abbr):

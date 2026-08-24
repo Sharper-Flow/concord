@@ -42,13 +42,6 @@
       "state": "outstanding",
       "issue": 406,
       "reason": "Carries no dispatch at all - zero case arms - and reaches indent depth 7, with 27% of lines past depth 3. Scores 2.2x its cyclomatic number, which is nesting only."
-    },
-    {
-      "function": "internal/store.applyWorkflowActionRawTx",
-      "measured": 139,
-      "state": "outstanding",
-      "issue": 288,
-      "reason": "Interleaves per-action guards with shared invariants, so the branching is two concerns in one body rather than one wide dispatch. Tracked before this budget existed."
     }
   ]
 }

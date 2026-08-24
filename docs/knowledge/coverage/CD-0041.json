@@ -74,11 +74,11 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDefinitionValidationEnforcesVersionedProductTruthMatrix"
+      "value": "internal/store.TestWorkflowDefinitionValidationEnforcesProductTruthMatrix"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestLatestBuiltinWorkflowProductTruthClassification"
+      "value": "internal/store.TestBuiltinWorkflowProductTruthClassification"
     },
     {
       "kind": "go_test",

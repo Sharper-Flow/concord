@@ -18,6 +18,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import coverage_state  # noqa: E402
 
 spec = importlib.util.spec_from_file_location(
     "check_reachability", Path(__file__).with_name("check-reachability.py")
@@ -26,6 +29,7 @@ guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 
 MANIFEST = ROOT / "docs/reachability-exceptions.v1.json"
+SNAPSHOT = coverage_state.ISSUE_STATE
 
 
 def load_manifest() -> dict:
@@ -187,6 +191,74 @@ def test_every_declared_function_is_uniquely_owned() -> None:
         for symbol in exception["functions"]:
             assert symbol not in seen, f"{symbol} declared by {seen.get(symbol)} and {exception['id']}"
             seen[symbol] = exception["id"]
+
+
+def with_snapshot(mutate, env_extra: dict[str, str] | None = None):
+    """Run the checker against a mutated issue-state snapshot, then restore it."""
+    original = SNAPSHOT.read_text(encoding="utf-8")
+    try:
+        document = json.loads(original)
+        mutate(document)
+        SNAPSHOT.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        return run_cli(env_extra)
+    finally:
+        SNAPSHOT.write_text(original, encoding="utf-8")
+
+
+def outstanding_pointer() -> int:
+    for exception in load_manifest()["exceptions"]:
+        if exception.get("state") == "outstanding":
+            return exception["issue"]
+    raise AssertionError("manifest declares no outstanding exception to test")
+
+
+def test_outstanding_pointer_to_a_closed_issue_fails() -> None:
+    """The #219 defect: a record kept citing a closed issue and stayed green (#451)."""
+    pointer = outstanding_pointer()
+
+    def close_it(document: dict) -> None:
+        document["issues"][str(pointer)] = "closed"
+
+    result = with_snapshot(close_it, {"CONCORD_SKIP_REACHABILITY_ANALYSIS": "1"})
+    assert result.returncode == 1, result.stdout
+    assert f"outstanding issue {pointer} is closed" in result.stdout
+
+
+def test_outstanding_pointer_absent_from_snapshot_fails() -> None:
+    """An unsnapshotted pointer is unchecked, so it must fail rather than pass."""
+    pointer = outstanding_pointer()
+
+    def drop_it(document: dict) -> None:
+        document["issues"].pop(str(pointer), None)
+
+    result = with_snapshot(drop_it, {"CONCORD_SKIP_REACHABILITY_ANALYSIS": "1"})
+    assert result.returncode == 1, result.stdout
+    assert "absent from the issue-state snapshot" in result.stdout
+    assert "scripts/update-issue-state.py" in result.stdout
+
+
+def test_missing_snapshot_fails_rather_than_passing_vacuously() -> None:
+    original = SNAPSHOT.read_text(encoding="utf-8")
+    try:
+        SNAPSHOT.unlink()
+        result = run_cli({"CONCORD_SKIP_REACHABILITY_ANALYSIS": "1"})
+        assert result.returncode == 1, result.stdout
+        assert "issue-state snapshot is missing" in result.stdout
+    finally:
+        SNAPSHOT.write_text(original, encoding="utf-8")
+
+
+def test_snapshot_covers_every_plane_that_declares_outstanding_pointers() -> None:
+    """A plane absent from the registry would refresh into an uncovered pointer."""
+    registered = {path for path, _ in coverage_state.ISSUE_STATE_MANIFESTS}
+    assert MANIFEST in registered, "reachability plane must feed the shared snapshot"
+
+    snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    for pointer in coverage_state.collect_outstanding_issues():
+        assert str(pointer) in snapshot["issues"], (
+            f"issue {pointer} is declared outstanding but absent from the snapshot; "
+            "run scripts/update-issue-state.py"
+        )
 
 
 if __name__ == "__main__":

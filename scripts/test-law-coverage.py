@@ -185,7 +185,7 @@ def test_outstanding_issue_pointer_must_be_live() -> None:
     """An outstanding record dies with its issue: closed and absent pointers fail (issue #324)."""
     manifest = ROOT / "docs/law-coverage.v1.json"
     shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
-    snapshot = ROOT / "docs/law-coverage-issue-state.v1.json"
+    snapshot = ROOT / "docs/issue-state.v1.json"
     originals = (
         manifest.read_text(encoding="utf-8"),
         shard.read_text(encoding="utf-8"),
@@ -223,7 +223,7 @@ def test_outstanding_issue_pointer_must_be_live() -> None:
 
 
 def test_issue_snapshot_presence_and_shape() -> None:
-    snapshot = ROOT / "docs/law-coverage-issue-state.v1.json"
+    snapshot = ROOT / "docs/issue-state.v1.json"
     original = snapshot.read_text(encoding="utf-8")
     try:
         snapshot.unlink()

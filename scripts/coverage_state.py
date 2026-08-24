@@ -18,12 +18,28 @@ really justified by neither.
 Planes differ in what evidence *is*: a typed anchor for accepted law (CD-0047
 D3), a computed caller for reachable mechanism (CD-0047 D4). They do not differ
 in what the states mean, so only the evidence resolver is plane-specific.
+
+Requiring an `issue` field is only half of what `outstanding` claims. The other
+half is that the issue is still open, because a record's accountability dies
+with its owning issue, and a pointer at a closed one tracks nothing while
+reading as though it tracks something. That liveness rule belongs to the
+vocabulary rather than to any single plane, so it lives here beside the
+obligation it completes. #219 closed while reachability-exceptions.v1.json
+still cited it, and the plane holding a private copy of this check could not
+see the plane that held none — the drift CD-0047 D3 gave evidence_anchors.py
+to prevent (#451).
+
+CI has no network guarantee, so the deterministic form reads a committed
+snapshot, and scripts/update-issue-state.py is the authoritative online form
+that refreshes it (#324).
 """
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 
 # CD-0047 D2. Identical to contracts/floor-readiness.schema.json's item states.
 STATES = ("satisfied", "outstanding", "unmeasured", "out_of_scope")
@@ -40,6 +56,19 @@ OBLIGATION_FIELDS = frozenset(STATE_OBLIGATION.values())
 
 MAX_REASON = 1024
 MAX_EVIDENCE = 32
+
+ISSUE_STATE = ROOT / "docs/issue-state.v1.json"
+ISSUE_REPO = "Sharper-Flow/concord"
+REFRESH_COMMAND = "scripts/update-issue-state.py"
+
+# Every manifest whose outstanding records point at an issue, named by the key
+# holding those records. One snapshot serves all of them. A per-plane snapshot
+# would let a plane be added without its pointers being covered, which is the
+# absence this registry exists to make impossible.
+ISSUE_STATE_MANIFESTS = (
+    (ROOT / "docs/law-coverage.v1.json", "records"),
+    (ROOT / "docs/reachability-exceptions.v1.json", "exceptions"),
+)
 
 
 class DuplicateKeyError(ValueError):
@@ -103,6 +132,92 @@ def check_state_obligations(record: dict, prefix: str, findings: list[str]) -> b
             findings.append(f"{prefix}: issue must be a positive integer")
 
     return True
+
+
+def load_issue_states(findings: list[str]) -> dict[str, str] | None:
+    """Load the offline snapshot that backs pointer validation.
+
+    Returns None when the snapshot is unusable, so a caller skips pointer
+    checking rather than passing every record vacuously.
+    """
+    relative = ISSUE_STATE.relative_to(ROOT)
+    if not ISSUE_STATE.is_file():
+        findings.append(
+            f"issue-state snapshot is missing: {relative} (run {REFRESH_COMMAND})"
+        )
+        return None
+    try:
+        document = json.loads(ISSUE_STATE.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        findings.append(f"issue-state snapshot is unreadable: {exc}")
+        return None
+    if (
+        not isinstance(document, dict)
+        or document.get("schema_version") != "1.0"
+        or not isinstance(document.get("generated_at"), str)
+        or not isinstance(document.get("issues"), dict)
+    ):
+        findings.append(
+            "issue-state snapshot must carry schema_version 1.0, generated_at, "
+            "and an issues map"
+        )
+        return None
+    states: dict[str, str] = {}
+    for key, value in document["issues"].items():
+        if not isinstance(key, str) or not key.isdigit() or value not in ("open", "closed"):
+            findings.append(
+                f"issue-state snapshot entry {key!r} must be a decimal issue number "
+                "mapped to open or closed"
+            )
+            continue
+        states[key] = value
+    return states
+
+
+def check_outstanding_pointer(
+    record: dict,
+    prefix: str,
+    issue_states: dict[str, str] | None,
+    findings: list[str],
+) -> None:
+    """An outstanding record survives only while its owning issue is live."""
+    if issue_states is None:
+        return
+    pointer = str(record.get("issue"))
+    if pointer not in issue_states:
+        findings.append(
+            f"{prefix}: outstanding issue {pointer} is absent from the issue-state "
+            f"snapshot (run {REFRESH_COMMAND})"
+        )
+    elif issue_states[pointer] != "open":
+        findings.append(
+            f"{prefix}: outstanding issue {pointer} is {issue_states[pointer]}; "
+            "an outstanding record must point at a live issue"
+        )
+
+
+def collect_outstanding_issues() -> list[int]:
+    """Every issue an outstanding record points at, across every declared plane."""
+    numbers: set[int] = set()
+    for path, key in ISSUE_STATE_MANIFESTS:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        for record in document.get(key, []):
+            if (
+                isinstance(record, dict)
+                and record.get("state") == "outstanding"
+                and isinstance(record.get("issue"), int)
+            ):
+                numbers.add(record["issue"])
+    return sorted(numbers)
+
+
+def write_issue_state(states: dict[str, str], generated_at: str) -> None:
+    snapshot = {
+        "schema_version": "1.0",
+        "generated_at": generated_at,
+        "issues": dict(sorted(states.items(), key=lambda item: int(item[0]))),
+    }
+    ISSUE_STATE.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
 
 def check_subject_set(

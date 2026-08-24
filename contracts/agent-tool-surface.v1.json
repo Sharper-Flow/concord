@@ -128,13 +128,15 @@
     },
     {
       "id": "concord_domain",
-      "description": "Navigate Product architecture: current Domains, current law, active Domain-bound work, attachments, and unresolved overlap.",
+      "description": "Navigate Product architecture: current Domains, current law, active Domain-bound work, attachments, and unresolved overlap. Record and dismiss Domain-anchored observations.",
       "operations": [
         "concord_domain.list",
         "concord_domain.detail",
         "concord_domain.active_work",
         "concord_domain.attachments",
-        "concord_domain.overlaps"
+        "concord_domain.overlaps",
+        "concord_domain.observation_record",
+        "concord_domain.observation_dismiss"
       ]
     }
   ],
@@ -1315,6 +1317,48 @@
         ]
       },
       "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_domain.observation_record",
+      "tool": "concord_domain",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/domain_observation_record_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_define",
+      "consequence": "intent",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_domain.observation_dismiss",
+      "tool": "concord_domain",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/domain_observation_dismiss_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_define",
+      "consequence": "intent",
+      "approval": "required",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 65536,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
     }
   ],
   "schemas": {
@@ -1626,6 +1670,14 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_result",
       "closed": true
     },
+    "domain_observation_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_observation_record_input",
+      "closed": true
+    },
+    "domain_observation_dismiss_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_observation_dismiss_input",
+      "closed": true
+    },
     "domain_active_work_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_active_work_input",
       "closed": true
@@ -1699,6 +1751,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:4d8107bc95f7d28235c77a2b46d55f5c269dd53303757287b2373b7f8964a8bf",
-  "digest": "sha256:3ee5b24a4a9daac28c72779cecb627245b531d00f6257ea9803e65ff4655e671"
+  "payload_digest": "sha256:b4cf04133ffea4e85bfd109b1f08c4604ba8af90305e0e3301fe57aa2b978d15",
+  "digest": "sha256:d0fe6ba74c52d37d0e707312a9e57b23defbf09825b3c1a28c9a035f5790cacf"
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:3ee5b24a4a9daac28c72779cecb627245b531d00f6257ea9803e65ff4655e671"
+const ManifestDigest = "sha256:d0fe6ba74c52d37d0e707312a9e57b23defbf09825b3c1a28c9a035f5790cacf"
 
 type OperationKind string
 
@@ -94,6 +94,8 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_domain.active_work", Tool: "concord_domain", Operation: "active_work", Kind: OperationKind("read"), QueryID: "C22.DomainActiveWork", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "domain_active_work_input", ResultSchema: "domain_active_work_result"},
 	{ID: "concord_domain.attachments", Tool: "concord_domain", Operation: "attachments", Kind: OperationKind("read"), QueryID: "C22.DomainAttachments", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "domain_attachments_input", ResultSchema: "domain_attachments_result"},
 	{ID: "concord_domain.overlaps", Tool: "concord_domain", Operation: "overlaps", Kind: OperationKind("read"), QueryID: "C22.DomainOverlaps", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "domain_overlaps_input", ResultSchema: "domain_overlaps_result"},
+	{ID: "concord_domain.observation_record", Tool: "concord_domain", Operation: "observation_record", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Consequence: OperationConsequence("intent"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "domain_observation_record_input", ResultSchema: "mutation_result"},
+	{ID: "concord_domain.observation_dismiss", Tool: "concord_domain", Operation: "observation_dismiss", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Consequence: OperationConsequence("intent"), Approval: ApprovalClass("required"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "domain_observation_dismiss_input", ResultSchema: "mutation_result"},
 }
 
 func ValidateContractOperation(tool, operation string) (ContractOperation, bool) {
@@ -128,10 +130,13 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"domain_attachments_input":                   {Required: []string{"product_id", "domain_id"}, Properties: []string{"product_id", "domain_id", "requested_budget_seconds"}},
 	"domain_attachments_result":                  {Required: []string{"registry", "domain", "attachments"}, Properties: []string{"registry", "domain", "attachments"}},
 	"domain_detail_input":                        {Required: []string{"product_id", "domain_id"}, Properties: []string{"product_id", "domain_id", "requested_budget_seconds"}},
-	"domain_detail_result":                       {Required: []string{"registry", "domain", "current_law", "relations"}, Properties: []string{"registry", "domain", "current_law", "relations"}},
+	"domain_detail_result":                       {Required: []string{"registry", "domain", "current_law", "relations", "observations"}, Properties: []string{"registry", "domain", "current_law", "relations", "observations"}},
 	"domain_law_record":                          {Required: []string{"law_id", "kind", "title", "path", "content_hash"}, Properties: []string{"law_id", "kind", "title", "path", "content_hash", "applies_to", "scanned_commit_oid"}},
 	"domain_list_input":                          {Required: []string{"product_id"}, Properties: []string{"product_id", "page", "requested_budget_seconds"}},
 	"domain_list_result":                         {Required: []string{"registry", "domains"}, Properties: []string{"registry", "domains"}},
+	"domain_observation":                         {Required: []string{"observation_id", "product_id", "domain_id", "statement", "state", "recorded_at"}, Properties: []string{"observation_id", "product_id", "domain_id", "statement", "refs", "tags", "state", "recorded_at", "dismissed_at"}},
+	"domain_observation_dismiss_input":           {Required: []string{"product_id", "domain_id", "observation_id", "idempotency_key"}, Properties: []string{"product_id", "domain_id", "observation_id", "idempotency_key", "approval", "requested_budget_seconds"}},
+	"domain_observation_record_input":            {Required: []string{"product_id", "domain_id", "statement", "idempotency_key"}, Properties: []string{"product_id", "domain_id", "statement", "refs", "tags", "idempotency_key", "requested_budget_seconds"}},
 	"domain_overlap_pair":                        {Required: []string{"from_work_id", "to_work_id", "shared_domain_ids", "resolution_state"}, Properties: []string{"from_work_id", "to_work_id", "shared_domain_ids", "shared_law_ids", "resolution_state", "resolution_kind"}},
 	"domain_overlaps_input":                      {Required: []string{"product_id"}, Properties: []string{"product_id", "domain_id", "requested_budget_seconds"}},
 	"domain_overlaps_result":                     {Required: []string{"registry", "pairs", "truncated"}, Properties: []string{"registry", "pairs", "truncated"}},

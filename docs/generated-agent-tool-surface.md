@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:3ee5b24a4a9daac28c72779cecb627245b531d00f6257ea9803e65ff4655e671`
-Payload schema digest: `sha256:4d8107bc95f7d28235c77a2b46d55f5c269dd53303757287b2373b7f8964a8bf`
+Manifest digest: `sha256:d0fe6ba74c52d37d0e707312a9e57b23defbf09825b3c1a28c9a035f5790cacf`
+Payload schema digest: `sha256:b4cf04133ffea4e85bfd109b1f08c4604ba8af90305e0e3301fe57aa2b978d15`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -62,3 +62,5 @@ Envelope schema: `1.0`
 | `concord_domain.active_work` | `read` | `C22.DomainActiveWork` | `product_read` | `read` | `always` |
 | `concord_domain.attachments` | `read` | `C22.DomainAttachments` | `product_read` | `read` | `always` |
 | `concord_domain.overlaps` | `read` | `C22.DomainOverlaps` | `product_read` | `read` | `always` |
+| `concord_domain.observation_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
+| `concord_domain.observation_dismiss` | `mutation` | `—` | `work_define` | `intent` | `always` |

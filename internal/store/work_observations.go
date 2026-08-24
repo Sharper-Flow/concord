@@ -32,6 +32,32 @@ type workObservationRecordedPayload struct {
 	Tags          []string `json:"tags"`
 }
 
+// validateObservationBounds enforces the CD-0030 D1 statement, ref, and tag
+// bounds. CD-0068 D1 carries them over to the Domain anchor unchanged, so both
+// folds read the same limits from here rather than restating them.
+func validateObservationBounds(statement string, refs, tags []string) error {
+	if len(statement) < 1 || len(statement) > 512 {
+		return newFailure(KindInvalidPayload, "fold_event", "observation statement must be a bounded non-empty string", false, "supply a statement of at most 512 characters")
+	}
+	if len(refs) > 16 {
+		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many refs", false, "supply at most sixteen refs")
+	}
+	for _, ref := range refs {
+		if len(ref) < 1 || len(ref) > 256 {
+			return newFailure(KindInvalidPayload, "fold_event", "observation refs must be bounded", false, "supply bounded refs")
+		}
+	}
+	if len(tags) > 8 {
+		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many tags", false, "supply at most eight tags")
+	}
+	for _, tag := range tags {
+		if len(tag) < 1 || len(tag) > 32 {
+			return newFailure(KindInvalidPayload, "fold_event", "observation tags must be bounded", false, "supply bounded tags")
+		}
+	}
+	return nil
+}
+
 func foldWorkObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
@@ -43,24 +69,8 @@ func foldWorkObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if !observationIDPattern.MatchString(p.ObservationID) {
 		return newFailure(KindInvalidPayload, "fold_event", "observation id must be an obs: identifier", false, "supply a generated observation id")
 	}
-	if len(p.Statement) < 1 || len(p.Statement) > 512 {
-		return newFailure(KindInvalidPayload, "fold_event", "observation statement must be a bounded non-empty string", false, "supply a statement of at most 512 characters")
-	}
-	if len(p.Refs) > 16 {
-		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many refs", false, "supply at most sixteen refs")
-	}
-	for _, ref := range p.Refs {
-		if len(ref) < 1 || len(ref) > 256 {
-			return newFailure(KindInvalidPayload, "fold_event", "observation refs must be bounded", false, "supply bounded refs")
-		}
-	}
-	if len(p.Tags) > 8 {
-		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many tags", false, "supply at most eight tags")
-	}
-	for _, tag := range p.Tags {
-		if len(tag) < 1 || len(tag) > 32 {
-			return newFailure(KindInvalidPayload, "fold_event", "observation tags must be bounded", false, "supply bounded tags")
-		}
+	if err := validateObservationBounds(p.Statement, p.Refs, p.Tags); err != nil {
+		return err
 	}
 	// The discovery channel belongs to active work: terminal items stop
 	// recording but keep their existing observations (CD-0030 D4).
@@ -75,7 +85,13 @@ func foldWorkObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`,
 		p.ObservationID, event.SubjectID, p.Statement, marshalStrings(p.Refs), marshalStrings(p.Tags), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
-		return newFailure(KindProjectionConflict, "fold_event", "observation id already exists", false, "generate a new observation id")
+		// Only a duplicate id is a conflict. Reporting every insert failure as
+		// one told a caller its observation id collided when the real cause was
+		// a violated column constraint.
+		if isIdentityConflict(err) {
+			return newFailure(KindProjectionConflict, "fold_event", "observation id already exists", false, "generate a new observation id")
+		}
+		return wrapFailure(KindUnavailable, "fold_event", "cannot write the observation", true, "retry once the database is writable", err)
 	}
 	return nil
 }

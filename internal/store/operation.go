@@ -213,6 +213,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"managed_resource.consumer_added":         registerEventKind[managedResourceConsumerAddedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceConsumerAdded, nil),
 	"domain.project_attachments_replaced":     registerEventKind[domainProjectAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainProjectAttachmentsReplaced, nil),
 	"domain.resource_attachments_replaced":    registerEventKind[domainResourceAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainResourceAttachmentsReplaced, nil),
+	"domain.observation_recorded":             registerEventKind[domainObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
+	"domain.observation_dismissed":            registerEventKind[domainObservationDismissedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
 	"initiative_entry.added":                  registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryAdded, nil),
 	"initiative_entry.removed":                registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRemoved, nil),
 	"initiative_entry.reordered":              registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryReordered, nil),
@@ -642,6 +644,9 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		// clear their edges and sets before Product memberships and resources.
 		"domain_resource_attachment_edges", "domain_project_attachment_edges",
 		"domain_resource_attachment_sets", "domain_project_attachment_sets",
+		// Domain-anchored observations (CD-0068) hang off the same Git-projected
+		// Domain identity as the attachment sets.
+		"domain_observations",
 		"resource_products", "managed_resources",
 		// work-referencing RESTRICT-FK tables clear before work_items:
 		// observations (CD-0030), messages (CD-0029), claims (CD-0028).

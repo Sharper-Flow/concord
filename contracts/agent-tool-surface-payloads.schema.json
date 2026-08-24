@@ -5923,7 +5923,8 @@
         "registry",
         "domain",
         "current_law",
-        "relations"
+        "relations",
+        "observations"
       ],
       "properties": {
         "registry": {
@@ -5945,6 +5946,149 @@
           "items": {
             "$ref": "#/$defs/domain_relation"
           }
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/domain_observation"
+          }
+        }
+      }
+    },
+    "domain_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "product_id",
+        "domain_id",
+        "statement",
+        "state",
+        "recorded_at"
+      ],
+      "properties": {
+        "observation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "open",
+            "dismissed"
+          ]
+        },
+        "recorded_at": {
+          "type": "string"
+        },
+        "dismissed_at": {
+          "type": "string"
+        }
+      }
+    },
+    "domain_observation_record_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "domain_id",
+        "statement",
+        "idempotency_key"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "domain_observation_dismiss_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "domain_id",
+        "observation_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "observation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
         }
       }
     },

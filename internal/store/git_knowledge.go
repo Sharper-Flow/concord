@@ -546,7 +546,14 @@ func parseScalarArray(value string) ([]string, error) {
 	return result, nil
 }
 
+// marshalStrings renders a string slice for the JSON-array columns of the
+// projection. Every such column declares json_type(...)='array', which a nil
+// slice would violate: encoding/json renders nil as null, so an absent
+// optional list would fail the CHECK rather than store an empty array.
 func marshalStrings(values []string) string {
+	if values == nil {
+		return "[]"
+	}
 	b, _ := json.Marshal(values)
 	return string(b)
 }

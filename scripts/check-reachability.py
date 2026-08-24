@@ -21,6 +21,11 @@ action surface reserved until the engine ships, so its unreachability is
 accepted law working as intended. The manifest is how the two categories are
 told apart, and declaring an exception is a deliberate act with a reason
 attached rather than an absence nobody noticed.
+
+A deliberate act still needs an owner. An `outstanding` exception names the
+issue that owns closing it, and scripts/coverage_state.py rejects a pointer
+whose issue has closed — without that check, #219 closed and this manifest kept
+citing it for four days while every run stayed green (#451).
 """
 from __future__ import annotations
 
@@ -35,8 +40,10 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from coverage_state import (  # noqa: E402
     bounded_text,
+    check_outstanding_pointer,
     check_state_obligations,
     check_subject_set,
+    load_issue_states,
     load_json,
     report,
 )
@@ -165,6 +172,8 @@ def main() -> int:
         findings.append("exceptions must be an array")
         return report(findings, "reachability")
 
+    issue_states = load_issue_states(findings)
+
     declared: list[str] = []
     for exception in exceptions:
         if not isinstance(exception, dict):
@@ -190,6 +199,8 @@ def main() -> int:
             continue
         if not check_state_obligations(exception, prefix, findings):
             continue
+        if exception.get("state") == "outstanding":
+            check_outstanding_pointer(exception, prefix, issue_states, findings)
 
         functions = exception.get("functions")
         if not isinstance(functions, list) or not functions:

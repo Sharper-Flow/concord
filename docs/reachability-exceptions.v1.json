@@ -109,7 +109,7 @@
         "internal/agent.Service.RevokeApprovalChallenge",
         "internal/agent.Service.RevokeGrant"
       ],
-      "issue": 219
+      "issue": 450
     },
     {
       "id": "initial-inventory-unassessed",

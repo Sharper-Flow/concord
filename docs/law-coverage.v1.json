@@ -1006,6 +1006,16 @@
     {
       "evidence": [
         {
+          "kind": "validator",
+          "value": "scripts/check-agent-contracts.py"
+        }
+      ],
+      "id": "CD-0070",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
           "kind": "go_test",
           "value": "internal/store.TestAuthorityTablesCarryNoIntegrityTrigger"
         }

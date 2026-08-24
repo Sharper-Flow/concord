@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "home_domain_id": "agent-surface",
+  "id": "CD-0070",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0070-lane-definitions-are-not-operator-selectable.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:9a1a586eb11e3f3d344e8bb5aa5858f8a719c006a2eb1fe1db58ec3ebca6b67c",
+  "status": "accepted",
+  "summary": "D1 emits hidden: true in generated lane frontmatter, so a worker lane is not selectable as an operator session agent; D2 preserves CD-0064 D1 mode: all unchanged, because hidden governs operator-facing listing only and run-mode dispatch plus the CD-0064 D2 executor readback are unaffected; D3 records that the registry digest covers the manifest rather than the projected lane body, so no digest and no schema version moves. The exposure was that CD-0017 Invariant 4 governs what a worker does while nothing governed who may become one.",
+  "tags": [
+    "lanes",
+    "agent-identity",
+    "operator-surface",
+    "worker-boundary"
+  ],
+  "title": "Lane definitions are hidden from the operator's agent cycle"
+}

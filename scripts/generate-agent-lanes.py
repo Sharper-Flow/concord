@@ -102,6 +102,7 @@ def agent_projection(lane: dict) -> str:
     return f"""---
 description: Concord {lane['id']} lane — {lane['purpose']}
 mode: all
+hidden: true
 tools:
   task: false
 permission:

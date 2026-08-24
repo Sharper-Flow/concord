@@ -1,6 +1,7 @@
 ---
 description: Concord implement lane — Implement one approved bounded engineering task and report verification.
 mode: all
+hidden: true
 tools:
   task: false
 permission:

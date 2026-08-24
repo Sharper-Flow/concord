@@ -154,7 +154,7 @@ func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 	// path against temp dirs. With no concord-orchestrator.md on disk, the
 	// verification fails before the store is opened, so the recorded
 	// database file must not exist.
-	orchestrator := recordOrchestratorIdentityAt(home, cwd)
+	orchestrator := recordOrchestratorIdentityAt(home, cwd, registryProbeFor(orchestratorAgentName))
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
 	runner := func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil }
@@ -199,7 +199,7 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord-assertion.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) }
-	orchestrator := recordOrchestratorIdentityAt(home, cwd)
+	orchestrator := recordOrchestratorIdentityAt(home, cwd, registryProbeFor(orchestratorAgentName))
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
 	runner := func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil }
@@ -292,7 +292,7 @@ func TestSessionStartsTheOrchestratorAgentItAsserted(t *testing.T) {
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },
-		recordOrchestratorIdentityAt(home, cwd),
+		recordOrchestratorIdentityAt(home, cwd, registryProbeFor(orchestratorAgentName)),
 	); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -363,7 +363,7 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	dbPath := filepath.Join(t.TempDir(), "concord-digest.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) }
-	orchestrator := recordOrchestratorIdentityAt(home, cwd)
+	orchestrator := recordOrchestratorIdentityAt(home, cwd, registryProbeFor(orchestratorAgentName))
 
 	// First session — record an assertion against the current files.
 	if code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
@@ -427,10 +427,13 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 // installation. Production wiring in cmd/concord/session.go uses
 // hostOrchestratorIdentity, which reads os.Getenv/os.Getwd; the shape is
 // otherwise identical.
-func recordOrchestratorIdentityAt(home, cwd string) sessionOrchestratorFunc {
+func recordOrchestratorIdentityAt(home, cwd string, probe hostRegistryProbeFunc) sessionOrchestratorFunc {
 	return func(ctx context.Context, productID, workID string) (string, error) {
 		assertion, handle, err := verifyOrchestratorIdentity(home, cwd)
 		if err != nil {
+			return "", err
+		}
+		if err := verifyHostRegistersHandle(ctx, probe, cwd, handle); err != nil {
 			return "", err
 		}
 		assertion.ProductID = productID
@@ -454,6 +457,65 @@ func recordOrchestratorIdentityAt(home, cwd string) sessionOrchestratorFunc {
 		}
 		return handle, nil
 	}
+}
+
+// TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle covers issue #430: a
+// definition that resolves on disk is not proof the host will start it. The
+// registry is checked before the store is touched and before the host starts,
+// so a session that cannot run as the agent it asserts records no evidence and
+// starts nothing (CD-0049 D4).
+func TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	for _, lane := range store.BuiltinLaneDefinitions() {
+		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
+	}
+	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName)
+	t.Setenv("HOME", home)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	dbPath := filepath.Join(t.TempDir(), "concord-unregistered.db")
+	t.Setenv("CONCORD_DB_PATH", dbPath)
+	runs := 0
+	var out, errOut bytes.Buffer
+	// The host resolves the definition file but registers no such agent —
+	// the state a `disable: true` or a configuration-layer override leaves
+	// behind, which no on-disk check can see.
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
+		func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil },
+		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },
+		recordOrchestratorIdentityAt(home, cwd, registryProbeFor("some-other-agent")),
+	)
+	if code == 0 {
+		t.Fatal("session started as an agent the host does not register")
+	}
+	if runs != 0 {
+		t.Fatalf("host started %d times on a refused session", runs)
+	}
+	for _, fragment := range []string{orchestratorAgentName, "not registered"} {
+		if !strings.Contains(errOut.String(), fragment) {
+			t.Fatalf("diagnostic %q omits %q", errOut.String(), fragment)
+		}
+	}
+	if _, err := os.Stat(dbPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("database created at %q despite a refused registration check", dbPath)
+	}
+}
+
+// registryProbeFor builds a probe whose registry declares each supplied
+// handle as an enabled primary agent. Tests that are not about registration
+// state use it to say "the host registers what the definition derives", so a
+// registration refusal never masquerades as the failure under test.
+func registryProbeFor(handles ...string) hostRegistryProbeFunc {
+	agents := make(map[string]hostAgentEntry, len(handles))
+	for _, handle := range handles {
+		agents[handle] = hostAgentEntry{Mode: "primary"}
+	}
+	document, err := json.Marshal(hostConfigDocument{Agent: agents})
+	if err != nil {
+		panic(err)
+	}
+	return func(context.Context, string) ([]byte, error) { return document, nil }
 }
 
 // recordedAssertion is the shape TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact
@@ -538,7 +600,7 @@ func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },
-		recordOrchestratorIdentityAt(home, cwd),
+		recordOrchestratorIdentityAt(home, cwd, registryProbeFor("op-session-renamed")),
 	); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}

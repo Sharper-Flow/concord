@@ -32,9 +32,9 @@
     },
     {
       "function": "internal/agent.(runtime).read",
-      "measured": 181,
+      "measured": 189,
       "state": "unmeasured",
-      "reason": "Flat dispatch over 25 read kinds: 400 lines with only 3% past indent depth 3, arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth."
+      "reason": "Flat dispatch over 27 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 181 to 189 when the observation reads (#423/#424) and the CD-0068 message channel each added dispatch arms."
     },
     {
       "function": "internal/agent.validateSchemaValue",

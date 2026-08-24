@@ -1,5 +1,18 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestLaneAgentIdentityResolvesFromEitherSearchedDirectory"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionStartsTheOrchestratorAgentItAsserted"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters"
+    }
+  ],
   "id": "CD-0049",
-  "issue": 257,
-  "state": "outstanding"
+  "state": "satisfied"
 }

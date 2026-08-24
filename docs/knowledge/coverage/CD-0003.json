@@ -1,5 +1,14 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOpenAppliesSchemaManifest"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTxScope"
+    }
+  ],
   "id": "CD-0003",
-  "issue": 219,
-  "state": "outstanding"
+  "state": "satisfied"
 }

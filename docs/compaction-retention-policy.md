@@ -10,6 +10,10 @@
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, agent tools, or exact maintenance thresholds.
+> **Amended by CD-0066:** the projection-pruning mechanism (§2, §3, §4, §7's
+> `archived_work_linked` event/projection, §9.8's maintenance cursor) is deferred;
+> live projections are unbounded with a recorded revisit trigger; backup retention
+> stays out of scope. The authority guarantees in §1, §5, §6, §8 and §7.1 stand.
 > **Amended by CD-0041 and CD-0042:** historical scope uses `domain_ids` and
 > `archived_work_domains`; #197 replaces component scope directly on the
 > pre-go-live primary path without an upcaster or compatibility window.

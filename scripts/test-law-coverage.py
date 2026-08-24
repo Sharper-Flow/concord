@@ -181,6 +181,84 @@ def test_state_obligations_are_exclusive_in_both_directions() -> None:
     assert findings
 
 
+def test_outstanding_issue_pointer_must_be_live() -> None:
+    """An outstanding record dies with its issue: closed and absent pointers fail (issue #324)."""
+    manifest = ROOT / "docs/law-coverage.v1.json"
+    shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
+    snapshot = ROOT / "docs/law-coverage-issue-state.v1.json"
+    originals = (
+        manifest.read_text(encoding="utf-8"),
+        shard.read_text(encoding="utf-8"),
+        snapshot.read_text(encoding="utf-8"),
+    )
+    try:
+        snapshot_document = json.loads(originals[2])
+        snapshot_document["issues"]["219"] = "closed"
+        snapshot.write_text(json.dumps(snapshot_document, indent=2) + "\n", encoding="utf-8")
+
+        def run_with_issue(number: int) -> subprocess.CompletedProcess:
+            for target in (manifest, shard):
+                document = json.loads(target.read_text(encoding="utf-8"))
+                pool = document["records"] if "records" in document else [document]
+                for record in pool:
+                    if record.get("id") == "CD-0006":
+                        record["issue"] = number
+                target.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],
+                capture_output=True,
+                text=True,
+            )
+
+        closed = run_with_issue(219)
+        assert closed.returncode == 1, closed.stdout
+        assert "outstanding issue 219 is closed" in closed.stdout
+
+        absent = run_with_issue(999999)
+        assert absent.returncode == 1, absent.stdout
+        assert "absent from the issue-state snapshot" in absent.stdout
+    finally:
+        for target, content in zip((manifest, shard, snapshot), originals):
+            target.write_text(content, encoding="utf-8")
+
+
+def test_issue_snapshot_presence_and_shape() -> None:
+    snapshot = ROOT / "docs/law-coverage-issue-state.v1.json"
+    original = snapshot.read_text(encoding="utf-8")
+    try:
+        snapshot.unlink()
+        missing = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],
+            capture_output=True,
+            text=True,
+        )
+        assert missing.returncode == 1, missing.stdout
+        assert "issue-state snapshot is missing" in missing.stdout
+
+        snapshot.write_text(
+            json.dumps({"schema_version": "1.0", "generated_at": "x", "issues": {"not-a-number": "open"}}) + "\n",
+            encoding="utf-8",
+        )
+        malformed = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],
+            capture_output=True,
+            text=True,
+        )
+        assert malformed.returncode == 1, malformed.stdout
+        assert "decimal issue number" in malformed.stdout
+    finally:
+        snapshot.write_text(original, encoding="utf-8")
+
+
+def test_green_repository_passes_offline_pointer_validation() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout
+
+
 def test_cli_exits_nonzero_on_a_broken_manifest() -> None:
     manifest = ROOT / "docs/law-coverage.v1.json"
     original = manifest.read_text(encoding="utf-8")

@@ -1971,6 +1971,35 @@
       "title": "The conformance corpus runs what production runs"
     },
     {
+      "date": "2026-08-24T00:00:00Z",
+      "evidence": [
+        "docs/compaction-retention-policy.md",
+        "scripts/check-law-coverage.py",
+        "docs/knowledge/coverage/PM7.json"
+      ],
+      "home_domain_id": "product-memory",
+      "id": "CD-0066",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0066-pm7-retention-amendment.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:624c22f1c13593aa8b700eaa8cdab7ea4886a6a996dd84b26fa4027df96ba60f",
+      "status": "accepted",
+      "summary": "PM7's projection-pruning mechanism (eligibility predicate, bounded maintenance run, storage-pressure threshold, work_projection_pruned event, archived_work_linked projection) is deferred by decision rather than built: the authority guarantees (git note and domain_events authority, work-ID immutability, link-before-removal, git-rebuildable historical projections, live/historical query union, research cleanup) stand with executable evidence, live projections are accepted as unbounded at pre-floor scale with three recorded revisit triggers, and backup retention and VACUUM stay out of scope under PM10. Deliberate absences (core event pruning, WIP-byte CAS, process-exhaust receipts) stay absent. The PM7 coverage record closes as satisfied.",
+      "tags": [
+        "retention",
+        "pm7",
+        "compaction",
+        "coverage"
+      ],
+      "title": "PM7 retention amendment — pruning deferred, authority guarantees kept"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "PM1",
@@ -2057,7 +2086,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:497374caff8c789b70a57c8d34200a3a6ef4c694ac1ca6d45656aa67ab914087",
+      "sha256": "sha256:84fa6c00f0f454e9bba5c2464be85da6b5aed1850fcd39359c66bbceedd50c3d",
       "status": "accepted",
       "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
       "tags": [

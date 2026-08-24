@@ -14,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:497374caff8c789b70a57c8d34200a3a6ef4c694ac1ca6d45656aa67ab914087",
+  "sha256": "sha256:84fa6c00f0f454e9bba5c2464be85da6b5aed1850fcd39359c66bbceedd50c3d",
   "status": "accepted",
   "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
   "tags": [

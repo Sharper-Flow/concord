@@ -16,9 +16,18 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestOpenAppliesSchemaManifest"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestTxScope"
+        }
+      ],
       "id": "CD-0003",
-      "issue": 219,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [
@@ -40,7 +49,7 @@
     },
     {
       "id": "CD-0006",
-      "issue": 219,
+      "issue": 295,
       "state": "outstanding"
     },
     {
@@ -160,7 +169,7 @@
     },
     {
       "id": "CD-0019",
-      "issue": 219,
+      "issue": 295,
       "state": "outstanding"
     },
     {
@@ -508,7 +517,7 @@
     },
     {
       "id": "CD-0043",
-      "issue": 219,
+      "issue": 253,
       "state": "outstanding"
     },
     {
@@ -590,9 +599,22 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestLaneAgentIdentityResolvesFromEitherSearchedDirectory"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionStartsTheOrchestratorAgentItAsserted"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters"
+        }
+      ],
       "id": "CD-0049",
-      "issue": 257,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [
@@ -933,6 +955,20 @@
     {
       "evidence": [
         {
+          "kind": "validator",
+          "value": "scripts/check-law-coverage.py"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/test-law-coverage.py"
+        }
+      ],
+      "id": "CD-0066",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
           "kind": "go_test",
           "value": "internal/store.TestAcceptedQ1ToQ10Corpus"
         }
@@ -961,9 +997,26 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestPublishCompactionLinkPreflightsRequiredResearchConsumer"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestTerminalResearchCleanupRefusesRequiredCompaction"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestQ10OrphanWorkNoteRemainsNotCompacted"
+        }
+      ],
       "id": "PM7",
-      "issue": 219,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "id": "README",

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -9,7 +8,7 @@ import (
 func workflowProductTruth(value bool) *bool { return &value }
 
 func TestWorkflowDefinitionValidationRequiresProductTruthClassification(t *testing.T) {
-	for _, definition := range builtinWorkflowV1Definitions() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		definition.ChangesProductTruth = nil
 		if err := ValidateWorkflowDefinition(definition); err == nil {
 			t.Fatalf("%s definition with omitted product-truth classification passed validation", definition.Ref)
@@ -23,33 +22,32 @@ func TestWorkflowDefinitionValidationRequiresProductTruthClassification(t *testi
 	}
 }
 
-func TestWorkflowDefinitionValidationEnforcesVersionedProductTruthMatrix(t *testing.T) {
+func TestWorkflowDefinitionValidationEnforcesProductTruthMatrix(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	cases := []struct {
-		name    string
-		ref     string
-		version int64
-		value   bool
+		name  string
+		ref   string
+		value bool
 	}{
-		{name: "latest implementation cannot opt out", ref: "workflow.implementation", version: 4, value: false},
-		{name: "latest research cannot opt in", ref: "workflow.research", version: 4, value: true},
-		{name: "historical implementation cannot opt in", ref: "workflow.implementation", version: 3, value: true},
+		{name: "implementation cannot opt out", ref: "workflow.implementation", value: false},
+		{name: "break-fix cannot opt out", ref: "workflow.break_fix", value: false},
+		{name: "research cannot opt in", ref: "workflow.research", value: true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			registered, ok := registry.Lookup(testCase.ref, testCase.version)
+			registered, ok := registry.Lookup(testCase.ref, 1)
 			if !ok {
-				t.Fatalf("%s v%d is not registered", testCase.ref, testCase.version)
+				t.Fatalf("%s is not registered", testCase.ref)
 			}
 			registered.Definition.ChangesProductTruth = workflowProductTruth(testCase.value)
 			if err := ValidateWorkflowDefinition(registered.Definition); err == nil {
-				t.Fatalf("%s v%d accepted product truth=%t", testCase.ref, testCase.version, testCase.value)
+				t.Fatalf("%s accepted product truth=%t", testCase.ref, testCase.value)
 			}
 		})
 	}
 }
 
-func TestLatestBuiltinWorkflowProductTruthClassification(t *testing.T) {
+func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	want := map[WorkKind]bool{
 		WorkKindImplementation:    true,
 		WorkKindBreakFix:          true,
@@ -61,37 +59,41 @@ func TestLatestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	}
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version != 4 {
-			t.Fatalf("latest %s version=%d, want 4", definition.Ref, definition.Version)
+		if definition.Version != 1 {
+			t.Fatalf("built-in %s version=%d, want 1", definition.Ref, definition.Version)
 		}
 		if definition.ChangesProductTruth == nil || *definition.ChangesProductTruth != want[definition.WorkKind] {
-			t.Fatalf("latest %s product truth=%v, want %t", definition.Ref, definition.ChangesProductTruth, want[definition.WorkKind])
+			t.Fatalf("built-in %s product truth=%v, want %t", definition.Ref, definition.ChangesProductTruth, want[definition.WorkKind])
 		}
-		for _, version := range []int64{1, 2, 3} {
-			registered, ok := registry.Lookup(definition.Ref, version)
-			if !ok {
-				t.Fatalf("%s v%d is not registered", definition.Ref, version)
-			}
-			if registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth {
-				t.Fatalf("historical %s v%d product truth=%v, want explicit false", definition.Ref, version, registered.Definition.ChangesProductTruth)
-			}
-		}
-		latest, ok := registry.Lookup(definition.Ref, 4)
-		if !ok || latest.Definition.ChangesProductTruth == nil || *latest.Definition.ChangesProductTruth != want[definition.WorkKind] {
-			t.Fatalf("latest %s product truth=%v, want %t", definition.Ref, latest.Definition.ChangesProductTruth, want[definition.WorkKind])
+		registered, ok := registry.Lookup(definition.Ref, 1)
+		if !ok || registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth != want[definition.WorkKind] {
+			t.Fatalf("registered %s product truth=%v, want %t", definition.Ref, registered.Definition.ChangesProductTruth, want[definition.WorkKind])
 		}
 	}
 }
 
-func TestLatestProductChangingDefinitionsHaveApprovalRouteWithoutHistoricalRewrite(t *testing.T) {
+// The built-in registry holds exactly one version of each family. Concord is
+// pre-release, so no persisted work pins a superseded built-in definition.
+func TestBuiltinWorkflowRegistryHoldsOneVersionPerFamily(t *testing.T) {
+	registry := NewBuiltinWorkflowRegistry()
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		for _, version := range []int64{0, 2, 3, 4} {
+			if _, ok := registry.Lookup(definition.Ref, version); ok {
+				t.Fatalf("%s v%d is registered, want version 1 only", definition.Ref, version)
+			}
+		}
+	}
+}
+
+func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
 			continue
 		}
-		registered, ok := registry.Lookup(definition.Ref, 4)
+		registered, ok := registry.Lookup(definition.Ref, 1)
 		if !ok {
-			t.Fatalf("latest %s is not registered", definition.Ref)
+			t.Fatalf("%s is not registered", definition.Ref)
 		}
 		found := false
 		for _, step := range registered.Definition.StepGraph.Steps {
@@ -103,54 +105,26 @@ func TestLatestProductChangingDefinitionsHaveApprovalRouteWithoutHistoricalRewri
 			t.Fatalf("Product-changing %s lacks a human approve_contract route", definition.Ref)
 		}
 	}
-	for _, version := range []int64{1, 2, 3} {
-		historical, ok := registry.Lookup("workflow.break_fix", version)
-		if !ok {
-			t.Fatalf("historical break-fix v%d is not registered", version)
-		}
-		if containsString(historical.Definition.AvailableActions, "approve_contract") {
-			t.Fatalf("historical break-fix v%d gained a v4 approval route", version)
-		}
-		for _, step := range historical.Definition.StepGraph.Steps {
-			if step.ID == "planning" {
-				t.Fatalf("historical break-fix v%d gained a v4 planning step", version)
-			}
-		}
-	}
 }
 
-func TestWorkflowDefinitionCanonicalProductTruthVersioning(t *testing.T) {
+func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
-	latest, ok := registry.Lookup("workflow.implementation", 4)
+	registered, ok := registry.Lookup("workflow.implementation", 1)
 	if !ok {
-		t.Fatal("latest implementation definition is not registered")
+		t.Fatal("implementation definition is not registered")
 	}
-	canonical, err := CanonicalWorkflowDefinition(latest.Definition)
+	canonical, err := CanonicalWorkflowDefinition(registered.Definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var latestManifest map[string]any
-	if err := json.Unmarshal(canonical, &latestManifest); err != nil {
+	var manifest map[string]any
+	if err := json.Unmarshal(canonical, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if latestManifest["schema_version"] != "1.3" {
-		t.Fatalf("latest schema version=%v, want 1.3", latestManifest["schema_version"])
+	if manifest["schema_version"] != workflowDefinitionSchemaVersion {
+		t.Fatalf("schema version=%v, want %s", manifest["schema_version"], workflowDefinitionSchemaVersion)
 	}
-	if value, ok := latestManifest["changes_product_truth"].(bool); !ok || !value {
-		t.Fatalf("latest product truth=%v, want boolean true", latestManifest["changes_product_truth"])
-	}
-
-	for _, version := range []int64{1, 2, 3} {
-		historical, ok := registry.Lookup("workflow.implementation", version)
-		if !ok {
-			t.Fatalf("historical implementation v%d is not registered", version)
-		}
-		historicalCanonical, err := CanonicalWorkflowDefinition(historical.Definition)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if bytes.Contains(historicalCanonical, []byte(`"changes_product_truth"`)) {
-			t.Fatalf("historical canonical definition v%d acquired product-truth field", version)
-		}
+	if value, ok := manifest["changes_product_truth"].(bool); !ok || !value {
+		t.Fatalf("product truth=%v, want boolean true", manifest["changes_product_truth"])
 	}
 }

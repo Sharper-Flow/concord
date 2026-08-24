@@ -44,9 +44,8 @@ func TestContinuityDispatchReadsAPinnedContract(t *testing.T) {
 	var payload struct {
 		Pinned struct {
 			Contract *struct {
-				Version                         int64 `json:"version"`
-				ChangesProductTruth             bool  `json:"changes_product_truth"`
-				LegacyProductTruthCompatibility bool  `json:"legacy_product_truth_compatibility"`
+				Version             int64 `json:"version"`
+				ChangesProductTruth bool  `json:"changes_product_truth"`
 			} `json:"contract"`
 		} `json:"pinned"`
 	}

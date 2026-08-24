@@ -66,7 +66,7 @@ func TestBuildAcceptsFullyPinnedContract(t *testing.T) {
 		RequiredEvidence: []string{"evidence-1"}, RouteConventions: []string{"route-1"},
 		SpecMandate: []string{"law-1"}, LawModifies: []string{"law-1"},
 		LawRevisions: []store.WorkflowLawRevision{{LawID: "law-1", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
-		RigorClass:   "product_changing", ChangesProductTruth: true, LegacyProductTruthCompatibility: true,
+		RigorClass:   "product_changing", ChangesProductTruth: true,
 		ArchitectureBinding: &store.WorkflowArchitectureBinding{
 			DomainRegistryContentHash: "sha256:" + strings.Repeat("a", 64), HomeDomainID: "child",
 			AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"},

@@ -54,7 +54,7 @@ than as a fixed gate sequence:
 - **Approval routes on product-changing work:** the workflow registry
   structurally classifies every definition with `changes_product_truth`, and
   product-changing definitions must carry an approval route
-  (`TestLatestProductChangingDefinitionsHaveApprovalRouteWithoutHistoricalRewrite`).
+  (`TestProductChangingDefinitionsHaveApprovalRoute`).
   A definition that changes Product truth cannot exist without the human
   checkpoint; it is unrepresentable, not remembered.
 - **One type among many:** the seven-gate implementation change remains a

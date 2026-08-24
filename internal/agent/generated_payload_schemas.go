@@ -5689,9 +5689,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
-        "legacy_product_truth_compatibility": {
-          "type": "boolean"
-        },
         "outcome_kind": {
           "$ref": "#/$defs/short"
         },
@@ -5742,8 +5739,7 @@ const GeneratedPayloadSchemaDocument = `{
         "required_evidence",
         "route_conventions",
         "spec_mandate",
-        "changes_product_truth",
-        "legacy_product_truth_compatibility"
+        "changes_product_truth"
       ],
       "type": "object"
     },

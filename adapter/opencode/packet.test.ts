@@ -64,7 +64,6 @@ function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD) {
     route_conventions: [],
     spec_mandate: [],
     changes_product_truth: false,
-    legacy_product_truth_compatibility: false,
   }
 }
 

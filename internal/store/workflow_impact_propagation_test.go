@@ -139,10 +139,10 @@ func seedImpactDependent(t *testing.T, s *Store, dependentID, sourceID, edgeClas
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := legacyImplementationDigest(t)
+	digest := workflowFixtureDigest(t)
 	events := []Event{
 		workflowEvent("actor-"+dependentID, WorkflowActorRecorded, dependentID, map[string]any{"work_id": dependentID, "expected_version": 2, "resulting_version": 3, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("definition-"+dependentID, WorkflowDefinitionSelected, dependentID, map[string]any{"work_id": dependentID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
+		workflowEvent("definition-"+dependentID, WorkflowDefinitionSelected, dependentID, map[string]any{"work_id": dependentID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowEventWithActor("contract-"+dependentID, WorkflowContractApproved, dependentID, actorRef, map[string]any{"work_id": dependentID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "depend on source", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:dependent", "immutable_subject_ref": "commit:" + dependentID, "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype/internal", "consequence_class": "internal_sqlite"}),
 		workflowEventWithActor("start-"+dependentID, WorkflowActionStarted, dependentID, actorRef, map[string]any{"work_id": dependentID, "expected_version": 5, "resulting_version": 6, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "operation-" + dependentID, "actor_ref": actorRef}),
 		workflowEventWithActor("impact-"+dependentID, WorkflowImpactDeclared, dependentID, actorRef, map[string]any{"work_id": dependentID, "expected_version": 6, "resulting_version": 7, "edge_id": "edge:" + dependentID, "edge_kind": "depends_on", "edge_class": edgeClass, "target_work_id": sourceID, "target_kind": "work_item", "severity": "informational"}),

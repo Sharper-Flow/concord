@@ -1595,7 +1595,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:54a5ba96f0a2072508f669a59114f884e3cab24619d66328c338c34a51efa242",
+      "sha256": "sha256:89652b9df99d35d852be3ccb2877e9a066493538c0d54852d68716086e737825",
       "status": "accepted",
       "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. Each answer cites its mechanism and executable evidence and is cutover-blocking per issue #295.",
       "tags": [
@@ -1942,6 +1942,35 @@
       "title": "Run-mode lane dispatch asserts its executor"
     },
     {
+      "date": "2026-08-23T00:00:00Z",
+      "evidence": [
+        "scenarios/workflow-engine.v1.json",
+        "internal/store/workflow_registry.go",
+        "docs/workflow-engine-contract.md"
+      ],
+      "home_domain_id": "workflow-engine",
+      "id": "CD-0065",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0065-conformance-corpus-runs-what-production-runs.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a1a1e981c78091077a509fea60b290724219efcba8d67571612088669bd09fa8",
+      "status": "accepted",
+      "summary": "The 48-scenario conformance corpus pins the shipped definition version and exercises the per-work-kind Product-truth classification the shipped definitions declare. Product-changing scenarios author their Domain home, architecture binding, overlap resolution, notice severity, and audit supersession explicitly; overlap blocking gains its first conformance coverage; no definition exists solely to give the corpus a non-Product-changing target; numbering 1..48 is preserved. Law revisions carry synthetic IDs, and the WF48 acceptance-step expectation stands with the version-keyed gate that suppressed strict checks removed under #400 rather than accommodated.",
+      "tags": [
+        "conformance",
+        "workflow-definitions",
+        "corpus",
+        "scenarios"
+      ],
+      "title": "The conformance corpus runs what production runs"
+    },
+    {
       "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "product-memory",
       "id": "PM1",
@@ -2252,7 +2281,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:89e9906427b947eca64d15a3c996971fcd7ca2a735e1bcf36e9a592c91e89e07",
+      "sha256": "sha256:0e302058e2fce2fefd2f8389d2a9bb7231056b7ae398c9f7c2e36b0c83d83acb",
       "status": "accepted",
       "summary": "Defines the machine-readable workflow engine implementation contract.",
       "tags": [

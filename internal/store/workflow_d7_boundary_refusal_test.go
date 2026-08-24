@@ -34,7 +34,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 	}
 	setup := []Event{
 		workflowEvent("d7-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("d7-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 2, "digest": workflowImplementationV2Digest(t), "work_kind": "implementation"}),
+		workflowEvent("d7-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := ClaimRequest{
-		OpID: "op:d7-claim", WorkID: workID, WorkflowTypeRef: "workflow.implementation", WorkflowTypeVersion: 2,
+		OpID: "op:d7-claim", WorkID: workID, WorkflowTypeRef: workflowFixtureRef, WorkflowTypeVersion: 2,
 		StepID: "execution", StepKind: StepExternalEffect, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{"work_id":"` + workID + `"}`, PrincipalRef: "principal/operator", Tool: "concord_work_transition",
 		IdempotencyKey: "d7-claim", RequestID: "request:d7-claim", ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest,

@@ -68,19 +68,15 @@ func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition Reg
 }
 
 // A newer definition version must not rebase, strand, or silently upgrade an
-// item that is already mid-flight on an older pin.
+// item that is already mid-flight on an older pin. The supersession is a
+// registry property, so it is proven against the test fixture family, which
+// carries two versions; the shipped built-ins carry exactly one version each.
 func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 	s := openTemp(t)
 	const workID = "definition-evolution-work"
 	registry := BuiltinWorkflowRegistry()
-	v1, ok := registry.Lookup("workflow.implementation", 1)
-	if !ok {
-		t.Fatal("workflow.implementation v1 is not registered")
-	}
-	latest, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
+	v1 := workflowFixtureDefinition(t, 1)
+	latest := workflowFixtureDefinition(t, 2)
 	if latest.Definition.Version <= v1.Definition.Version || latest.Digest == v1.Digest {
 		t.Fatalf("registry does not carry a superseding version: v%d %s vs v%d %s", v1.Definition.Version, v1.Digest, latest.Definition.Version, latest.Digest)
 	}
@@ -90,7 +86,7 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 	// The newer version is registered and resolvable as latest for the same ref
 	// while this item is mid-flight. That is the change landing.
 	ref, pinnedVersion, pinnedDigest := workflowInstancePin(t, s, workID)
-	if ref != "workflow.implementation" || pinnedVersion != v1.Definition.Version || pinnedDigest != v1.Digest {
+	if ref != v1.Definition.Ref || pinnedVersion != v1.Definition.Version || pinnedDigest != v1.Digest {
 		t.Fatalf("pin after start = %s v%d %s, want the v1 pin", ref, pinnedVersion, pinnedDigest)
 	}
 
@@ -128,7 +124,7 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 
 	// The pin is unchanged by the advance.
 	ref, pinnedVersion, pinnedDigest = workflowInstancePin(t, s, workID)
-	if ref != "workflow.implementation" || pinnedVersion != v1.Definition.Version || pinnedDigest != v1.Digest {
+	if ref != v1.Definition.Ref || pinnedVersion != v1.Definition.Version || pinnedDigest != v1.Digest {
 		t.Fatalf("pin drifted to %s v%d %s", ref, pinnedVersion, pinnedDigest)
 	}
 

@@ -420,7 +420,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if !productChanging && len(lawModifies) != 0 {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing approval cannot modify Product law", false, "leave law_modifies empty")
 		}
-		if !productChanging && definition.Version >= 4 {
+		if !productChanging {
 			delete(contract, "law_modifies")
 		}
 		revisionMandate := spec
@@ -508,7 +508,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		if productChanging {
 			successor["architecture_binding"] = binding
-		} else if definition.Version >= 4 {
+		} else {
 			delete(successor, "law_modifies")
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}, nil

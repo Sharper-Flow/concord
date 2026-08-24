@@ -68,11 +68,10 @@ type ContinuitySnapshot struct {
 	PendingMessages int64 `json:"pending_messages"`
 	// Observations carries the work's un-promoted observations, newest first,
 	// bounded (CD-0030 D2). Read-time visibility: no gate consumes this.
-	Observations                    []WorkObservation            `json:"observations"`
-	StaleLawRevision                *StaleLawRevision            `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth             bool                         `json:"changes_product_truth"`
-	LegacyProductTruthCompatibility bool                         `json:"legacy_product_truth_compatibility"`
-	ArchitectureBinding             *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	Observations        []WorkObservation            `json:"observations"`
+	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth bool                         `json:"changes_product_truth"`
+	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -123,7 +122,6 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		return out, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	out.LegacyProductTruthCompatibility = definition.Version >= 1 && definition.Version <= 3
 	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, req.Work)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read Product identity", true, "retry once the database is readable", err)
@@ -157,7 +155,6 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
 		contract.ChangesProductTruth = out.ChangesProductTruth
-		contract.LegacyProductTruthCompatibility = out.LegacyProductTruthCompatibility
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, req.Work, contract.Version)
 		if err != nil {
 			return out, err

@@ -502,7 +502,6 @@
           "pinned": {
             "contract": {
               "changes_product_truth": false,
-              "legacy_product_truth_compatibility": false,
               "outcome_kind": "id-1",
               "outcome_payload": "id-1",
               "premise": "id-1",
@@ -588,7 +587,6 @@
           "pinned": {
             "contract": {
               "changes_product_truth": false,
-              "legacy_product_truth_compatibility": false,
               "outcome_kind": "id-1",
               "outcome_payload": "id-1",
               "premise": "id-1",
@@ -674,7 +672,6 @@
           "pinned": {
             "contract": {
               "changes_product_truth": false,
-              "legacy_product_truth_compatibility": false,
               "outcome_kind": "id-1",
               "outcome_payload": "id-1",
               "premise": "id-1",
@@ -761,7 +758,6 @@
         "pinned": {
           "contract": {
             "changes_product_truth": false,
-            "legacy_product_truth_compatibility": false,
             "outcome_kind": "id-1",
             "outcome_payload": "id-1",
             "premise": "id-1",
@@ -2802,5 +2798,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:aff2b3b8195dead8331915b7537dc3eaf6e704a86a6b3034a92e6251baa3e742"
+  "manifest_digest": "sha256:b98438c74925e16beb758d94be1fef6529889e83095a946bcc962151fe77fa09"
 }

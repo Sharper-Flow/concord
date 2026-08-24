@@ -199,10 +199,10 @@ func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, workID)
 		actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/law-boundary")
-		digest := legacyImplementationDigest(t)
+		digest := workflowFixtureDigest(t)
 		events := []Event{
 			workflowEvent("law-boundary-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/runner", "session_ref": "session/law-boundary", "actor_class": "agent"}),
-			workflowEvent("law-boundary-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
+			workflowEvent("law-boundary-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		}
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 			t.Fatal(err)

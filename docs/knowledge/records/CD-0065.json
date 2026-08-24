@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-23T00:00:00Z",
+  "evidence": [
+    "scenarios/workflow-engine.v1.json",
+    "internal/store/workflow_registry.go",
+    "docs/workflow-engine-contract.md"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0065",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0065-conformance-corpus-runs-what-production-runs.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a1a1e981c78091077a509fea60b290724219efcba8d67571612088669bd09fa8",
+  "status": "accepted",
+  "summary": "The 48-scenario conformance corpus pins the shipped definition version and exercises the per-work-kind Product-truth classification the shipped definitions declare. Product-changing scenarios author their Domain home, architecture binding, overlap resolution, notice severity, and audit supersession explicitly; overlap blocking gains its first conformance coverage; no definition exists solely to give the corpus a non-Product-changing target; numbering 1..48 is preserved. Law revisions carry synthetic IDs, and the WF48 acceptance-step expectation stands with the version-keyed gate that suppressed strict checks removed under #400 rather than accommodated.",
+  "tags": [
+    "conformance",
+    "workflow-definitions",
+    "corpus",
+    "scenarios"
+  ],
+  "title": "The conformance corpus runs what production runs"
+}

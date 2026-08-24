@@ -26,9 +26,9 @@
     },
     {
       "function": "internal/store.workflowSemanticActionEvents",
-      "measured": 193,
+      "measured": 192,
       "state": "unmeasured",
-      "reason": "Flat dispatch over 15 action kinds: 345 lines with only 4% past indent depth 3. The breadth is the action vocabulary itself, so splitting it would move arms rather than remove branching. No decision has assessed whether the vocabulary should be narrowed."
+      "reason": "Flat dispatch over 15 action kinds: 345 lines with only 4% past indent depth 3. The breadth is the action vocabulary itself, so splitting it would move arms rather than remove branching. No decision has assessed whether the vocabulary should be narrowed. Score moved 193 to 192 under the #400 collapse, which removed a version-keyed branch."
     },
     {
       "function": "internal/agent.(runtime).read",

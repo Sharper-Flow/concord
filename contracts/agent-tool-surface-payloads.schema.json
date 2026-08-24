@@ -520,8 +520,7 @@
         "required_evidence",
         "route_conventions",
         "spec_mandate",
-        "changes_product_truth",
-        "legacy_product_truth_compatibility"
+        "changes_product_truth"
       ],
       "properties": {
         "version": {
@@ -595,9 +594,6 @@
           "maxLength": 64
         },
         "changes_product_truth": {
-          "type": "boolean"
-        },
-        "legacy_product_truth_compatibility": {
           "type": "boolean"
         },
         "architecture_binding": {

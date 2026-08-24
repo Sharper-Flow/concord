@@ -51,7 +51,7 @@ func TestDispatchWorkerCapabilityMatchesTheRegistryEntry(t *testing.T) {
 	for _, c := range cases {
 		var got string
 		var seen bool
-		for _, def := range []int64{2, 3, 4} {
+		for _, def := range []int64{1} {
 			entry, ok := registry.Lookup("workflow.implementation", def)
 			if !ok {
 				continue
@@ -64,7 +64,7 @@ func TestDispatchWorkerCapabilityMatchesTheRegistryEntry(t *testing.T) {
 			}
 		}
 		if !seen {
-			t.Fatalf("action %q is not declared on workflow.implementation at v2/v3/v4", c.actionID)
+			t.Fatalf("action %q is not declared on workflow.implementation", c.actionID)
 		}
 		if got != c.want {
 			t.Fatalf("action %q required_capability = %q, want %q", c.actionID, got, c.want)
@@ -128,9 +128,9 @@ func TestDispatchWorkerAppearsOnExternalEffectWorkflows(t *testing.T) {
 	}
 	wantLacksDispatch := []string{"workflow.research"}
 	for _, ref := range wantHasDispatch {
-		entry, ok := registry.Lookup(ref, 4)
+		entry, ok := registry.Lookup(ref, 1)
 		if !ok {
-			t.Fatalf("%s v4 is not registered", ref)
+			t.Fatalf("%s is not registered", ref)
 		}
 		hasDispatch := false
 		for _, action := range entry.Definition.AvailableActions {
@@ -140,13 +140,13 @@ func TestDispatchWorkerAppearsOnExternalEffectWorkflows(t *testing.T) {
 			}
 		}
 		if !hasDispatch {
-			t.Fatalf("%s v4 AvailableActions = %v, want dispatch_worker present", ref, entry.Definition.AvailableActions)
+			t.Fatalf("%s AvailableActions = %v, want dispatch_worker present", ref, entry.Definition.AvailableActions)
 		}
 	}
 	for _, ref := range wantLacksDispatch {
-		entry, ok := registry.Lookup(ref, 2)
+		entry, ok := registry.Lookup(ref, 1)
 		if !ok {
-			t.Fatalf("%s v2 is not registered", ref)
+			t.Fatalf("%s is not registered", ref)
 		}
 		for _, action := range entry.Definition.AvailableActions {
 			if action == "dispatch_worker" {
@@ -314,7 +314,7 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 	digest := cd0059ImplementationDigest(t)
 	events := []Event{
 		workflowEvent("cd0059-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("cd0059-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 4, "digest": digest, "work_kind": "implementation"}),
+		workflowEvent("cd0059-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": "workflow.implementation", "version": 1, "digest": digest, "work_kind": "implementation"}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -371,7 +371,7 @@ func invokeWorkflowActionForCD0059(ctx context.Context, t *testing.T, s *Store, 
 func cd0059ImplementationDigest(t *testing.T) string {
 	t.Helper()
 	registry := BuiltinWorkflowRegistry()
-	entry, ok := registry.Lookup("workflow.implementation", 4)
+	entry, ok := registry.Lookup("workflow.implementation", 1)
 	if !ok {
 		t.Fatal("workflow.implementation v4 is not registered")
 	}

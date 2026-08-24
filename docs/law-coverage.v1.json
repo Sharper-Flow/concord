@@ -527,15 +527,11 @@
       "evidence": [
         {
           "kind": "validator",
-          "value": "scripts/check-json.py"
+          "value": "scripts/check-agent-contracts.py"
         },
         {
           "kind": "validator",
-          "value": "scripts/check-doc-links.py"
-        },
-        {
-          "kind": "validator",
-          "value": "scripts/check-public-content.py"
+          "value": "scripts/check-knowledge-index.py"
         }
       ],
       "id": "CD-0043",

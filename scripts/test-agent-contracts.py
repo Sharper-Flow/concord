@@ -12,6 +12,7 @@ lane_checker = importlib.util.module_from_spec(checker_spec); checker_spec.loade
 lanes_schema = json.loads((ROOT / "contracts/agent-lanes.schema.json").read_text())
 report_schema = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text())
 lane_registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
+packet_schema = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())
 envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
 
 class ManifestTamperTests(unittest.TestCase):
@@ -68,6 +69,36 @@ class EvidenceObligationVocabularyTests(unittest.TestCase):
     def test_duplicated_token_is_rejected(self):
         value = copy.deepcopy(lanes_schema); value["$defs"]["evidence_obligation"]["enum"].append("severity")
         self.assertTrue(any("duplicate-free" in f for f in self.findings(lanes=value)))
+
+class CD0043LaneMethodologyTests(unittest.TestCase):
+    """Issue #461: CD-0043's verification facts are asserted, not narrated."""
+
+    def findings(self, packet=None, registry=None, skills=None):
+        return lane_checker.cd0043_lane_methodology_findings(
+            copy.deepcopy(packet if packet is not None else packet_schema),
+            copy.deepcopy(registry if registry is not None else lane_registry),
+            list(skills if skills is not None else ["README.md"]),
+        )
+
+    def test_shipped_contracts_satisfy(self):
+        self.assertEqual(self.findings(), [])
+
+    def test_methodology_property_is_rejected(self):
+        value = copy.deepcopy(packet_schema)
+        value["properties"]["methodology"] = {"type": "string", "minLength": 1, "maxLength": 64}
+        self.assertTrue(any("'methodology' property is rejected" in f for f in self.findings(packet=value)))
+
+    def test_registry_version_bump_is_rejected(self):
+        value = copy.deepcopy(lane_registry); value["version"] = 2
+        self.assertTrue(any("pinned version 1" in f for f in self.findings(registry=value)))
+
+    def test_extra_skill_entry_is_rejected(self):
+        findings = self.findings(skills=["README.md", "review-rubric.md"])
+        self.assertTrue(any("README.md only" in f for f in findings))
+        self.assertTrue(any("review-rubric.md" in f for f in findings))
+
+    def test_empty_skills_boundary_is_rejected(self):
+        self.assertTrue(any("README.md only" in f for f in self.findings(skills=[])))
 
 class EnvelopeOperationVocabularyTests(unittest.TestCase):
     """Issue #352: every tool/operation pair the envelope declares must be satisfiable."""

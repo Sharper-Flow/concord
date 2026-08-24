@@ -596,18 +596,44 @@ func scopeIntersects(left, right []string) bool {
 	return false
 }
 
-// Invoke is the byte-oriented core boundary used by tests and short-lived CLI
-// callers. It performs strict outer JSON decoding before dispatch.
+// Invoke is the byte-oriented core boundary. cmd/concord's invoke verb and the
+// agent boundary corpus both enter here, so the corpus exercises the same
+// composition production runs rather than a test-only shortcut (issue #450).
+//
+// It decodes strictly, dispatches, and shapes a dispatch failure into the typed
+// envelope the caller receives. Only a decode failure is returned as an error,
+// because only a decode failure means no envelope can be addressed.
 func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte) (Envelope, error) {
-	return InvokeWithRegistry(ctx, s, authority, data, store.BuiltinWorkflowRegistry())
+	request, env, err := DecodeInvokeRequest(data)
+	if err != nil {
+		return Envelope{}, err
+	}
+	response, dispatchErr := Dispatch(ctx, s, authority, request, env)
+	return shapeInvokeFailure(response, dispatchErr, request, env), nil
 }
 
+// InvokeWithRegistry is Invoke with an injected definition registry. Production
+// never needs it: Dispatch resolves the builtin registry, and the injection
+// point exists so the workflow corpus boundary runner can drive a scenario
+// registry through the real boundary.
 func InvokeWithRegistry(ctx context.Context, s *store.Store, authority *Service, data []byte, registry store.DefinitionRegistry) (Envelope, error) {
 	request, env, err := DecodeInvokeRequest(data)
 	if err != nil {
 		return Envelope{}, err
 	}
-	return DispatchWithRegistry(ctx, s, authority, request, env, registry)
+	response, dispatchErr := DispatchWithRegistry(ctx, s, authority, request, env, registry)
+	return shapeInvokeFailure(response, dispatchErr, request, env), nil
+}
+
+// shapeInvokeFailure converts a dispatch error into the typed envelope an
+// operator receives. A dispatch failure is a product outcome, not a transport
+// fault, so it must not reach the caller as a bare Go error.
+func shapeInvokeFailure(response Envelope, dispatchErr error, request InvokeRequest, env CallEnvelope) Envelope {
+	if dispatchErr == nil {
+		return response
+	}
+	base := NewBase(env.RequestID, request.Tool, request.Operation)
+	return NewCoreError(base, TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, Message: dispatchErr.Error()})
 }
 
 func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Grant, kind OperationKind) error {

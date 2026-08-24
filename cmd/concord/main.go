@@ -639,15 +639,10 @@ func runGrant(raw []byte, service *agent.Service, out, errOut io.Writer) int {
 }
 
 func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut io.Writer) int {
-	request, env, err := agent.DecodeInvokeRequest(raw)
+	response, err := agent.Invoke(context.Background(), s, service, raw)
 	if err != nil {
 		writeDiagnostic(errOut, err.Error())
 		return 1
-	}
-	response, dispatchErr := agent.Dispatch(context.Background(), s, service, request, env)
-	if dispatchErr != nil {
-		base := agent.NewBase(env.RequestID, request.Tool, request.Operation)
-		response = agent.NewCoreError(base, agent.TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: agent.RecoveryAction{Kind: "restart_query"}, EffectState: agent.EffectNone, Message: dispatchErr.Error()})
 	}
 	return writeJSON(out, response, errOut)
 }

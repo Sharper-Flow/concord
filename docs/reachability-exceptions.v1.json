@@ -98,13 +98,12 @@
       "reason": "Research authoring reaches the agent surface under CD-0025, but these specific mutation and read paths do not. Which of them the agent surface is meant to expose has not been assessed."
     },
     {
-      "id": "test-only-invoke-entrypoint",
-      "state": "outstanding",
+      "id": "registry-injection-test-seam",
+      "state": "out_of_scope",
       "functions": [
-        "internal/agent.Invoke",
         "internal/agent.InvokeWithRegistry"
       ],
-      "issue": 450
+      "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam exists so the workflow corpus boundary runner can drive a scenario registry through the real byte-oriented boundary instead of reaching past it. Issue #450 removed the divergence it was filed for by routing runInvoke through Invoke; the injection point is the deliberate remainder, not an unreached surface."
     },
     {
       "id": "unbuilt-revocation-surface",

@@ -121,6 +121,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | Adapter layout, tests, and the `worker-*` boundary | [`adapter/opencode/README.md`](adapter/opencode/README.md) |
 | Which files are generated, from which inputs | [`scripts/generate-agent-contracts.py`](scripts/generate-agent-contracts.py); [`scripts/generate-agent-lanes.py`](scripts/generate-agent-lanes.py) |
 | PR title grammar and its semver effect | [`scripts/check-commit-title.py`](scripts/check-commit-title.py); [`scripts/release.py`](scripts/release.py) |
+| How to move a CD number that collided with another branch | [`scripts/renumber-cd.py`](scripts/renumber-cd.py) `--dry-run` |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
 | Distance from the first-usable floor | [`docs/floor-readiness.md`](docs/floor-readiness.md) |
 | What is proved versus merely present | [`docs/law-coverage.v1.json`](docs/law-coverage.v1.json); [`docs/reachability-exceptions.v1.json`](docs/reachability-exceptions.v1.json) |

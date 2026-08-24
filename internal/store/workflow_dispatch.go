@@ -82,7 +82,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		if activeCount != 1 {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires exactly one active workflow contract", false, "rebuild the workflow contract projection")
 		}
-		if err := checkWorkflowLawRevisionStalenessDB(ctx, s.db, workID); err != nil {
+		if err := checkWorkflowLawRevisionStalenessReadTx(ctx, s.db, workID); err != nil {
 			var failure *Failure
 			if failureAs(err, &failure) && failure.Kind == KindStaleLawRevision {
 				return entry, workflowContractRecoveryActionDefinition(), nil

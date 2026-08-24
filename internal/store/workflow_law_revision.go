@@ -305,40 +305,23 @@ func CheckWorkflowConsequentialBoundaryTx(ctx context.Context, transaction *Tran
 	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
 }
 
-func checkWorkflowLawRevisionStalenessDB(ctx context.Context, db *sql.DB, workID string) error {
-	var contractVersion int64
-	var mandateJSON string
-	if err := db.QueryRowContext(ctx, `SELECT contract_version,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion, &mandateJSON); err == sql.ErrNoRows {
-		return nil
-	} else if err != nil {
-		return wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read active workflow contract", true, "retry once the workflow projection is readable", err)
+// checkWorkflowLawRevisionStalenessReadTx is the advisory-read form of the
+// staleness boundary: the same single implementation as the mutation form, run
+// under a short-lived read transaction the caller opens and rolls back. A
+// non-transactional twin deliberately does not exist — a second
+// implementation of the same boundary is how the overlap half of the check
+// once went missing from the read path (issue #376).
+func checkWorkflowLawRevisionStalenessReadTx(ctx context.Context, db *sql.DB, workID string) (err error) {
+	tx, beginErr := db.BeginTx(ctx, nil)
+	if beginErr != nil {
+		return wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot open the read transaction", true, "retry once the store is readable", beginErr)
 	}
-	var mandated []string
-	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
-	}
-	var mandateErr error
-	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, db, workID, contractVersion, mandated)
-	if mandateErr != nil {
-		return mandateErr
-	}
-	if len(mandated) == 0 {
-		return nil
-	}
-	homeProjectID, homeLocatorID, err := workflowLawHomeDB(ctx, db, workID)
-	if err != nil {
-		return err
-	}
-	stale, err := findStaleWorkflowLawRevision(ctx, db, homeProjectID, homeLocatorID, workID, contractVersion, mandated)
-	if err != nil {
-		return err
-	}
-	if stale == nil {
-		return nil
-	}
-	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract consumes a superseded law revision", false, "request_approval")
-	failure.StaleLawRevision = stale
-	return failure
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && err == nil {
+			err = wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot close the read transaction", true, "retry once the store is readable", rollbackErr)
+		}
+	}()
+	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
 }
 
 func workflowActionAllowsTerminalRecovery(request WorkflowActionPreflightRequest) bool {

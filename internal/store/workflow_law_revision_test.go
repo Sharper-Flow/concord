@@ -3,6 +3,7 @@ package store
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -602,5 +603,28 @@ func insertSupersededLaw(t *testing.T, s *Store, lawID, hash string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','superseded','docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The advisory read form and the mutation form must agree: on an empty law
+// mandate with an active Domain overlap, both return the typed overlap
+// refusal. The removed non-transactional twin returned nil here — the overlap
+// half of the boundary silently omitted from the read path (issue #376).
+func TestWorkflowLawRevisionStalenessReadFormRunsTheOverlapHalf(t *testing.T) {
+	ctx := context.Background()
+	s, _ := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
+
+	var readFailure *Failure
+	readErr := checkWorkflowLawRevisionStalenessReadTx(ctx, s.DatabaseForTesting(), "overlap-left")
+	if !errors.As(readErr, &readFailure) || readFailure.Kind != KindDomainOverlap || readFailure.DomainOverlap == nil || len(readFailure.DomainOverlap.Overlaps) != 1 {
+		t.Fatalf("read form: expected typed overlap refusal, got %v", readErr)
+	}
+
+	var txFailure *Failure
+	txErr := s.Transact(ctx, func(tx *Transaction) error {
+		return CheckWorkflowConsequentialBoundaryTx(ctx, tx, "overlap-left")
+	})
+	if !errors.As(txErr, &txFailure) || txFailure.Kind != KindDomainOverlap {
+		t.Fatalf("mutation form: expected typed overlap refusal, got %v", txErr)
 	}
 }

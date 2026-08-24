@@ -1,0 +1,34 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "evidence": [
+    "contracts/agent-tool-surface-payloads.schema.json",
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_preflight.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/worker_lanes.go",
+    "internal/store/workflow.go",
+    "internal/store/cd0059_dispatch_action_test.go",
+    "scripts/generate-agent-contracts.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0067",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0067-dispatch-worker-packet.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:c83fad1e78153b06cd1654bd587cf8636b678dd91ae63af330754e4d3538d666",
+  "status": "accepted",
+  "summary": "D1 declares worker_packet as a closed object under work_transition_action_input.fields, required for dispatch_worker; D2 binds canonicalJSON+SHA256 of the packet as worker_packet_digest on WorkflowActionCompleted and exposes it on WorkerDispatchWindow via FindAuthorizedDispatchWindowTx, with two identity guards (packet.work_id==action.work_id, packet.attempt_id==fields.attempt_id) refusing closed; D3 adds PayloadObject to the registry value types so the preflight gate enforces object-ness cheaply; D4 accepts reachability for #253 once the lane pipeline installs and a stubbed runner drives dispatch through work_transition.",
+  "tags": [
+    "dispatch",
+    "worker-packet",
+    "evidence-digest",
+    "lane-pipeline"
+  ],
+  "title": "Dispatch binds the worker packet"
+}

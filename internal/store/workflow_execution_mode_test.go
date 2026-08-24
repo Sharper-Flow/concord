@@ -88,13 +88,13 @@ func TestDefinitionRejectsMissingExecutionMode(t *testing.T) {
 func TestBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	want := map[string]string{
-		"workflow.implementation":     "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
-		"workflow.break_fix":          "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+		"workflow.implementation":     "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
+		"workflow.break_fix":          "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
 		"workflow.research":           "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
-		"workflow.architecture_spike": "sha256:a6a5f1f88f5b4e546ec566e7175f6700c56e32dc557d183c6538a504b41225ac",
-		"workflow.ops_runbook":        "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
-		"workflow.static_analysis":    "sha256:6e63731bb8f245d772eb85ce7de5f4fe23edd766775cfd4cdea7b728c3b8801a",
-		"workflow.generic_one_off":    "sha256:ba903197f3786f03e099bfaef35d188b64d6cfc2cc33d9b2ff4a7931b666775f",
+		"workflow.architecture_spike": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece",
+		"workflow.ops_runbook":        "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
+		"workflow.static_analysis":    "sha256:d0bc28751b65cb1ae5a0dc31e8db177a6ffe4480f39725fb16e467d88ef4c038",
+		"workflow.generic_one_off":    "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",
 	}
 	for ref, expected := range want {
 		definition, ok := registry.Lookup(ref, 1)

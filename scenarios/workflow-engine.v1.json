@@ -72,7 +72,7 @@
       {
         "ref": "workflow.implementation",
         "version": 1,
-        "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+        "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
       },
       {
         "ref": "workflow.research",
@@ -82,22 +82,22 @@
       {
         "ref": "workflow.architecture_spike",
         "version": 1,
-        "digest": "sha256:a6a5f1f88f5b4e546ec566e7175f6700c56e32dc557d183c6538a504b41225ac"
+        "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece"
       },
       {
         "ref": "workflow.ops_runbook",
         "version": 1,
-        "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+        "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
       },
       {
         "ref": "workflow.break_fix",
         "version": 1,
-        "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898"
+        "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a"
       },
       {
         "ref": "workflow.generic_one_off",
         "version": 1,
-        "digest": "sha256:ba903197f3786f03e099bfaef35d188b64d6cfc2cc33d9b2ff4a7931b666775f"
+        "digest": "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3"
       }
     ],
     "evidence": [
@@ -253,7 +253,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 1,
         "action_id": "capture",
@@ -396,7 +396,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -499,7 +499,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 8,
         "action_id": "approve_contract",
@@ -668,7 +668,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -771,7 +771,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 8,
         "action_id": "approve_contract",
@@ -947,7 +947,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -1239,7 +1239,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 17,
         "action_id": "complete",
@@ -1393,7 +1393,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -1684,7 +1684,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 17,
         "action_id": "complete",
@@ -1839,7 +1839,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -2130,7 +2130,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 17,
         "action_id": "complete",
@@ -2789,7 +2789,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -2945,7 +2945,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 10,
         "action_id": "replace_outcome",
@@ -3352,7 +3352,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -3487,7 +3487,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 9,
         "action_id": "supersede_contract",
@@ -3633,7 +3633,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -3810,7 +3810,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 11,
         "action_id": "replace_check",
@@ -3956,7 +3956,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -4133,7 +4133,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 11,
             "action_id": "record_verdict",
@@ -4268,7 +4268,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -4445,7 +4445,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 11,
             "action_id": "record_verdict",
@@ -4580,7 +4580,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -4757,7 +4757,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 11,
             "action_id": "record_verdict",
@@ -4856,7 +4856,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "record_verdict",
@@ -4992,7 +4992,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -5095,7 +5095,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 8,
         "action_id": "approve_contract",
@@ -5269,7 +5269,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -5372,7 +5372,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 8,
         "action_id": "approve_contract",
@@ -5926,7 +5926,7 @@
             "payload": {
               "ref": "workflow.architecture_spike",
               "version": 1,
-              "digest": "sha256:a6a5f1f88f5b4e546ec566e7175f6700c56e32dc557d183c6538a504b41225ac",
+              "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece",
               "work_kind": "architecture_spike",
               "work_id": "work-spike",
               "expected_version": 3,
@@ -6321,7 +6321,7 @@
         "definition_pin": {
           "ref": "workflow.architecture_spike",
           "version": 1,
-          "digest": "sha256:a6a5f1f88f5b4e546ec566e7175f6700c56e32dc557d183c6538a504b41225ac"
+          "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece"
         },
         "expected_version": 20,
         "action_id": "complete",
@@ -6477,7 +6477,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -6753,7 +6753,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 16,
         "action_id": "complete",
@@ -6907,7 +6907,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -7203,7 +7203,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 17,
         "action_id": "complete",
@@ -7355,7 +7355,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -7458,7 +7458,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 8,
         "action_id": "approve_contract",
@@ -7647,7 +7647,7 @@
             "payload": {
               "ref": "workflow.ops_runbook",
               "version": 1,
-              "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+              "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
               "work_kind": "ops_runbook",
               "work_id": "work-ops",
               "expected_version": 3,
@@ -7729,7 +7729,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-          "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+          "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
         },
         "expected_version": 7,
         "action_id": "complete_external_step",
@@ -7883,7 +7883,7 @@
             "payload": {
               "ref": "workflow.ops_runbook",
               "version": 1,
-              "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+              "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
               "work_kind": "ops_runbook",
               "work_id": "work-ops",
               "expected_version": 3,
@@ -8077,7 +8077,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-          "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+          "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
         },
         "expected_version": 12,
         "action_id": "rebuild_after_interrupt",
@@ -8243,7 +8243,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -8367,7 +8367,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 9,
         "action_id": "retry_same_action",
@@ -8509,7 +8509,7 @@
             "payload": {
               "ref": "workflow.ops_runbook",
               "version": 1,
-              "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+              "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
               "work_kind": "ops_runbook",
               "work_id": "work-ops",
               "expected_version": 3,
@@ -8591,7 +8591,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-          "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+          "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
         },
         "expected_version": 7,
         "action_id": "complete_external_step",
@@ -8736,7 +8736,7 @@
             "payload": {
               "ref": "workflow.ops_runbook",
               "version": 1,
-              "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+              "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
               "work_kind": "ops_runbook",
               "work_id": "work-ops",
               "expected_version": 3,
@@ -8902,7 +8902,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-          "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+          "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
         },
         "expected_version": 11,
         "action_id": "takeover_attempt",
@@ -9082,7 +9082,7 @@
             "payload": {
               "ref": "workflow.ops_runbook",
               "version": 1,
-              "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+              "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
               "work_kind": "ops_runbook",
               "work_id": "work-ops",
               "expected_version": 3,
@@ -9355,7 +9355,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-          "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+          "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
         },
         "expected_version": 17,
         "action_id": "resolve_conditions",
@@ -9513,7 +9513,7 @@
             "payload": {
               "ref": "workflow.ops_runbook",
               "version": 1,
-              "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+              "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
               "work_kind": "ops_runbook",
               "work_id": "work-ops",
               "expected_version": 3,
@@ -9707,7 +9707,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-          "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+          "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
         },
         "expected_version": 12,
         "action_id": "derive_ready",
@@ -9856,7 +9856,7 @@
             "payload": {
               "ref": "workflow.ops_runbook",
               "version": 1,
-              "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f",
+              "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f",
               "work_kind": "ops_runbook",
               "work_id": "work-ops",
               "expected_version": 3,
@@ -10042,7 +10042,7 @@
         "definition_pin": {
           "ref": "workflow.ops_runbook",
           "version": 1,
-          "digest": "sha256:8f393c2168924b420c54203f057cea79ce00127a497e31cc8b52e5c093d0e03f"
+          "digest": "sha256:eb1eb0084b62594a6ffe9e26f27353df6547e2d77ed5f2b5ef4fec889050638f"
         },
         "expected_version": 12,
         "action_id": "explicit_resolve",
@@ -10243,7 +10243,7 @@
             "payload": {
               "ref": "workflow.break_fix",
               "version": 1,
-              "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+              "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
               "work_kind": "break_fix",
               "work_id": "work-child",
               "expected_version": 3,
@@ -10385,7 +10385,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -10717,7 +10717,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 18,
         "action_id": "complete",
@@ -10893,7 +10893,7 @@
             "payload": {
               "ref": "workflow.break_fix",
               "version": 1,
-              "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+              "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
               "work_kind": "break_fix",
               "work_id": "work-child",
               "expected_version": 3,
@@ -10993,7 +10993,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -11074,7 +11074,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 7,
         "action_id": "start_downstream",
@@ -11226,7 +11226,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-child",
                   "expected_version": 3,
@@ -11410,7 +11410,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -11618,7 +11618,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 11,
             "action_id": "start_downstream",
@@ -11779,7 +11779,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-child",
                   "expected_version": 3,
@@ -11963,7 +11963,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -12171,7 +12171,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 11,
             "action_id": "start_downstream",
@@ -12331,7 +12331,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-child",
                   "expected_version": 3,
@@ -12515,7 +12515,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -12723,7 +12723,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 11,
             "action_id": "start_downstream",
@@ -12875,7 +12875,7 @@
             "payload": {
               "ref": "workflow.break_fix",
               "version": 1,
-              "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+              "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
               "work_kind": "break_fix",
               "work_id": "work-child",
               "expected_version": 3,
@@ -12975,7 +12975,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 3,
@@ -13066,7 +13066,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 7,
         "action_id": "supersede_contract",
@@ -13218,7 +13218,7 @@
                 "payload": {
                   "ref": "workflow.break_fix",
                   "version": 1,
-                  "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+                  "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
                   "work_kind": "break_fix",
                   "work_id": "work-child",
                   "expected_version": 3,
@@ -13360,7 +13360,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -13514,7 +13514,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 9,
             "action_id": "supersede_contract",
@@ -13666,7 +13666,7 @@
                 "payload": {
                   "ref": "workflow.break_fix",
                   "version": 1,
-                  "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+                  "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
                   "work_kind": "break_fix",
                   "work_id": "work-child",
                   "expected_version": 3,
@@ -13808,7 +13808,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -13962,7 +13962,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 9,
             "action_id": "supersede_contract",
@@ -14114,7 +14114,7 @@
                 "payload": {
                   "ref": "workflow.break_fix",
                   "version": 1,
-                  "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+                  "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
                   "work_kind": "break_fix",
                   "work_id": "work-child",
                   "expected_version": 3,
@@ -14225,7 +14225,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -14379,7 +14379,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 8,
             "action_id": "supersede_contract",
@@ -14531,7 +14531,7 @@
                 "payload": {
                   "ref": "workflow.break_fix",
                   "version": 1,
-                  "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+                  "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
                   "work_kind": "break_fix",
                   "work_id": "work-child",
                   "expected_version": 3,
@@ -14673,7 +14673,7 @@
                 "payload": {
                   "ref": "workflow.implementation",
                   "version": 1,
-                  "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+                  "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
                   "work_kind": "implementation",
                   "work_id": "work-alpha",
                   "expected_version": 3,
@@ -14887,7 +14887,7 @@
             "definition_pin": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
             },
             "expected_version": 12,
             "action_id": "supersede_contract",
@@ -15047,7 +15047,7 @@
             "payload": {
               "ref": "workflow.break_fix",
               "version": 1,
-              "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898",
+              "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
               "work_kind": "break_fix",
               "work_id": "work-child",
               "expected_version": 3,
@@ -15525,7 +15525,7 @@
         "definition_pin": {
           "ref": "workflow.architecture_spike",
           "version": 1,
-          "digest": "sha256:a6a5f1f88f5b4e546ec566e7175f6700c56e32dc557d183c6538a504b41225ac"
+          "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece"
         },
         "expected_version": 4,
         "action_id": "link_successor",
@@ -15676,7 +15676,7 @@
         "definition_pin": {
           "ref": "workflow.generic_one_off",
           "version": 1,
-          "digest": "sha256:ba903197f3786f03e099bfaef35d188b64d6cfc2cc33d9b2ff4a7931b666775f"
+          "digest": "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3"
         },
         "expected_version": 4,
         "action_id": "link_successor",
@@ -15811,7 +15811,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "rebuild",
@@ -15955,7 +15955,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "reconstruct_subject",
@@ -16121,7 +16121,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "start_execution",
@@ -16247,7 +16247,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "start_execution",
@@ -16380,7 +16380,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "unknown-action",
@@ -16513,7 +16513,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "complete",
@@ -16702,7 +16702,7 @@
               "resulting_version": 4,
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation"
             }
           },
@@ -16988,7 +16988,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 17,
         "action_id": "complete",
@@ -17151,7 +17151,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "concurrent_reads_and_writes",
@@ -17302,7 +17302,7 @@
         "definition_pin": {
           "ref": "workflow.break_fix",
           "version": 1,
-          "digest": "sha256:539b390324a29cd2996e1889160bb9a6ce831deb9d029eb5936ea66aa744e898"
+          "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a"
         },
         "expected_version": 5,
         "action_id": "derive_ready",
@@ -17448,7 +17448,7 @@
               "resulting_version": 4,
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation"
             }
           },
@@ -17734,7 +17734,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 17,
         "action_id": "complete",
@@ -17900,7 +17900,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "repair_and_rebuild",
@@ -18054,7 +18054,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "replay",
@@ -18248,7 +18248,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 4,
         "action_id": "complete",
@@ -18455,7 +18455,7 @@
             "payload": {
               "ref": "workflow.implementation",
               "version": 1,
-              "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+              "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
               "work_kind": "implementation",
               "work_id": "work-alpha",
               "expected_version": 4,
@@ -18672,7 +18672,7 @@
         "definition_pin": {
           "ref": "workflow.implementation",
           "version": 1,
-          "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431"
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
         },
         "expected_version": 10,
         "action_id": "accept_worker_result",

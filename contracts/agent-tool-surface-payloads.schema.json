@@ -2828,6 +2828,9 @@
                 "asserted_at": {
                   "type": "string",
                   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+                },
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet"
                 }
               }
             }
@@ -2945,23 +2948,45 @@
             }
           }
         },
+"else": {
+        "if": {
+          "properties": {
+            "action_id": {
+              "const": "confirm_premise"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "selected_choice",
+            "decision_context_digest"
+          ],
+          "not": {
+            "required": [
+              "fields"
+            ]
+          }
+        },
         "else": {
           "if": {
             "properties": {
               "action_id": {
-                "const": "confirm_premise"
+                "const": "dispatch_worker"
               }
             }
           },
           "then": {
             "required": [
-              "selected_choice",
-              "decision_context_digest"
+              "fields"
             ],
-            "not": {
-              "required": [
-                "fields"
-              ]
+            "properties": {
+              "fields": {
+                "type": "object",
+                "required": [
+                  "attempt_id",
+                  "worker_packet"
+                ]
+              }
             }
           },
           "else": {
@@ -2981,6 +3006,7 @@
             }
           }
         }
+      }
       }
     },
     "work_relate_memberships_input": {
@@ -5952,6 +5978,31 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 2048
+          }
+        }
+      }
+    },
+    "worker_packet": {
+      "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "lane_id": {"$ref": "#/$defs/id"},
+        "lane_version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "lane_digest": {"$ref": "#/$defs/digest"},
+        "work_id": {"$ref": "#/$defs/id"},
+        "step_id": {"$ref": "#/$defs/id"},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["task"],
+          "properties": {
+            "task": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "context": {"type": "string", "minLength": 0, "maxLength": 16384},
+            "constraints": {"type": "array", "minItems": 0, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 512}}
           }
         }
       }

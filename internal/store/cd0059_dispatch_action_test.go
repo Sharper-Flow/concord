@@ -6,6 +6,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -83,9 +85,17 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-dispatch-fence")
 	actor := seed.ownerActor
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-fence"))
+	if err != nil {
+		t.Fatalf("marshal dispatch packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-fence", "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatalf("marshal dispatch fields: %v", err)
+	}
 	result, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: json.RawMessage(`{"attempt_id":"attempt-fence"}`),
+		Payload: fieldsPayload,
 		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "fence-inputs"),
 		IdempotencyIdentity: "fence-open-op", OperationID: "op-fence-open", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "fence-open-key", RequestID: "req-fence-open",
@@ -254,9 +264,17 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	seed := seedDispatchFixture(t, s, "work-reuse")
 	// Open the dispatch window by invoking dispatch_worker.
 	actor := seed.ownerActor
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-reuse"))
+	if err != nil {
+		t.Fatalf("marshal dispatch packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-reuse", "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatalf("marshal dispatch fields: %v", err)
+	}
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: json.RawMessage(`{"attempt_id":"attempt-reuse"}`),
+		Payload: fieldsPayload,
 		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "dispatch-inputs"),
 		IdempotencyIdentity: "reuse-open-op", OperationID: "op-reuse-open", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "reuse-open-key", RequestID: "req-reuse-open",
@@ -291,11 +309,204 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	}
 }
 
+// TestDispatchFoldRecordsTheCanonicalPacketDigest proves CD-0067 D2: a
+// successful dispatch_worker fold writes worker_packet_digest on the
+// WorkflowActionCompleted event, computed as sha256 over canonicalJSON of the
+// packet the caller supplied. The digest is what later worker-evidence
+// boundaries compare against the worker's reported packet.
+func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-digest")
+	actor := seed.ownerActor
+	packet := dispatchWorkerPacket(seed.workID, "execution", "attempt-digest")
+	packetBytes, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	canonical, err := canonicalJSON(packetBytes)
+	if err != nil {
+		t.Fatalf("canonicalJSON: %v", err)
+	}
+	wantSum := sha256.Sum256(canonical)
+	wantDigest := "sha256:" + hex.EncodeToString(wantSum[:])
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-digest", "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload,
+		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "digest-inputs"),
+		IdempotencyIdentity: "digest-open-op", OperationID: "op-digest-open", PrincipalRef: actor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "digest-open-key", RequestID: "req-digest-open",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	}); err != nil {
+		t.Fatalf("dispatch_worker failed: %v", err)
+	}
+	var storedDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=?`,
+		string(SubjectWorkItem), seed.workID, WorkflowActionCompleted, "dispatch_worker", "execution").Scan(&storedDigest); err != nil {
+		t.Fatalf("cannot read workflow.action_completed: %v", err)
+	}
+	if storedDigest != wantDigest {
+		t.Fatalf("worker_packet_digest = %q, want %q", storedDigest, wantDigest)
+	}
+}
+
+// TestDispatchFoldRefusesPacketWorkIDMismatch proves CD-0067 D2 identity guard:
+// a dispatch_worker whose worker_packet.work_id does not match the action's
+// work_id is refused with KindInvalidPayload and writes no events.
+func TestDispatchFoldRefusesPacketWorkIDMismatch(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-mismatch")
+	packet := dispatchWorkerPacket("work-other", "execution", "attempt-mismatch")
+	packetBytes, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-mismatch", "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	actor := seed.ownerActor
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload,
+		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "mismatch-inputs"),
+		IdempotencyIdentity: "mismatch-op", OperationID: "op-mismatch", PrincipalRef: actor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "mismatch-key", RequestID: "req-mismatch",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if err == nil {
+		t.Fatal("dispatch_worker with mismatched packet.work_id was accepted")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected typed failure, got %v", err)
+	}
+	if failure.Kind != KindInvalidPayload {
+		t.Fatalf("failure kind = %s, want invalid_payload", failure.Kind)
+	}
+	var startedCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
+		string(SubjectWorkItem), seed.workID, WorkflowActionStarted, "dispatch_worker").Scan(&startedCount); err != nil {
+		t.Fatal(err)
+	}
+	if startedCount != 0 {
+		t.Fatalf("dispatch_worker.started event count = %d, want 0 after identity refusal", startedCount)
+	}
+}
+
+// TestDispatchFoldRefusesPacketAttemptIDMismatch proves CD-0067 D2 identity
+// guard: a dispatch_worker whose worker_packet.attempt_id does not match
+// fields.attempt_id is refused with KindInvalidPayload and writes no events.
+func TestDispatchFoldRefusesPacketAttemptIDMismatch(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-attempt-mismatch")
+	packet := dispatchWorkerPacket(seed.workID, "execution", "attempt-other")
+	packetBytes, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatalf("marshal packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-fields", "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	actor := seed.ownerActor
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload,
+		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "attempt-mismatch-inputs"),
+		IdempotencyIdentity: "attempt-mismatch-op", OperationID: "op-attempt-mismatch", PrincipalRef: actor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "attempt-mismatch-key", RequestID: "req-attempt-mismatch",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if err == nil {
+		t.Fatal("dispatch_worker with mismatched packet.attempt_id was accepted")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected typed failure, got %v", err)
+	}
+	if failure.Kind != KindInvalidPayload {
+		t.Fatalf("failure kind = %s, want invalid_payload", failure.Kind)
+	}
+	var startedCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
+		string(SubjectWorkItem), seed.workID, WorkflowActionStarted, "dispatch_worker").Scan(&startedCount); err != nil {
+		t.Fatal(err)
+	}
+	if startedCount != 0 {
+		t.Fatalf("dispatch_worker.started event count = %d, want 0 after identity refusal", startedCount)
+	}
+}
+
+// TestDispatchPreflightRejectsNonObjectWorkerPacket proves CD-0067 D3: the
+// preflight enforces the PayloadObject value type, so a non-object
+// worker_packet is refused with the existing "wrong registered type or
+// bounds" failure detail before the fold runs. The owning preflight wraps
+// payload errors in its own typed kind; the test pins the detail string so
+// a future change cannot quietly let a string-shaped worker_packet reach
+// the fold.
+func TestDispatchPreflightRejectsNonObjectWorkerPacket(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-non-object")
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-non-object", "worker_packet": "not-an-object"})
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	actor := seed.ownerActor
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload,
+		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "non-object-inputs"),
+		IdempotencyIdentity: "non-object-op", OperationID: "op-non-object", PrincipalRef: actor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "non-object-key", RequestID: "req-non-object",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if err == nil {
+		t.Fatal("dispatch_worker with non-object worker_packet was accepted")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected typed failure, got %v", err)
+	}
+	if !strings.Contains(failure.Detail, "wrong registered type") {
+		t.Fatalf("failure detail = %q, want it to name the wrong registered type", failure.Detail)
+	}
+}
+
 // ---- helpers ----
 
 type cd0059DispatchSeed struct {
 	workID     string
 	ownerActor WorkflowActor
+}
+
+// dispatchWorkerPacket builds the closed lane packet the dispatch_worker fold
+// expects under fields.worker_packet. CD-0067 D1/D2 require the packet's
+// work_id, attempt_id, and step_id to match the action's work_id, the
+// fields.attempt_id, and the seeded execution step; the helper enforces those
+// equalities from its arguments so callers cannot ship a packet the fold
+// refuses on identity grounds.
+func dispatchWorkerPacket(workID, stepID, attemptID string) map[string]any {
+	return map[string]any{
+		"schema_version": "1.0",
+		"attempt_id":     attemptID,
+		"lane_id":        "implement",
+		"lane_version":   int64(1),
+		"lane_digest":    "sha256:" + strings.Repeat("a", 64),
+		"work_id":        workID,
+		"step_id":        stepID,
+		"inputs": map[string]any{
+			"task":        "cd0065 dispatch packet",
+			"constraints": []string{"do-not-modify-product-truth"},
+		},
+	}
 }
 
 // seedDispatchFixture seeds a workflow instance for workflow.implementation

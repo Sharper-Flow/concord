@@ -169,8 +169,11 @@ type workflowActionCompletedPayload struct {
 	// CD-0059 D1/D5: dispatch_worker binds the attempt identity it
 	// authorized so the worker-dispatch evidence boundary can prove the
 	// window belongs to the claim. The fold validates the pair on the
-	// next action that opens or accepts against this step epoch.
+	// next action that opens or accepts against this step epoch. CD-0067
+	// D2 additionally binds the canonical digest of the lane packet so
+	// the durable record names what the window was opened for.
 	WorkerLaneID       string   `json:"worker_lane_id,omitempty"`
+	WorkerPacketDigest string   `json:"worker_packet_digest,omitempty"`
 	ResultEvidenceRefs []string `json:"result_evidence_refs"`
 	ChangedRefs        []string `json:"changed_refs"`
 	ActorRef           string   `json:"actor_ref"`

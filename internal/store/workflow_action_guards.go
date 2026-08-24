@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -371,9 +373,42 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// attempt_id into the durable record so the worker-dispatch evidence
 	// boundary can prove the window exists and has not been consumed. The
 	// start already records the attempt_epoch; the completion binds the
-	// attempt identity.
+	// attempt identity. CD-0067 D2 additionally binds the canonical
+	// digest of the lane packet so the durable record names what the
+	// window was opened for, not only which attempt it was opened
+	// against.
 	if in.request.ActionID == "dispatch_worker" {
-		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
+		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
+		completionValues["worker_attempt_id"] = attemptID
+		packetRaw := workflowFieldRaw(fields, "worker_packet")
+		// Preflight enforces worker_packet is present and decodes to one
+		// strict JSON object, so an empty raw here means a defensive
+		// fallback; refuse closed with the same typed failure rather
+		// than record a half-bound attempt.
+		if len(packetRaw) == 0 {
+			return events, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is absent from the action payload", false, "supply the lane packet bound to this work item and attempt")
+		}
+		var packetFields map[string]json.RawMessage
+		if err := json.Unmarshal(packetRaw, &packetFields); err != nil {
+			return events, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is not a JSON object", false, "supply the lane packet bound to this work item and attempt")
+		}
+		packetWorkID, workIDOK := workflowFieldString(packetFields, "work_id")
+		packetAttemptID, attemptIDOK := workflowFieldString(packetFields, "attempt_id")
+		if !workIDOK || !attemptIDOK {
+			return events, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing work_id or attempt_id", false, "supply the lane packet bound to this work item and attempt")
+		}
+		if packetWorkID != in.request.WorkID {
+			return events, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.work_id does not match the action's work_id", false, "supply the lane packet bound to this work item and attempt")
+		}
+		if packetAttemptID != attemptID {
+			return events, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.attempt_id does not match fields.attempt_id", false, "supply the lane packet bound to this work item and attempt")
+		}
+		canonical, err := canonicalJSON(packetRaw)
+		if err != nil {
+			return events, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")
+		}
+		sum := sha256.Sum256(canonical)
+		completionValues["worker_packet_digest"] = "sha256:" + hex.EncodeToString(sum[:])
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, nil

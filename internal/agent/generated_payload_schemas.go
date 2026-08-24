@@ -5210,18 +5210,41 @@ const GeneratedPayloadSchemaDocument = `{
       "else": {
         "else": {
           "else": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "selected_choice"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "decision_context_digest"
+                    ]
+                  }
+                ]
+              }
+            },
+            "if": {
+              "properties": {
+                "action_id": {
+                  "const": "dispatch_worker"
                 }
+              }
+            },
+            "then": {
+              "properties": {
+                "fields": {
+                  "required": [
+                    "attempt_id",
+                    "worker_packet"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "fields"
               ]
             }
           },
@@ -5438,7 +5461,10 @@ const GeneratedPayloadSchemaDocument = `{
                 "title": {},
                 "touched_refs": {},
                 "transaction": {},
-                "value_statement": {}
+                "value_statement": {},
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet"
+                }
               },
               "type": "object"
             }
@@ -5648,6 +5674,75 @@ const GeneratedPayloadSchemaDocument = `{
         "project_id",
         "expected_version",
         "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "worker_packet": {
+      "additionalProperties": false,
+      "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "inputs": {
+          "additionalProperties": false,
+          "properties": {
+            "constraints": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array"
+            },
+            "context": {
+              "maxLength": 16384,
+              "minLength": 0,
+              "type": "string"
+            },
+            "task": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "type": "object"
+        },
+        "lane_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "1.0"
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
       ],
       "type": "object"
     },

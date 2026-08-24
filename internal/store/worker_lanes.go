@@ -227,13 +227,16 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 // WorkerDispatchWindow is the durable authorization a registered dispatch_worker
 // action opens for a single worker attempt. CD-0059 D5 makes the worker-dispatch
 // evidence boundary refuse if no such window exists or the same window has
-// already been consumed.
+// already been consumed. CD-0067 D2 carries the canonical lane-packet digest
+// alongside the bound attempt_id so the worker-dispatch evidence boundary can
+// later refuse evidence whose reported packet does not match the window.
 type WorkerDispatchWindow struct {
 	WorkID       string
 	StepID       string
 	AttemptID    string
 	AttemptEpoch int64
 	StartSeq     int64
+	PacketDigest string
 }
 
 // FindAuthorizedDispatchWindowTx reads the most recent dispatch_worker
@@ -254,8 +257,13 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, ste
 	// CD-0059 D1: the dispatch_worker completion carries the bound
 	// attempt_id — it is the value the worker-dispatch evidence must
 	// claim. A window that authorized a different attempt is not a
-	// window the worker can consume.
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_attempt_id'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq > ? ORDER BY seq ASC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", stepID, window.StartSeq).Scan(&window.AttemptID); err != nil {
+	// window the worker can consume. CD-0067 D2 reads the canonical
+	// lane-packet digest recorded next to worker_attempt_id so the
+	// evidence boundary can compare it against the worker's reported
+	// packet. Empty digest is acceptable: pre-CD-0067 seeds do not
+	// carry the key, and the digest enforcement is wired in a
+	// follow-up; the read does not refuse on emptiness here.
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_attempt_id'),''), COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq > ? ORDER BY seq ASC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", stepID, window.StartSeq).Scan(&window.AttemptID, &window.PacketDigest); err != nil {
 		if err == sql.ErrNoRows {
 			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker started without a completing authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}

@@ -106,6 +106,20 @@ def test_malformed_shard_is_rejected() -> None:
         assert "unknown fields" in result.stdout
 
 
+def test_legacy_aggregate_template_is_rejected() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = build_root(directory)
+        write_shard(root, record("AA-0001"))
+        template = {
+            "schema_version": "1.1",
+            "supported_kinds": ["lesson"],
+            "indexed_kinds": ["lesson"],
+        }
+        findings: list[str] = []
+        assert generator.derive_aggregate(root, findings, template) is None
+        assert findings == ["aggregate template schema_version must be 1.2"]
+
+
 def test_generation_is_deterministic() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)

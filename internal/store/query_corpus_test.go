@@ -35,9 +35,6 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed knowledge corpus: %v", err)
 	}
-	if err := pm1fixture.SeedCurrentProductDomainForHome(context.Background(), s, "prod-alpha", gitKnowledge.Home); err != nil {
-		t.Fatalf("seed Domain fixture: %v", err)
-	}
 	results := map[string]any{}
 	run := 0
 	for _, scenario := range corpus.Scenarios {

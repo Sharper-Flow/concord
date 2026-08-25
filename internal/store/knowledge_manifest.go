@@ -219,13 +219,6 @@ type KnowledgeCriterionBinding struct {
 	Exemption string `json:"exemption,omitempty"`
 }
 
-// UndecidedRootHomeRationale marks a root home the CD-0041 D9.2 upcast
-// assigned rather than an author claimed. Legacy law carrying zero or several
-// component IDs has no decided home, and the migration cannot invent one. The
-// marker keeps that state visible and searchable instead of letting it wear
-// the same shape as a reviewed Product-wide claim.
-const UndecidedRootHomeRationale = "undecided: home assigned by the CD-0041 D9.2 upcast and not yet reviewed"
-
 // KnowledgeDisposition records source material the operator has decided not to
 // formalize. It is the opposite of a record: a record makes a document
 // knowledge, a disposition states that the document will never become
@@ -245,55 +238,11 @@ type KnowledgeRelation struct {
 }
 
 type KnowledgeRecordScopes struct {
-	Mode                string   `json:"mode"`
-	ProductIDs          []string `json:"product_ids"`
-	ProjectIDs          []string `json:"project_ids"`
-	ComponentIDs        []string `json:"component_ids"`
-	DomainIDs           []string `json:"domain_ids,omitempty"`
-	TagIDs              []string `json:"tag_ids"`
-	componentIDsPresent bool
-	domainIDsPresent    bool
-}
-
-func (scopes *KnowledgeRecordScopes) UnmarshalJSON(data []byte) error {
-	type scopesAlias KnowledgeRecordScopes
-	var parsed scopesAlias
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&parsed); err != nil {
-		return err
-	}
-	*scopes = KnowledgeRecordScopes(parsed)
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	_, scopes.componentIDsPresent = fields["component_ids"]
-	_, scopes.domainIDsPresent = fields["domain_ids"]
-	return nil
-}
-
-func (scopes KnowledgeRecordScopes) MarshalJSON() ([]byte, error) {
-	type scopeJSON struct {
-		Mode         string    `json:"mode"`
-		ProductIDs   []string  `json:"product_ids"`
-		ProjectIDs   []string  `json:"project_ids"`
-		ComponentIDs *[]string `json:"component_ids,omitempty"`
-		DomainIDs    *[]string `json:"domain_ids,omitempty"`
-		TagIDs       []string  `json:"tag_ids"`
-	}
-	encoded := scopeJSON{
-		Mode: scopes.Mode, ProductIDs: scopes.ProductIDs, ProjectIDs: scopes.ProjectIDs, TagIDs: scopes.TagIDs,
-	}
-	if scopes.componentIDsPresent || scopes.ComponentIDs != nil {
-		componentIDs := scopes.ComponentIDs
-		encoded.ComponentIDs = &componentIDs
-	}
-	if scopes.domainIDsPresent || scopes.DomainIDs != nil {
-		domainIDs := scopes.DomainIDs
-		encoded.DomainIDs = &domainIDs
-	}
-	return json.Marshal(encoded)
+	Mode       string   `json:"mode"`
+	ProductIDs []string `json:"product_ids"`
+	ProjectIDs []string `json:"project_ids"`
+	DomainIDs  []string `json:"domain_ids"`
+	TagIDs     []string `json:"tag_ids"`
 }
 
 func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
@@ -511,18 +460,14 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 		DocContract    *KnowledgeDocContract    `json:"doc_contract,omitempty"`
 		Records        []map[string]any         `json:"records"`
 	}
-	var registry *KnowledgeDomainRegistry
-	if manifest.SchemaVersion == "1.2" || manifest.domainRegistryPresent {
-		copy := manifest.DomainRegistry
-		registry = &copy
-	}
+	registry := manifest.DomainRegistry
 	records := make([]map[string]any, 0, len(manifest.Records))
 	for _, record := range manifest.Records {
 		records = append(records, manifestRecordEntry(record))
 	}
 	return json.Marshal(manifestJSON{
 		SchemaVersion: manifest.SchemaVersion, SupportedKinds: manifest.SupportedKinds,
-		IndexedKinds: manifest.IndexedKinds, DomainRegistry: registry,
+		IndexedKinds: manifest.IndexedKinds, DomainRegistry: &registry,
 		KnowledgeRoots: manifest.KnowledgeRoots, Exclusions: manifest.Exclusions,
 		DocContract: manifest.DocContract, Records: records,
 	})
@@ -563,17 +508,10 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 }
 
 func manifestScopeEntry(scopes KnowledgeRecordScopes) map[string]any {
-	entry := map[string]any{
+	return map[string]any{
 		"mode": scopes.Mode, "product_ids": scopes.ProductIDs, "project_ids": scopes.ProjectIDs,
-		"tag_ids": scopes.TagIDs,
+		"domain_ids": scopes.DomainIDs, "tag_ids": scopes.TagIDs,
 	}
-	if scopes.componentIDsPresent || scopes.ComponentIDs != nil {
-		entry["component_ids"] = scopes.ComponentIDs
-	}
-	if scopes.domainIDsPresent || scopes.DomainIDs != nil {
-		entry["domain_ids"] = scopes.DomainIDs
-	}
-	return entry
 }
 
 func knowledgeDomainRegistryZero(registry KnowledgeDomainRegistry) bool {
@@ -604,19 +542,15 @@ func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
 }
 
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
-	if (manifest.SchemaVersion != "1.0" && manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict v1 root fields")
+	if manifest.SchemaVersion != "1.2" || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict schema 1.2 root fields")
 	}
 	hasRegistry := manifest.domainRegistryPresent || !knowledgeDomainRegistryZero(manifest.DomainRegistry)
-	if manifest.SchemaVersion == "1.2" {
-		if !hasRegistry {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
-		}
-		if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
-			return err
-		}
-	} else if hasRegistry {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry requires schema version 1.2", false, "remove domain_registry from a 1.0 or 1.1 manifest")
+	if !hasRegistry {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
+	}
+	if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
+		return err
 	}
 	supported, err := validateManifestKindList(manifest.SupportedKinds, "supported_kinds")
 	if err != nil {
@@ -643,7 +577,7 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 		if err := validateKnowledgeRecordForSchema(record, supported, indexed, manifest.SchemaVersion); err != nil {
 			return err
 		}
-		if err := validateManifestLawHome(record, manifest.SchemaVersion, manifest.DomainRegistry); err != nil {
+		if err := validateManifestLawHome(record, manifest.DomainRegistry); err != nil {
 			return err
 		}
 		if ids[record.ID] {
@@ -663,10 +597,8 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 	if err := validateManifestRelations(manifest); err != nil {
 		return err
 	}
-	if manifest.SchemaVersion == "1.2" {
-		if err := validateKnowledgeDomainLawReferences(manifest.DomainRegistry, manifest.Records); err != nil {
-			return err
-		}
+	if err := validateKnowledgeDomainLawReferences(manifest.DomainRegistry, manifest.Records); err != nil {
+		return err
 	}
 	return nil
 }
@@ -781,111 +713,6 @@ func validProductKey(value string) bool {
 	return true
 }
 
-// MigrateLegacyKnowledgeManifest converts one validated component-scoped
-// manifest into the Domain-only 1.2 form. Additional IDs let the operator include
-// components found in historical notes or other bounded compatibility sources.
-// The caller retains ownership of the input manifest and all of its slices.
-func MigrateLegacyKnowledgeManifest(manifest KnowledgeManifest, productKey string, additionalComponentIDs ...string) (KnowledgeManifest, error) {
-	if !validProductKey(productKey) {
-		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "migrate_legacy_knowledge_manifest", "product key is invalid", false, "supply a lowercase product key with letters, digits, or hyphens")
-	}
-	if manifest.SchemaVersion != "1.0" && manifest.SchemaVersion != "1.1" {
-		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "migrate_legacy_knowledge_manifest", "only valid schema 1.0 or 1.1 manifests can be migrated", false, "supply a legacy component-scoped manifest")
-	}
-	if err := validateKnowledgeManifest(manifest); err != nil {
-		return KnowledgeManifest{}, err
-	}
-
-	rootID := "product-root:" + productKey
-	componentIDs := map[string]bool{}
-	for _, componentID := range additionalComponentIDs {
-		if !validManifestID(componentID) {
-			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "migrate_legacy_knowledge_manifest", "additional legacy component ID is invalid", false, "supply bounded clean component IDs from compatibility sources")
-		}
-		if componentID == rootID {
-			return KnowledgeManifest{}, newFailure(KindKnowledgeAmbiguous, "migrate_legacy_knowledge_manifest", "legacy component ID collides with the derived product root", false, "rename the legacy component before migration or choose its actual product key")
-		}
-		componentIDs[componentID] = true
-	}
-	for _, record := range manifest.Records {
-		for _, componentID := range record.Scopes.ComponentIDs {
-			if componentID == rootID {
-				return KnowledgeManifest{}, newFailure(KindKnowledgeAmbiguous, "migrate_legacy_knowledge_manifest", "legacy component ID collides with the derived product root", false, "rename the legacy component before migration or choose its actual product key")
-			}
-			componentIDs[componentID] = true
-		}
-	}
-	components := make([]string, 0, len(componentIDs))
-	for componentID := range componentIDs {
-		components = append(components, componentID)
-	}
-	sort.Strings(components)
-
-	migrated := KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: append([]string{}, manifest.SupportedKinds...),
-		IndexedKinds:   append([]string{}, manifest.IndexedKinds...),
-		DomainRegistry: KnowledgeDomainRegistry{
-			SchemaVersion: "1.0",
-			ProductKey:    productKey,
-			RootDomainID:  rootID,
-			Domains: []KnowledgeDomain{{
-				DomainID: rootID, Name: "Product root", Purpose: "Product-wide law and architecture", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{},
-			}},
-		},
-		Records: make([]KnowledgeRecord, len(manifest.Records)),
-	}
-	for _, componentID := range components {
-		migrated.DomainRegistry.Domains = append(migrated.DomainRegistry.Domains, KnowledgeDomain{
-			DomainID: componentID, Name: componentID, Purpose: "Migrated legacy component domain", ParentDomainID: rootID, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{},
-		})
-	}
-	for index, source := range manifest.Records {
-		record := source
-		record.Tags = append([]string{}, source.Tags...)
-		record.Evidence = append([]string{}, source.Evidence...)
-		record.LawRelations = append([]KnowledgeRelation{}, source.LawRelations...)
-		record.Scopes.ProductIDs = append([]string{}, source.Scopes.ProductIDs...)
-		record.Scopes.ProjectIDs = append([]string{}, source.Scopes.ProjectIDs...)
-		record.Scopes.TagIDs = append([]string{}, source.Scopes.TagIDs...)
-		record.Scopes.ComponentIDs = nil
-		record.Scopes.componentIDsPresent = false
-		record.Scopes.DomainIDs = append([]string{}, source.Scopes.ComponentIDs...)
-		sort.Strings(record.Scopes.DomainIDs)
-		record.Scopes.domainIDsPresent = true
-		if record.Kind == "decision" || record.Kind == "spec" {
-			switch len(record.Scopes.DomainIDs) {
-			case 0:
-				record.HomeDomainID = rootID
-				record.AppliesToDomainIDs = []string{}
-				record.ProductWideRationale = UndecidedRootHomeRationale
-			case 1:
-				record.HomeDomainID = record.Scopes.DomainIDs[0]
-				record.AppliesToDomainIDs = []string{}
-			default:
-				record.HomeDomainID = rootID
-				record.AppliesToDomainIDs = append([]string{}, record.Scopes.DomainIDs...)
-				record.ProductWideRationale = UndecidedRootHomeRationale
-			}
-			record.homeDomainPresent = true
-			record.appliesToDomainsPresent = true
-			record.productWideRationalePresent = record.ProductWideRationale != ""
-		} else {
-			record.HomeDomainID = ""
-			record.AppliesToDomainIDs = nil
-			record.ProductWideRationale = ""
-			record.homeDomainPresent = false
-			record.appliesToDomainsPresent = false
-			record.productWideRationalePresent = false
-		}
-		migrated.Records[index] = record
-	}
-	if err := validateKnowledgeManifest(migrated); err != nil {
-		return KnowledgeManifest{}, err
-	}
-	return migrated, nil
-}
-
 func validManifestID(value string) bool {
 	return value != "" && utf8.RuneCountInString(value) <= maxManifestID && strings.TrimSpace(value) == value
 }
@@ -950,7 +777,7 @@ func validateManifestRootHomeClaim(record KnowledgeRecord, hasHome bool, registr
 		}
 		return nil
 	}
-	if !record.productWideRationalePresent || rationale == "" {
+	if rationale == "" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law homed to the root Domain must state why no child Domain owns it", false, "author product_wide_rationale, or home the record to the child Domain whose behavior it governs")
 	}
 	if len(rationale) > maxManifestRootHomeRationale {
@@ -959,13 +786,7 @@ func validateManifestRootHomeClaim(record KnowledgeRecord, hasHome bool, registr
 	return nil
 }
 
-func validateManifestLawHome(record KnowledgeRecord, schemaVersion string, registry KnowledgeDomainRegistry) error {
-	if schemaVersion != "1.2" {
-		if record.HomeDomainID != "" || record.AppliesToDomainIDs != nil || record.homeDomainPresent || record.appliesToDomainsPresent || record.ProductWideRationale != "" || record.productWideRationalePresent {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law-home fields require schema version 1.2", false, "remove domain law-home fields from a 1.0 or 1.1 manifest")
-		}
-		return nil
-	}
+func validateManifestLawHome(record KnowledgeRecord, registry KnowledgeDomainRegistry) error {
 	if !manifestLawBearingKinds[record.Kind] {
 		if record.HomeDomainID != "" || len(record.AppliesToDomainIDs) > 0 || record.homeDomainPresent || record.appliesToDomainsPresent || record.ProductWideRationale != "" || record.productWideRationalePresent {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "non-law records cannot author domain law-home fields", false, "keep domain law-home fields on law-bearing records only")
@@ -1021,8 +842,8 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 		if len(record.LawRelations) == 0 {
 			continue
 		}
-		if (manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || !manifestLawRelationSubjects[record.Kind] {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on 1.1 or 1.2 decision/spec records", false, "publish authored relations on a schema 1.1 or 1.2 decision or spec")
+		if !manifestLawRelationSubjects[record.Kind] {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on decision/spec records", false, "publish authored relations on a decision or spec")
 		}
 		for _, relation := range record.LawRelations {
 			if !lawRelationKinds[relation.Kind] || relation.TargetID == "" || relation.TargetID == record.ID {
@@ -1056,7 +877,7 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 		}
 	}
 	for _, record := range manifest.Records {
-		if (manifest.SchemaVersion != "1.1" && manifest.SchemaVersion != "1.2") || record.Successor == "" {
+		if record.Successor == "" {
 			continue
 		}
 		found := false
@@ -1339,28 +1160,21 @@ func manifestIneligibleHint() string {
 }
 
 func validateManifestScopesForSchema(scopes KnowledgeRecordScopes, schemaVersion string) error {
-	if scopes.Mode != "home" && scopes.Mode != "explicit" || scopes.ProductIDs == nil || scopes.ProjectIDs == nil || scopes.TagIDs == nil {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "scope mode is not closed", false, "use home or explicit scope mode")
+	if schemaVersion != "1.2" || scopes.Mode != "home" && scopes.Mode != "explicit" || scopes.ProductIDs == nil || scopes.ProjectIDs == nil || scopes.DomainIDs == nil || scopes.TagIDs == nil {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 scopes are invalid", false, "use schema 1.2 with home or explicit scope mode and domain_ids")
 	}
-	if schemaVersion == "1.2" {
-		if scopes.DomainIDs == nil || scopes.ComponentIDs != nil || scopes.componentIDsPresent {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 scopes require domain_ids and forbid component_ids", false, "use domain_ids in a schema 1.2 scope")
-		}
-	} else if scopes.ComponentIDs == nil || scopes.DomainIDs != nil || scopes.domainIDsPresent {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.0 or 1.1 scopes require component_ids and forbid domain_ids", false, "use component_ids in a compatibility scope")
-	}
-	valuesByName := map[string][]string{"product_ids": scopes.ProductIDs, "project_ids": scopes.ProjectIDs, "tag_ids": scopes.TagIDs}
-	if schemaVersion == "1.2" {
-		valuesByName["domain_ids"] = scopes.DomainIDs
-	} else {
-		valuesByName["component_ids"] = scopes.ComponentIDs
+	valuesByName := map[string][]string{
+		"product_ids": scopes.ProductIDs,
+		"project_ids": scopes.ProjectIDs,
+		"domain_ids":  scopes.DomainIDs,
+		"tag_ids":     scopes.TagIDs,
 	}
 	for name, values := range valuesByName {
 		if err := validateManifestStringArray(values, name); err != nil {
 			return err
 		}
 	}
-	if scopes.Mode == "home" && (len(scopes.ProductIDs) > 0 || len(scopes.ProjectIDs) > 0 || len(scopes.ComponentIDs) > 0 || len(scopes.DomainIDs) > 0 || len(scopes.TagIDs) > 0) {
+	if scopes.Mode == "home" && (len(scopes.ProductIDs) > 0 || len(scopes.ProjectIDs) > 0 || len(scopes.DomainIDs) > 0 || len(scopes.TagIDs) > 0) {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "home scope cannot carry explicit scope IDs", false, "choose explicit mode for declared scope IDs")
 	}
 	return nil
@@ -1484,7 +1298,6 @@ func sameKnowledgeRecord(a, b KnowledgeRecord) bool {
 		record.Tags = append([]string{}, record.Tags...)
 		record.Scopes.ProductIDs = append([]string{}, record.Scopes.ProductIDs...)
 		record.Scopes.ProjectIDs = append([]string{}, record.Scopes.ProjectIDs...)
-		record.Scopes.ComponentIDs = append([]string{}, record.Scopes.ComponentIDs...)
 		record.Scopes.DomainIDs = append([]string{}, record.Scopes.DomainIDs...)
 		record.Scopes.TagIDs = append([]string{}, record.Scopes.TagIDs...)
 		record.AppliesToDomainIDs = append([]string{}, record.AppliesToDomainIDs...)
@@ -1492,7 +1305,6 @@ func sameKnowledgeRecord(a, b KnowledgeRecord) bool {
 		sort.Strings(record.Tags)
 		sort.Strings(record.Scopes.ProductIDs)
 		sort.Strings(record.Scopes.ProjectIDs)
-		sort.Strings(record.Scopes.ComponentIDs)
 		sort.Strings(record.Scopes.DomainIDs)
 		sort.Strings(record.Scopes.TagIDs)
 		sort.Strings(record.AppliesToDomainIDs)

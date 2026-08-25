@@ -546,7 +546,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 		}
 	}
 	var domainProjectionData domainProjection
-	if !manifestMissing && manifest.SchemaVersion == "1.2" {
+	if !manifestMissing {
 		domainProjectionData, err = prepareDomainProjection(ctx, s, home, manifest)
 		if err != nil {
 			return err
@@ -603,7 +603,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return err
 		}
 	}
-	if !manifestMissing && manifest.SchemaVersion == "1.2" {
+	if !manifestMissing {
 		if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
 			return err
 		}
@@ -721,19 +721,12 @@ func manifestRecordNote(record KnowledgeRecord, commit, schemaVersion string) Ve
 	if record.Status == "superseded" {
 		terminal = "superseded"
 	}
-	domainIDs, componentIDs := []string(nil), []string(nil)
-	hasDomainIDs, hasComponentIDs := false, false
-	if schemaVersion == "1.2" {
-		domainIDs, hasDomainIDs = append([]string(nil), record.Scopes.DomainIDs...), true
-	} else {
-		componentIDs, hasComponentIDs = append([]string(nil), record.Scopes.ComponentIDs...), true
-	}
 	return VerifiedNote{
 		ID: record.ID, Kind: record.Kind, Title: record.Title, CompletedAt: record.Date,
 		OutcomeTag: record.Status, LessonTags: append([]string(nil), record.Tags...),
 		TerminalState: terminal, Summary: record.Summary, SuccessorID: record.Successor,
 		ProductIDs: append([]string(nil), record.Scopes.ProductIDs...), ProjectIDs: append([]string(nil), record.Scopes.ProjectIDs...),
-		DomainIDs: domainIDs, ComponentIDs: componentIDs, HasDomainIDs: hasDomainIDs, HasComponentIDs: hasComponentIDs, TagIDs: append([]string(nil), record.Scopes.TagIDs...),
+		DomainIDs: append([]string(nil), record.Scopes.DomainIDs...), HasDomainIDs: true, TagIDs: append([]string(nil), record.Scopes.TagIDs...),
 		ScopeMode: record.Scopes.Mode, ManifestSchemaVersion: schemaVersion, NotePath: record.Path, CommitOID: commit, ContentHash: record.SHA256,
 	}
 }

@@ -231,7 +231,7 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z"))
 	writeKnowledgeFile(t, repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-04T12:00:00Z", []string{"state-authority", "sqlite"}))
 	writeKnowledgeFile(t, repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-05T12:00:00Z", []string{"sqlite"}))
-	scopes := KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"prod-alpha"}, ComponentIDs: []string{"state"}, TagIDs: []string{"state-authority", "sqlite"}}
+	scopes := KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"prod-alpha"}, ProjectIDs: []string{}, DomainIDs: []string{"state"}, TagIDs: []string{"state-authority", "sqlite"}}
 	writeManifestFixture(t, repo,
 		manifestFixtureFromFile(t, repo, "knowledge-lesson", "lesson", lessonPath, "published", "2026-08-04T12:00:00Z", "Durable lesson", "Durable summary", []string{"state-authority", "sqlite"}, scopes),
 		manifestFixtureFromFile(t, repo, "knowledge-decision", "decision", decisionPath, "accepted", "2026-08-05T12:00:00Z", "Durable decision", "Durable summary", []string{"sqlite"}, scopes),

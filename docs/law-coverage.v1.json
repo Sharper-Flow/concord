@@ -193,7 +193,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestKnowledgeManifestV11RelationsAndV10Compatibility"
+          "value": "internal/store.TestKnowledgeManifestRelationsRequireCurrentSchema"
         }
       ],
       "id": "CD-0015",
@@ -982,10 +982,6 @@
           "value": "internal/store.TestRootHomeRationaleSurvivesTheQ10Projection"
         },
         {
-          "kind": "go_test",
-          "value": "internal/store.TestLegacyMigrationMarksUndecidedRootHomes"
-        },
-        {
           "kind": "validator",
           "value": "scripts/check-domain-registry.py"
         }
@@ -1162,6 +1158,24 @@
         }
       ],
       "id": "CD-0074",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestKnowledgeManifestRelationsRequireCurrentSchema"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-knowledge-index.py"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/test-generate-knowledge-index.py"
+        }
+      ],
+      "id": "CD-0076",
       "state": "satisfied"
     },
     {

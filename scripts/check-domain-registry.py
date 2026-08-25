@@ -39,12 +39,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 AGGREGATE = ROOT / "docs/concord-knowledge-index.v1.json"
 
-# Mirrors UndecidedRootHomeRationale in internal/store/knowledge_manifest.go.
-# The Go constant is the writer; this copy is the reader, and the manifest is
-# the only thing they exchange.
-UNDECIDED_ROOT_HOME_RATIONALE = "undecided: home assigned by the CD-0041 D9.2 upcast and not yet reviewed"
-
-
 def report(findings: list[str], subject: str) -> int:
     if findings:
         print(f"{subject} check failed: {len(findings)} finding(s)")
@@ -75,15 +69,7 @@ def main() -> int:
         home = record.get("home_domain_id")
         rationale = record.get("product_wide_rationale")
         if isinstance(rationale, str):
-            # The upcast marker means the home was assigned, not claimed. It is
-            # a legal transient and an illegal resting state, so it fails here
-            # rather than ageing into a claim nobody made.
-            if rationale == UNDECIDED_ROOT_HOME_RATIONALE:
-                findings.append(
-                    f"record {record_id}: root home is still marked undecided by the CD-0041 D9.2 upcast; "
-                    "decide the home, or state why no child Domain owns it"
-                )
-            elif rationale in rationales:
+            if rationale in rationales:
                 findings.append(
                     f"record {record_id}: product_wide_rationale is identical to {rationales[rationale]!r}; "
                     "a reused sentence states nothing about this record"

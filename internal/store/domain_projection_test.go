@@ -38,17 +38,6 @@ func TestRebuildKnowledgeIndexProjectsDomainRegistryAndLawScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifestObject map[string]any
-	if err := json.Unmarshal(manifestBytes, &manifestObject); err != nil {
-		t.Fatal(err)
-	}
-	records := manifestObject["records"].([]any)
-	scopes := records[0].(map[string]any)["scopes"].(map[string]any)
-	delete(scopes, "component_ids")
-	manifestBytes, err = json.Marshal(manifestObject)
-	if err != nil {
-		t.Fatal(err)
-	}
 	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(manifestBytes)+"\n")
 	commitKnowledgeRepo(t, repo, "domain knowledge")
 
@@ -80,14 +69,14 @@ func TestRebuildKnowledgeIndexProjectsDomainRegistryAndLawScope(t *testing.T) {
 	}
 	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(legacyBytes)+"\n")
 	commitKnowledgeRepo(t, repo, "legacy manifest")
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
+	if err := s.RebuildKnowledgeIndex(ctx, home); err == nil {
+		t.Fatal("legacy manifest rebuild succeeded")
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domains WHERE product_id='concord'`).Scan(&domainCount); err != nil {
 		t.Fatal(err)
 	}
-	if domainCount != 0 {
-		t.Fatalf("legacy rebuild retained %d stale Domain rows", domainCount)
+	if domainCount != 2 {
+		t.Fatalf("rejected legacy rebuild changed Domain rows to %d", domainCount)
 	}
 }
 
@@ -103,14 +92,7 @@ func TestDomainProjectionSeparatesGitProductKeyFromLocalProductID(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifestObject map[string]any
-	if err := json.Unmarshal(manifestBytes, &manifestObject); err != nil {
-		t.Fatal(err)
-	}
-	for _, record := range manifestObject["records"].([]any) {
-		delete(record.(map[string]any)["scopes"].(map[string]any), "component_ids")
-	}
-	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(mustDomainProjectionJSON(t, manifestObject))+"\n")
+	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(manifestBytes)+"\n")
 	commitKnowledgeRepo(t, repo, "stable domain identity")
 
 	first, second := openTemp(t), openTemp(t)
@@ -130,15 +112,6 @@ func TestDomainProjectionSeparatesGitProductKeyFromLocalProductID(t *testing.T) 
 	if got, want := domainProjectionIdentitySnapshot(t, first), domainProjectionIdentitySnapshot(t, second); got != want {
 		t.Fatalf("Git-domain projection differs by local Product ID:\nfirst=%s\nsecond=%s", got, want)
 	}
-}
-
-func mustDomainProjectionJSON(t *testing.T, value any) []byte {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return encoded
 }
 
 func domainProjectionIdentitySnapshot(t *testing.T, s *Store) string {

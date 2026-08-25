@@ -75,35 +75,6 @@ func TestRootHomeRationaleMustCarryContent(t *testing.T) {
 	}
 }
 
-// The CD-0041 D9.2 upcast assigns the root to legacy law carrying zero or
-// several component IDs. That home is undecided by construction, not claimed.
-// The migration must therefore say so in the record rather than emit a silent
-// root home, which is the shape this change exists to remove.
-func TestLegacyMigrationMarksUndecidedRootHomes(t *testing.T) {
-	legacy := KnowledgeManifest{
-		SchemaVersion:  "1.1",
-		SupportedKinds: []string{"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"},
-		IndexedKinds:   []string{"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"},
-		Records: []KnowledgeRecord{{
-			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001.md", Status: "accepted",
-			Date: "2026-08-22T00:00:00Z", Title: "Record", Summary: "Summary", Tags: []string{},
-			SHA256: "sha256:" + strings.Repeat("a", 64),
-			Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, TagIDs: []string{}, ComponentIDs: []string{}},
-		}},
-	}
-	migrated, err := MigrateLegacyKnowledgeManifest(legacy, "concord")
-	if err != nil {
-		t.Fatalf("migration rejected a legacy manifest: %v", err)
-	}
-	record := migrated.Records[0]
-	if record.HomeDomainID != "product-root:concord" {
-		t.Fatalf("legacy law with no component IDs should home to the root, got %q", record.HomeDomainID)
-	}
-	if record.ProductWideRationale != UndecidedRootHomeRationale {
-		t.Fatalf("migrated root home must be marked undecided, got %q", record.ProductWideRationale)
-	}
-}
-
 // The claim has to survive the projection, not merely the parse. PM1.Q10
 // rebuilds the declared record out of SQLite and requires byte equality with
 // the manifest, so a field the projection drops turns every root-homed record

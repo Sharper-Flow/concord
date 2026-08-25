@@ -27,13 +27,25 @@ SHARD_FORMAT_SPEC.loader.exec_module(shard_format)
 
 def fixture(path: str = "docs/lesson.md", digest: str = "a" * 64) -> dict:
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.2",
         "supported_kinds": ["lesson", "research"],
         "indexed_kinds": ["lesson"],
+        "domain_registry": {
+            "schema_version": "1.0",
+            "product_key": "concord",
+            "root_domain_id": "product-root:concord",
+            "domains": [{
+                "domain_id": "product-root:concord",
+                "name": "Concord",
+                "purpose": "Product-wide Concord law and architecture",
+                "status": "current",
+                "architecture_relations": [],
+            }],
+        },
         "records": [{
             "id": "lesson-1", "kind": "lesson", "path": path, "status": "published",
             "date": "2026-08-10T00:00:00Z", "title": "Lesson", "summary": "Summary", "tags": [],
-            "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "component_ids": [], "tag_ids": []},
+            "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
             "sha256": "sha256:" + digest,
         }],
     }
@@ -207,6 +219,14 @@ def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
             assert checker.validate(missing_home, check_hashes=False)
 
 
+def test_legacy_manifest_versions_are_rejected() -> None:
+    for version in ("1.0", "1.1"):
+        value = fixture()
+        value["schema_version"] = version
+        findings = checker.validate(value, check_hashes=False)
+        assert "manifest: schema_version must be 1.2" in findings
+
+
 def test_v12_rejects_historical_law_applicability_without_home() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
@@ -332,11 +352,10 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
         earlier = decisions / "CD-0014-a-decision.md"
         later.write_text("note\n", encoding="utf-8")
         earlier.write_text("decision\n", encoding="utf-8")
-        value = {
-            "schema_version": "1.0",
-            "supported_kinds": ["decision"],
-            "indexed_kinds": ["decision"],
-            "records": [{
+        value = v12_fixture()
+        value["supported_kinds"] = ["decision"]
+        value["indexed_kinds"] = ["decision"]
+        value["records"] = [{
                 "id": "CD-0014",
                 "kind": "decision",
                 "path": "docs/decisions/CD-0014-a-decision.md",
@@ -345,10 +364,11 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
                 "title": "Decision",
                 "summary": "Summary",
                 "tags": [],
-                "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "component_ids": [], "tag_ids": []},
+				"scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+				"home_domain_id": "product-root:concord",
+				"product_wide_rationale": "Fixture law binds every child Domain.",
                 "sha256": "sha256:" + "a" * 64,
-            }],
-        }
+            }]
         with mock.patch.object(checker, "ROOT", root):
             findings = checker.validate(value, check_hashes=False)
         assert findings == [

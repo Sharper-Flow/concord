@@ -71,7 +71,6 @@ LAW_RELATION_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with
 # $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
 # check-knowledge-vocabulary.py binds this restatement to that pattern text.
 RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
-SCOPE_FIELDS_V10 = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 SCOPE_FIELDS_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 
 
@@ -110,7 +109,7 @@ def unique_ids(value: object, maximum: int = 64) -> bool:
 
 
 def validate_scopes(scopes: object, schema_version: str, prefix: str, findings: list[str]) -> None:
-    allowed = SCOPE_FIELDS_V12 if schema_version == "1.2" else SCOPE_FIELDS_V10
+    allowed = SCOPE_FIELDS_V12
     if not isinstance(scopes, dict):
         findings.append(f"{prefix}: scopes must be an object")
         return
@@ -218,24 +217,21 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
             findings.append(f"{prefix}: invalid law relation")
     if "evidence" in record and (not isinstance(record["evidence"], list) or len(record["evidence"]) > 32 or any(not isinstance(item, str) or not 1 <= len(item) <= 512 or item.startswith("/") or ".." in item for item in record["evidence"])):
         findings.append(f"{prefix}: invalid evidence paths")
-    if schema_version != "1.2" and ({"home_domain_id", "applies_to_domain_ids"} & set(record)):
-        findings.append(f"{prefix}: law-home fields require schema_version 1.2")
-    if schema_version == "1.2":
-        if not law_bearing and ({"home_domain_id", "applies_to_domain_ids"} & set(record)):
-            findings.append(f"{prefix}: non-law records cannot author law-home fields")
-        if law_bearing and status == "accepted" and not clean_text(record.get("home_domain_id"), 256):
-            findings.append(f"{prefix}: an accepted law-bearing record requires one home domain")
-        for field in ("home_domain_id",):
-            if field in record and record[field] not in domain_ids:
-                findings.append(f"{prefix}: home domain is dangling")
-        if "applies_to_domain_ids" in record:
-            values = record["applies_to_domain_ids"]
-            if not unique_ids(values) or any(value not in domain_ids for value in values):
-                findings.append(f"{prefix}: invalid or dangling applies_to_domain_ids")
-            if "home_domain_id" not in record:
-                findings.append(f"{prefix}: applies_to_domain_ids requires home_domain_id")
-            elif record["home_domain_id"] in values:
-                findings.append(f"{prefix}: applies_to_domain_ids repeats home_domain_id")
+    if not law_bearing and ({"home_domain_id", "applies_to_domain_ids", "product_wide_rationale"} & set(record)):
+        findings.append(f"{prefix}: non-law records cannot author law-home fields")
+    if law_bearing and status == "accepted" and not clean_text(record.get("home_domain_id"), 256):
+        findings.append(f"{prefix}: an accepted law-bearing record requires one home domain")
+    for field in ("home_domain_id",):
+        if field in record and record[field] not in domain_ids:
+            findings.append(f"{prefix}: home domain is dangling")
+    if "applies_to_domain_ids" in record:
+        values = record["applies_to_domain_ids"]
+        if not unique_ids(values) or any(value not in domain_ids for value in values):
+            findings.append(f"{prefix}: invalid or dangling applies_to_domain_ids")
+        if "home_domain_id" not in record:
+            findings.append(f"{prefix}: applies_to_domain_ids requires home_domain_id")
+        elif record["home_domain_id"] in values:
+            findings.append(f"{prefix}: applies_to_domain_ids repeats home_domain_id")
 
 
 def canonical_scopes(scopes: dict[str, object]) -> dict[str, object]:
@@ -322,8 +318,8 @@ def template_for(root: Path, findings: list[str], template: dict[str, object] | 
     unknown = set(template) - ALLOWED_ROOT
     if unknown:
         findings.append(f"aggregate template has unknown keys: {sorted(unknown)}")
-    if template.get("schema_version") not in {"1.0", "1.1", "1.2"}:
-        findings.append("aggregate template has invalid schema_version")
+    if template.get("schema_version") != "1.2":
+        findings.append("aggregate template schema_version must be 1.2")
     if not isinstance(template.get("supported_kinds"), list) or not isinstance(template.get("indexed_kinds"), list):
         findings.append("aggregate template is missing kind arrays")
     return dict(template)
@@ -336,7 +332,7 @@ def derive_aggregate(root: Path, findings: list[str], template: dict[str, object
     schema_version = str(root_template["schema_version"])
     registry_path = root / DOMAIN_REGISTRY
     registry = load_json(registry_path, findings) if registry_path.is_file() else root_template.get("domain_registry")
-    if schema_version == "1.2" and not isinstance(registry, dict):
+    if not isinstance(registry, dict):
         findings.append(f"domain registry missing: {DOMAIN_REGISTRY}")
         return None
     if isinstance(registry, dict):

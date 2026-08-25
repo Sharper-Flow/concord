@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestKnowledgeManifestRelationsRequireCurrentSchema"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-generate-knowledge-index.py"
+    }
+  ],
+  "id": "CD-0076",
+  "state": "satisfied"
+}

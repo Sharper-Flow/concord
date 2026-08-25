@@ -12,6 +12,23 @@
 > **Does not decide:** PM10 backup/restore/GC,
 > C14/C15, TS1–TS9, artifact encryption, or external-system retention.
 
+## Context
+
+CD-0002 proposed external evidence files with hash and path, and the
+operator decided WIP needs no durable byte-level proof. The binding inputs
+are PM1, the accepted PM2 through PM7, CD-0002 invariants, and the
+one-operator one-machine envelope. This record rejects a content-addressed
+blob store for v1: process exhaust stays producer-owned, no generic rule may
+require a screenshot, and CD-0009 research-pack text stays
+retention-bounded SQLite only.
+## Contract
+
+The binding contract is sections 1 through 4: the no-store decision and its
+synchronization across retired blob assumptions, the named value and the
+structural boundary, the normal-flow and failure-handling table, and the
+absence of migration, retention, and recovery obligations. Sections 5 through
+10 record invariants, acceptance scenarios, rejected alternatives,
+deferrals, reopen criteria, and research basis, and carry no obligation.
 ## 1. Decision
 
 Concord v1 has **no evidence/blob content-addressed store**. It does not hash, ingest,
@@ -193,3 +210,38 @@ SQLite atomic-commit behavior, NIST SHA-256, OCI content descriptors, and Linux
 install/durability primitives. Those sources validate how a CAS *could* work; they do
 not establish a Concord user need. The accepted PM1–PM7 contracts and operator
 direction control this decision.
+
+## Acceptance criteria
+
+- Given any WIP test log, trace, or screenshot
+  When work completes or compacts
+  Then no blob table, digest, file-path metadata, or backup entry is created.
+
+- Given a failed task
+  When its outcome is recorded
+  Then only the bounded failure classification enters Product memory while
+  raw output stays with the producing environment.
+
+- Given any attempt to introduce blob descriptors, content hashes, or raw
+  payloads through generic metadata
+  When the schema validates
+  Then the attempt is rejected structurally.
+
+## Verification
+
+No corpus scenario can exercise the absence of a store, so every criterion
+carries a typed exemption naming the structural proof.
+
+- Criterion 1 is proved by
+  `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
+  (`internal/store/pm8_pm9_absence_test.go`), whose exhaustive binary large
+  object (BLOB) column allow-list admits only fixed-size authority material.
+- Criterion 2 is proved by the same absence test's event-kind registry
+  sweep, which admits no exhaust-retention event, together with
+  `TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence`
+  (`internal/agent/agent_defects_regression_test.go`), which fixes the
+  bounded terminal classification.
+- Criterion 3 is proved by the schema-manifest boundary of
+  `TestOpenAppliesSchemaManifest` (`internal/store/schema_test.go`) and the
+  allow-list above; a new BLOB column or exhaust field fails there. Section 9
+  records the reopen criteria for each guarantee.

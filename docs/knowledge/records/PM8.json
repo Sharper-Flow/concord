@@ -1,10 +1,23 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The absence of a store cannot be exercised by a positive scenario. The guarantee is proved structurally by the exhaustive BLOB column allow-list of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Bounded failure classification is a dispatch property. The guarantee is proved by the event-registry sweep of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go) and TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence (internal/agent/agent_defects_regression_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Schema-boundary rejection is structural. The guarantee is proved by TestOpenAppliesSchemaManifest (internal/store/schema_test.go) and the BLOB allow-list of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go)."
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "internal/store/schema.go",
-    "internal/store/events.go",
     "internal/store/pm8_pm9_absence_test.go",
-    "internal/store/backup.go"
+    "internal/agent/agent_defects_regression_test.go",
+    "internal/store/schema_test.go"
   ],
   "home_domain_id": "product-memory",
   "id": "PM8",
@@ -17,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6d0f506763603da7c5ca9916e20b453494e1c54efd185d483f3ee34b3dfdd5e0",
+  "sha256": "sha256:882f6f6d5c6e9d44bb66659547dfbe41cc669779259ab2ee0e79c380a2814763",
   "status": "accepted",
   "summary": "Declares no content-addressed evidence or blob store in v1; work-in-progress output stays process exhaust.",
   "tags": [

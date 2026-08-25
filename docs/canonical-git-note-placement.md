@@ -16,6 +16,25 @@
 > **Amended by CD-0041:** `domain_ids` replace `component_ids` in new note
 > front matter; legacy notes upcast during the bounded Domain migration.
 
+## Context
+
+Terminal work must leave behind exactly one durable, findable note. The
+binding inputs are PM1 Q9/Q10, PM2's git durable-knowledge authority, PM5
+membership semantics, CD-0002 invariants I1 through I6, and the compaction
+design. This record fixes canonical note placement: one eligible git home
+selected deterministically from accepted membership, in-tree markdown notes
+with bounded front matter, a typed five-field locator, and the ordered
+publish protocol with its recovery seam. CD-0041 replaces component with
+Domain identifiers in new note front matter.
+## Contract
+
+The binding contract is sections 1 through 8: the one-note decision, the
+eligible-home rule with Product-home designation, the deterministic selection
+rule, the canonical note shape and typed locator, the publish protocol and
+recovery seam, discovery without copies, rename and archive semantics, and
+the Q9/Q10 result semantics. Sections 9 through 13 record invariants,
+rejected alternatives, deferred scope, falsifiers, and sources, and carry no
+obligation.
 ## 1. Decision
 
 Every compacted work item has exactly one canonical markdown note in one eligible git
@@ -314,3 +333,51 @@ Reopen PM6 if:
 
 External sources are comparison evidence. PM1, PM2, PM5, CD-0002, compaction design,
 operator choice, and the falsifiers above remain controlling.
+
+## Acceptance criteria
+
+- Given a terminal work item with no deterministic git home
+  When compaction resolves its home
+  Then the operation blocks with typed `ambiguous` and creates no note.
+
+- Given a publish that committed to git but not yet to SQLite
+  When Q10 resolves the work item
+  Then the answer is `not_compacted`, because SQLite never records a locator
+  before git proof.
+
+- Given an orphan canonical-looking note from an interrupted publish
+  When a retry runs
+  Then it finds and verifies the same note by work ID rather than creating a
+  second note.
+
+- Given a committed note
+  When the compaction link verifies it
+  Then path, commit OID, work ID, and content hash must all verify; a hash
+  mismatch or unsafe path fails the proof.
+
+- Given one work ID claimed by two valid notes
+  When the index rebuilds
+  Then the claim is typed `ambiguous` and neither note is silently selected.
+
+## Verification
+
+- Criterion 1 is proved by the bound `AJ6-compact-terminal-work` scenario of
+  `scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
+  (`internal/agent/agent_jobs_corpus_test.go`).
+- Criterion 2 is proved by the bound `Q10-not-compacted` scenario of
+  `scenarios/product-memory-query.v1.json`, executed by
+  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`), and by
+  `TestQ10OrphanWorkNoteRemainsNotCompacted`
+  (`internal/store/knowledge_index_test.go`).
+- Criterion 3 is proved by
+  `TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes`
+  (`internal/store/knowledge_index_test.go`) and
+  `TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote`
+  (`internal/agent/mutation_dispatch_test.go`).
+- Criterion 4 is proved by `TestVerifyCommittedNoteRejectsHashMismatchAndSymlink`
+  and `TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths`
+  (`internal/store/knowledge_index_test.go`).
+- Criterion 5 is proved by
+  `TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata`
+  (`internal/store/knowledge_index_test.go`). Section 12 records the
+  falsifiers for each guarantee.

@@ -8,6 +8,23 @@
 > **Does not decide:** PM10 backup/restore, C14/C15, TS1–TS9, external CI retention,
 > or a durable WIP-byte store.
 
+## Context
+
+Compaction design deferred a salvage-and-receipt handoff for process
+exhaust, and CD-0002 carried a process-exhaust rule that assumed one. The
+binding inputs are PM1 Q7/Q9/Q10, the accepted PM2 through PM8, PM6 publish
+proof, and PM7 retention. This record closes the deferral: the existing
+durable sequence — terminal events, the approved PM6 note, the verified
+link, the optional prune event — is the only receipt, and process exhaust
+stays producer-owned with salvage into bounded note fields before approval.
+## Contract
+
+The binding contract is sections 1 through 3: the no-receipt decision with
+its required synchronization, the salvage rule placing material findings in
+existing bounded note fields before approval, and the structural boundary
+with its failure-handling table. Sections 4 through 9 record migration
+absence, invariants, acceptance scenarios, rejected alternatives, deferrals
+and reopen criteria, and research basis, and carry no obligation.
 ## 1. Decision
 
 Concord creates **no separate process-exhaust store, audit-receipt object, hash, or
@@ -140,3 +157,38 @@ NIST SP 800-92 supports retaining only logging of greatest importance rather tha
 data by default. SLSA distinguishes immutable source/provenance identifiers from a
 general process-log archive. Those sources inform the minimal-audit boundary; accepted
 PM1–PM8 and Concord's no-WIP-byte decision remain controlling.
+
+## Acceptance criteria
+
+- Given a terminal work item with a material transferable finding
+  When the PM6 note is drafted and approved
+  Then the finding lives in the bounded note fields or a linked decision,
+  never in an attached raw report.
+
+- Given any proposal of a process-receipt field, table, or event
+  When the schema and registry validate
+  Then it is rejected structurally.
+
+- Given a later request for dropped raw output
+  When Concord answers
+  Then it reports the output unavailable without asserting verified deletion
+  or an integrity failure.
+
+## Verification
+
+No corpus scenario can exercise the absence of a receipt mechanism, so every
+criterion carries a typed exemption naming the structural proof.
+
+- Criterion 1 is proved by the compaction flow tests of PM6's verification
+  (`TestPublishCanonicalNoteCommitsOneNote` and
+  `TestCompactionPayloadRequiresExplicitUniqueScopeArrays`,
+  `internal/store/knowledge_index_test.go`), which fix the bounded note
+  payload the operator approves.
+- Criterion 2 is proved by
+  `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
+  (`internal/store/pm8_pm9_absence_test.go`), which rejects receipt-shaped
+  tables and event kinds by name over the whole registry.
+- Criterion 3 is proved by `TestQueryQ10ReturnsAmbiguousAsTypedResult` and
+  the typed-outcome tests of `internal/store/query_test.go`, which keep
+  unavailable and integrity failures distinct. Section 8 records the reopen
+  criteria for each guarantee.

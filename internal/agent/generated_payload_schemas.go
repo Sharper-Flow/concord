@@ -966,6 +966,13 @@ const GeneratedPayloadSchemaDocument = `{
         "domain": {
           "$ref": "#/$defs/domain_summary"
         },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/domain_observation"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
         "registry": {
           "$ref": "#/$defs/domain_registry"
         },
@@ -981,7 +988,8 @@ const GeneratedPayloadSchemaDocument = `{
         "registry",
         "domain",
         "current_law",
-        "relations"
+        "relations",
+        "observations"
       ],
       "type": "object"
     },
@@ -1072,6 +1080,142 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "registry",
         "domains"
+      ],
+      "type": "object"
+    },
+    "domain_observation": {
+      "additionalProperties": false,
+      "properties": {
+        "dismissed_at": {
+          "type": "string"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "observation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "recorded_at": {
+          "type": "string"
+        },
+        "refs": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "state": {
+          "enum": [
+            "open",
+            "dismissed"
+          ],
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        }
+      },
+      "required": [
+        "observation_id",
+        "product_id",
+        "domain_id",
+        "statement",
+        "state",
+        "recorded_at"
+      ],
+      "type": "object"
+    },
+    "domain_observation_dismiss_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "observation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
+        "product_id",
+        "domain_id",
+        "observation_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "domain_observation_record_input": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "refs": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "statement": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        }
+      },
+      "required": [
+        "product_id",
+        "domain_id",
+        "statement",
+        "idempotency_key"
       ],
       "type": "object"
     },

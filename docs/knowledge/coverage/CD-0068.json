@@ -1,5 +1,30 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainObservationSurvivesRebuildAndStaysVisible"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainObservationWindowRefusesWhenFullAndNeverEvicts"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainObservationDismissalFlipsStateAndFreesWindow"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainDetailCarriesOpenObservations"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDomainObservationDispatchRecordsReadsBackAndGatesDismissal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDomainObservationDispatchRefusesWhenWindowIsFull"
+    }
+  ],
   "id": "CD-0068",
-  "issue": 459,
-  "state": "outstanding"
+  "state": "satisfied"
 }

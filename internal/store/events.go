@@ -190,6 +190,17 @@ func isUniqueViolation(err error) bool {
 	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_UNIQUE
 }
 
+// isIdentityConflict reports whether err is a row-identity collision, which
+// SQLite raises under a different code depending on whether the colliding
+// column is a UNIQUE index or the table's primary key. A fold that inserts a
+// row keyed by a caller-supplied id has to treat both as "this id already
+// exists"; matching only the UNIQUE code would misreport a primary-key
+// collision as an unrelated storage failure.
+func isIdentityConflict(err error) bool {
+	code := constraintCode(err)
+	return code == sqlitelib.SQLITE_CONSTRAINT_UNIQUE || code == sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY
+}
+
 // isForeignKeyViolation reports whether err is a foreign-key conflict.
 func isForeignKeyViolation(err error) bool {
 	return constraintCode(err) == sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY

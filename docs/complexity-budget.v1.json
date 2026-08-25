@@ -19,10 +19,10 @@
   "allowances": [
     {
       "function": "internal/agent.(runtime).mutate",
-      "measured": 366,
+      "measured": 388,
       "state": "outstanding",
       "issue": 406,
-      "reason": "819 lines across 27 dispatch arms, with 150 lines at indent depth 4 or deeper. Scores 2.1x its cyclomatic number, so the complexity is nesting inside the arms rather than the breadth of the switch."
+      "reason": "868 lines across 29 dispatch arms, with 150 lines at indent depth 4 or deeper. Scores 2.1x its cyclomatic number, so the complexity is nesting inside the arms rather than the breadth of the switch. CD-0068 added two flat arms; the nesting that drives the score is unchanged."
     },
     {
       "function": "internal/store.workflowSemanticActionEvents",

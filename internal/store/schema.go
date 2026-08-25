@@ -2439,6 +2439,38 @@ CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflo
 CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+
+	{
+		Version: 47,
+		Name:    "domain_observations",
+		SQL: `
+-- CD-0068 D1: a Domain is a second observation anchor. Domain identity is a
+-- Git projection, so the row is keyed by (product_id, domain_id) against
+-- domains with ON DELETE NO ACTION, matching the attachment-set pattern.
+-- Fold-only; the domain.observation_recorded / domain.observation_dismissed
+-- folds own every write. Non-authoritative (CD-0068 D5).
+CREATE TABLE domain_observations (
+    observation_id TEXT PRIMARY KEY CHECK(length(observation_id) = 20 AND substr(observation_id,1,4) = 'dob:'),
+    product_id TEXT NOT NULL,
+    domain_id  TEXT NOT NULL,
+    statement TEXT NOT NULL CHECK(length(statement) > 0 AND length(statement) <= 512),
+    refs TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(refs) AND json_type(refs)='array' AND json_array_length(refs) <= 16),
+    tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags) AND json_type(tags)='array' AND json_array_length(tags) <= 8),
+    state TEXT NOT NULL CHECK(state IN ('open','dismissed')),
+    recorded_at TEXT NOT NULL,
+    dismissed_at TEXT,
+    -- CD-0068 D3: dismissal flips state and never deletes. The timestamp is
+    -- present exactly when the row is dismissed, so the two-state shape cannot
+    -- drift from its audit trail.
+    CHECK((state = 'dismissed') = (dismissed_at IS NOT NULL)),
+    FOREIGN KEY(product_id, domain_id) REFERENCES domains(product_id, domain_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+);
+CREATE INDEX domain_observations_open ON domain_observations(product_id, domain_id, state, recorded_at);
+CREATE TRIGGER domain_observations_guard_insert BEFORE INSERT ON domain_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_observations_guard_update BEFORE UPDATE ON domain_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER domain_observations_guard_delete BEFORE DELETE ON domain_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

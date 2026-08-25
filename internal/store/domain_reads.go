@@ -80,10 +80,11 @@ type DomainDetailRequest struct {
 
 type DomainDetailResult struct {
 	ResultMeta
-	Registry   *DomainRegistryView  `json:"registry"`
-	Domain     DomainSummary        `json:"domain"`
-	CurrentLaw []DomainLawRecord    `json:"current_law"`
-	Relations  []DomainRelationView `json:"relations"`
+	Registry     *DomainRegistryView  `json:"registry"`
+	Domain       DomainSummary        `json:"domain"`
+	CurrentLaw   []DomainLawRecord    `json:"current_law"`
+	Relations    []DomainRelationView `json:"relations"`
+	Observations []DomainObservation  `json:"observations"`
 }
 
 type DomainActiveWorkItem struct {
@@ -176,14 +177,15 @@ func NewDomainListPayload(result DomainListResult) DomainListPayload {
 }
 
 type DomainDetailPayload struct {
-	Registry   *DomainRegistryView  `json:"registry"`
-	Domain     DomainSummary        `json:"domain"`
-	CurrentLaw []DomainLawRecord    `json:"current_law"`
-	Relations  []DomainRelationView `json:"relations"`
+	Registry     *DomainRegistryView  `json:"registry"`
+	Domain       DomainSummary        `json:"domain"`
+	CurrentLaw   []DomainLawRecord    `json:"current_law"`
+	Relations    []DomainRelationView `json:"relations"`
+	Observations []DomainObservation  `json:"observations"`
 }
 
 func NewDomainDetailPayload(result DomainDetailResult) DomainDetailPayload {
-	return DomainDetailPayload{Registry: result.Registry, Domain: result.Domain, CurrentLaw: sliceOrEmpty(result.CurrentLaw), Relations: sliceOrEmpty(result.Relations)}
+	return DomainDetailPayload{Registry: result.Registry, Domain: result.Domain, CurrentLaw: sliceOrEmpty(result.CurrentLaw), Relations: sliceOrEmpty(result.Relations), Observations: sliceOrEmpty(result.Observations)}
 }
 
 type DomainActiveWorkPayload struct {
@@ -439,6 +441,18 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	if err := relRows.Err(); err != nil {
 		return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot enumerate Domain relations", true, "retry once the knowledge projection is readable", err)
 	}
+	relRows.Close()
+
+	// CD-0068 D6: the open observations join the existing Domain surface, so
+	// the operator meets them where the next decision about the Domain is
+	// made. They are not authority — the result stays authoritative on law and
+	// relations, and an observation satisfies nothing (CD-0068 D5).
+	observations, err := observationsForDomain(ctx, q, req.Product, req.Domain, DomainObservationOpenWindow)
+	if err != nil {
+		return out, err
+	}
+	out.Observations = observations
+
 	out.ResultMeta = ResultMeta{QueryID: "C22.DomainDetail", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"kind", "source_domain_id", "target_domain_id"}}
 	return out, nil
 }

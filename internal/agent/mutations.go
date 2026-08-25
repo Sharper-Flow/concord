@@ -198,6 +198,26 @@ type observationRecordInput struct {
 	External *observationExternalInput `json:"external"`
 }
 
+// CD-0068: the Domain-anchored twin of observationRecordInput. It carries no
+// external variant — CD-0040 attaches external capture to work, and CD-0068
+// widens only the anchor, not the observation's kinds.
+type domainObservationRecordInput struct {
+	ProductID      string   `json:"product_id"`
+	DomainID       string   `json:"domain_id"`
+	Statement      string   `json:"statement"`
+	Refs           []string `json:"refs"`
+	Tags           []string `json:"tags"`
+	IdempotencyKey string   `json:"idempotency_key"`
+}
+
+type domainObservationDismissInput struct {
+	ProductID      string         `json:"product_id"`
+	DomainID       string         `json:"domain_id"`
+	ObservationID  string         `json:"observation_id"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
+}
+
 type observationExternalInput struct {
 	Kind          string `json:"kind"`
 	ObservationID string `json:"observation_id"`
@@ -1460,6 +1480,57 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 				changed := []ChangedRef{{EntityKind: "observation", ID: observationID, Version: "1"}}
 				return mutationPayload(changed, intents), []string{observationID}, changed, nil
 			}
+		}
+	case "concord_domain.observation_record":
+		var in domainObservationRecordInput
+		if err := decodeOperationInput(raw, &in); err != nil {
+			return base, err
+		}
+		product := in.ProductID
+		if product == "" {
+			product = r.Envelope.SelectedProductID
+		}
+		if product == "" || in.DomainID == "" {
+			return coreError(base, "unknown_scope", "recording a Domain observation requires a resolved Product and Domain", "reread_entities", false), nil
+		}
+		scope["product_id"] = product
+		// CD-0068 D6: the observation is read back through the Domain surface
+		// it was recorded against, not through a dedicated read.
+		intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_visible", RequiredFields: []string{"domain_id"}}}
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			sum := sha256.Sum256([]byte(digest))
+			observationID := "dob:" + hex.EncodeToString(sum[:8])
+			payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "product_id": product, "domain_id": in.DomainID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation", Kind: "domain.observation_recorded", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "domain_observation", ID: observationID, Version: "1"}}
+			return mutationPayload(changed, intents), []string{observationID}, changed, nil
+		}
+	case "concord_domain.observation_dismiss":
+		var in domainObservationDismissInput
+		if err := decodeOperationInput(raw, &in); err != nil {
+			return base, err
+		}
+		if in.Approval != nil {
+			approval = in.Approval.ApprovalRef
+		}
+		product := in.ProductID
+		if product == "" {
+			product = r.Envelope.SelectedProductID
+		}
+		if product == "" || in.DomainID == "" || in.ObservationID == "" {
+			return coreError(base, "unknown_scope", "dismissing a Domain observation requires a resolved Product, Domain, and observation", "reread_entities", false), nil
+		}
+		scope["product_id"] = product
+		intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_dismissed", RequiredFields: []string{"domain_id"}}}
+		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			payload, _ := json.Marshal(map[string]any{"observation_id": in.ObservationID, "product_id": product, "domain_id": in.DomainID})
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation_dismissed", Kind: "domain.observation_dismissed", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "domain_observation", ID: in.ObservationID, Version: "2"}}
+			return mutationPayload(changed, intents), []string{in.ObservationID}, changed, nil
 		}
 	case "concord_work_transition.worktree_claim":
 		var in worktreeClaimInput

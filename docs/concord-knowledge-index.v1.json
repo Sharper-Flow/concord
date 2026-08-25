@@ -3713,7 +3713,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:530fbc0501ec46a62b2ebf40c0b9912b564cff63b34c06cabcabfcf42185fab6",
+      "sha256": "sha256:ea478e437fac9fbdfadb344c1d516b57c0c86dff37294425916c576cce096b12",
       "status": "published",
       "summary": "Reports an investigation of the agentic engineering and coordination landscape, the adjacent Clay and PostHog patterns, and the resulting positioning options. Carries its own unverified-claims section; it informs Concord's direction without becoming a second authority over the priorities.",
       "tags": [
@@ -3815,7 +3815,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:0e6387187501e3211df7cba287a5db267adc3694e42a2a32afd06b573350b4c5",
+      "sha256": "sha256:f41ebde77f0bbc9e3227a1bafbc75e8d79340555995585719f9af10cf075ded1",
       "status": "accepted",
       "summary": "Records Concord's public origin, the private material excluded at bootstrap, and the transition of authority to this repository.",
       "tags": [
@@ -3992,7 +3992,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1aabc5f6e4972a73bea6cca4294f41e22eeb4388d002975bb8df11e95215c958",
+      "sha256": "sha256:399299a4f52e3a14224d1ce5aa0241c65d7df4b7e589a9f5be135b817416c8be",
       "status": "published",
       "summary": "Investigates whether to own, absorb, or Product-scope the adjacent lgrep, vision, and episode tools.",
       "tags": [

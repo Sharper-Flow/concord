@@ -24,6 +24,14 @@ follows them without restating the ranked list.
 
 ---
 
+## Findings
+
+The findings of this research are the Resolved direction directly below, the
+Benefits and Risks of sections 5 and 6, and the Current lean of section 7
+with its decision trigger in section 8. Sections 2 through 4 record the
+question, the tools, and why it arises; section 9 records relationships to
+other documents.
+
 ## The question
 
 Should Concord OWN or SWALLOW lgrep (code search), vision (MCP host), and

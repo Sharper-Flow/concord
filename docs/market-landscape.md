@@ -28,6 +28,14 @@
 
 ---
 
+## Findings
+
+The findings of this research are the Executive summary directly below and
+the Cross-cutting synthesis of section 4. Sections 1 through 3 carry the
+sourced landscape passes; section 5 records relationships to other
+documents; section 6 records the caveats and the items the researchers could
+not verify from vendor sources.
+
 ## 1. Competitive landscape
 
 ### 1.1 Agentic engineering / dev-orchestration

@@ -2690,12 +2690,33 @@
       "title": "Concord documentation set"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "scenario": "AJ1-ambient-ready-work"
+        },
+        {
+          "criterion": 2,
+          "scenario": "AJ2-blocker-explanation"
+        },
+        {
+          "criterion": 3,
+          "scenario": "AJ3-spec-conflict"
+        },
+        {
+          "criterion": 4,
+          "scenario": "AJ4-stale-version"
+        },
+        {
+          "criterion": 5,
+          "scenario": "AJ6-partial-publication"
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
         "scenarios/agent-jobs.v1.json",
-        "contracts/agent-jobs-scenarios.schema.json",
         "internal/agent/agent_jobs_corpus_test.go",
-        "scripts/check-agent-jobs.py"
+        "internal/agent/mutation_dispatch_test.go"
       ],
       "home_domain_id": "agent-surface",
       "id": "TS1",
@@ -2708,7 +2729,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d2c0d597b5c40df42fa1ecc78a513a00c4afc3e5fc041ce5fbcf5c9981d7608d",
+      "sha256": "sha256:136e43edb001c3960517cff9b9a4515d2ace9b8a85e1213cbe987d53d8283a23",
       "status": "accepted",
       "summary": "Defines eight canonical agent jobs AJ1-AJ8 and the 23-scenario acceptance corpus that measures them.",
       "tags": [
@@ -2746,7 +2767,35 @@
       "title": "agent tool surface budget"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "The closed operation union is a surface identity property, not a scenario outcome. It is proved by the generated manifest drift validator scripts/check-agent-contracts.py together with ValidateContractOperation in internal/agent/generated_contracts.go, exercised by TestDispatchProductResolveReturnsGeneratedPayload (internal/agent/runtime_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "Cursor binding is a dispatch property below scenario grain. The guarantee is proved by TestAuthenticatedCursorBindsOperationAndRejectsTampering (internal/agent/runtime_test.go)."
+        },
+        {
+          "criterion": 3,
+          "scenario": "AJ7-degraded-index"
+        },
+        {
+          "criterion": 4,
+          "scenario": "AJ7-search-knowledge"
+        },
+        {
+          "criterion": 5,
+          "scenario": "AJ1-ambient-ready-work"
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "scenarios/agent-jobs.v1.json",
+        "internal/agent/agent_jobs_corpus_test.go",
+        "internal/agent/runtime_test.go",
+        "scripts/check-agent-contracts.py"
+      ],
       "home_domain_id": "agent-surface",
       "id": "TS3",
       "kind": "spec",
@@ -2758,7 +2807,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:59b7c878cc447490c7bddf9be19488c14e1c2ec88afadecb1e220835fb7bf220",
+      "sha256": "sha256:94476a1723b7228f87ac765c16aae2670ac7e3309f275a92f39f3a0653e24738",
       "status": "accepted",
       "summary": "Defines bounded read tools including the durable knowledge surface.",
       "tags": [
@@ -2769,12 +2818,34 @@
       "title": "Agent read tool contract"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "scenario": "AJ3-capture-work"
+        },
+        {
+          "criterion": 2,
+          "scenario": "AJ4-stale-version"
+        },
+        {
+          "criterion": 3,
+          "scenario": "AJ4-completion-missing-evidence"
+        },
+        {
+          "criterion": 4,
+          "scenario": "AJ5-atomic-supersession"
+        },
+        {
+          "criterion": 5,
+          "scenario": "AJ5-resolve-domain-overlap"
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "contracts/agent-tool-surface.v1.json",
-        "internal/agent/mutations.go",
-        "internal/agent/agent_jobs_compaction_bindings_test.go",
-        "internal/agent/workflow_overlap_dispatch_test.go"
+        "scenarios/agent-jobs.v1.json",
+        "internal/agent/agent_jobs_corpus_test.go",
+        "internal/agent/mutation_dispatch_test.go",
+        "internal/agent/runtime_test.go"
       ],
       "home_domain_id": "agent-surface",
       "id": "TS4",
@@ -2787,7 +2858,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:636be1c0421bd378fc83c0b0fccdce2d6edeff938accb399d365529ce8eb9603",
+      "sha256": "sha256:4d2c8cd4eccb04e0b2155c6f4b1b94292b92a863403f19453744b31fc1eac9a5",
       "status": "accepted",
       "summary": "Fixes the mutation tools, each committing one domain intent per SQLite transaction with sequenced git-first compaction.",
       "tags": [
@@ -2797,12 +2868,35 @@
       "title": "agent mutation tool contract"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "The corpus scenario AJ1-ambiguous-product proves the read-side refusal; the mutation-before-effect guarantee is proved by TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation (internal/agent/mutation_dispatch_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "Context freshness is an envelope property below scenario grain. The guarantee is proved by TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect (internal/agent/context_freshness_test.go)."
+        },
+        {
+          "criterion": 3,
+          "exemption": "Replay across scope drift is a dispatch property. The guarantee is proved by TestDispatchIdempotentReplaySurvivesAmbientScopeDrift (internal/agent/mutation_dispatch_test.go) and TestMutationDigestBindsIntentNotApprovalTransportReference (internal/agent/runtime_test.go)."
+        },
+        {
+          "criterion": 4,
+          "exemption": "Approval consumption atomicity is a dispatch property. The guarantee is proved by TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse and TestDispatchFailedDomainEffectRollsBackGrantAndApproval (internal/agent/mutation_dispatch_test.go)."
+        },
+        {
+          "criterion": 5,
+          "exemption": "Cross-scope authorization is an envelope property. The guarantee is proved by TestDispatchCrossProductCaptureRequiresBoundApproval and TestDispatchCrossProductLinkRequiresCapabilityAndApproval (internal/agent/mutation_dispatch_test.go)."
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "internal/agent/envelope.go",
-        "internal/agent/authority.go",
+        "scenarios/agent-jobs.v1.json",
+        "internal/agent/agent_jobs_corpus_test.go",
+        "internal/agent/mutation_dispatch_test.go",
         "internal/agent/context_freshness_test.go",
-        "internal/agent/mutation_dispatch_test.go"
+        "internal/agent/runtime_test.go"
       ],
       "home_domain_id": "agent-surface",
       "id": "TS5",
@@ -2815,7 +2909,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:8539cbc3473e5a2c0f296d761840db21934d1d69f7e1b253bf82f01d2e4cc6a3",
+      "sha256": "sha256:35a2fff986c59dab3dea8bfa1de1a7a4ed93d7f8c536c357c1f89478dcb58960",
       "status": "accepted",
       "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
       "tags": [

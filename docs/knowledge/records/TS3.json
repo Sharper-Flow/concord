@@ -1,5 +1,33 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The closed operation union is a surface identity property, not a scenario outcome. It is proved by the generated manifest drift validator scripts/check-agent-contracts.py together with ValidateContractOperation in internal/agent/generated_contracts.go, exercised by TestDispatchProductResolveReturnsGeneratedPayload (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Cursor binding is a dispatch property below scenario grain. The guarantee is proved by TestAuthenticatedCursorBindsOperationAndRejectsTampering (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ7-degraded-index"
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ7-search-knowledge"
+    },
+    {
+      "criterion": 5,
+      "scenario": "AJ1-ambient-ready-work"
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "internal/agent/runtime_test.go",
+    "scripts/check-agent-contracts.py"
+  ],
   "home_domain_id": "agent-surface",
   "id": "TS3",
   "kind": "spec",
@@ -11,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:59b7c878cc447490c7bddf9be19488c14e1c2ec88afadecb1e220835fb7bf220",
+  "sha256": "sha256:94476a1723b7228f87ac765c16aae2670ac7e3309f275a92f39f3a0653e24738",
   "status": "accepted",
   "summary": "Defines bounded read tools including the durable knowledge surface.",
   "tags": [

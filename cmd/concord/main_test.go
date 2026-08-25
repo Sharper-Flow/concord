@@ -843,7 +843,10 @@ func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
 		},
 		"tool": "concord_product_view", "operation": "resolve", "input": map[string]any{"project_id": "project-1"},
 	})
-	envelope, err := agent.DecodeEnvelope(invokeRaw)
+	var envelope agent.Envelope
+	// Envelope.UnmarshalJSON carries the schema validation; decoding through it
+	// is the published way to read a TS7 envelope.
+	err = json.Unmarshal(invokeRaw, &envelope)
 	if err != nil {
 		t.Fatalf("invoke output is not one schema-valid TS7 envelope: %v; raw=%s", err, invokeRaw)
 	}

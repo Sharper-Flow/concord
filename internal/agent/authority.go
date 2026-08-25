@@ -246,6 +246,10 @@ type Grant struct {
 	ScopeSnapshot     map[string]any
 }
 
+// String redacts the grant token. Grant satisfies fmt.Stringer so that any
+// future %v, %s, or log call on a whole Grant cannot leak the bearer token,
+// whether or not such a call exists today. The guarantee is asserted by
+// TestGrantBootstrapAndInvocationBinding.
 func (g Grant) String() string {
 	return fmt.Sprintf("Grant{client_ref:%s, session_ref:%s, expires_at:%s}", g.ClientRef, g.SessionRef, g.ExpiresAt.Format(time.RFC3339Nano))
 }

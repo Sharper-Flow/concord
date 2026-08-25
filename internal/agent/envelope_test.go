@@ -15,7 +15,7 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 		make func() Envelope
 	}{
 		{"ok read", func() Envelope {
-			return NewOKRead(NewBase("req-1", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+			return newOKReadForTest(NewBase("req-1", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
 		}},
 		{"ok mutation", func() Envelope {
 			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}})
@@ -41,7 +41,7 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			decoded, err := DecodeEnvelope(encoded)
+			decoded, err := decodeEnvelopeForTest(encoded)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -58,10 +58,10 @@ func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	if err := base.Validate(); err == nil {
 		t.Fatal("unknown outcome accepted")
 	}
-	valid := NewOKRead(NewBase("req", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+	valid := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
 	raw, _ := valid.Encode()
 	raw = append(raw[:len(raw)-1], []byte(`,"unknown":true}`)...)
-	if _, err := DecodeEnvelope(raw); err == nil {
+	if _, err := decodeEnvelopeForTest(raw); err == nil {
 		t.Fatal("unknown envelope field accepted")
 	}
 }
@@ -189,7 +189,7 @@ func TestGoverningConflictOptionsAreClosedAndCoupled(t *testing.T) {
 
 func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 	envelopes := []Envelope{
-		NewOKRead(NewBase("ok", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false),
+		newOKReadForTest(NewBase("ok", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false),
 		NewPending(NewBase("pending", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"}),
 		NewPartial(NewBase("partial", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}),
 		NewCoreError(NewBase("error", "concord_work_transition", "lifecycle"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone}),
@@ -205,7 +205,7 @@ func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 		}
 		object["unknown_top_level"] = true
 		mutated, _ := json.Marshal(object)
-		if _, err := DecodeEnvelope(mutated); err == nil {
+		if _, err := decodeEnvelopeForTest(mutated); err == nil {
 			t.Fatalf("unknown top-level field accepted for %s", envelope.Outcome)
 		}
 	}
@@ -215,14 +215,14 @@ func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 	_ = json.Unmarshal(raw, &nested)
 	nested["resolved_scope"] = map[string]any{"product_id": "p-1", "unknown_nested": true}
 	mutated, _ := json.Marshal(nested)
-	if _, err := DecodeEnvelope(mutated); err == nil {
+	if _, err := decodeEnvelopeForTest(mutated); err == nil {
 		t.Fatal("unknown nested field accepted")
 	}
 }
 
 func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
 	payload := json.RawMessage(fmt.Sprintf(`{"value":%q}`, strings.Repeat("x", MaxEnvelopeBytes)))
-	e := NewOKRead(NewBase("req", "concord_product_view", "resolve"), "PM1.Q1", payload, false)
+	e := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), "PM1.Q1", payload, false)
 	if _, err := e.Encode(); err == nil {
 		t.Fatal("oversize envelope accepted")
 	}
@@ -337,13 +337,13 @@ func TestStrictOperationUnions(t *testing.T) {
 }
 
 func TestDecodeEnvelopeRejectsInvalidTrailingJSON(t *testing.T) {
-	valid := NewOKRead(NewBase("request-1", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"product-1","projects":[]}`), false)
+	valid := newOKReadForTest(NewBase("request-1", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"product-1","projects":[]}`), false)
 	raw, err := valid.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, suffix := range []string{" {}", " garbage"} {
-		if _, err := DecodeEnvelope(append(raw, []byte(suffix)...)); err == nil {
+		if _, err := decodeEnvelopeForTest(append(raw, []byte(suffix)...)); err == nil {
 			t.Fatalf("suffix %q was accepted", suffix)
 		}
 	}
@@ -356,4 +356,30 @@ func mustEncode(e Envelope) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// decodeEnvelopeForTest and newOKReadForTest are test-scope constructors. They
+// were exported from the production package but no shipped path called either:
+// production decodes through Envelope.UnmarshalJSON and builds read envelopes
+// through runtime.resultEnvelope.
+func decodeEnvelopeForTest(data []byte) (Envelope, error) {
+	var e Envelope
+	if len(data) > MaxEnvelopeBytes {
+		return e, fmt.Errorf("agent envelope exceeds %d bytes", MaxEnvelopeBytes)
+	}
+	return e, json.Unmarshal(data, &e)
+}
+
+func newOKReadForTest(base Envelope, queryID string, payload json.RawMessage, collection bool) Envelope {
+	base.Outcome = OutcomeOK
+	base.QueryID = queryID
+	if collection {
+		base.Items = []json.RawMessage{}
+		if len(payload) != 0 {
+			base.Items = append(base.Items, payload)
+		}
+	} else {
+		base.Result = payload
+	}
+	return base
 }

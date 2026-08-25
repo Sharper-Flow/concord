@@ -135,7 +135,7 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	if err != nil {
 		t.Fatalf("create research pack: %v", err)
 	}
-	if _, err := store.AddResearchSource(ctx, s, store.ResearchSourceRequest{
+	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{
 		Identity: identity("source"), PackID: pack.PackID, ExpectedVersion: 1,
 		Source: store.ResearchSource{
 			SourceID: "source-1", Kind: store.SourceCode, Locator: "internal/store/research_types.go",
@@ -145,7 +145,7 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	}); err != nil {
 		t.Fatalf("add research source: %v", err)
 	}
-	if _, err := store.AddResearchFinding(ctx, s, store.ResearchFindingRequest{
+	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
 		Identity: identity("finding"), PackID: pack.PackID, ExpectedVersion: 2,
 		Finding: store.ResearchFinding{
 			FindingID: "finding-1", Kind: store.FindingObservation, Statement: "component scope is persisted",

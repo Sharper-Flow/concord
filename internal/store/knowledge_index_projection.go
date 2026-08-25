@@ -680,15 +680,6 @@ func insertLawSubject(ctx context.Context, tx *sql.Tx, home KnowledgeHome, recor
 	return nil
 }
 
-// RebuildKnowledgeIndex is the package-level form used by recovery callers;
-// the method keeps the authority database explicit at the call site.
-func RebuildKnowledgeIndex(ctx context.Context, s *Store, home KnowledgeHome) error {
-	if s == nil {
-		return newFailure(KindUnavailable, "rebuild_knowledge_index", "store is not open", false, "open a store before rebuilding the knowledge index")
-	}
-	return s.RebuildKnowledgeIndex(ctx, home)
-}
-
 func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 	rows, err := db.QueryContext(ctx, `SELECT subject_id FROM domain_events WHERE kind = 'compaction_link.published'`)
 	if err != nil {

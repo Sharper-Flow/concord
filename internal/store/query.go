@@ -318,8 +318,6 @@ func queryMeta(ctx context.Context, tx *sql.Tx, id string, scope ResolvedScope, 
 	}, nil
 }
 
-func rollbackRead(tx *sql.Tx, err error) error { _ = tx.Rollback(); return err }
-
 func unknownScope(op, detail string) *Failure {
 	return newFailure(KindUnknownScope, op, detail, false, "supply an existing Product, Project, or work reference")
 }

@@ -66,6 +66,7 @@ DEFAULT_ABBREVIATION_ALLOWLIST = frozenset(
         "MVCC", "NUL", "OID", "OS", "OSS", "POSIX", "RCA", "RDF", "README",
         "REST", "SDK", "SDLC", "SGR", "SHA", "SLSA", "SLO", "SSRF", "UTF",
         "UID", "URL", "UTC", "UI", "WASM", "WIP",
+        "CSI", "CWD", "GC", "JS", "OSC", "UX",
     }
 )
 # Uppercase words that are tokens of the languages being documented, not
@@ -78,7 +79,8 @@ SQL_KEYWORD_TOKENS = frozenset(
     {
         "AND", "CHECK", "DELETE", "EXPLAIN", "FULL", "IS", "NOT", "PLAN",
         "PRAGMA", "QUERY", "STRICT", "TEXT", "TRUNCATE", "UPDATE",
-        "INSERT", "SELECT", "WHERE", "FROM", "NORMAL",
+        "INSERT", "SELECT", "WHERE", "FROM", "NORMAL", "VACUUM", "STORED",
+        "BUSY",
     }
 )
 # RFC 2119 requirement keywords quoted uppercase in requirement statements.
@@ -89,7 +91,38 @@ RFC2119_KEYWORDS = frozenset({"MUST", "SHALL", "SHOULD", "MAY", "REQUIRED", "OPT
 # CD-NNNN record-number placeholder, and the Language Server Protocol —
 # each a defined name, not an expandable phrase abbreviation.
 DEFINED_NAME_TOKENS = frozenset({"MAJOR", "MINOR", "MIT", "NNNN", "LSP", "SCIP"})
-STRUCTURAL_TOKEN_EXCLUSIONS = SQL_KEYWORD_TOKENS | RFC2119_KEYWORDS | DEFINED_NAME_TOKENS
+# Ordinary English words an author capitalized for emphasis or as a step label
+# ("**DETECT** — identify the spec law challenged"). They are not abbreviations
+# and have no expansion, so demanding `Expansion (WORD)` asks for something
+# that cannot exist. The abbreviation pattern cannot tell them apart from an
+# initialism, because both are runs of capitals.
+EMPHASIS_WORD_TOKENS = frozenset(
+    {
+        "CHOICE", "DETECT", "LOW", "OWN", "PAUSE", "PRESENT", "RECORD",
+        "RESOLVED", "SWALLOW",
+    }
+)
+# Names of organizations, standards bodies, published specifications, products,
+# and benchmarks. A name is not an expandable phrase: writing "National
+# Institute of Standards and Technology (NIST)" in a sentence citing NIST
+# SHA-256 documents the wrong thing, and "Special Publication (SP)" is part of
+# the document number NIST SP 800-92, not prose.
+PROPER_NAME_TOKENS = frozenset(
+    {
+        "BFCL", "DBOS", "DCO", "JML", "NIST", "OCI", "PROV", "RO", "SP",
+    }
+)
+# Section and requirement codes that address an item inside another document,
+# in the same way CD-NNNN addresses a decision record.
+RECORD_CODE_TOKENS = frozenset({"RB"})
+STRUCTURAL_TOKEN_EXCLUSIONS = (
+    SQL_KEYWORD_TOKENS
+    | RFC2119_KEYWORDS
+    | DEFINED_NAME_TOKENS
+    | EMPHASIS_WORD_TOKENS
+    | PROPER_NAME_TOKENS
+    | RECORD_CODE_TOKENS
+)
 DEFAULT_BANNED_PHRASES = (
     "in order to",
     "utilize",
@@ -105,6 +138,18 @@ CODE_FENCE_RE = re.compile(r"^\s{0,3}```")
 INLINE_CODE_RE = re.compile(r"``[^`]+``|`[^`]+`")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ABBR_RE = re.compile(r"\b([A-Z]{2,})\b")
+# A URL is an address, not prose an author wrote. Its path segments carry
+# whatever capitalization the remote site chose, so scanning one for
+# abbreviations reports the host's spelling as the author's defect
+# (`.../display/KAFKA/KIP-161...` yields KAFKA and KIP). Markdown link targets
+# and bare or angle-bracketed URLs are both addresses.
+MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+BARE_URL_RE = re.compile(r"<?\bhttps?://[^\s>)\]]+>?")
+# ASD-STE100 rule 8.6 counts a number, an identifier, and a reference as one
+# word each. `instructions/asd-ste100.md` states the consequence directly: a
+# backticked path, command, symbol, or flag counts as one word, and a long
+# identifier does not break the sentence limit.
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 # Keyword counting is word-bounded so "Whenever" and "Thenceforth" do not
 # register as clauses. A raw substring count makes the clause tally unusable
 # as a granularity signal, because prose that merely starts with the keyword
@@ -597,6 +642,30 @@ def split_into_segments(lines: list[str]) -> list[tuple[str, list[int]]]:
     return segments, line_text
 
 
+def countable_text(text: str) -> str:
+    """Return prose with each identifier and reference reduced to one word.
+
+    ASD-STE100 rule 8.6 counts a number, an identifier, and a reference as one
+    word. A markdown link, a bare URL, and a backticked path or symbol are each
+    one reference, so a line citing six records is a short sentence carrying six
+    references, not a hundred-word sentence. Counting their internal characters
+    measures the length of a filename rather than the length of the prose.
+    """
+    text = MD_LINK_RE.sub(" reference ", text)
+    text = BARE_URL_RE.sub(" reference ", text)
+    return INLINE_CODE_RE.sub(" identifier ", text)
+
+
+def prose_only(line: str) -> str:
+    """Return the line with URLs removed, keeping any markdown link text.
+
+    Link text is prose the author wrote and stays in scope. The target is an
+    address and does not.
+    """
+    line = MD_LINK_RE.sub(r"\1", line)
+    return BARE_URL_RE.sub(" ", line)
+
+
 def check_sentence_length(
     segments: list[tuple[str, list[int]]],
     lines: list[str],
@@ -610,11 +679,15 @@ def check_sentence_length(
             text = lines[line_no - 1].strip()
             if not text:
                 continue
-            words = WORD_RE.findall(text)
-            if len(words) > MAX_SENTENCE_WORDS:
+            longest = 0
+            for sentence in SENTENCE_SPLIT_RE.split(countable_text(text)):
+                if not sentence.strip():
+                    continue
+                longest = max(longest, len(WORD_RE.findall(sentence)))
+            if longest > MAX_SENTENCE_WORDS:
                 findings.append(
                     f"ste-sentence-length: {path.relative_to(ROOT)}:{line_no} "
-                    f"({len(words)} words)"
+                    f"({longest} words)"
                 )
 
 
@@ -661,7 +734,7 @@ def check_abbreviations(
         if kind != "prose":
             continue
         for line_no in line_numbers:
-            line = lines[line_no - 1]
+            line = prose_only(lines[line_no - 1])
             for abbr in ABBR_RE.findall(line):
                 if abbr in allowlist or abbr in STRUCTURAL_TOKEN_EXCLUSIONS or abbr in seen_abbreviations:
                     continue

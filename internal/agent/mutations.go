@@ -119,6 +119,7 @@ type researchScopesInput struct {
 	Mode       string   `json:"mode"`
 	ProductIDs []string `json:"product_ids"`
 	ProjectIDs []string `json:"project_ids"`
+	DomainIDs  []string `json:"domain_ids"`
 	TagIDs     []string `json:"tag_ids"`
 }
 type researchFindingInput struct {
@@ -1229,7 +1230,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 			scopes := store.ResearchScopes{Mode: "home"}
 			if in.Finding.Scopes != nil {
-				scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, TagIDs: in.Finding.Scopes.TagIDs}
+				scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, DomainIDs: in.Finding.Scopes.DomainIDs, TagIDs: in.Finding.Scopes.TagIDs}
 			}
 			finding, err := store.RecordResearchFindingWithinTxUpsert(ctx, tx, store.ResearchFindingRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Finding: store.ResearchFinding{FindingID: in.Finding.FindingID, Kind: store.ResearchFindingKind(in.Finding.Kind), Statement: in.Finding.Statement, Confidence: store.ResearchConfidence(in.Finding.Confidence), Freshness: store.ResearchFreshness(freshness), Status: store.ResearchFindingStatus(status), Scopes: scopes}})
 			if err != nil {

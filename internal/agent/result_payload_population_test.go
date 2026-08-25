@@ -154,7 +154,7 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 			Scopes: store.ResearchScopes{
 				Mode:       "explicit",
 				ProductIDs: []string{"product-1"}, ProjectIDs: []string{"project-1"},
-				ComponentIDs: []string{"component-1"}, TagIDs: []string{"tag-1"},
+				DomainIDs: []string{"component-1"}, TagIDs: []string{"tag-1"},
 			},
 		},
 	}); err != nil {
@@ -172,12 +172,12 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	}
 	for _, revision := range got.Revisions {
 		for _, finding := range revision.Findings {
-			if len(finding.Scopes.ComponentIDs) > 0 {
+			if len(finding.Scopes.DomainIDs) > 0 {
 				return got
 			}
 		}
 	}
-	t.Fatal("fixture lost its component scope before validation")
+	t.Fatal("fixture lost its domain scope before validation")
 	return store.ResearchPack{}
 }
 

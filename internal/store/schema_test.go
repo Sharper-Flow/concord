@@ -1173,6 +1173,187 @@ func TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind(t *te
 	}
 }
 
+// TestMigrateV47ToV48RenamesResearchScopeComponentToDomain proves the CD-0041
+// execution on the research scope surface: the active_research_finding_scopes
+// CHECK on scope_kind drops 'component' in favor of 'domain', every legacy
+// 'component' row is rewritten to 'domain' in the same transaction, the home
+// guard trigger still refuses home-with-IDs, and the rest of the replay
+// reaches the head schema with no step depending on the retired enum member.
+func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v47-scopes.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatalf("schema manifest DDL: %v", err)
+	}
+	appliedAt := "2026-08-23T00:00:00Z"
+	for _, migration := range migrations[:47] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d (%s): %v", migration.Version, migration.Name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+			migration.Version, migration.Name, migration.checksum(), appliedAt,
+		); err != nil {
+			t.Fatalf("manifest record for migration %d: %v", migration.Version, err)
+		}
+	}
+	// Pre-migration: the CHECK on active_research_finding_scopes admits the
+	// retired 'component' enum member.
+	preTableSQL := readTableSQL(t, ctx, db, "active_research_finding_scopes")
+	if !strings.Contains(preTableSQL, "'product','project','component','tag'") {
+		t.Fatalf("pre-migration CHECK missing legacy component member:\n%s", preTableSQL)
+	}
+	// Seed a research finding whose scope is 'component' so the migration has
+	// at least one row to rewrite. The home guard requires scope_mode='home'
+	// for empty scopes and refuses INSERTs that name IDs while home; an
+	// explicit-mode finding is the seeded shape the migration must rewrite.
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatalf("seed fold guard: %v", err)
+	}
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Logf("release fold guard: %v", err)
+		}
+	}()
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-v47','p','alpha','operator_only',1,'now','now')`,
+	); err != nil {
+		t.Fatalf("seed product: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO work_items(id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at,intent_json) VALUES('work-v47','task','Work','needed',0,'standard',1,'now','now','{}')`,
+	); err != nil {
+		t.Fatalf("seed work: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('pack-v47','work-v47',1,'current',1,'now','now')`,
+	); err != nil {
+		t.Fatalf("seed pack: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,freshness,created_at) VALUES('pack-v47',1,'q','[]','[]','[]','m','current','now')`,
+	); err != nil {
+		t.Fatalf("seed revision: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES('pack-v47',1,'finding-v47','observation','s','high','current','active','explicit')`,
+	); err != nil {
+		t.Fatalf("seed finding: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_finding_scopes(pack_id,revision,finding_id,scope_kind,scope_id) VALUES('pack-v47',1,'finding-v47','component','auth')`,
+	); err != nil {
+		t.Fatalf("seed legacy component scope: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_finding_scopes(pack_id,revision,finding_id,scope_kind,scope_id) VALUES('pack-v47',1,'finding-v47','tag','security')`,
+	); err != nil {
+		t.Fatalf("seed surviving tag scope: %v", err)
+	}
+	// Apply migration 48.
+	v48 := migrations[47]
+	if v48.Version != 48 {
+		t.Fatalf("migrations[47].Version = %d, want 48", v48.Version)
+	}
+	if _, err := db.ExecContext(ctx, v48.SQL); err != nil {
+		t.Fatalf("migration %d (%s): %v", v48.Version, v48.Name, err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+		v48.Version, v48.Name, v48.checksum(), appliedAt,
+	); err != nil {
+		t.Fatalf("manifest record for migration %d: %v", v48.Version, err)
+	}
+	// Post-migration: the rewritten 'component' scope_kind becomes 'domain';
+	// the surviving 'tag' row is untouched; no row carries 'component' any
+	// more, and the new CHECK refuses a fresh 'component' insert.
+	rows, err := db.QueryContext(ctx,
+		`SELECT scope_kind, scope_id FROM active_research_finding_scopes WHERE pack_id='pack-v47' AND revision=1 AND finding_id='finding-v47' ORDER BY scope_kind`,
+	)
+	if err != nil {
+		t.Fatalf("read rewritten scopes: %v", err)
+	}
+	defer rows.Close()
+	want := map[string][]string{}
+	for rows.Next() {
+		var kind, id string
+		if err := rows.Scan(&kind, &id); err != nil {
+			t.Fatalf("scan rewritten scope: %v", err)
+		}
+		want[kind] = append(want[kind], id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate rewritten scopes: %v", err)
+	}
+	if got := want["component"]; len(got) != 0 {
+		t.Fatalf("legacy 'component' rows survived migration: %v", got)
+	}
+	if got := want["domain"]; len(got) != 1 || got[0] != "auth" {
+		t.Fatalf("rewritten 'domain' rows = %v, want [auth]", got)
+	}
+	if got := want["tag"]; len(got) != 1 || got[0] != "security" {
+		t.Fatalf("untouched 'tag' rows = %v, want [security]", got)
+	}
+	postTableSQL := readTableSQL(t, ctx, db, "active_research_finding_scopes")
+	if strings.Contains(postTableSQL, "'product','project','component','tag'") {
+		t.Fatalf("post-migration CHECK still admits retired 'component':\n%s", postTableSQL)
+	}
+	if !strings.Contains(postTableSQL, "'product','project','domain','tag'") {
+		t.Fatalf("post-migration CHECK does not pin 'domain':\n%s", postTableSQL)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_finding_scopes(pack_id,revision,finding_id,scope_kind,scope_id) VALUES('pack-v47',2,'finding-v47','component','retired')`,
+	); err == nil {
+		t.Fatal("post-migration INSERT with retired 'component' was admitted")
+	}
+	// The home guard survived the rebuild: a fresh explicit finding with no
+	// scopes, then a mode flip to home, must succeed; an INSERT of scope IDs
+	// while home must be refused by the recreated trigger.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,freshness,created_at) VALUES('pack-v47',2,'q','[]','[]','[]','m','current','now')`,
+	); err != nil {
+		t.Fatalf("seed second revision: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES('pack-v47',2,'finding-v47-home','observation','s','high','current','active','home')`,
+	); err != nil {
+		t.Fatalf("seed home finding: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO active_research_finding_scopes(pack_id,revision,finding_id,scope_kind,scope_id) VALUES('pack-v47',2,'finding-v47-home','domain','refused')`,
+	); err == nil {
+		t.Fatal("post-migration home guard admitted an explicit scope ID")
+	}
+	// Carry the replay through the rest of the migrations so this test
+	// confirms the rename is not the only step that has to survive the
+	// upgrade: every later migration must still apply on top of the rebuilt
+	// table.
+	for _, m := range migrations[48:] {
+		if _, err := db.ExecContext(ctx, m.SQL); err != nil {
+			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
+			m.Version, m.Name, m.checksum(), appliedAt,
+		); err != nil {
+			t.Fatalf("manifest record for migration %d: %v", m.Version, err)
+		}
+	}
+	var latest int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if want := migrations[len(migrations)-1].Version; latest != want {
+		t.Fatalf("replay ended at version %d, want %d", latest, want)
+	}
+}
+
 // readTableSQL returns the CREATE TABLE statement SQLite stored for name.
 func readTableSQL(t *testing.T, ctx context.Context, db *sql.DB, name string) string {
 	t.Helper()

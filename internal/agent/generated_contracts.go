@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:d0fe6ba74c52d37d0e707312a9e57b23defbf09825b3c1a28c9a035f5790cacf"
+const ManifestDigest = "sha256:248d96fa4f89521f9510a086ad21facc1a3663cc7fdb4b0ba5e33cf34e633bc8"
 
 type OperationKind string
 
@@ -186,8 +186,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"research_pack":                              {Required: []string{"pack_id", "owner_work_id", "current_revision", "freshness", "expected_version", "created_at", "updated_at"}, Properties: []string{"pack_id", "owner_work_id", "current_revision", "freshness", "expected_version", "created_at", "updated_at", "revisions", "consumers"}},
 	"research_revision":                          {Required: []string{"pack_id", "revision", "created_at", "question"}, Properties: []string{"pack_id", "revision", "question", "scope_in", "scope_out", "done_when", "method", "created_at", "findings", "sources", "freshness"}},
 	"research_revision_input":                    {Required: []string{"question", "method"}, Properties: []string{"question", "scope_in", "scope_out", "done_when", "method"}},
-	"research_scopes":                            {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}},
-	"research_scopes_input":                      {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "tag_ids"}},
+	"research_scopes":                            {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}},
+	"research_scopes_input":                      {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}},
 	"research_source":                            {Required: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},
 	"research_source_input":                      {Required: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},
 	"resource_claims_page":                       {Required: []string{"claims"}, Properties: []string{"claims"}},

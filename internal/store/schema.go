@@ -2471,6 +2471,60 @@ CREATE TRIGGER domain_observations_guard_update BEFORE UPDATE ON domain_observat
 CREATE TRIGGER domain_observations_guard_delete BEFORE DELETE ON domain_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_observations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+	{
+		Version: 48,
+		Name:    "research_finding_scopes_use_domain",
+		SQL: `
+-- CD-0041 retires component as an authority identity; the active research
+-- scope surface therefore renames scope_kind 'component' to 'domain'.
+-- Migration 29 created active_research_finding_scopes with CHECK
+-- (scope_kind IN ('product','project','component','tag')) and a home-guard
+-- trigger. SQLite cannot ALTER a CHECK, so the table is rebuilt with the new
+-- enum and every legacy 'component' row is rewritten to 'domain' in the
+-- same transaction. The rewrite happens in the SELECT that copies rows
+-- into the new table: the SELECT cannot write to _v48 because its CHECK
+-- does not admit 'domain', and the new CHECK does not admit 'component',
+-- so a literal CASE bridges the gap in one statement. The closed-kind
+-- index and home-guard trigger are recreated against the new table; their
+-- definitions are byte-identical to migration 29.
+DROP TRIGGER IF EXISTS active_research_finding_scopes_home_guard;
+DROP TRIGGER IF EXISTS active_research_findings_home_guard_update;
+ALTER TABLE active_research_finding_scopes RENAME TO active_research_finding_scopes_v48;
+CREATE TABLE active_research_finding_scopes (
+    pack_id     TEXT NOT NULL,
+    revision    INTEGER NOT NULL,
+    finding_id  TEXT NOT NULL,
+    scope_kind  TEXT NOT NULL CHECK(scope_kind IN ('product','project','domain','tag')),
+    scope_id    TEXT NOT NULL,
+    PRIMARY KEY(pack_id, revision, finding_id, scope_kind, scope_id),
+    FOREIGN KEY(pack_id, revision, finding_id) REFERENCES active_research_findings(pack_id, revision, finding_id) ON DELETE CASCADE,
+    CHECK(length(scope_id) > 0)
+);
+INSERT INTO active_research_finding_scopes
+    (pack_id, revision, finding_id, scope_kind, scope_id)
+    SELECT pack_id, revision, finding_id,
+           CASE WHEN scope_kind = 'component' THEN 'domain' ELSE scope_kind END,
+           scope_id
+    FROM active_research_finding_scopes_v48;
+DROP TABLE active_research_finding_scopes_v48;
+CREATE INDEX active_research_finding_scopes_lookup
+    ON active_research_finding_scopes(scope_kind, scope_id, pack_id, revision);
+
+CREATE TRIGGER active_research_finding_scopes_home_guard
+BEFORE INSERT ON active_research_finding_scopes FOR EACH ROW
+WHEN (SELECT scope_mode FROM active_research_findings WHERE pack_id=NEW.pack_id AND revision=NEW.revision AND finding_id=NEW.finding_id) = 'home'
+BEGIN
+    SELECT RAISE(ABORT, 'home scope cannot carry explicit scope IDs');
+END;
+
+CREATE TRIGGER active_research_findings_home_guard_update
+BEFORE UPDATE OF scope_mode ON active_research_findings FOR EACH ROW
+WHEN NEW.scope_mode = 'home' AND EXISTS(SELECT 1 FROM active_research_finding_scopes s WHERE s.pack_id=NEW.pack_id AND s.revision=NEW.revision AND s.finding_id=NEW.finding_id)
+BEGIN
+    SELECT RAISE(ABORT, 'home scope cannot carry explicit scope IDs');
+END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -808,7 +808,7 @@ func bindAJ5AtomicSupersession(t *testing.T, sc jobScenario) jobObservation {
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
 
 	// Honor fixture_override by replaying the legitimate fold events.
-	if err := applyAtomicSupersessionFixtureOverride(t, s); err != nil {
+	if err := applyAtomicSupersessionFixtureOverride(t, sc, s); err != nil {
 		t.Fatalf("apply fixture_override: %v", err)
 	}
 
@@ -1034,8 +1034,17 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 // lifecycle to in_progress. After this sequence work-old is at
 // version 5 with no supersession edge, exactly the precondition the
 // corpus expects for the supersede call.
-func applyAtomicSupersessionFixtureOverride(t *testing.T, s *store.Store) error {
+func applyAtomicSupersessionFixtureOverride(t *testing.T, sc jobScenario, s *store.Store) error {
 	t.Helper()
+	// Consume the declared preconditions and check the replay below implements
+	// exactly what they state. Reading them here is what proves the corpus
+	// override is honored rather than decorative.
+	if got := sc.overrideString(t, "work-old.lifecycle"); got != "in_progress" {
+		t.Fatalf("fixture_override work-old.lifecycle = %q, want in_progress", got)
+	}
+	if got := sc.overrideString(t, "remove_relation"); got != "work-new supersedes work-old" {
+		t.Fatalf("fixture_override remove_relation = %q, want %q", got, "work-new supersedes work-old")
+	}
 	// Step 1: work.reopened_from_superseded — work-old is reopened
 	// by work-new. This atomically removes the supersession edge
 	// AND transitions work-old from superseded → needed at version

@@ -56,6 +56,83 @@ type jobScenario struct {
 		Assertions []jobAssertion `json:"assertions"`
 		Invariants []string       `json:"invariants"`
 	} `json:"expected"`
+
+	// overrides is runner state, not corpus content. The runner installs it
+	// before invoking a binding; a nil value means the binding was called
+	// outside the runner.
+	overrides *overrideTracker
+}
+
+// ---------------------------------------------------------------------------
+// fixture_override consumption
+// ---------------------------------------------------------------------------
+
+// overrideTracker records which initial_state.fixture_override keys a binding
+// read. A declared override that no binding reads is a false precondition: it
+// states a constraint the scenario appears to impose while imposing nothing,
+// inside the artifact that is the accepted oracle. The runner fails any
+// scenario leaving a declared key unread, which makes an inert override
+// impossible rather than detectable one instance at a time.
+//
+// Consumption is tracked instead of the key set being closed in the schema
+// because a closed key set proves only that a name is spelled correctly, and
+// the keys that went unread were spelled fine. The precondition each scenario
+// needs is bespoke — AJ5 replays fold events rather than assigning a value — so
+// the binding is the only party that can honor an override, and the binding is
+// therefore what must prove it did.
+type overrideTracker struct {
+	declared map[string]any
+	consumed map[string]bool
+}
+
+func newOverrideTracker(initialState map[string]any) *overrideTracker {
+	declared := map[string]any{}
+	if raw, ok := initialState["fixture_override"].(map[string]any); ok {
+		for key, value := range raw {
+			declared[key] = value
+		}
+	}
+	return &overrideTracker{declared: declared, consumed: map[string]bool{}}
+}
+
+// unconsumed returns the declared keys no binding read, sorted so the failure
+// message is stable.
+func (o *overrideTracker) unconsumed() []string {
+	var unread []string
+	for key := range o.declared {
+		if !o.consumed[key] {
+			unread = append(unread, key)
+		}
+	}
+	sort.Strings(unread)
+	return unread
+}
+
+// override returns the declared value for key and marks it consumed. It fails
+// the test when the scenario declares no such key, so a binding cannot claim to
+// honor an override the corpus never stated.
+func (sc jobScenario) override(t assertReporter, key string) any {
+	t.Helper()
+	if sc.overrides == nil {
+		t.Fatalf("scenario %q: fixture_override %q read outside the corpus runner", sc.ID, key)
+	}
+	value, ok := sc.overrides.declared[key]
+	if !ok {
+		t.Fatalf("scenario %q declares no fixture_override key %q", sc.ID, key)
+	}
+	sc.overrides.consumed[key] = true
+	return value
+}
+
+// overrideString reads a declared override that must carry a string.
+func (sc jobScenario) overrideString(t assertReporter, key string) string {
+	t.Helper()
+	value := sc.override(t, key)
+	text, ok := value.(string)
+	if !ok {
+		t.Fatalf("scenario %q fixture_override %q = %#v, want a string", sc.ID, key, value)
+	}
+	return text
 }
 
 type jobAssertion struct {
@@ -977,6 +1054,7 @@ func TestAgentJobsCorpus(t *testing.T) {
 		}
 
 		// Run the binding.
+		sc.overrides = newOverrideTracker(sc.InitialState)
 		t.Run(sc.ID, func(t *testing.T) {
 			obs := jobBindings[sc.ID](t, sc)
 
@@ -992,6 +1070,13 @@ func TestAgentJobsCorpus(t *testing.T) {
 				} else if _, known := uncheckedInvariants[name]; !known {
 					t.Fatalf("invariant %q is neither implemented nor registered as unchecked", name)
 				}
+			}
+
+			// Every declared precondition must have been honored by the
+			// binding above. An unread key is a constraint the corpus states
+			// and nothing enforces.
+			if unread := sc.overrides.unconsumed(); len(unread) > 0 {
+				t.Errorf("scenario declares initial_state.fixture_override keys no binding read: %s. Honor each key in the binding via sc.override, or remove it from the corpus.", strings.Join(unread, ", "))
 			}
 		})
 	}
@@ -1631,4 +1716,64 @@ func bindAJ2BlockerExplanation(t *testing.T, sc jobScenario) jobObservation {
 	obs.Authority["stored_blocked_flag_used"] = storedUsed
 
 	return obs
+}
+
+// TestFixtureOverrideConsumptionIsProven exercises the override tracker in
+// isolation. The live corpus fails first if the guard is removed, but a future
+// maintainer who weakens it must not be able to rely on the corpus alone to
+// notice: the corpus only proves the guard is quiet when every key is read.
+func TestFixtureOverrideConsumptionIsProven(t *testing.T) {
+	sc := jobScenario{ID: "X-scenario", InitialState: map[string]any{
+		"fixture": "PM1",
+		"fixture_override": map[string]any{
+			"declared.read":   "value",
+			"declared.unread": "value",
+		},
+	}}
+	sc.overrides = newOverrideTracker(sc.InitialState)
+
+	if got := sc.overrides.unconsumed(); len(got) != 2 {
+		t.Fatalf("before any read, unconsumed=%v, want both declared keys", got)
+	}
+
+	reader := &recorderT{T: t}
+	if got := sc.overrideString(reader, "declared.read"); got != "value" {
+		t.Fatalf("overrideString returned %q, want \"value\"", got)
+	}
+	if len(reader.fatals) != 0 {
+		t.Fatalf("reading a declared key reported %v, want no failure", reader.fatals)
+	}
+
+	// The unread key must survive as a finding. This is the AJ6 shape: the key
+	// is well-formed and nothing consumed it.
+	got := sc.overrides.unconsumed()
+	if len(got) != 1 || got[0] != "declared.unread" {
+		t.Fatalf("unconsumed=%v, want exactly [declared.unread]", got)
+	}
+
+	// Reading a key the scenario never declared is a harness defect, not a
+	// silent zero value: a binding must not claim to honor an absent override.
+	undeclared := &recorderT{T: t}
+	sc.overrideString(undeclared, "never.declared")
+	if len(undeclared.fatals) == 0 {
+		t.Fatal("reading an undeclared fixture_override key must fail the test")
+	}
+
+	// A declared key of the wrong shape must fail rather than coerce.
+	mistyped := jobScenario{ID: "Y-scenario", InitialState: map[string]any{
+		"fixture_override": map[string]any{"declared.bool": true},
+	}}
+	mistyped.overrides = newOverrideTracker(mistyped.InitialState)
+	wrongType := &recorderT{T: t}
+	mistyped.overrideString(wrongType, "declared.bool")
+	if len(wrongType.fatals) == 0 {
+		t.Fatal("reading a non-string fixture_override key as a string must fail the test")
+	}
+
+	// A scenario with no overrides declares nothing and reports nothing.
+	none := jobScenario{ID: "Z-scenario", InitialState: map[string]any{"fixture": "PM1"}}
+	none.overrides = newOverrideTracker(none.InitialState)
+	if got := none.overrides.unconsumed(); len(got) != 0 {
+		t.Fatalf("a scenario without fixture_override reported %v, want nothing", got)
+	}
 }

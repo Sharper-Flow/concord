@@ -289,8 +289,7 @@
       "job_id": "AJ6",
       "instruction": "Publish the durable note for terminal work-cancelled and reconcile its canonical locator.",
       "initial_state": {
-        "fixture": "PM1",
-        "fixture_override": { "work-cancelled.compaction_required": true, "canonical_home_project": "proj-api" }
+        "fixture": "PM1"
       },
       "expected": {
         "assertions": [

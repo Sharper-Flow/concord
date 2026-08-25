@@ -24,10 +24,9 @@ import (
 // home, then returns everything needed to publish the canonical note for
 // terminal work-cancelled through the agent surface.
 //
-// The scenario carries a `canonical_home_project: proj-api` override, but
-// compaction resolves its home from the work item's product rather than from a
-// fixture hint, and no loader reads that override today. The binding therefore
-// publishes into the home production actually resolves and asserts against it.
+// Compaction resolves its home from the work item's product rather than from a
+// fixture hint, so the binding publishes into the home production actually
+// resolves and asserts against it.
 func agentJobsCompactionFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, store.KnowledgeHome) {
 	t.Helper()
 	s, service, grant, privateKey, corpus := agentJobsMutationPM1Fixture(t)

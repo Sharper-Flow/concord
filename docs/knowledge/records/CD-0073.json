@@ -1,0 +1,31 @@
+{
+  "date": "2026-08-25T00:00:00Z",
+  "evidence": [
+    "scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "internal/agent/agent_jobs_mutations_bindings_test.go",
+    "internal/agent/agent_jobs_compaction_bindings_test.go",
+    "contracts/agent-jobs-scenarios.schema.json"
+  ],
+  "home_domain_id": "repository-verification",
+  "id": "CD-0073",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0073-scenario-overrides-prove-consumption.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:4c8a3034ab044ac8e823364e37d95e26bd50c5ad4b8d3de2bcced0dace6537c0",
+  "status": "accepted",
+  "summary": "D1 makes the corpus runner fail any scenario whose declared initial_state.fixture_override keys no binding read, so honoring an override and proving it become the same act; D2 fails a binding that reads a key the scenario never declared, guarding the contract in both directions; D3 keeps fixture_override free-form in the schema because closing the key set would have admitted the defect, whose keys were spelled correctly and simply unread; D4 deletes AJ6-compact-terminal-work's two override keys as false rather than implementing them, since compaction_required names no field in the system and canonical_home_project asserts proj-api against a resolver that returns proj-web. AJ5's binding now reads its two keys and checks the fold replay implements what they state.",
+  "tags": [
+    "corpus",
+    "scenarios",
+    "oracle",
+    "test-harness"
+  ],
+  "title": "A scenario override is honored by its binding or it is not in the corpus"
+}

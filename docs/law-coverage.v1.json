@@ -1070,6 +1070,24 @@
       "evidence": [
         {
           "kind": "go_test",
+          "value": "internal/agent.TestFixtureOverrideConsumptionIsProven"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentJobsCorpus"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-jobs.py"
+        }
+      ],
+      "id": "CD-0073",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
           "value": "internal/store.TestAcceptedQ1ToQ10Corpus"
         }
       ],

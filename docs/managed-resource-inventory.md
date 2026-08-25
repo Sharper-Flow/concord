@@ -11,6 +11,25 @@
 > billing/cost allocation, resource execution tools,
 > exact DDL/indexes, or C14 row fields.
 
+## Context
+
+Products depend on infrastructure and SaaS resources that outlive any single
+Product, so shared resources need one canonical identity rather than copies.
+The binding inputs are PM2 global authority, PM3's typed-core and extension
+rule, PM5's stable-identity and membership precedent, the Product data model,
+the native-authority placement rule, and the accepted TS1 through TS9
+evolution gates. This record selects the resource-first registry: canonical
+`managed_resource` entities with one owning Product, typed consumer links,
+stable locators, explicit stage, and typed replacement.
+## Contract
+
+The binding contract is sections 1 through 5: the resource-first decision,
+the canonical model covering resource fields, locators, Product links, work
+links, and replacement, the stage rule, the atomic operations and
+invariants, and the required bounded query directions. Sections 6 through 12
+record agent-surface placement, the Product-row boundary, the candidate
+comparison, evidence, implementation acceptance, rejected fields, and
+falsifiers, and carry no obligation.
 ## 1. Decision
 
 Managed infrastructure and SaaS resources are **first-class Concord entities** with
@@ -292,3 +311,49 @@ Reopen C15 when:
 Any amendment preserves canonical resource identity, one ownership authority, typed
 sharing, explicit stage, real FK relations, native execution ownership, and no secret
 storage.
+
+## Acceptance criteria
+
+- Given a resource creation
+  When it commits
+  Then resource, explicit stage, exactly one owner Product, environments,
+  and initial locators or typed absence reason land in one event-backed
+  SQLite transaction.
+
+- Given a duplicate consumer link or an environment outside the resource's
+  declared set
+  When the share is attempted
+  Then the core refuses it with a typed error and no event.
+
+- Given locator authority
+  When a locator is stored
+  Then the Concord ID remains the membership key and no credential, token,
+  DSN secret, or provider response body is stored.
+
+- Given bounded metadata on an `other`-kind resource
+  When it validates
+  Then the per-kind extension enforces its bounds and requires the bounded
+  `kind_detail`.
+
+## Verification
+
+No corpus scenario exercises the managed-resource model, so every criterion
+carries a typed exemption in the record naming the store test that proves
+the guarantee.
+
+- Criterion 1 is proved by
+  `TestCreateManagedResourceAndAddConsumerAreEventBacked`
+  (`internal/store/managed_resources_test.go`).
+- Criterion 2 is proved by
+  `TestManagedResourceRejectsDuplicateConsumerAndEnvironmentOutsideResource`
+  (`internal/store/managed_resources_test.go`).
+- Criterion 3 is a schema-boundary law: the locator table carries only the
+  typed columns of section 2.2, enforced by the schema manifest applied by
+  `TestOpenAppliesSchemaManifest` (`internal/store/schema_test.go`) and the
+  exhaustive binary large object (BLOB) column allow-list of
+  `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
+  (`internal/store/pm8_pm9_absence_test.go`), which admits only fixed-size
+  authority material.
+- Criterion 4 is proved by `TestManagedResourceMetadataBoundsAndOtherKindDetail`
+  (`internal/store/managed_resources_test.go`). Section 12 records the
+  falsifiers for each guarantee.

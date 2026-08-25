@@ -1,9 +1,32 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeSurfacesCycles (internal/launcher/storeport/port_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeResolvesSupersessionChainOnce (internal/launcher/storeport/port_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeMarksDepthTruncationUnavailable (internal/launcher/storeport/port_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle (internal/launcher/storeport/port_test.go) and TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+    },
+    {
+      "criterion": 5,
+      "scenario": "Q5-ready-ranking"
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "internal/launcher/storeport/port.go",
     "internal/launcher/storeport/port_test.go",
-    "internal/launcher/answer_stack_test.go"
+    "internal/launcher/model_test.go",
+    "scenarios/product-memory-query.v1.json",
+    "internal/store/query_corpus_test.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "C17",
@@ -16,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bb8eb56a09d61e4f659edc2ed66006e76fddbf966ecf93e624742197c8e90087",
+  "sha256": "sha256:ac59d08ea80d2e324cb2dc07a4a0506a38f9ed32c03bc7badfad64ecb5696c41",
   "status": "accepted",
   "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
   "tags": [

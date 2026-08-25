@@ -220,11 +220,33 @@
   },
   "records": [
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "The corpus case focus-priority encodes tier competition, but no harness executes the launcher corpus yet. The guarantee is proved by TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier and TestProductRowsC14ReturnsFiveGroups (internal/store/product_row_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "Unavailable-count honesty is a projection property. The guarantee is proved by TestProductRowsC14AuthoritativeEmptyAndTerminalOnly (internal/store/product_row_test.go)."
+        },
+        {
+          "criterion": 3,
+          "exemption": "The corpus case active-quiet-duplicate encodes the stable suffix, but no harness executes the launcher corpus yet. The guarantee is proved by TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+        },
+        {
+          "criterion": 4,
+          "exemption": "Focus-tier closure is a projection property. The guarantee is proved by TestProductRowsC14TerminalWorkCannotEnterAnyFocusTier (internal/store/product_row_test.go)."
+        },
+        {
+          "criterion": 5,
+          "exemption": "Cross-Project dedupe is a projection property. The guarantee is proved by TestProductRowsC14FocusTiersStageContextAndCrossProjectDedupe (internal/store/product_row_test.go)."
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "internal/store/product_row.go",
         "internal/store/product_row_test.go",
-        "internal/launcher/model_test.go"
+        "internal/launcher/model_test.go",
+        "scenarios/launcher-portfolio.v1.json"
       ],
       "home_domain_id": "operator-surface",
       "id": "C14",
@@ -237,7 +259,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d2410a7fc62c434052a4233f86d13cbb2284e069d7f0c9963872533ef57cd19d",
+      "sha256": "sha256:c0c3ead5c9e68c87d41f48d26fd797540aa3038f7ad238c8b5a7a56759186a46",
       "status": "accepted",
       "summary": "Defines the five-group Product-row glance: identity, stage, reliance, action counts, and one deterministic focus item.",
       "tags": [
@@ -247,11 +269,29 @@
       "title": "product row contract"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "No corpus scenario exercises the managed-resource model. The guarantee is proved by TestCreateManagedResourceAndAddConsumerAreEventBacked (internal/store/managed_resources_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "No corpus scenario exercises the managed-resource model. The guarantee is proved by TestManagedResourceRejectsDuplicateConsumerAndEnvironmentOutsideResource (internal/store/managed_resources_test.go)."
+        },
+        {
+          "criterion": 3,
+          "exemption": "No corpus scenario exercises the managed-resource model. The schema boundary is enforced by TestOpenAppliesSchemaManifest (internal/store/schema_test.go) and the exhaustive BLOB column allow-list of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go)."
+        },
+        {
+          "criterion": 4,
+          "exemption": "No corpus scenario exercises the managed-resource model. The guarantee is proved by TestManagedResourceMetadataBoundsAndOtherKindDetail (internal/store/managed_resources_test.go)."
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "internal/store/managed_resources.go",
         "internal/store/managed_resources_test.go",
-        "internal/store/resource_claims.go"
+        "internal/store/schema_test.go",
+        "internal/store/pm8_pm9_absence_test.go"
       ],
       "home_domain_id": "work-coordination",
       "id": "C15",
@@ -264,7 +304,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:fa9f340d8d792ea90339fe25f44e91cd0cbf04e6700cf246214612ae0af07a8e",
+      "sha256": "sha256:8ee0326a5879603554438e797365d04151d4807cae422010f711fa81c5b2dfdf",
       "status": "accepted",
       "summary": "Defines the resource-first managed-resource inventory with a singular owner Product, consumer links, and typed locators.",
       "tags": [
@@ -274,11 +314,34 @@
       "title": "managed resource inventory"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeSurfacesCycles (internal/launcher/storeport/port_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeResolvesSupersessionChainOnce (internal/launcher/storeport/port_test.go)."
+        },
+        {
+          "criterion": 3,
+          "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeMarksDepthTruncationUnavailable (internal/launcher/storeport/port_test.go)."
+        },
+        {
+          "criterion": 4,
+          "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle (internal/launcher/storeport/port_test.go) and TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+        },
+        {
+          "criterion": 5,
+          "scenario": "Q5-ready-ranking"
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "internal/launcher/storeport/port.go",
         "internal/launcher/storeport/port_test.go",
-        "internal/launcher/answer_stack_test.go"
+        "internal/launcher/model_test.go",
+        "scenarios/product-memory-query.v1.json",
+        "internal/store/query_corpus_test.go"
       ],
       "home_domain_id": "operator-surface",
       "id": "C17",
@@ -291,7 +354,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bb8eb56a09d61e4f659edc2ed66006e76fddbf966ecf93e624742197c8e90087",
+      "sha256": "sha256:ac59d08ea80d2e324cb2dc07a4a0506a38f9ed32c03bc7badfad64ecb5696c41",
       "status": "accepted",
       "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
       "tags": [
@@ -3334,11 +3397,30 @@
       "title": "design constraints"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "Process authority is enforced by repository validators, not executed scenarios: GitHub Issues are the planning surface by rule 1, and repository content is bounded by scripts/check-public-content.py."
+        },
+        {
+          "criterion": 2,
+          "exemption": "Merge evidence authority is enforced structurally by scripts/check-commit-title.py and the required checks of .github/workflows/ci.yml."
+        },
+        {
+          "criterion": 3,
+          "exemption": "Default-branch implementation is rejected by test_default_branch_history_is_clean (scripts/test-commit-title.py) over the accepted history."
+        },
+        {
+          "criterion": 4,
+          "exemption": "Law-conflict surfacing is enforced by scripts/check-knowledge-closure.py --strict, which requires every document to carry an accepted record or explicit disposition."
+        }
+      ],
       "date": "2026-08-07T00:00:00Z",
       "evidence": [
-        "docs/decisions/CD-0010-pre-readiness-development-authority.md",
-        "scripts/check-predecessor-independence.py",
-        "AGENTS.md"
+        "scripts/check-public-content.py",
+        "scripts/check-commit-title.py",
+        "scripts/check-knowledge-closure.py",
+        ".github/workflows/ci.yml"
       ],
       "home_domain_id": "repository-verification",
       "id": "development-authority",
@@ -3351,7 +3433,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:454dfcd8dae8358c69b028f5f8e373e1494c10d7b74148b326436adcfc1546a0",
+      "sha256": "sha256:a5d067752687e35199751d5bc88f575ebfc90ac42e9c398fa16aa88cf1267812",
       "status": "accepted",
       "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
       "tags": [

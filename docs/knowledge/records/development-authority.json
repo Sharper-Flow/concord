@@ -1,9 +1,28 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Process authority is enforced by repository validators, not executed scenarios: GitHub Issues are the planning surface by rule 1, and repository content is bounded by scripts/check-public-content.py."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Merge evidence authority is enforced structurally by scripts/check-commit-title.py and the required checks of .github/workflows/ci.yml."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Default-branch implementation is rejected by test_default_branch_history_is_clean (scripts/test-commit-title.py) over the accepted history."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Law-conflict surfacing is enforced by scripts/check-knowledge-closure.py --strict, which requires every document to carry an accepted record or explicit disposition."
+    }
+  ],
   "date": "2026-08-07T00:00:00Z",
   "evidence": [
-    "docs/decisions/CD-0010-pre-readiness-development-authority.md",
-    "scripts/check-predecessor-independence.py",
-    "AGENTS.md"
+    "scripts/check-public-content.py",
+    "scripts/check-commit-title.py",
+    "scripts/check-knowledge-closure.py",
+    ".github/workflows/ci.yml"
   ],
   "home_domain_id": "repository-verification",
   "id": "development-authority",
@@ -16,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:454dfcd8dae8358c69b028f5f8e373e1494c10d7b74148b326436adcfc1546a0",
+  "sha256": "sha256:a5d067752687e35199751d5bc88f575ebfc90ac42e9c398fa16aa88cf1267812",
   "status": "accepted",
   "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
   "tags": [

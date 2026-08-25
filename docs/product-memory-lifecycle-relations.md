@@ -165,7 +165,7 @@ An external dependency is represented as a canonical `work_item` with kind
 `external_blocker`. CD-0008 D5 amends its typed `external_ref` into a closed condition
 carrying `await_type`, `await_ref`, `resolution_authority`, resolution evidence, and
 the resolving lifecycle event. Supported initial conditions are PR merge, CI result,
-timer, human approval, and remote-work state. It participates in the same FK-enforced
+timer, human approval, and remote-work state. It participates in the same foreign key (FK) enforced
 `blocks` relation as every other blocker.
 
 - External state is not silently treated as Concord authority.

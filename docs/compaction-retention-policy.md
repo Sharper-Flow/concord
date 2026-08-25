@@ -87,7 +87,7 @@ the same idempotency key returns the committed result without another event.
 The `work_projection_pruned` event is authoritative replay input: a full fold sees the
 terminal history, then excludes that ID from live projections. It does not make
 `archived_work` authoritative; the historical projection still rebuilds from git.
-Any still-live work edge formerly targeting the pruned ID leaves the FK-enforced live
+Any still-live work edge formerly targeting the pruned ID leaves the foreign key (FK) enforced live
 `relations` projection and remains available through authoritative events or the
 typed cross-tier link projection in §7.
 

@@ -339,7 +339,7 @@ D10 ships with the later surface-version change, not this documentation pass.
 
 `accepted_decision` and `insufficient_evidence` require a bound decision record
 containing framed questions, options with source-backed evidence, decision,
-rationale, consequences, inputs, POC findings (or an explicit no-POC value),
+rationale, consequences, inputs, proof of concept (POC) findings (or an explicit no-POC value),
 supersession position, reviewer actor, operator acceptance, and for
 `insufficient_evidence`, recorded unknowns plus what would be required to decide.
 An unaccepted record does not satisfy the predicate or unblock a dependent Initiative.

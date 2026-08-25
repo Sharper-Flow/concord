@@ -268,7 +268,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:7f309b1d9226729017a63af1e3afffdb380f325c03f9792b6f53d2b4c17668c1",
+      "sha256": "sha256:fa9f340d8d792ea90339fe25f44e91cd0cbf04e6700cf246214612ae0af07a8e",
       "status": "accepted",
       "summary": "Defines the resource-first managed-resource inventory with a singular owner Product, consumer links, and typed locators.",
       "tags": [
@@ -317,7 +317,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d2b0cad7b3d9205b7064c9c1e355f4b4754f3bebc7a47d55148bf09220572f7f",
+      "sha256": "sha256:8845fa90545ce9c9e7d62333340803704af3e0b5a17e8ec6bd62f67dd19726c4",
       "status": "accepted",
       "summary": "Defines SQLite authority and durable state boundaries.",
       "tags": [
@@ -339,7 +339,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bb1315eb6cfff72fcceb4bde45a9ff3f193612346cb85134fd0c3c699a0a230b",
+      "sha256": "sha256:9cb7d22ddb1406b50d5b619245f645452934f61fdf9d12de7162979f66aec1f5",
       "status": "accepted",
       "summary": "Defines the initial storage layer shape and boundaries.",
       "tags": [
@@ -384,7 +384,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:545b60a12d8b24588bd01a730ec2fb1f59eb9002bae0fed4d28ebbe9d5535b47",
+      "sha256": "sha256:d843c2ab1fa037963ce6b08d9efc440385b023d00b2eea88ba710c96430df66a",
       "status": "accepted",
       "summary": "Defines the root Product and fix-forward policy.",
       "tags": [
@@ -470,7 +470,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d88e809feb0046fa209a1115fa1b32fad0c21c11ea53d1cfbe9b56486ee9b72c",
+      "sha256": "sha256:d737aebc3b259e402a28736bb5d8a6284e934e2bf738eaafda658b0eac89064b",
       "status": "accepted",
       "summary": "Defines retention-bounded research context and canonical durable forms.",
       "tags": [
@@ -563,7 +563,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4de4819c5202a0367182fcec9f4e1f987f0a886e2e481178be9415718bd7844d",
+      "sha256": "sha256:5e91f3a5893b26653010c999d23695ba1a12cb768c753dbc52e361b9f1410066",
       "status": "accepted",
       "summary": "Defines the versioned workflow registry, execution evidence, and completion gate.",
       "tags": [
@@ -1715,7 +1715,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:cd06b7d7a1500fb0a18aa63c13da6e34f03aa49230600e51f5a4bca7abfe640e",
+      "sha256": "sha256:4f1ace2c7834b0c6bbdbed796e4b9c193e0b46243698c788fd68525e3f1ceeb0",
       "status": "accepted",
       "summary": "The routing policy loads from CONCORD_ROUTING_POLICY host state with the repo record as default template, failing closed when host state is set but unreadable; the lane registry becomes model-neutral, load-time validation replaces cross-file pinning including adapter-side opencode models existence checks, and the per-attempt digest-bound evidence boundary is unchanged.",
       "tags": [
@@ -2307,7 +2307,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:83e4eeab0ab03a788bc38a659f9a2764a98bbfec50d9b88fc6e9b7279cfd1a64",
+      "sha256": "sha256:26e98ad00efd63fee2032e34caae181a96eeaf35dec601d2c27a685030706ce9",
       "status": "accepted",
       "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
       "tags": [
@@ -2335,7 +2335,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:fcd468c87729365b6c3496bc6a93c89242b99400460a8ac153253d5c1bd51a0c",
+      "sha256": "sha256:b35df8c57afa70e40252464e48a045da6cb4c087b23505cde626587c6afc3dff",
       "status": "accepted",
       "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
       "tags": [
@@ -2390,7 +2390,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:efeb33a4f55362e61f1fdf6c05c67d475acc15c95c5c2a78a417fbac05ee1e53",
+      "sha256": "sha256:0e31ec88aa991c6f1b87947b9721f7cf9bbd080e3fa3e7483bd539f3971e22c2",
       "status": "accepted",
       "summary": "Defines the authoritative event log and typed Product-memory projections.",
       "tags": [
@@ -2418,7 +2418,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:01807bd13642c07f424e7b4c790df9dabfd05289430f8fe6a24793b962357238",
+      "sha256": "sha256:31d835675ebd3efad9f7cce568d1e36beaac451bf59f898d804080c8691b75da",
       "status": "accepted",
       "summary": "Defines the five-state work lifecycle, its closed transition table, and the typed relations derived from it.",
       "tags": [
@@ -2514,7 +2514,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:84fa6c00f0f454e9bba5c2464be85da6b5aed1850fcd39359c66bbceedd50c3d",
+      "sha256": "sha256:f72763ffdcba7590b6ef8a72a9bfcb5e7eb367753d2029291c5427eca91c4a1d",
       "status": "accepted",
       "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
       "tags": [
@@ -2728,7 +2728,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:412d63be9e37e455e270a50d1000552bfdd402a0741ba92ad4fb7298e943203c",
+      "sha256": "sha256:8539cbc3473e5a2c0f296d761840db21934d1d69f7e1b253bf82f01d2e4cc6a3",
       "status": "accepted",
       "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
       "tags": [
@@ -2927,7 +2927,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:fcb1855d2cbb50a1df40b400c17e2d3b73f62829444398e7321ffa674e83b3b1",
+      "sha256": "sha256:b7dcfe78922fa0f37051fa1ee73913e71e8cf7a85b3720e6225c87dbcf9377f6",
       "status": "published",
       "summary": "Shaped architecture-spike workflow type with open questions deferred. Not accepted, so it carries no law-bearing kind.",
       "tags": [
@@ -2978,7 +2978,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f114548262ec4567b6a7c8589727a3e1142544fd5679d4b1d5270f3134eba0dc",
+      "sha256": "sha256:0d3176241d6eadb1c847f336b659d4c0a8ecc24110e711693757083734a142f8",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -3051,7 +3051,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5f749fa5fb4330da2e1838cc2c2ffbf97fa3473dd9d6d003064f8497cdc60c0b",
+      "sha256": "sha256:223685562e4fd75a85e914bde8676cc680f148a07c1bcdb39a2345cb7f1ec2b6",
       "status": "published",
       "summary": "Non-functional requirements, hard constraints, and design directives aligned under CD-0006 and CD-0041.",
       "tags": [
@@ -3192,7 +3192,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:37dd9d429c08ee809990c8b201598dce1682a4a3b0cce44dc8955269b4074956",
+      "sha256": "sha256:530fbc0501ec46a62b2ebf40c0b9912b564cff63b34c06cabcabfcf42185fab6",
       "status": "published",
       "summary": "Reports an investigation of the agentic engineering and coordination landscape, the adjacent Clay and PostHog patterns, and the resulting positioning options. Carries its own unverified-claims section; it informs Concord's direction without becoming a second authority over the priorities.",
       "tags": [
@@ -3241,7 +3241,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:447220bc95ee0ebed48a22d44282b21652eedf71a78320df2577bda1998b6856",
+      "sha256": "sha256:fe0d6045f5446090a824fa88da22f7f51e063b657725d15b31889704ec101732",
       "status": "accepted",
       "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
       "tags": [
@@ -3267,7 +3267,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:a78864c750a5c567d6f4817d3314ecc4a57af52253fde734733b77e8ce03c88b",
+      "sha256": "sha256:acaba916bea2e12e3af0e966a6da83c7c7cb40f9541a7fc1c10b7f5f8b14071e",
       "status": "published",
       "summary": "Canonical Product data model with Domains and Initiative, aligned v4 under CD-0041.",
       "tags": [
@@ -3393,7 +3393,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ba09e26bab7fe5f8516dace712eb1d4be8affbf4d5e5db734475647445e1e499",
+      "sha256": "sha256:93238908eab87d5d6b3985c72b826b2f6dbf7887f4b17bebec37e64867605dd6",
       "status": "published",
       "summary": "Acceptance slice exercising the PM1 through PM10 storage contract end to end. Ready for acceptance rather than accepted.",
       "tags": [
@@ -3468,7 +3468,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5f8720ee9d32c39335713285271f514bbd41edcb76849b172f417e2b6b0680b8",
+      "sha256": "sha256:b381273d829d4d69a0e85554d0a838ddd90e8b2ba6f4fd0baa0652d2c1e81b90",
       "status": "accepted",
       "summary": "Defines the machine-readable workflow engine implementation contract.",
       "tags": [

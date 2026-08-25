@@ -5,7 +5,7 @@
 > [`product-data-model.md`](./product-data-model.md),
 > [`feature-inventory.md`](./feature-inventory.md) §3.13.
 > **Purpose:** Define the Initiative entry whose deliverable is a **binding
-> architectural decision** — researched, planned, optionally POC-proven —
+> architectural decision** — researched, planned, optionally proof of concept (POC) proven —
 > producing no product code and hard-blocking the implementation entries after it.
 > **Origin:** User direction, 2026-08-02.
 
@@ -35,7 +35,7 @@ architectural question is answered. Such work today has two bad homes:
 | Drifts outside the lifecycle as ad-hoc skill work | No durable record, no reviewer, no acceptance, no supersession history. |
 
 **Concord's own planning historically demonstrated the gap.** Two spike-shaped
-questions were once named and marked TBD because the primitive to hold them did not
+questions were once named and marked to be determined (TBD) because the primitive to hold them did not
 exist. The storage/research framing is now historical: C2 was resolved by CD-0002 and
 PM1–PM5, and C7 by CD-0009:
 
@@ -252,7 +252,7 @@ changes from silently absorbing architectural decisions again.
    decision from authorizing downstream work? Couples to
    [`workflows.md`](./workflows.md) §2.3.
 4. **Conflict surfacing mechanics** — does decision-vs-change conflict reuse the
-   spec-conflict HITL flow verbatim ([`feature-inventory.md`](./feature-inventory.md)
+   spec-conflict human in the loop (HITL) flow verbatim ([`feature-inventory.md`](./feature-inventory.md)
    §2.8), or need a variant?
 
 ---

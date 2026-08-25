@@ -15,7 +15,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4de4819c5202a0367182fcec9f4e1f987f0a886e2e481178be9415718bd7844d",
+  "sha256": "sha256:5e91f3a5893b26653010c999d23695ba1a12cb768c753dbc52e361b9f1410066",
   "status": "accepted",
   "summary": "Defines the versioned workflow registry, execution evidence, and completion gate.",
   "tags": [

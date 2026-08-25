@@ -224,7 +224,7 @@ Migration then proceeds one Product at a time. Advance remains authority for unm
 
 It becomes usable when:
 
-1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products; and "plan" is satisfied by reaching work and opening a session that authors it, since the launcher is read-only by C18 and work creation keeps one write authority.
+1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and opening a session that authors it. The launcher is read-only by C18, so work creation keeps one write authority.
 2. Agents can read, write, and execute within that Product and Domain context through tools.
 3. Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence.
 4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.

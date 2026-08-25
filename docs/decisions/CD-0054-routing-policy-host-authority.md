@@ -116,7 +116,7 @@ prevent, and the repo still names one operator's credentials.
 without a declared bound cannot distinguish a legal fallback from a silent
 substitution — it audits what ran, not what was allowed.
 
-**PAT-authenticated bot keeping branches current.** Unrelated surface; see
+**Personal access token (PAT) authenticated bot keeping branches current.** Unrelated surface; see
 #289/#297.
 
 ## Verification

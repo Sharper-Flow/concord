@@ -48,7 +48,7 @@ The slice must preserve these decisions without reinterpretation:
    historical index is derived and rebuildable.
 8. **Accepted PM4 lifecycle/relations:** five lifecycle states; derived
    blocked/ready/active/terminal views; canonical typed edges; atomic supersession;
-   cycle rejection; explicit reopen; FK-clean external blockers.
+   cycle rejection; explicit reopen; foreign key (FK) clean external blockers.
 9. **Accepted PM7 retention:** verified terminal work can transition atomically from
    live projections to git-derived historical projections through bounded lazy
    pruning; `domain_events` remains replay authority and pruned IDs never reopen.

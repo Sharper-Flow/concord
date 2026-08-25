@@ -443,7 +443,7 @@ re-litigate them silently.
   realistic incremental build by you + agents, or an aspirational north-star we
   document but build selectively?
 - **Why:** affects how much to commit to "build it all" vs "document the vision,
-  build the high-leverage slices."
+  build the highest-value slices."
 - **Decision:** incremental design/build/shadow evaluation is allowed, but only the
   full accepted replacement system is called usable or becomes primary.
 
@@ -539,7 +539,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > rejects a separate receipt; PM10 fixes recovery. C15 and TS1–TS9 are now accepted.
 | **PM7 ✅ Accepted 2026-08-06** Compaction, retention, historical index. *Binding:* [`compaction-retention-policy.md`](./compaction-retention-policy.md) amends PM6/compaction design. | Terminal compaction plus verified git proof makes a work item eligible; only explicit or measured-pressure bounded lazy maintenance may prune its live projections. Retain authoritative `domain_events`; keep a git-rebuildable historical index with frozen compaction scope. Pruned IDs never reopen; renewed work has a new ID and typed `archived_work_linked` cross-tier link. | Reopen if retained core events are the growth problem, needed history is absent from git/events, linked successor work repeatedly fails legitimate jobs, combined live/historical Q2/Q3 misses target, historical front matter becomes a dump, maintenance burdens operators, measured pressure needs another trigger, or PM9/PM10 provides a simpler replay authority. | PM4, PM6 → **compaction-design/PM6 amendment**, operator-approved. |
 > **PM7 is accepted and binding.** It rejects a fixed 30-day sweep, preserves v1
-> event authority, makes the prune transition atomic/FK-clean, and fixes immutable
+> event authority, makes the prune transition atomic and foreign key (FK) clean, and fixes immutable
 > pruned identity plus separate cross-tier follow-up links. PM8 excludes WIP-byte storage;
 > PM9 rejects a separate receipt; PM10 fixes recovery. TS1–TS9 are accepted.
 | **PM8 ✅ Accepted 2026-08-06** WIP evidence/blob scope. *Binding:* [`product-memory-evidence-store.md`](./product-memory-evidence-store.md) narrows CD-0002 §2d. | No CAS, hashing, external-byte path references, or generic screenshot requirement. WIP output stays with its producer; Concord retains bounded state, concise notes, and ordinary external refs only. | Reopen only for a measured recurring job with a named reader, exact-byte need after WIP is gone, explicit retention/restore promise, and value sufficient to justify storage complexity. | PM1–PM7 → **CD-0002 §2d amendment**, operator-approved. |

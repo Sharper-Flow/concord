@@ -68,7 +68,7 @@ is **no persistent server, no MCP daemon, no long-running writer process**. TS6
 decides which commands, if any, become agent tools.
 
 ### Reasoning
-- **CD-0002 §2b already decided "no daemon."** A persistent MCP server *is* a daemon (long-running, lifecycle/supervision/SPOF). The no-daemon decision rules it out.
+- **CD-0002 §2b already decided "no daemon."** A persistent MCP server *is* a daemon (long-running, with lifecycle, supervision, and a single point of failure (SPOF)). The no-daemon decision rules it out.
 - Short-lived invocations are the **no-daemon-compatible boundary**: each process opens the DB, and SQLite serializes concurrent invocations itself via WAL + `busy_timeout=5000` (CD-0002 §2). This is precisely the multi-process pattern sqlite.org endorses ("writers queue up… no lock lasts more than a few dozen milliseconds").
 - It removes an entire class of failure modes (process lifecycle, IPC protocol versioning, crash/restart, supervisor) that a daemon would add.
 - Cross-language simplicity: a TypeScript adapter, if selected, shells out via
@@ -78,7 +78,7 @@ decides which commands, if any, become agent tools.
 ### Constraints / open detail
 - **One invocation = one logical operation** (or one small batch). A CLI process is not held open across an agent's whole session. Long-lived session state lives in the SQLite file between invocations, not in a process.
 - The CLI's stdout is **structured** (JSON) for programmatic callers; a `--human` flag renders for terminal use.
-- **Reversal condition:** if the §2e falsifier "P99 write > 100 ms sustained" or "SQLITE_BUSY escapes busy_timeout" fires at realistic load *because of process-startup overhead*, escalate per CD-0002 §2b to the daemon upgrade path (the CLI commands then become the daemon's request handlers; the surface is unchanged).
+- **Reversal condition:** the §2e falsifiers are "P99 write > 100 ms sustained" and "SQLITE_BUSY escapes busy_timeout". If either fires at realistic load *because of process-startup overhead*, escalate per CD-0002 §2b to the daemon upgrade path. The CLI commands then become the daemon's request handlers, and the surface is unchanged.
 
 ---
 
@@ -129,7 +129,14 @@ The Go core uses **`modernc.org/sqlite`** — a pure-Go (transpiled-from-C) SQLi
 ## Relationship to CD-0002 and the open-questions picture
 
 - **Closes** CD-0002 §5 (boundary, binding) and the entity-shape fork implied by §7.
-- **Does not close** (out of scope, listed for completeness): migrations/schema-evolution (CD-0002 §7), the compaction-function design (separate companion doc [`../compaction-design.md`](../compaction-design.md)), the recovery-path taxonomy (design-constraints RB #5), validation-failure isolation (RB #7), evidence-resolution completeness (RB #6). These shape Concord-the-product or the durable tier, not the storage-spine build.
+- **Does not close** (out of scope, listed for completeness):
+  - migrations and schema evolution (CD-0002 §7);
+  - the compaction-function design (separate companion doc [`../compaction-design.md`](../compaction-design.md));
+  - the recovery-path taxonomy (design-constraints RB #5);
+  - validation-failure isolation (RB #7);
+  - evidence-resolution completeness (RB #6).
+
+  These shape Concord-the-product or the durable tier, not the storage-spine build.
 - The **storage-spine slice** (`storage-spine-slice.md`) is an implementation
   acceptance plan. PM1 defines canonical jobs; PM2/PM3 choose scope/schema through
   research; PM1–PM5 are complete and the slice validates the accepted result.

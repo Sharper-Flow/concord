@@ -1,0 +1,5 @@
+{
+  "id": "capability-placement",
+  "reason": "Advisory draft rubric that guides where a capability should live. It prescribes nothing an implementation must satisfy.",
+  "state": "out_of_scope"
+}

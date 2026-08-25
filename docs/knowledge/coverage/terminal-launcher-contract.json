@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestFullLauncherSessionAppendsNothingToTheEventLog"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther"
+    }
+  ],
+  "id": "terminal-launcher-contract",
+  "state": "satisfied"
+}

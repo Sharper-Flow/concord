@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0014-terminal-launcher-rendering.md",
+    "internal/launcher/model.go",
+    "internal/launcher/render/bubbletea/model_test.go",
+    "internal/launcher/storeport/domain_evidence_test.go"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "terminal-launcher-contract",
+  "kind": "spec",
+  "path": "docs/terminal-launcher-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:bb6516643d910fc6ddf4dfdaf9dd7e7ed6485266390cd8c8ebbc9c6e368c47b4",
+  "status": "accepted",
+  "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
+  "tags": [
+    "launcher",
+    "rendering"
+  ],
+  "title": "terminal launcher contract"
+}

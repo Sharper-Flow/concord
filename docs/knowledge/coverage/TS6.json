@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCLIEndToEndCreatesScopeGrantsAndInvokesRead"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestInvokeShapesUnsupportedOperationAsTypedEnvelope"
+    }
+  ],
+  "id": "TS6",
+  "state": "satisfied"
+}

@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "contracts/agent-tool-surface.v1.json",
+    "internal/agent/mutations.go",
+    "internal/agent/agent_jobs_compaction_bindings_test.go",
+    "internal/agent/workflow_overlap_dispatch_test.go"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "TS4",
+  "kind": "spec",
+  "path": "docs/agent-mutation-tool-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:636be1c0421bd378fc83c0b0fccdce2d6edeff938accb399d365529ce8eb9603",
+  "status": "accepted",
+  "summary": "Fixes the mutation tools, each committing one domain intent per SQLite transaction with sequenced git-first compaction.",
+  "tags": [
+    "ts4",
+    "mutations"
+  ],
+  "title": "agent mutation tool contract"
+}

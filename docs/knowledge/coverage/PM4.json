@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLifecycleTransitionsAreClosedAndTyped"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestQueryQ8DependsOnUsesInverseWithoutMirroredRow"
+    }
+  ],
+  "id": "PM4",
+  "state": "satisfied"
+}

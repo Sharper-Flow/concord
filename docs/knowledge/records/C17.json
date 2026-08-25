@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/launcher/storeport/port.go",
+    "internal/launcher/storeport/port_test.go",
+    "internal/launcher/answer_stack_test.go"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "C17",
+  "kind": "spec",
+  "path": "docs/product-coordination-view.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:bb8eb56a09d61e4f659edc2ed66006e76fddbf966ecf93e624742197c8e90087",
+  "status": "accepted",
+  "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
+  "tags": [
+    "c17",
+    "coordination-view"
+  ],
+  "title": "product coordination view"
+}

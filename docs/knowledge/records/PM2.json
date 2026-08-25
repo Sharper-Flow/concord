@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-05T00:00:00Z",
+  "evidence": [
+    "internal/store/store.go",
+    "internal/store/store_test.go",
+    "internal/store/schema.go",
+    "internal/store/query_corpus_test.go"
+  ],
+  "home_domain_id": "durable-authority",
+  "id": "PM2",
+  "kind": "spec",
+  "path": "docs/product-memory-authority-scope.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:16274558688e0949fdc88e6ff428e4fe1450f0acf7552df6d560fa22e9ca960a",
+  "status": "accepted",
+  "summary": "Defines one global local SQLite authority per installation under the XDG data home.",
+  "tags": [
+    "pm2",
+    "authority-scope"
+  ],
+  "title": "product memory authority scope"
+}

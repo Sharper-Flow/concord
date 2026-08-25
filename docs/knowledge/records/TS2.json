@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "contracts/agent-tool-surface.schema.json",
+    "contracts/agent-tool-surface.v1.json",
+    "scripts/generate-agent-contracts.py",
+    "internal/agent/dispatch_coverage_test.go"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "TS2",
+  "kind": "spec",
+  "path": "docs/agent-tool-surface-budget.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d0d844289351d015861ec5ab43814103873016932ad8f57fff6f03737c728755",
+  "status": "accepted",
+  "summary": "Caps the always-visible agent surface and fixes the closed-operation granularity rule the manifest validator enforces.",
+  "tags": [
+    "ts2",
+    "tool-surface"
+  ],
+  "title": "agent tool surface budget"
+}

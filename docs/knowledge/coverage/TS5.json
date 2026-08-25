@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDispatchIdempotentReplaySurvivesAmbientScopeDrift"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect"
+    }
+  ],
+  "id": "TS5",
+  "state": "satisfied"
+}

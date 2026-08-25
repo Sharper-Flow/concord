@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "scenarios/agent-jobs.v1.json",
+    "contracts/agent-jobs-scenarios.schema.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "scripts/check-agent-jobs.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "TS9",
+  "kind": "spec",
+  "path": "docs/agent-tool-surface-measurement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:348a6e4d5af373fd8523675f8dfa49413fa3eae5e424f793e49efcdd25eb29f9",
+  "status": "accepted",
+  "summary": "Sets deterministic pre-go-live evidence: state and effect oracles, strict schemas, negative probes, and generated-drift gates.",
+  "tags": [
+    "ts9",
+    "evidence"
+  ],
+  "title": "agent tool surface measurement"
+}

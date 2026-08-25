@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/schema.go",
+    "internal/store/query_corpus_test.go"
+  ],
+  "id": "storage-spine-slice",
+  "kind": "reference",
+  "path": "docs/storage-spine-slice.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:ba09e26bab7fe5f8516dace712eb1d4be8affbf4d5e5db734475647445e1e499",
+  "status": "published",
+  "summary": "Acceptance slice exercising the PM1 through PM10 storage contract end to end. Ready for acceptance rather than accepted.",
+  "tags": [
+    "storage",
+    "acceptance-slice"
+  ],
+  "title": "storage spine slice"
+}

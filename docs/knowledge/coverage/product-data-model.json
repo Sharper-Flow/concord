@@ -1,0 +1,5 @@
+{
+  "id": "product-data-model",
+  "reason": "Aligned companion that describes the model the accepted decisions establish. CD-0041 and the PM specs carry the coverage for the behaviour it describes.",
+  "state": "out_of_scope"
+}

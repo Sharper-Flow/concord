@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "adapter/opencode/concord.ts",
+    "adapter/opencode/dispatch.ts",
+    "cmd/concord/main_test.go",
+    "scripts/check-agent-contracts.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "TS6",
+  "kind": "spec",
+  "path": "docs/agent-adapter-transport-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d10d570ea61459939e95efa326d0c27e4982f28d11f6239572a619d21748618b",
+  "status": "accepted",
+  "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
+  "tags": [
+    "ts6",
+    "adapter",
+    "transport"
+  ],
+  "title": "agent adapter transport contract"
+}

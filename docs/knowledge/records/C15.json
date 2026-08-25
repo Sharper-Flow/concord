@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/managed_resources.go",
+    "internal/store/managed_resources_test.go",
+    "internal/store/resource_claims.go"
+  ],
+  "home_domain_id": "work-coordination",
+  "id": "C15",
+  "kind": "spec",
+  "path": "docs/managed-resource-inventory.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7f309b1d9226729017a63af1e3afffdb380f325c03f9792b6f53d2b4c17668c1",
+  "status": "accepted",
+  "summary": "Defines the resource-first managed-resource inventory with a singular owner Product, consumer links, and typed locators.",
+  "tags": [
+    "c15",
+    "managed-resources"
+  ],
+  "title": "managed resource inventory"
+}

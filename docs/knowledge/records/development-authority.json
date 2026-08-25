@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0010-pre-readiness-development-authority.md",
+    "scripts/check-predecessor-independence.py",
+    "AGENTS.md"
+  ],
+  "home_domain_id": "repository-verification",
+  "id": "development-authority",
+  "kind": "spec",
+  "path": "docs/development-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:454dfcd8dae8358c69b028f5f8e373e1494c10d7b74148b326436adcfc1546a0",
+  "status": "accepted",
+  "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
+  "tags": [
+    "authority",
+    "process",
+    "cd-0010"
+  ],
+  "title": "development authority"
+}

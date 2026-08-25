@@ -1,0 +1,5 @@
+{
+  "id": "storage-spine-slice",
+  "reason": "Implementation-acceptance slice whose header states it is ready for acceptance rather than accepted. The PM specs it exercises each carry their own coverage.",
+  "state": "out_of_scope"
+}

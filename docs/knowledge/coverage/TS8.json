@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestGeneratedPayloadFixturesAreConsumedByGoValidator"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestGeneratedOperationsCarryManifestOwnedBoundaries"
+    }
+  ],
+  "id": "TS8",
+  "state": "satisfied"
+}

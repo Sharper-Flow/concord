@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProductRowsC14ReturnsFiveGroups"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProductRowsC14UnavailableRequiredSourceNeverBecomesZero"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
+    }
+  ],
+  "id": "C14",
+  "state": "satisfied"
+}

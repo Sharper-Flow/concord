@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/product-data-model.md",
+    "docs/workflows.md"
+  ],
+  "id": "vertical-integration",
+  "kind": "research",
+  "path": "docs/vertical-integration.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:1aabc5f6e4972a73bea6cca4294f41e22eeb4388d002975bb8df11e95215c958",
+  "status": "published",
+  "summary": "Investigates whether to own, absorb, or Product-scope the adjacent lgrep, vision, and episode tools.",
+  "tags": [
+    "vertical-integration",
+    "research"
+  ],
+  "title": "vertical integration"
+}

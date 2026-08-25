@@ -1,0 +1,5 @@
+{
+  "id": "floor-readiness",
+  "reason": "Descriptive companion. The authorizing record is docs/floor-readiness.v1.json and scripts/check-floor-readiness.py measures it on every run.",
+  "state": "out_of_scope"
+}

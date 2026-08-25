@@ -1,0 +1,5 @@
+{
+  "id": "clarifications",
+  "reason": "Living index of open questions and resolved directions. Each resolved item is owned by the decision or spec that resolved it, which carries its own coverage.",
+  "state": "out_of_scope"
+}

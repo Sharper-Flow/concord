@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "evidence": [
+    "scripts/check-predecessor-coverage.py",
+    "docs/priorities.md"
+  ],
+  "id": "predecessor-operational-coverage",
+  "kind": "reference",
+  "path": "docs/predecessor-operational-coverage.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2394b7c09ced4b249807f559bfb22ff339bc317519ebddf58a2c2b6b55dac53f",
+  "status": "published",
+  "summary": "Per-territory assessment of Concord's operational coverage against the predecessor, validated on every CI run.",
+  "tags": [
+    "predecessor",
+    "coverage"
+  ],
+  "title": "predecessor operational coverage"
+}

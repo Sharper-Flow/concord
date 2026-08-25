@@ -69,7 +69,7 @@
     },
     {
       "id": "point-in-time-reconstruction-no-operator-verb",
-      "state": "unmeasured",
+      "state": "out_of_scope",
       "functions": [
         "internal/store.ReconstructSubjectAt",
         "internal/store.excludedFromReconstructionSnapshot",
@@ -79,23 +79,70 @@
         "internal/store.populateReconstructionSnapshot",
         "internal/store.readSubjectEvents",
         "internal/store.reconstructionRelations",
-        "internal/store.seedReconstructionEndpoints"
+        "internal/store.seedReconstructionEndpoints",
+        "internal/store.upcastEvent"
       ],
-      "reason": "Subject reconstruction is exercised by the WF36 corpus scenario but reaches no CLI verb. Whether an operator surface is required before the floor has not been assessed."
+      "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and docs/floor-readiness.v1.json cites it as fc5 evidence, so the capability is required law rather than spare code. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the sole entry point, the other eight are its private helpers, and upcastEvent is reachable only through this cluster."
     },
     {
-      "id": "research-mutation-surface-partial",
-      "state": "unmeasured",
+      "id": "superseded-duplicate-entry-points",
+      "state": "outstanding",
       "functions": [
+        "cmd/concord.runLauncherWithTerminalStreams",
+        "internal/agent.DecodeCursor",
+        "internal/agent.DecodeEnvelope",
+        "internal/agent.EncodeCursor",
+        "internal/agent.Grant.String",
+        "internal/agent.NewOKRead",
         "internal/store.AddResearchFinding",
         "internal/store.AddResearchSource",
+        "internal/store.BuiltinLaneRegistry",
         "internal/store.CheckResearchFreshness",
         "internal/store.ReadCompleteResearchPack",
+        "internal/store.RebuildKnowledgeIndex",
         "internal/store.RecordResearchFindingWithinTx",
+        "internal/store.SortLawIDs",
         "internal/store.UpdateResearchFinding",
-        "internal/store.UpdateResearchSource"
+        "internal/store.UpdateResearchSource",
+        "internal/store.enrichKnowledgeScopes",
+        "internal/store.readAppliedMigrations",
+        "internal/store.rollbackRead",
+        "internal/store.tableExists",
+        "internal/store.validateKnowledgeRecord",
+        "internal/store.validateManifestScopes"
       ],
-      "reason": "Research authoring reaches the agent surface under CD-0025, but these specific mutation and read paths do not. Which of them the agent surface is meant to expose has not been assessed."
+      "issue": 488
+    },
+    {
+      "id": "store-mutations-without-operator-surface",
+      "state": "outstanding",
+      "functions": [
+        "internal/agent.NewAdapterError",
+        "internal/store.AddManagedResourceConsumer",
+        "internal/store.CheckSchemaCompatibility",
+        "internal/store.CreateManagedResource",
+        "internal/store.ReplaceDomainProjectAttachments",
+        "internal/store.ReplaceDomainResourceAttachments",
+        "internal/store.SchemaVersion"
+      ],
+      "issue": 489
+    },
+    {
+      "id": "unwired-knowledge-manifest-migration",
+      "state": "outstanding",
+      "functions": [
+        "internal/store.MigrateLegacyKnowledgeManifest"
+      ],
+      "issue": 490
+    },
+    {
+      "id": "test-only-registry-assertions",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.knownSubjectTypes",
+        "internal/store.validateEventKindRegistry"
+      ],
+      "reason": "Both are assertion helpers for registry conformance tests. knownSubjectTypes enumerates the subject kinds an event may carry, and validateEventKindRegistry rejects an ill-formed event-kind registration. Neither guards a production path: they run where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing either to an operator would offer a verb whose only honest answer is that the build already settled the question."
     },
     {
       "id": "registry-injection-test-seam",
@@ -114,39 +161,6 @@
         "internal/agent.Service.RevokeGrant"
       ],
       "issue": 465
-    },
-    {
-      "id": "initial-inventory-unassessed",
-      "state": "unmeasured",
-      "functions": [
-        "cmd/concord.runLauncherWithTerminalStreams",
-        "internal/agent.DecodeCursor",
-        "internal/agent.DecodeEnvelope",
-        "internal/agent.EncodeCursor",
-        "internal/agent.Grant.String",
-        "internal/agent.NewAdapterError",
-        "internal/agent.NewOKRead",
-        "internal/store.AddManagedResourceConsumer",
-        "internal/store.BuiltinLaneRegistry",
-        "internal/store.CheckSchemaCompatibility",
-        "internal/store.CreateManagedResource",
-        "internal/store.MigrateLegacyKnowledgeManifest",
-        "internal/store.RebuildKnowledgeIndex",
-        "internal/store.ReplaceDomainProjectAttachments",
-        "internal/store.ReplaceDomainResourceAttachments",
-        "internal/store.SchemaVersion",
-        "internal/store.SortLawIDs",
-        "internal/store.enrichKnowledgeScopes",
-        "internal/store.knownSubjectTypes",
-        "internal/store.readAppliedMigrations",
-        "internal/store.rollbackRead",
-        "internal/store.tableExists",
-        "internal/store.upcastEvent",
-        "internal/store.validateEventKindRegistry",
-        "internal/store.validateKnowledgeRecord",
-        "internal/store.validateManifestScopes"
-      ],
-      "reason": "Surfaced by the first CD-0047 reachability inventory and not yet assessed. This state is deliberate: inventing a rationale for code whose purpose has not been re-examined would make the manifest read as considered when it is merely recorded."
     }
   ]
 }

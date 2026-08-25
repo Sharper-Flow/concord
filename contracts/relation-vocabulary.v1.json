@@ -1,0 +1,108 @@
+{
+  "$schema": "contracts/relation-vocabulary.schema.json",
+  "schema_version": "1.0",
+  "summary": "The single declaration of the work-to-work relation vocabulary. Every projection of these terms is derived from this file: the stored-kind set the relations CHECK constraint admits, the fold's accepted kinds and its per-kind link refusals, the query labels the relation read surface serves, which labels permit transitive closure, and the event population that assigns relation identity.",
+  "kinds": [
+    {
+      "kind": "blocks",
+      "summary": "The source work must reach a terminal state before the target work can start.",
+      "inverse_label": "blocked_by",
+      "transitive": true,
+      "transitive_meaning": "Closure reports transitive delay: the source delays the target through a chain. It does not claim that clearing the source alone unblocks the target.",
+      "link": "allowed",
+      "written_by": ["relation.added", "workflow.overlap_resolved"]
+    },
+    {
+      "kind": "compatible_with",
+      "summary": "Two overlapping work items were judged able to proceed together.",
+      "inverse_label": null,
+      "transitive": false,
+      "link": "refused",
+      "link_refusal": {
+        "message": "overlap-resolution relations must be created by resolve_overlap",
+        "recovery": "use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic"
+      },
+      "written_by": ["workflow.overlap_resolved"]
+    },
+    {
+      "kind": "depends_on",
+      "summary": "The source work requires the target work. Distinct from blocks: a dependency is a stated requirement, not a scheduling bar.",
+      "inverse_label": null,
+      "transitive": true,
+      "transitive_meaning": "Closure reports the transitive requirement set reachable from the source.",
+      "link": "allowed",
+      "written_by": ["relation.added", "workflow.overlap_resolved"]
+    },
+    {
+      "kind": "forward_link",
+      "summary": "Workflow composition linked a successor work item. Written only by the workflow dispatcher; no operator surface creates it.",
+      "inverse_label": null,
+      "transitive": false,
+      "link": "internal",
+      "written_by": ["workflow.successor_linked"]
+    },
+    {
+      "kind": "implements",
+      "summary": "The source work carries out the target work's stated intent.",
+      "inverse_label": "implemented_by",
+      "transitive": false,
+      "link": "allowed",
+      "written_by": ["relation.added"]
+    },
+    {
+      "kind": "includes",
+      "summary": "Ordered Initiative membership. The edge mirrors an initiative_entries row.",
+      "inverse_label": "included_by",
+      "transitive": true,
+      "transitive_meaning": "Closure reports nested Initiative containment.",
+      "link": "refused",
+      "link_refusal": {
+        "message": "Initiative membership edges must be created by Initiative entry events",
+        "recovery": "append an Initiative entry event"
+      },
+      "written_by": ["initiative_entry.added"]
+    },
+    {
+      "kind": "merged_into",
+      "summary": "The source work was merged into the target work and terminalized.",
+      "inverse_label": null,
+      "transitive": false,
+      "link": "refused",
+      "link_refusal": {
+        "message": "overlap-resolution relations must be created by resolve_overlap",
+        "recovery": "use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic"
+      },
+      "written_by": ["workflow.overlap_resolved"]
+    },
+    {
+      "kind": "parent",
+      "summary": "Structural containment between two ordinary work items.",
+      "inverse_label": "child_of",
+      "transitive": true,
+      "transitive_meaning": "Closure reports the ancestor chain.",
+      "link": "allowed",
+      "written_by": ["relation.added"]
+    },
+    {
+      "kind": "raised_from",
+      "summary": "The source work was raised out of the target work as a distinct concern.",
+      "inverse_label": "raised",
+      "transitive": false,
+      "link": "allowed",
+      "written_by": ["relation.added"]
+    },
+    {
+      "kind": "supersedes",
+      "summary": "The source work replaces the target work. One successor per target.",
+      "inverse_label": "superseded_by",
+      "transitive": true,
+      "transitive_meaning": "Closure reports the successor chain to the surviving work item.",
+      "link": "refused",
+      "link_refusal": {
+        "message": "supersedes relations must be created by work.superseded",
+        "recovery": "append a work.superseded event so the edge and lifecycle change remain atomic"
+      },
+      "written_by": ["work.superseded", "work.reopened_from_superseded", "workflow.overlap_resolved"]
+    }
+  ]
+}

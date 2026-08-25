@@ -105,7 +105,7 @@ func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
 	}
 	foundInverse := false
 	for _, edge := range result.Edges {
-		if edge.Kind == "depends_on" && edge.Source == "blocked" && edge.Target == "blocker" {
+		if edge.Kind == "blocked_by" && edge.Source == "blocked" && edge.Target == "blocker" {
 			foundInverse = true
 		}
 	}
@@ -389,13 +389,38 @@ func TestQueryQ4DerivesAndResolvesBlockers(t *testing.T) {
 	}
 }
 
-func TestQueryQ8DependsOnUsesInverseWithoutMirroredRow(t *testing.T) {
+// An inverse label reads a stored edge backwards. The store keeps one row, not a
+// mirrored pair, so the inverse is a read projection and never a second relation.
+func TestQueryQ8InverseLabelReadsWithoutMirroredRow(t *testing.T) {
 	s := seedQueryFixture(t)
-	result, err := s.QueryQ8(context.Background(), Q8Request{Work: "blocked", RelationKinds: []string{"depends_on"}, Direction: "outgoing"})
-	if err != nil || len(result.Edges) != 1 || result.Edges[0].Source != "blocked" || result.Edges[0].Target != "blocker" {
+	result, err := s.QueryQ8(context.Background(), Q8Request{Work: "blocked", RelationKinds: []string{"blocked_by"}, Direction: "outgoing"})
+	if err != nil || len(result.Edges) != 1 || result.Edges[0].Kind != "blocked_by" || result.Edges[0].Source != "blocked" || result.Edges[0].Target != "blocker" || result.Edges[0].Depth != 1 {
 		t.Fatalf("Q8 = %#v, err %v", result, err)
 	}
 	assertTableCount(t, s, "relations", 1)
+}
+
+func TestQueryQ8DependsOnUsesForwardStoredKind(t *testing.T) {
+	s := seedQueryFixture(t)
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		relationAddedEvent("q-depends-on", "depends_on", "blocked", "blocker", 2, 3),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.QueryQ8(context.Background(), Q8Request{Work: "blocked", RelationKinds: []string{"depends_on"}, Direction: "outgoing"})
+	if err != nil || len(result.Edges) != 1 || result.Edges[0].Source != "blocked" || result.Edges[0].Target != "blocker" || result.Edges[0].Depth != 1 {
+		t.Fatalf("Q8 = %#v, err %v", result, err)
+	}
+	assertTableCount(t, s, "relations", 2)
+}
+
+func TestQueryQ8RejectsNonTransitiveDepth(t *testing.T) {
+	s := seedQueryFixture(t)
+	_, err := s.QueryQ8(context.Background(), Q8Request{Work: "blocked", RelationKinds: []string{"implements"}, Direction: "outgoing", Depth: 2})
+	assertFailureKind(t, err, KindInvalidFilter)
+	if err == nil || !strings.Contains(err.Error(), "relation kind implements is not transitive") {
+		t.Fatalf("Q8 non-transitive depth error = %v", err)
+	}
 }
 
 func TestQuerySpecializedResultsCarryUniversalPayload(t *testing.T) {

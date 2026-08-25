@@ -16,7 +16,7 @@ func TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle(t *testi
 		{Kind: "parent", Source: "a", Target: "b"},
 		{Kind: "parent", Source: "b", Target: "c"},
 		{Kind: "blocks", Source: "c", Target: "d"},
-		{Kind: "depends_on", Source: "d", Target: "c"},
+		{Kind: "blocked_by", Source: "d", Target: "c"},
 	}, 3, "authoritative")
 	if tree.Invariant != "" {
 		t.Fatalf("inverse edge became cycle: %#v", tree)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -142,11 +143,6 @@ type relationPayload struct {
 	ResultingVersion   int64  `json:"resulting_version"`
 	ToExpectedVersion  int64  `json:"to_expected_version,omitempty"`
 	ToResultingVersion int64  `json:"to_resulting_version,omitempty"`
-}
-
-var relationKinds = map[string]bool{
-	"parent": true, "includes": true, "blocks": true, "supersedes": true, "implements": true, "raised_from": true,
-	"depends_on": true, "compatible_with": true, "merged_into": true,
 }
 
 var lifecycleStates = map[string]bool{
@@ -601,19 +597,8 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "relation.added payload has invalid fields", false,
 			"supply two work IDs, one accepted relation kind, and a non-empty reason")
 	}
-	switch payload.Kind {
-	case "supersedes":
-		return newFailure(KindRelationContractViolation, "fold_event",
-			"supersedes relations must be created by work.superseded", false,
-			"append a work.superseded event so the edge and lifecycle change remain atomic")
-	case "compatible_with", "merged_into":
-		return newFailure(KindRelationContractViolation, "fold_event",
-			"overlap-resolution relations must be created by resolve_overlap", false,
-			"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")
-	case "includes":
-		return newFailure(KindRelationContractViolation, "fold_event",
-			"Initiative membership edges must be created by Initiative entry events", false,
-			"append an Initiative entry event")
+	if refusal, ok := relationLinkRefusals[payload.Kind]; ok {
+		return newFailure(KindRelationContractViolation, "fold_event", refusal.Message, false, refusal.Recovery)
 	}
 	if payload.Kind == "parent" {
 		fromKind, err := readWorkKind(ctx, tx, payload.From)
@@ -887,10 +872,15 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	// from the ordered relation-creating event count makes replay reproduce IDs,
 	// including gaps left by removed historical edges.
 	var relationID int64
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(relationIdentityEventKinds)), ",")
+	args := []any{event.EventID}
+	for _, kind := range relationIdentityEventKinds {
+		args = append(args, kind)
+	}
 	if err := tx.QueryRowContext(ctx, `
 		SELECT count(*) FROM domain_events
 		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		AND kind IN ('relation.added', 'workflow.overlap_resolved', 'work.superseded', 'work.reopened_from_superseded', 'initiative_entry.added')`, event.EventID).Scan(&relationID); err != nil {
+		AND kind IN (`+placeholders+`)`, args...).Scan(&relationID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
 			"retry once the event log is readable", err)
 	}
@@ -904,7 +894,7 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err == nil {
 		return nil
 	}
-	if isUniqueViolation(err) || isCheckViolation(err) {
+	if isIdentityConflict(err) || isCheckViolation(err) {
 		return wrapFailure(KindRelationConflict, "fold_event", "relation violates a uniqueness or self-edge constraint", false,
 			"remove the duplicate or self-edge from the operation", err)
 	}

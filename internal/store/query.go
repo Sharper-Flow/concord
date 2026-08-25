@@ -234,6 +234,7 @@ type RelationEdge struct {
 	Kind   string `json:"kind"`
 	Source string `json:"source"`
 	Target string `json:"target"`
+	Depth  int    `json:"depth"`
 }
 
 type Q8Result struct {
@@ -1456,12 +1457,11 @@ type relationSpec struct {
 
 func relationSpecs(kinds []string) ([]relationSpec, error) {
 	if len(kinds) == 0 {
-		kinds = []string{"parent", "includes", "blocks", "supersedes", "implements"}
+		kinds = relationDefaultQueryLabels
 	}
-	valid := map[string]relationSpec{"parent": {"parent", "parent", false}, "child_of": {"child_of", "parent", true}, "includes": {"includes", "includes", false}, "included_by": {"included_by", "includes", true}, "blocks": {"blocks", "blocks", false}, "blocked_by": {"blocked_by", "blocks", true}, "depends_on": {"depends_on", "blocks", true}, "supersedes": {"supersedes", "supersedes", false}, "superseded_by": {"superseded_by", "supersedes", true}, "implements": {"implements", "implements", false}, "implemented_by": {"implemented_by", "implements", true}, "raised_from": {"raised_from", "raised_from", false}, "raised": {"raised", "raised_from", true}}
 	out := make([]relationSpec, 0, len(kinds))
 	for _, k := range kinds {
-		s, ok := valid[k]
+		s, ok := relationQueryLabels[k]
 		if !ok {
 			return nil, newFailure(KindInvalidFilter, "PM1.Q8", "unknown relation kind "+k, false, "use an accepted PM4 relation or inverse label")
 		}
@@ -1492,7 +1492,7 @@ func readRelationDepth(ctx context.Context, tx *sql.Tx, work string, specs []rel
 SELECT 1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM relations r WHERE r.kind=? AND ` + anchor + `
 UNION
 SELECT g.depth+1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM graph g JOIN relations r ON r.kind=? AND ` + recurse + ` WHERE g.depth < ?
-) SELECT ? AS kind,source,target FROM graph ORDER BY depth,source,target`
+) SELECT ? AS kind,source,target,depth FROM graph ORDER BY depth,source,target`
 		args := []any{spec.invert, spec.invert, spec.stored, work, spec.invert, spec.invert, spec.stored, depth, spec.label}
 		rows, err := tx.QueryContext(ctx, q, args...)
 		if err != nil {
@@ -1500,7 +1500,7 @@ SELECT g.depth+1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE 
 		}
 		for rows.Next() {
 			var edge RelationEdge
-			if err := rows.Scan(&edge.Kind, &edge.Source, &edge.Target); err != nil {
+			if err := rows.Scan(&edge.Kind, &edge.Source, &edge.Target, &edge.Depth); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -1537,6 +1537,13 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 	if err != nil {
 		return out, err
 	}
+	if depth > 1 {
+		for _, spec := range specs {
+			if !relationTransitiveKinds[spec.stored] {
+				return out, newFailure(KindInvalidFilter, "PM1.Q8", "relation kind "+spec.stored+" is not transitive", false, "query a transitive relation kind or use depth 1")
+			}
+		}
+	}
 	tx, err := beginRead(ctx, s, "PM1.Q8")
 	if err != nil {
 		return out, err
@@ -1571,7 +1578,10 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 			if allEdges[i].Source != allEdges[j].Source {
 				return allEdges[i].Source < allEdges[j].Source
 			}
-			return allEdges[i].Target < allEdges[j].Target
+			if allEdges[i].Target != allEdges[j].Target {
+				return allEdges[i].Target < allEdges[j].Target
+			}
+			return allEdges[i].Depth < allEdges[j].Depth
 		})
 		seen := map[string]bool{}
 		out.Edges = out.Edges[:0]
@@ -1579,17 +1589,18 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 			key := edge.Kind + "|" + edge.Source + "|" + edge.Target
 			if !seen[key] {
 				seen[key] = true
+				// Sorting places the shallowest path first, so first-wins keeps its depth.
 				out.Edges = append(out.Edges, edge)
 			}
 		}
 		out.Result = &Q8ResultPayload{Edges: out.Edges}
-		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target"})
+		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target", "depth"})
 		return out, err
 	}
 	parts := make([]string, 0, len(specs))
 	args := []any{}
 	for _, spec := range specs {
-		parts = append(parts, `SELECT ? AS kind, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END AS source, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END AS target FROM relations r WHERE r.kind=? AND `+func() string {
+		parts = append(parts, `SELECT ? AS kind, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END AS source, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END AS target, 1 AS depth FROM relations r WHERE r.kind=? AND `+func() string {
 			if spec.invert && direction == "outgoing" || !spec.invert && direction == "incoming" {
 				return "r.work_id_to=?"
 			}
@@ -1605,7 +1616,7 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var e RelationEdge
-		if err := rows.Scan(&e.Kind, &e.Source, &e.Target); err != nil {
+		if err := rows.Scan(&e.Kind, &e.Source, &e.Target, &e.Depth); err != nil {
 			return out, err
 		}
 		out.Edges = append(out.Edges, e)
@@ -1617,6 +1628,6 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 		out.Edges = []RelationEdge{}
 	}
 	out.Result = &Q8ResultPayload{Edges: out.Edges}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target", "depth"})
 	return out, err
 }

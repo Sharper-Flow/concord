@@ -279,8 +279,7 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 		verb := vectorCase.Verb
 		run := func(t *testing.T, mutate func(agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion) (int, string, string) {
 			t.Helper()
-			dbPath := filepath.Join(t.TempDir(), "concord.db")
-			t.Setenv(dbOverrideEnv, dbPath)
+			dbPath := freshMigratedCLIDatabase(t)
 			key := seedWorkerEvidenceClient(t)
 			if verb == agent.WorkerEvidenceVerbDispatch {
 				seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
@@ -318,8 +317,7 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 // claim what the binding carries, and the CLI must refuse it before mutation
 // while the complete assertion still lands its event.
 func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
+	dbPath := freshMigratedCLIDatabase(t)
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
@@ -476,8 +474,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			dbPath := filepath.Join(t.TempDir(), "concord.db")
-			t.Setenv(dbOverrideEnv, dbPath)
+			dbPath := freshMigratedCLIDatabase(t)
 			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 			key := seedWorkerEvidenceClient(t)
 			var out, errOut bytes.Buffer
@@ -494,8 +491,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 // the same transaction as the evidence: a byte-identical nonce in a fresh
 // window refuses on replay, not on the window gate.
 func TestWorkerEvidenceAssertionCannotBeReplayed(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
+	dbPath := freshMigratedCLIDatabase(t)
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")

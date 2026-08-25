@@ -41,18 +41,10 @@ func Open(dir string) (*store.Store, error) {
 
 // OpenNamed returns a migrated store at dir/name.
 func OpenNamed(dir, name string) (*store.Store, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("storetest: create dir %s: %w", dir, err)
+	if err := WriteMigratedDatabase(dir, name); err != nil {
+		return nil, err
 	}
-	once.Do(build)
-	if buildErr != nil {
-		return nil, buildErr
-	}
-
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, template, 0o600); err != nil {
-		return nil, fmt.Errorf("storetest: write template to %s: %w", path, err)
-	}
 	// Migrate finds the schema current and returns without work;
 	// ensureInstallationKey still mints this database its own key.
 	s, err := store.Open(context.Background(), path)
@@ -60,6 +52,25 @@ func OpenNamed(dir, name string) (*store.Store, error) {
 		return nil, fmt.Errorf("storetest: open %s: %w", path, err)
 	}
 	return s, nil
+}
+
+// WriteMigratedDatabase materializes the shared migrated template at
+// dir/name without opening it. Tests that drive the CLI in process point the
+// database override at the file, so the first run validates a current schema
+// instead of replaying every migration. Each written file mints its own
+// installation key on first open, exactly as a copy from OpenNamed does.
+func WriteMigratedDatabase(dir, name string) error {
+	once.Do(build)
+	if buildErr != nil {
+		return buildErr
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("storetest: create dir %s: %w", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), template, 0o600); err != nil {
+		return fmt.Errorf("storetest: write template to %s: %w", filepath.Join(dir, name), err)
+	}
+	return nil
 }
 
 // build migrates one database and captures its bytes. A failure here is

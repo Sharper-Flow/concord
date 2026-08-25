@@ -98,3 +98,39 @@ func TestTemplateBackedStoresAreIndependent(t *testing.T) {
 		t.Fatalf("second store observed the first store's write: %d key rows", got)
 	}
 }
+
+// WriteMigratedDatabase hands the caller a migrated file the CLI tests point
+// the database override at; the first open must accept it as current schema
+// and still mint per-installation identity.
+func TestWriteMigratedDatabaseYieldsOpenableCurrentSchema(t *testing.T) {
+	dir := t.TempDir()
+	if err := storetest.WriteMigratedDatabase(dir, "staged.db"); err != nil {
+		t.Fatalf("write migrated database: %v", err)
+	}
+	path := filepath.Join(dir, "staged.db")
+	first, err := store.Open(t.Context(), path)
+	if err != nil {
+		t.Fatalf("open written database: %v", err)
+	}
+	t.Cleanup(func() { first.Close() })
+
+	if got := query[int](t, first.Path(), `SELECT COUNT(*) FROM schema_migrations`); got == 0 {
+		t.Fatal("written database applied no migrations")
+	}
+	if got := query[int](t, first.Path(), `SELECT COUNT(*) FROM agent_installation_keys`); got != 1 {
+		t.Fatalf("installation key rows = %d, want the per-open mint of exactly 1", got)
+	}
+
+	if err := storetest.WriteMigratedDatabase(dir, "second.db"); err != nil {
+		t.Fatalf("write second database: %v", err)
+	}
+	second, err := store.Open(t.Context(), filepath.Join(dir, "second.db"))
+	if err != nil {
+		t.Fatalf("open second written database: %v", err)
+	}
+	t.Cleanup(func() { second.Close() })
+	const statement = `SELECT key_bytes FROM agent_installation_keys WHERE key_name='cursor'`
+	if bytes.Equal(query[[]byte](t, first.Path(), statement), query[[]byte](t, second.Path(), statement)) {
+		t.Fatal("two written databases share an installation key")
+	}
+}

@@ -13,77 +13,77 @@ func lawTestRecord(id, kind, status, path string, relations ...KnowledgeRelation
 	return KnowledgeRecord{
 		ID: id, Kind: kind, Path: path, Status: status, Date: "2026-08-11T00:00:00Z",
 		Title: id, Summary: "law test record", Tags: []string{},
-		Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, ComponentIDs: []string{}, TagIDs: []string{}},
+		Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 		SHA256: "sha256:" + strings.Repeat("a", 64), LawRelations: relations,
 	}
 }
 
-func TestKnowledgeManifestV11RelationsAndV10Compatibility(t *testing.T) {
-	old := KnowledgeManifest{SchemaVersion: "1.0", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, Records: []KnowledgeRecord{lawTestRecord("old", "decision", "accepted", "docs/decisions/CD-0001-old.md")}}
-	if err := validateKnowledgeManifest(old); err != nil {
-		t.Fatalf("1.0 manifest rejected: %v", err)
+func lawTestManifest(records ...KnowledgeRecord) KnowledgeManifest {
+	for index := range records {
+		if records[index].Status == "accepted" && manifestLawBearingKinds[records[index].Kind] {
+			records[index].HomeDomainID = "product-root:concord"
+			records[index].ProductWideRationale = "Fixture law binds every child Domain."
+		}
 	}
-	valid := KnowledgeManifest{SchemaVersion: "1.1", SupportedKinds: []string{"decision", "spec"}, IndexedKinds: []string{"decision", "spec"}, Records: []KnowledgeRecord{
+	return KnowledgeManifest{
+		SchemaVersion: "1.2", SupportedKinds: []string{"lesson", "decision", "spec"}, IndexedKinds: []string{"lesson", "decision", "spec"}, Records: records,
+		DomainRegistry: KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord", Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}}},
+	}
+}
+
+func TestKnowledgeManifestRelationsRequireCurrentSchema(t *testing.T) {
+	valid := lawTestManifest(
 		lawTestRecord("base", "decision", "accepted", "docs/decisions/CD-0001-base.md", KnowledgeRelation{Kind: "refines", TargetID: "detail"}),
 		lawTestRecord("detail", "spec", "accepted", "docs/detail.md"),
-	}}
+	)
 	if err := validateKnowledgeManifest(valid); err != nil {
-		t.Fatalf("valid 1.1 relation rejected: %v", err)
+		t.Fatalf("valid 1.2 relation rejected: %v", err)
 	}
 	encoded, err := json.Marshal(valid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed, err := parseKnowledgeManifest(encoded); err != nil || parsed.SchemaVersion != "1.1" || len(parsed.Records[0].LawRelations) != 1 {
-		t.Fatalf("strict 1.1 parser result=%+v err=%v", parsed, err)
+	if parsed, err := parseKnowledgeManifest(encoded); err != nil || parsed.SchemaVersion != "1.2" || len(parsed.Records[0].LawRelations) != 1 {
+		t.Fatalf("strict 1.2 parser result=%+v err=%v", parsed, err)
 	}
-	withRelation := old
-	withRelation.SchemaVersion = "1.0"
-	withRelation.Records[0].LawRelations = []KnowledgeRelation{{Kind: "refines", TargetID: "other"}}
-	assertFailureKind(t, validateKnowledgeManifest(withRelation), KindInvalidNoteProof)
+	for _, version := range []string{"1.0", "1.1"} {
+		legacy := valid
+		legacy.SchemaVersion = version
+		assertFailureKind(t, validateKnowledgeManifest(legacy), KindInvalidNoteProof)
+	}
 }
 
-func TestKnowledgeManifestV11RelationsRejectInvalidGraphsAndSupersessionMismatch(t *testing.T) {
+func TestKnowledgeManifestRelationsRejectInvalidGraphsAndSupersessionMismatch(t *testing.T) {
 	base := func(relations ...KnowledgeRelation) KnowledgeManifest {
-		return KnowledgeManifest{SchemaVersion: "1.1", SupportedKinds: []string{"decision", "spec"}, IndexedKinds: []string{"decision", "spec"}, Records: []KnowledgeRecord{
+		return lawTestManifest(
 			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", relations...),
 			lawTestRecord("b", "spec", "accepted", "docs/b.md"),
-		}}
+		)
 	}
 	for name, manifest := range map[string]KnowledgeManifest{
 		"unknown target": base(KnowledgeRelation{Kind: "refines", TargetID: "missing"}),
 		"self":           base(KnowledgeRelation{Kind: "refines", TargetID: "a"}),
 		"unknown kind":   base(KnowledgeRelation{Kind: "binds", TargetID: "b"}),
-		"reverse conflict": {
-			SchemaVersion: "1.1", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, Records: []KnowledgeRecord{
-				lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "b"}),
-				lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "a"}),
-			},
-		},
-		"cycle": {
-			SchemaVersion: "1.1", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, Records: []KnowledgeRecord{
-				lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
-				lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
-			},
-		},
-		"mixed directed cycle": {
-			SchemaVersion: "1.1", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, Records: []KnowledgeRecord{
-				lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
-				lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "subordinate_to", TargetID: "a"}),
-			},
-		},
-		"supersession mismatch": {
-			SchemaVersion: "1.1", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, Records: []KnowledgeRecord{
-				lawTestRecord("old", "decision", "superseded", "docs/decisions/CD-0001-old.md", KnowledgeRelation{Kind: "supersedes", TargetID: "new"}),
-				lawTestRecord("new", "decision", "accepted", "docs/decisions/CD-0002-new.md"),
-			},
-		},
-		"lesson endpoint": {
-			SchemaVersion: "1.1", SupportedKinds: []string{"lesson", "decision"}, IndexedKinds: []string{"lesson", "decision"}, Records: []KnowledgeRecord{
-				lawTestRecord("lesson", "lesson", "published", "docs/lesson.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
-				lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md"),
-			},
-		},
+		"reverse conflict": lawTestManifest(
+			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "b"}),
+			lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "a"}),
+		),
+		"cycle": lawTestManifest(
+			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
+			lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
+		),
+		"mixed directed cycle": lawTestManifest(
+			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
+			lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "subordinate_to", TargetID: "a"}),
+		),
+		"supersession mismatch": lawTestManifest(
+			lawTestRecord("old", "decision", "superseded", "docs/decisions/CD-0001-old.md", KnowledgeRelation{Kind: "supersedes", TargetID: "new"}),
+			lawTestRecord("new", "decision", "accepted", "docs/decisions/CD-0002-new.md"),
+		),
+		"lesson endpoint": lawTestManifest(
+			lawTestRecord("lesson", "lesson", "published", "docs/lesson.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
+			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md"),
+		),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := validateKnowledgeManifest(manifest); err == nil {
@@ -109,7 +109,7 @@ func TestRebuildKnowledgeIndexProjectsAndRollsBackLawRelations(t *testing.T) {
 	commit := commitKnowledgeRepo(t, repo, "typed laws")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "law-project", HomeLocatorID: "law-locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	authorizeKnowledgeProductHome(t, s, "concord", home)
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
 
 func writeLawManifest(t *testing.T, repo string, records []KnowledgeRecord) {
 	t.Helper()
-	manifest := KnowledgeManifest{SchemaVersion: "1.1", SupportedKinds: []string{"decision", "spec"}, IndexedKinds: []string{"decision", "spec"}, Records: records}
+	manifest := lawTestManifest(records...)
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		t.Fatal(err)

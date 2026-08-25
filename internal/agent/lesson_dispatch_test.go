@@ -41,7 +41,7 @@ func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519
 	if err := os.MkdirAll(filepath.Join(repo, "docs/lessons"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "{\n  \"schema_version\": \"1.1\",\n  \"supported_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\", \"research\"],\n  \"indexed_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\"],\n  \"records\": []\n}\n"
+	manifest := "{\n  \"schema_version\": \"1.2\",\n  \"supported_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\", \"research\"],\n  \"indexed_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\"],\n  \"domain_registry\": {\"schema_version\": \"1.0\", \"product_key\": \"lesson-product\", \"root_domain_id\": \"product-root:lesson-product\", \"domains\": [{\"domain_id\": \"product-root:lesson-product\", \"name\": \"Lesson product\", \"purpose\": \"Product-wide lesson fixture law\", \"status\": \"current\", \"architecture_relations\": []}]},\n  \"records\": []\n}\n"
 	if err := os.WriteFile(filepath.Join(repo, "docs/concord-knowledge-index.v1.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

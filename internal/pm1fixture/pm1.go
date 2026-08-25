@@ -144,33 +144,6 @@ func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, ho
 	return nil
 }
 
-// SeedCurrentProductDomainForHome projects the fixture registry for a Product
-// whose knowledge home already exists (for example the corpus knowledge
-// fixture): it reuses that home instead of creating a second one.
-func SeedCurrentProductDomainForHome(ctx context.Context, s *store.Store, productID string, home store.KnowledgeHome) error {
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("pm1fixture: begin Domain fixture transaction: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		return fmt.Errorf("pm1fixture: enable Domain fixture fold guard: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'fixture')`, productID, home.HomeProjectID, home.HomeLocatorID, "fixture-"+productID, FixtureRootDomainID, FixtureDomainRegistryContentHash); err != nil {
-		return fmt.Errorf("pm1fixture: seed Domain registry: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, productID, FixtureRootDomainID, "Fixture root", "Product law fixture", nil, "current", FixtureDomainRegistryContentHash, "fixture"); err != nil {
-		return fmt.Errorf("pm1fixture: seed root Domain: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		return fmt.Errorf("pm1fixture: disable Domain fixture fold guard: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("pm1fixture: commit Domain fixture: %w", err)
-	}
-	return nil
-}
-
 // Load reads scenarios/product-memory-query.v1.json from the repository root
 // and decodes it into a Corpus. The lookup is anchored to this file's source
 // location so the package can move without breaking the relative path.
@@ -654,7 +627,7 @@ func manifestRecordFromFile(id, kind, path, status, date, title, summary string,
 	sum := sha256.Sum256(content)
 	scopes.ProductIDs = append([]string{}, scopes.ProductIDs...)
 	scopes.ProjectIDs = append([]string{}, scopes.ProjectIDs...)
-	scopes.ComponentIDs = append([]string{}, scopes.ComponentIDs...)
+	scopes.DomainIDs = append([]string{}, scopes.DomainIDs...)
 	scopes.TagIDs = append([]string{}, scopes.TagIDs...)
 	return store.KnowledgeRecord{
 		ID:      id,
@@ -671,10 +644,31 @@ func manifestRecordFromFile(id, kind, path, status, date, title, summary string,
 }
 
 func writeKnowledgeManifest(repo string, records []store.KnowledgeRecord) error {
+	const productKey = "fixture-product"
+	const rootDomainID = "product-root:" + productKey
+	domains := []store.KnowledgeDomain{{DomainID: rootDomainID, Name: "Fixture product", Purpose: "Product-wide fixture law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}}}
+	declared := map[string]bool{rootDomainID: true}
+	for index := range records {
+		records[index].Scopes.ProductIDs = nonNil(records[index].Scopes.ProductIDs)
+		records[index].Scopes.ProjectIDs = nonNil(records[index].Scopes.ProjectIDs)
+		records[index].Scopes.DomainIDs = nonNil(records[index].Scopes.DomainIDs)
+		records[index].Scopes.TagIDs = nonNil(records[index].Scopes.TagIDs)
+		for _, domainID := range records[index].Scopes.DomainIDs {
+			if !declared[domainID] {
+				declared[domainID] = true
+				domains = append(domains, store.KnowledgeDomain{DomainID: domainID, Name: domainID, Purpose: "Fixture scope Domain", ParentDomainID: rootDomainID, Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}})
+			}
+		}
+		if records[index].Status == "accepted" && (records[index].Kind == "decision" || records[index].Kind == "spec" || records[index].Kind == "constitution") {
+			records[index].HomeDomainID = rootDomainID
+			records[index].ProductWideRationale = "Fixture law binds every child Domain."
+		}
+	}
 	manifest := store.KnowledgeManifest{
-		SchemaVersion:  "1.0",
+		SchemaVersion:  "1.2",
 		SupportedKinds: []string{"work_note", "decision", "spec", "lesson", "research"},
 		IndexedKinds:   []string{"work_note", "decision", "spec", "lesson"},
+		DomainRegistry: store.KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: productKey, RootDomainID: rootDomainID, Domains: domains},
 		Records:        records,
 	}
 	body, err := json.MarshalIndent(manifest, "", "  ")
@@ -682,6 +676,13 @@ func writeKnowledgeManifest(repo string, records []store.KnowledgeRecord) error 
 		return err
 	}
 	return writeKnowledgeFile(repo, "docs/concord-knowledge-index.v1.json", string(body)+"\n")
+}
+
+func nonNil(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func authorizeKnowledgeLocator(ctx context.Context, s *store.Store, home store.KnowledgeHome) error {

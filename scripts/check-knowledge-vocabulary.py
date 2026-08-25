@@ -221,13 +221,10 @@ def validate(schema: object, checker: object, doc_contract: object = None, closu
     compare("KINDS (indexed_kinds)", schema_enum(schema, ["properties", "indexed_kinds", "items"], findings), checker.KINDS, findings)
     compare("RECORD_KINDS", schema_enum(schema, ["$defs", "record", "properties", "kind"], findings), checker.RECORD_KINDS, findings)
     compare("LAW_KINDS", schema_enum(schema, ["$defs", "lawRelation", "properties", "kind"], findings), checker.LAW_KINDS, findings)
-    # The scope variants split one schema object across two version-specific
-    # refinements, so their union — not either alone — is what scopeCommon
-    # declares.
     compare(
-        "ALLOWED_SCOPES_V10 | ALLOWED_SCOPES_V12",
+        "ALLOWED_SCOPES_V12",
         schema_properties(schema, ["$defs", "scopeCommon"], findings),
-        checker.ALLOWED_SCOPES_V10 | checker.ALLOWED_SCOPES_V12,
+        checker.ALLOWED_SCOPES_V12,
         findings,
     )
     if doc_contract is not None:

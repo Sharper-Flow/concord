@@ -150,7 +150,7 @@ func canonicalOrderManifest(t *testing.T) KnowledgeManifest {
 		Records: []KnowledgeRecord{{
 			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-law.md", Status: "superseded",
 			Date: "2026-08-18T00:00:00Z", Title: "Law", Summary: "A record carrying every optional key.",
-			Tags: []string{}, Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}, domainIDsPresent: true},
+			Tags: []string{}, Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 			Successor: "CD-0002", SHA256: "sha256:" + strings.Repeat("a", 64),
 			LawRelations: []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0000"}},
 			Evidence:     []string{"internal/store/knowledge_manifest.go"},

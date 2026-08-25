@@ -48,17 +48,6 @@ func seedDomainReadStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifestObject map[string]any
-	if err := json.Unmarshal(manifestBytes, &manifestObject); err != nil {
-		t.Fatal(err)
-	}
-	for _, record := range manifestObject["records"].([]any) {
-		delete(record.(map[string]any)["scopes"].(map[string]any), "component_ids")
-	}
-	manifestBytes, err = json.Marshal(manifestObject)
-	if err != nil {
-		t.Fatal(err)
-	}
 	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(manifestBytes)+"\n")
 	commitKnowledgeRepo(t, repo, "domain knowledge")
 	s := openTemp(t)

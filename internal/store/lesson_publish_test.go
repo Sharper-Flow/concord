@@ -30,7 +30,7 @@ func lessonRepoFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	manifest := `{
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "supported_kinds": [
     "work_note",
     "decision",
@@ -44,6 +44,18 @@ func lessonRepoFixture(t *testing.T) string {
     "spec",
     "lesson"
   ],
+  "domain_registry": {
+    "schema_version": "1.0",
+    "product_key": "concord",
+    "root_domain_id": "product-root:concord",
+    "domains": [{
+      "domain_id": "product-root:concord",
+      "name": "Concord",
+      "purpose": "Product-wide Concord law and architecture",
+      "status": "current",
+      "architecture_relations": []
+    }]
+  },
   "records": [
     {
       "id": "seed-lesson",
@@ -54,7 +66,7 @@ func lessonRepoFixture(t *testing.T) string {
       "title": "Seed lesson",
       "summary": "Seed record proving the manifest format.",
       "tags": ["seed"],
-      "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "component_ids": [], "tag_ids": []},
+      "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
       "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     }
   ]
@@ -192,30 +204,6 @@ func TestPublishLessonRecordValidatesScopesAndBounds(t *testing.T) {
 func TestPublishLessonRecordPreservesV12DomainManifest(t *testing.T) {
 	repo := lessonRepoFixture(t)
 	manifestPath := filepath.Join(repo, lessonManifestPath)
-	manifest, err := os.ReadFile(manifestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated := strings.Replace(string(manifest), `"schema_version": "1.1"`, `"schema_version": "1.2"`, 1)
-	updated = strings.Replace(updated, `  ],
-  "records": [`, `  ],
-  "domain_registry": {
-    "schema_version": "1.0",
-    "product_key": "concord",
-    "root_domain_id": "product-root:concord",
-    "domains": [{
-      "domain_id": "product-root:concord",
-      "name": "Concord",
-      "purpose": "Product-wide Concord law and architecture",
-      "status": "current",
-      "architecture_relations": []
-    }]
-  },
-  "records": [`, 1)
-	updated = strings.ReplaceAll(updated, `"component_ids"`, `"domain_ids"`)
-	if err := os.WriteFile(manifestPath, []byte(updated), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	req := LessonPublication{
 		LessonID: "lesson-v12-domain", Title: "Domain lessons", Summary: "A version 1.2 manifest keeps its domain registry and domain-only scopes.",
@@ -237,12 +225,6 @@ func TestPublishLessonRecordPreservesV12DomainManifest(t *testing.T) {
 		t.Fatalf("published v1.2 manifest lost Domain-only shape:\n%s", written)
 	}
 
-	legacyScope := req
-	legacyScope.LessonID = "lesson-v12-component"
-	legacyScope.Scopes = KnowledgeRecordScopes{Mode: "explicit", ComponentIDs: []string{"legacy-component"}}
-	if _, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, legacyScope); err == nil || !strings.Contains(err.Error(), "cannot use component") {
-		t.Fatalf("expected v1.2 component-scope refusal, got %v", err)
-	}
 }
 
 func TestMarshalKnowledgeManifestPreservesV12LawHomes(t *testing.T) {
@@ -258,7 +240,7 @@ func TestMarshalKnowledgeManifestPreservesV12LawHomes(t *testing.T) {
 		Records: []KnowledgeRecord{{
 			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-law.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
 			Title: "Law", Summary: "A current law retains its Domain ownership after lesson publication.", Tags: []string{},
-			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}, domainIDsPresent: true},
+			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 			HomeDomainID: "product-root:concord", AppliesToDomainIDs: []string{"store"}, SHA256: "sha256:" + strings.Repeat("a", 64),
 			ProductWideRationale: "Ownership survives lesson publication across every child Domain.",
 		}},
@@ -290,7 +272,7 @@ func TestMarshalKnowledgeManifestMatchesKnowledgeIndexGenerator(t *testing.T) {
 		Records: []KnowledgeRecord{{
 			ID: "lesson-round-trip", Kind: "lesson", Path: "docs/lesson-round-trip.md", Status: "published", Date: "2026-08-20T00:00:00Z",
 			Title: "Round trip", Summary: "Python and Go use one aggregate byte format.", Tags: []string{"proof"},
-			Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}, domainIDsPresent: true},
+			Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 			SHA256: "sha256:" + strings.Repeat("a", 64),
 		}},
 	}

@@ -100,14 +100,6 @@
       "issue": 489
     },
     {
-      "id": "unwired-knowledge-manifest-migration",
-      "state": "outstanding",
-      "functions": [
-        "internal/store.MigrateLegacyKnowledgeManifest"
-      ],
-      "issue": 490
-    },
-    {
       "id": "test-only-registry-assertions",
       "state": "out_of_scope",
       "functions": [

@@ -18,6 +18,26 @@
 > `archived_work_domains`; #197 replaces component scope directly on the
 > pre-go-live primary path without an upcaster or compatibility window.
 
+## Context
+
+Compaction linkage makes terminal work eligible to leave live typed
+projections. The binding inputs are PM1 Q2/Q3/Q7 through Q10, CD-0002
+invariants, PM4 lifecycle, PM5 membership, PM6 note and link proof, and the
+compaction design. This record fixes the retention split: what stays
+authoritative after pruning, the minimum git-rebuildable historical
+projection, query behavior across live and historical tiers, and the reopen
+boundary. CD-0066 defers the pruning mechanism itself with live projections
+unbounded and a recorded revisit trigger; the authority guarantees here
+stand.
+## Contract
+
+The binding contract is sections 1, 5, 6, and 7.1: the retention decision
+splitting durable note, retained events, and disposable projections; the
+minimum historical front matter and its frozen scope; the query behavior for
+combined live/historical populations with composed authority; and the
+proof-gated active-research cleanup. CD-0066 defers sections 2 through 4 and
+the pruning projection of section 7; section 8 records the retained-versus-
+removed table those guarantees rest on.
 ## 1. Proposed decision
 
 PM6 compaction linkage makes terminal work eligible to leave live typed projections.
@@ -309,3 +329,50 @@ Reopen PM7 if:
 
 External sources are comparison evidence. PM1–PM6, CD-0002, operator choices, and
 the falsifiers above remain controlling.
+
+## Acceptance criteria
+
+- Given a published and verified compaction link
+  When Q10 resolves the work item
+  Then the canonical locator answers with git-proof semantics and projection
+  pruning does not alter note identity.
+
+- Given an archived-work population joined with a live population
+  When Q2/Q3 counts them
+  Then the combined answer deduplicates by work ID and composes authority
+  across both tiers.
+
+- Given terminal work with an unlinked active research pack
+  When cleanup runs
+  Then the pack deletion refuses until durable-note and linkage proof exist.
+
+- Given proof-backed archive of a pack-owning work item
+  When cleanup commits
+  Then revisions, findings, sources, and consumer bindings delete in one
+  transaction.
+
+- Given the historical projection of a compacted item
+  When it is rebuilt
+  Then every field derives from one verified canonical note or stable
+  home-walk context, never from a copied live row.
+
+## Verification
+
+No corpus scenario drives the historical-tier join or pack cleanup, so
+criteria carry typed exemptions naming the tests that prove the guarantees.
+
+- Criterion 1 is proved by the bound `Q10-not-compacted` scenario of
+  `scenarios/product-memory-query.v1.json`, executed by
+  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+- Criterion 2 is proved by `TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead`
+  (`internal/store/knowledge_index_test.go`), which fixes the git-head
+  watermark the composed authority depends on.
+- Criterion 3 is proved by `TestTerminalResearchCleanupRefusesRequiredCompaction`
+  (`internal/store/research_test.go`).
+- Criterion 4 is proved by `TestTerminalResearchCleanupDeletesUnblockedPack`
+  and `TestInterruptedTerminalCleanupFinishesAtNextPackMutation`
+  (`internal/store/research_test.go`).
+- Criterion 5 is proved by `TestCompactionPayloadRequiresExplicitUniqueScopeArrays`
+  and `TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder`
+  (`internal/store/knowledge_index_test.go`). Section 13 records the
+  falsifiers for each guarantee.

@@ -1,10 +1,31 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Backup mechanics are not scenario-observable. The guarantee is proved by TestBackupUsesOnlineSnapshotAndPM10Manifest (internal/store/backup_test.go) and TestBackupAndRestoreRoundTripViaCLI (cmd/concord/main_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Interrupted-backup behavior is an operation property. The guarantee is proved by TestInterruptedBackupRemovesPartialSnapshotAndManifest (internal/store/backup_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "FK-only corruption detection is a verification property. The guarantee is proved by TestBackupRejectsForeignKeyOnlyCorruption (internal/store/backup_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Restore staging and promotion is an operation property. The guarantee is proved by TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase, TestRestoreBackupRefusesExistingDestinationUntouched, and TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent (internal/store/backup_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Tamper and schema-direction rejection is a verification property. The guarantee is proved by TestBackupVerifyTamperAndOlderSchemaRejection (internal/store/fence_test.go)."
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "internal/store/backup.go",
     "internal/store/backup_test.go",
     "internal/store/fence_test.go",
-    "internal/store/store.go"
+    "cmd/concord/main_test.go"
   ],
   "home_domain_id": "product-memory",
   "id": "PM10",
@@ -17,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b35df8c57afa70e40252464e48a045da6cb4c087b23505cde626587c6afc3dff",
+  "sha256": "sha256:39156f1b92390bf03ca739d9e48a269ed795219a3fcf45410cf88c9e6bfe178f",
   "status": "accepted",
   "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
   "tags": [

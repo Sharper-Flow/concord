@@ -8,6 +8,21 @@
 > **Does not decide:** remote replication provider, encryption/key custody, retention
 > schedule, C14/C15, TS1–TS9, or a new blob store.
 
+## Context
+
+One global SQLite authority and canonical git notes need one backup and
+restore law. The binding inputs are PM1 through PM9, CD-0002 invariants,
+PM6 git notes, PM7 retention, and the PM8 and PM9 exclusion boundaries.
+This record fixes recovery: exactly two backup authorities, the Online
+Backup API with triple verification, the forward-only restore protocol, and
+reclamation that never deletes retained authority.
+## Contract
+
+The binding contract is sections 1 through 3: the two-authority decision
+with verification and manifest rules, the six-step restore protocol with the
+`.recover` emergency boundary, and the failure-handling and reclamation
+table. Sections 4 through 7 record invariants, the clean-machine acceptance
+drill, reopen criteria, and sources, and carry no obligation.
 ## 1. Decision
 
 Concord backs up and restores exactly two authorities:
@@ -105,3 +120,49 @@ restore proof before introducing a daemon, remote store, or blob mechanism.
 - SQLite VACUUM / `VACUUM INTO`: https://sqlite.org/lang_vacuum.html
 - Git object verification and GC: https://git-scm.com/docs/git-fsck and
   https://git-scm.com/docs/git-gc
+
+## Acceptance criteria
+
+- Given a backup command
+  When it runs
+  Then it uses the Online Backup API, records a PM10 manifest, and never
+  copies a live database or WAL file.
+
+- Given a backup interrupted mid-run
+  When it fails
+  Then partial output is discarded and no manifest is promoted.
+
+- Given a candidate snapshot with a foreign-key-only violation
+  When verification runs
+  Then the snapshot is quarantined and never promoted.
+
+- Given a restore into an existing database
+  When it runs
+  Then it restores through a clean staging directory, verifies, and promotes
+  atomically, leaving the destination untouched on any failure.
+
+- Given a tampered or newer-schema backup
+  When restore verifies it
+  Then it is rejected before serving.
+
+## Verification
+
+No corpus scenario exercises backup machinery, so every criterion carries a
+typed exemption naming the backup test that proves the guarantee.
+
+- Criterion 1 is proved by `TestBackupUsesOnlineSnapshotAndPM10Manifest`
+  (`internal/store/backup_test.go`) and
+  `TestBackupAndRestoreRoundTripViaCLI` (`cmd/concord/main_test.go`).
+- Criterion 2 is proved by
+  `TestInterruptedBackupRemovesPartialSnapshotAndManifest`
+  (`internal/store/backup_test.go`).
+- Criterion 3 is proved by `TestBackupRejectsForeignKeyOnlyCorruption`
+  (`internal/store/backup_test.go`).
+- Criterion 4 is proved by
+  `TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase`,
+  `TestRestoreBackupRefusesExistingDestinationUntouched`, and
+  `TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent`
+  (`internal/store/backup_test.go`).
+- Criterion 5 is proved by `TestBackupVerifyTamperAndOlderSchemaRejection`
+  (`internal/store/fence_test.go`). Section 6 records the reopen criteria
+  for each guarantee.

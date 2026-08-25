@@ -1,10 +1,25 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus scenarios are query-shaped and prove no physical-scope claim. The guarantee is proved by TestDefaultPathHonorsDataHome and TestDefaultPathFallsBackToHome (internal/store/store_test.go), which fix the per-user data home, and by TestDatabaseOverrideRefusesRepositoryLocalPath (cmd/concord/main_test.go), which refuses a repository-local authority."
+    },
+    {
+      "criterion": 2,
+      "exemption": "The corpus scenarios are query-shaped and prove no configuration claim. The guarantee is proved by TestOpenAppliesRequiredPragmas (internal/store/store_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The corpus scenarios are query-shaped and prove no backup claim. The guarantee is proved by TestBackupAndRestoreRoundTripViaCLI (cmd/concord/main_test.go)."
+    }
+  ],
   "date": "2026-08-05T00:00:00Z",
   "evidence": [
     "internal/store/store.go",
     "internal/store/store_test.go",
     "internal/store/schema.go",
-    "internal/store/query_corpus_test.go"
+    "internal/store/query_corpus_test.go",
+    "cmd/concord/main_test.go"
   ],
   "home_domain_id": "durable-authority",
   "id": "PM2",
@@ -17,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:16274558688e0949fdc88e6ff428e4fe1450f0acf7552df6d560fa22e9ca960a",
+  "sha256": "sha256:7670131fc75036e02e3f965b8571f8b8e5bc21a605b15eb6114f35d916e6084a",
   "status": "accepted",
   "summary": "Defines one global local SQLite authority per installation under the XDG data home.",
   "tags": [

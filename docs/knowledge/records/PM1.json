@@ -1,5 +1,32 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q1-ambiguous-project"
+    },
+    {
+      "criterion": 2,
+      "scenario": "Q3-authoritative-empty"
+    },
+    {
+      "criterion": 3,
+      "scenario": "Q5-ready-ranking"
+    },
+    {
+      "criterion": 4,
+      "scenario": "Q4-blocked-reason"
+    },
+    {
+      "criterion": 5,
+      "scenario": "Q2-stale-requires-review"
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "scenarios/product-memory-query.v1.json",
+    "internal/store/query_corpus_test.go",
+    "internal/store/query_corpus_cross_test.go"
+  ],
   "home_domain_id": "product-memory",
   "id": "PM1",
   "kind": "spec",
@@ -11,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:26e98ad00efd63fee2032e34caae181a96eeaf35dec601d2c27a685030706ce9",
+  "sha256": "sha256:603796a2a956798d38cce7245c92682e05df1cc9f6eb37fd572094c3a3d6170e",
   "status": "accepted",
   "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
   "tags": [

@@ -3,7 +3,27 @@
     "product-memory",
     "work-coordination"
   ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestRebuildRestoresWorkAndRelationProjectionsByteForByte (internal/store/lifecycle_relations_test.go) and TestRebuildSurvivesMessagesAndClaims (internal/store/rebuild_msg_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestOpenEnforcesForeignKeysBehaviorally (internal/store/store_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestOpenAppliesSchemaManifest (internal/store/schema_test.go) and TestOpenIsIdempotentAcrossProcesses (internal/store/store_test.go)."
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/lifecycle_relations_test.go",
+    "internal/store/rebuild_msg_test.go",
+    "internal/store/store_test.go",
+    "internal/store/schema_test.go"
+  ],
   "home_domain_id": "durable-authority",
   "id": "PM3",
   "kind": "spec",
@@ -15,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0e31ec88aa991c6f1b87947b9721f7cf9bbd080e3fa3e7483bd539f3971e22c2",
+  "sha256": "sha256:4f8f3f8ce4f6c74f572b5afa73369699122a64ac90019016d5bc5297674b796d",
   "status": "accepted",
   "summary": "Defines the authoritative event log and typed Product-memory projections.",
   "tags": [

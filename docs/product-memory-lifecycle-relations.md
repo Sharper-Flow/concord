@@ -17,6 +17,24 @@
 > Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
 > upcasters, or compatibility windows.
 
+## Context
+
+Work items need one lifecycle and relation semantics shared by every PM1
+read. The binding inputs are the accepted PM1 query contract, PM2 global
+authority, PM3's hybrid explicit core, and CD-0002 invariants I1 through I6.
+This record decides the closed lifecycle state set, the allowed transitions,
+the derived work views, and the typed relation model with its graph rules.
+CD-0041 and CD-0042 amend it: initiative is the sole grouping kind with a
+dedicated entry projection, and architecture-overlap resolutions extend the
+work-pair grammar.
+## Contract
+
+The binding contract is sections 1 through 6: the decision, the closed
+lifecycle state set and transitions, the derived work views, the relation
+model, the validation and atomic operations including supersession and
+external blockers, and the structural invariants. Sections 7 through 11
+record corpus fixture compatibility, rejected alternatives, deferred scope,
+falsifiers, and sources, and carry no obligation.
 ## 1. Decision
 
 Concord stores one small lifecycle state on each canonical work item and stores
@@ -279,3 +297,51 @@ Reopen PM4 if:
 
 External models are comparison evidence, not authority for Concord. PM1's accepted
 jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
+
+## Acceptance criteria
+
+- Given any work item
+  When its lifecycle is read
+  Then its state is one of the closed set of five, with blocked, ready,
+  active, and terminal derived — never stored.
+
+- Given a relation insertion that would create a cycle
+  When the operation is attempted
+  Then it fails closed with typed invariant_violation and no event or
+  projection row commits.
+
+- Given a valid supersession of predecessor by successor
+  When the supersede operation commits
+  Then the edge and the predecessor's superseded state commit atomically as
+  one domain operation.
+
+- Given superseded work
+  When it is reopened
+  Then the reopen removes or replaces the supersession edge and transitions
+  the state in one composite event, never a direct superseded-to-needed edit.
+
+- Given ready work ranked against a blocked higher-priority item
+  When Q5 selects work
+  Then readiness is the derived needed-and-unblocked projection and the
+  ranking stays deterministic.
+
+## Verification
+
+Criteria 2 and 5 are proved by scenarios of
+`scenarios/product-memory-query.v1.json`, executed by
+`TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`). The
+remainder carry typed exemptions in the record naming the lifecycle tests
+that prove the guarantees.
+
+- Criterion 1 is proved by `TestLifecycleTransitionsAreClosedAndTyped`
+  (`internal/store/lifecycle_relations_test.go`).
+- Criterion 2 is proved by the bound `Q4-blocked-reason` scenario, whose
+  blocked answer is derived from the relation graph.
+- Criterion 3 is proved by
+  `TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors`
+  (`internal/store/lifecycle_relations_test.go`).
+- Criterion 4 is proved by
+  `TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent`
+  (`internal/store/lifecycle_relations_test.go`).
+- Criterion 5 is proved by the bound `Q5-ready-ranking` scenario. Section 10
+  records the falsifiers for each guarantee.

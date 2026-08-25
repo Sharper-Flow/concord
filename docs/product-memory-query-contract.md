@@ -10,6 +10,23 @@
 > architecture/filter identity. Issue #197 changes the pre-go-live primary path
 > directly; component inputs are not a supported compatibility surface.
 
+## Context
+
+Concord must answer repeated Product-memory questions for one operator across
+Products, Projects, and work. The binding inputs are the accepted Product data
+model, ranked priorities, the workflow visibility rules, and the durable
+knowledge design. This record decides which questions Concord must answer —
+the ten canonical jobs Q1 through Q10 — and what a correct, bounded, fresh
+answer means. Storage, schema, lifecycle, membership, and tool surfaces are
+decided by PM2 through PM5 and TS1 through TS7 and hold no authority here.
+## Contract
+
+The binding contract is sections 1, 3, and 4: the decision boundary, the
+universal query contract every implementation follows, and the canonical
+queries Q1 through Q10 with their inputs, outputs, ordering, and oracles.
+Section 2 records the evidence basis of the job set; sections 5 through 7
+record candidate evaluation, deferred and rejected reads, and falsifiers, and
+carry no obligation.
 ## 1. Decision boundary
 
 PM1 decides **which questions Concord must answer** and what a correct, bounded,
@@ -334,3 +351,48 @@ into the lifecycle candidate, ready-work ranking semantics, Domain identity,
 cross-Project membership, and canonical note placement. PM2–PM5 and CD-0008 now supply
 the accepted storage, membership, evidence-binding, and unreadable-record semantics;
 these historical gaps do not invalidate the query jobs.
+
+## Acceptance criteria
+
+- Given a Project reference that two Products could own
+  When Q1 resolves Product context
+  Then the answer is a typed ambiguity error with candidates, never a guessed
+  Product context.
+
+- Given a valid lifecycle filter that matches no work
+  When Q3 lists Product work
+  Then the answer is authoritative empty with `items=[]`, not missing data.
+
+- Given one higher-priority blocked item and one lower-priority unblocked item
+  When Q5 selects highest-priority ready work
+  Then the blocked item is excluded and the unblocked item wins
+  deterministically.
+
+- Given work blocked by an unresolved dependency
+  When Q4 explains blocked work
+  Then the answer carries the unresolved blocker nodes and edges, derived from
+  the relation graph.
+
+- Given a stale snapshot that requires review
+  When Q2 orients to a Product's work
+  Then the answer is a typed stale-requires-review error, never a silently
+  substituted stale snapshot.
+
+## Verification
+
+All five criteria are proved by scenarios of
+`scenarios/product-memory-query.v1.json`, executed by
+`TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+
+- Criterion 1 is proved by the bound `Q1-ambiguous-project` scenario, which
+  resolves ambiguous ownership and asserts typed ambiguity candidates instead
+  of guessed context.
+- Criterion 2 is proved by the bound `Q3-authoritative-empty` scenario, which
+  lists with a matching-but-empty filter and asserts authoritative empty.
+- Criterion 3 is proved by the bound `Q5-ready-ranking` scenario, which ranks
+  ready work with a blocked higher-priority item and asserts the deterministic
+  winner.
+- Criterion 4 is proved by the bound `Q4-blocked-reason` scenario, which
+  explains blocked work and asserts unresolved blocker nodes with reasons.
+- Criterion 5 is proved by the bound `Q2-stale-requires-review` scenario,
+  which orients on a stale snapshot and asserts the typed error.

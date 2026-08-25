@@ -25,6 +25,11 @@ derivable fact drifts from its source and no check catches it.
 - Advance is public predecessor evidence only. Do not create or dual-write
   Advance state, and do not route Concord work through ADV. A local
   `project.json` may appear; it is ignored by git and must never be committed.
+  [`scripts/check-predecessor-independence.py`](scripts/check-predecessor-independence.py)
+  enforces this for repository-owned agent surfaces (generated lanes, the lane
+  manifest and generator, and the adapter); host configuration outside the
+  repository is out of scope, and predecessor citations under `docs/` remain
+  permitted.
 
 ## Context discipline
 

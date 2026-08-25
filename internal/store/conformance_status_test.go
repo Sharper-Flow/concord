@@ -377,3 +377,51 @@ func TestAcceptanceEntryPointLocalInvocationStaysInconclusive(t *testing.T) {
 		t.Fatalf("classifySustainedFalsifier with diagnostic authority on threshold-exceeded inputs returned %q/%q, want exceeded/inconclusive", threshold, status)
 	}
 }
+
+func TestConformanceCorrectnessGateScopesBusyEscapesToAcceptedPopulation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		authority populationAuthority
+		busy      int
+		want      bool
+	}{
+		{"accepted population escapes", populationAuthorityAccepted, 1, false},
+		{"accepted population clean", populationAuthorityAccepted, 0, true},
+		{"diagnostic population escapes", populationAuthorityDiagnostic, 3, true},
+	}
+	for _, tc := range cases {
+		if got := conformanceCorrectnessPassed(tc.authority, 0, 0, tc.busy); got != tc.want {
+			t.Fatalf("%s: conformanceCorrectnessPassed(%s, busy=%d) = %v, want %v", tc.name, tc.authority, tc.busy, got, tc.want)
+		}
+	}
+}
+
+func TestConformanceCorrectnessGateKeepsAbsoluteTermsUnconditional(t *testing.T) {
+	t.Parallel()
+
+	for _, authority := range []populationAuthority{populationAuthorityAccepted, populationAuthorityDiagnostic} {
+		if conformanceCorrectnessPassed(authority, 1, 0, 0) {
+			t.Fatalf("%s: a lost write passed the correctness gate", authority)
+		}
+		if conformanceCorrectnessPassed(authority, 0, 1, 0) {
+			t.Fatalf("%s: an invariant violation passed the correctness gate", authority)
+		}
+	}
+}
+
+func TestBusyEscapesBindCorrectnessFollowsResolvedAuthority(t *testing.T) {
+	t.Parallel()
+
+	// The acceptance profile without the required-check signal resolves to a
+	// non-accepted authority (CD-0046), and must not bind the zero-escape term.
+	local, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "")
+	if busyEscapesBindCorrectness(local) {
+		t.Fatalf("acceptance profile without the runner signal resolved to %q and bound busy escapes", local)
+	}
+	required, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
+	if !busyEscapesBindCorrectness(required) {
+		t.Fatalf("acceptance profile with the runner signal resolved to %q and did not bind busy escapes", required)
+	}
+}

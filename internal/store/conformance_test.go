@@ -486,9 +486,12 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	if report.Populations.BeginWaitSamples == 0 || report.Populations.CommitSamples == 0 || report.BeginWaitLatency.MaxMS == 0 || report.CommitLatency.MaxMS == 0 {
 		t.Fatalf("timing observer produced empty queue/commit samples: %+v", report.Populations)
 	}
-	report.CorrectnessPassed = report.Lost == 0 && report.InvariantViolations == 0 && report.BusyEscaped == 0
+	report.CorrectnessPassed = conformanceCorrectnessPassed(report.PopulationAuthority, report.Lost, report.InvariantViolations, report.BusyEscaped)
 	if !report.CorrectnessPassed {
 		t.Fatalf("conformance correctness gate failed: %+v", report)
+	}
+	if report.BusyEscaped > 0 && !busyEscapesBindCorrectness(report.PopulationAuthority) {
+		t.Logf("busy escapes=%d tolerated on %s population (CD-0045 D2 binds zero-escape to the accepted population; D3 keeps this run inconclusive); begin-wait P99=%dms", report.BusyEscaped, report.PopulationAuthority, report.BeginWaitLatency.P99MS)
 	}
 	t.Log("ConformanceReport " + mustJSON(report))
 
@@ -516,6 +519,34 @@ func newConformanceReport(profile conformanceRunnerProfile) ConformanceReport {
 		report.LoadAverageOneMinute = &load
 	}
 	return report
+}
+
+// busyEscapesBindCorrectness reports whether a busy escape fails the
+// correctness gate on this population. CD-0045 D2 requires zero escaped
+// SQLITE_BUSY on the accepted agent-facing population; D3 keeps every other
+// population inconclusive regardless of its numbers. A diagnostic population
+// on a contended host can exceed busy_timeout without any admission defect -
+// the lock holder there may be an online backup pass, whose duration host
+// load stretches and which writer admission does not bound - so the escape is
+// reported, logged, and left non-binding rather than converted into a
+// load-coupled CI failure (issue #309). Lost writes and invariant violations
+// stay unconditionally fatal; only the admission-promise term is scoped.
+func busyEscapesBindCorrectness(authority populationAuthority) bool {
+	return authority == populationAuthorityAccepted
+}
+
+// conformanceCorrectnessPassed is the base-population correctness gate:
+// absolute correctness terms plus the admission promise where CD-0045 D2
+// binds it. The authority is the resolved population authority, not the
+// profile literal, matching how the report derives AcceptancePopulation.
+func conformanceCorrectnessPassed(authority populationAuthority, lost, invariantViolations, busyEscaped int) bool {
+	if lost != 0 || invariantViolations != 0 {
+		return false
+	}
+	if busyEscapesBindCorrectness(authority) && busyEscaped != 0 {
+		return false
+	}
+	return true
 }
 
 func validateLoadPacing(profile conformanceRunnerProfile, unpaced bool) error {
@@ -604,7 +635,10 @@ func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfi
 		report.UnexpectedDupes = report.Counts[outcomeDuplicate]
 		report.InvariantViolations = report.Counts[outcomeInvariantViolation]
 		report.BusyEscaped = report.Counts[outcomeBusyEscaped]
-		report.CorrectnessPassed = report.Attempts == 1000 && report.Populations.AcceptedWrites == 1000 && report.Populations.AllAttempts == 1000 && report.WallLatency.Population == 1000 && report.BeginWaitLatency.Population == 1000 && report.CommitLatency.Population == 1000 && report.AcceptedWallLatency.Population == 1000 && report.AcceptedBeginLatency.Population == 1000 && report.AcceptedCommitLatency.Population == 1000 && report.Counts[outcomeAccepted] == 1000 && report.Lost == 0 && report.UnexpectedDupes == 0 && report.InvariantViolations == 0 && report.BusyEscaped == 0 && report.Counts[outcomeError] == 0
+		report.CorrectnessPassed = report.Attempts == 1000 && report.Populations.AcceptedWrites == 1000 && report.Populations.AllAttempts == 1000 && report.WallLatency.Population == 1000 && report.BeginWaitLatency.Population == 1000 && report.CommitLatency.Population == 1000 && report.AcceptedWallLatency.Population == 1000 && report.AcceptedBeginLatency.Population == 1000 && report.AcceptedCommitLatency.Population == 1000 && report.Counts[outcomeAccepted] == 1000 && report.Lost == 0 && report.UnexpectedDupes == 0 && report.InvariantViolations == 0 && (!busyEscapesBindCorrectness(report.PopulationAuthority) || report.BusyEscaped == 0) && report.Counts[outcomeError] == 0
+		if report.BusyEscaped > 0 && !busyEscapesBindCorrectness(report.PopulationAuthority) {
+			t.Logf("long round %d: busy escapes=%d tolerated on %s population (CD-0045 D2 binds zero-escape to the accepted population)", round+1, report.BusyEscaped, report.PopulationAuthority)
+		}
 		reports = append(reports, report)
 	}
 	above := roundsAboveCommitTarget(reports)

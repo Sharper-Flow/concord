@@ -73,11 +73,11 @@ type ResearchFinding struct {
 // Mode home means the finding applies to its owner's home broadly and carries no
 // explicit IDs; explicit means it applies to exactly the declared scopes.
 type ResearchScopes struct {
-	Mode         string   `json:"mode"`
-	ProductIDs   []string `json:"product_ids,omitempty"`
-	ProjectIDs   []string `json:"project_ids,omitempty"`
-	ComponentIDs []string `json:"component_ids,omitempty"`
-	TagIDs       []string `json:"tag_ids,omitempty"`
+	Mode       string   `json:"mode"`
+	ProductIDs []string `json:"product_ids,omitempty"`
+	ProjectIDs []string `json:"project_ids,omitempty"`
+	DomainIDs  []string `json:"domain_ids,omitempty"`
+	TagIDs     []string `json:"tag_ids,omitempty"`
 }
 
 // byKind pairs each scope list with its stored scope_kind, so writers and readers
@@ -92,7 +92,7 @@ func (s *ResearchScopes) byKind() []struct {
 	}{
 		{"product", &s.ProductIDs},
 		{"project", &s.ProjectIDs},
-		{"component", &s.ComponentIDs},
+		{"domain", &s.DomainIDs},
 		{"tag", &s.TagIDs},
 	}
 }

@@ -4245,6 +4245,13 @@
             "$ref": "#/$defs/id"
           }
         },
+        "domain_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
         "tag_ids": {
           "type": "array",
           "maxItems": 32,
@@ -4737,7 +4744,7 @@
             "$ref": "#/$defs/id"
           }
         },
-        "component_ids": {
+        "domain_ids": {
           "type": "array",
           "maxItems": 32,
           "items": {

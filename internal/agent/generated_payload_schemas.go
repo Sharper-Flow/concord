@@ -3335,7 +3335,7 @@ const GeneratedPayloadSchemaDocument = `{
     "research_scopes": {
       "additionalProperties": false,
       "properties": {
-        "component_ids": {
+        "domain_ids": {
           "items": {
             "$ref": "#/$defs/id"
           },
@@ -3379,6 +3379,13 @@ const GeneratedPayloadSchemaDocument = `{
     "research_scopes_input": {
       "additionalProperties": false,
       "properties": {
+        "domain_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
         "mode": {
           "enum": [
             "home",

@@ -416,8 +416,8 @@ func validateResearchScopes(scopes *ResearchScopes) error {
 }
 
 // validateResearchScopeReferences validates the two scope kinds Concord owns as
-// entities. Components and tags intentionally remain opaque declared identifiers:
-// durable knowledge uses the same vocabulary, and neither has a canonical entity
+// entities. Domains and tags intentionally remain opaque declared identifiers:
+// durable knowledge uses the same vocabulary, and tags have no canonical entity
 // registry to join yet. Treating those as unknown would be an unvalidated join.
 func validateResearchScopeReferences(ctx context.Context, tx *sql.Tx, scopes ResearchScopes) error {
 	for _, ref := range []struct {

@@ -972,7 +972,7 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	explicit := ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}, ProjectIDs: []string{"project"}, ComponentIDs: []string{"api"}, TagIDs: []string{"security"}}
+	explicit := ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}, ProjectIDs: []string{"project"}, DomainIDs: []string{"api"}, TagIDs: []string{"security"}}
 	if _, err := AddResearchFinding(ctx, s, ResearchFindingRequest{Identity: researchIdentity("scoped-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "scoped", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, Scopes: explicit}}); err != nil {
 		t.Fatal(err)
 	}
@@ -998,7 +998,7 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scopes := revisionByNumber(t, updated, 2).Findings[0].Scopes; scopes.Mode != "home" || len(scopes.ProductIDs)+len(scopes.ProjectIDs)+len(scopes.ComponentIDs)+len(scopes.TagIDs) != 0 {
+	if scopes := revisionByNumber(t, updated, 2).Findings[0].Scopes; scopes.Mode != "home" || len(scopes.ProductIDs)+len(scopes.ProjectIDs)+len(scopes.DomainIDs)+len(scopes.TagIDs) != 0 {
 		t.Fatalf("updated scope=%+v, want empty home scope", scopes)
 	}
 
@@ -1009,7 +1009,7 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 		{"home with IDs", ResearchScopes{Mode: "home", ProductIDs: []string{"product"}}},
 		{"explicit empty", ResearchScopes{Mode: "explicit"}},
 		{"unknown product", ResearchScopes{Mode: "explicit", ProductIDs: []string{"missing"}}},
-		{"duplicate component", ResearchScopes{Mode: "explicit", ComponentIDs: []string{"api", "api"}}},
+		{"duplicate component", ResearchScopes{Mode: "explicit", DomainIDs: []string{"api", "api"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := AddResearchFinding(ctx, s, ResearchFindingRequest{Identity: researchIdentity("invalid-scope-" + tc.name), PackID: pack.PackID, ExpectedVersion: 4, Finding: ResearchFinding{FindingID: "bad-" + tc.name, Kind: FindingObservation, Statement: "bad", Confidence: ConfidenceLow, Freshness: ResearchCurrent, Status: FindingActive, Scopes: tc.scope}})

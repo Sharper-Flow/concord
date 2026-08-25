@@ -1464,16 +1464,6 @@
       "state": "out_of_scope"
     },
     {
-      "evidence": [
-        {
-          "kind": "generated",
-          "value": "internal/store/generated_agent_lanes.go#LaneRegistryManifestDigest"
-        }
-      ],
-      "id": "agent-lanes-contract",
-      "state": "satisfied"
-    },
-    {
       "id": "architecture-spike",
       "reason": "Shaped proposal with deferred open questions and no acceptance marker in its header. It describes a workflow type Concord has not built, so it claims nothing about current behaviour.",
       "state": "out_of_scope"

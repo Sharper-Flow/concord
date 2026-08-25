@@ -95,15 +95,7 @@ const defaultRunner: DispatchRunner = {
   },
 }
 
-let runner: DispatchRunner = defaultRunner
-let evidenceRunner: DispatchRunner = defaultRunner
-let defaultCredentials: CredentialStore = new SecretToolCredentialStore()
-
-export function configureWorkerDispatch(overrides: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; credentials?: CredentialStore } = {}): void {
-  runner = overrides.runner ?? defaultRunner
-  evidenceRunner = overrides.evidenceRunner ?? defaultRunner
-  defaultCredentials = overrides.credentials ?? new SecretToolCredentialStore()
-}
+const defaultCredentials: CredentialStore = new SecretToolCredentialStore()
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -419,29 +411,6 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
   return null
 }
 
-// dispatchAuthorize drives the dispatch_worker workflow action through the
-// short-lived concord CLI on the same runner transport. CD-0059 D1 requires
-// the authorization to land before any worker is spawned, so the adapter
-// only shells out to spawn after this step returns ok=true. The CLI response
-// is a closed JSON object whose outcome / error.kind determine success.
-// Returns null when the action was authorized; a typed diagnostic string
-// when it was refused or the response was malformed.
-async function dispatchAuthorize(childRunner: DispatchRunner, binary: string, request: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true } | { ok: false; kind: string; message: string }> {
-  const input = JSON.stringify(request)
-  if (Buffer.byteLength(input) > MAX_CLI_INPUT_BYTES) return { ok: false, kind: "transport_failure", message: "dispatch authorization request exceeded the bounded CLI input limit" }
-  let result: { exitCode: number; stdout: string; stderr: string }
-  try { result = await childRunner.run([binary, "invoke"], input, signal) } catch (error) { return { ok: false, kind: "transport_failure", message: String(error).slice(0, MAX_ERROR_BYTES) } }
-  if (result.exitCode !== 0) return { ok: false, kind: "transport_failure", message: (result.stderr || result.stdout).slice(0, MAX_ERROR_BYTES) || "dispatch authorization failed without diagnostic output" }
-  let parsed: unknown
-  try { parsed = JSON.parse(result.stdout.trim()) } catch { return { ok: false, kind: "malformed_response", message: "dispatch authorization response was not JSON" } }
-  if (!isRecord(parsed) || typeof parsed.outcome !== "string") return { ok: false, kind: "malformed_response", message: "dispatch authorization response shape was not the closed envelope" }
-  if (parsed.outcome === "ok") return { ok: true }
-  const errorObj = isRecord(parsed.error) ? parsed.error : null
-  const kind = errorObj && typeof errorObj.kind === "string" ? errorObj.kind : "unauthorized_dispatch"
-  const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch authorization refused"
-  return { ok: false, kind, message }
-}
-
 // CD-0034 / issue #103: host prompt provenance. The adapter enumerates the
 // unversioned host surfaces it can bind — the lane agent definition file, the
 // global AGENTS.md, the AGENTS.md chain at spawn cwd, instruction files the
@@ -666,7 +635,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
   const signal = options.signal ?? new AbortController().signal
-  const childRunner = options.runner ?? runner
+  const childRunner = options.runner ?? defaultRunner
   const binary = options.binary ?? "opencode"
 
   // CD-0059 D1: authorize before spawn, unconditionally. The dispatch_worker
@@ -710,7 +679,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (result.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", result.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode worker spawn returned a non-zero exit code", "reconcile_operation")
   const runMetadata = readRunSessionMetadata(result.stdout)
   if (!runMetadata) return errorEnvelope(lane, packet, "error", "error", "worker output did not contain one typed session identity", "reconcile_operation")
-  const readbackRunner = options.readbackRunner ?? options.runner ?? runner
+  const readbackRunner = options.readbackRunner ?? options.runner ?? defaultRunner
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", runMetadata.session_id, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
@@ -740,7 +709,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   // signal — the readback — as the executing-model evidence.
   // A caller-injected runner controls process execution wholesale, so evidence
   // defaults to that same transport unless a distinct evidenceRunner is given.
-  const cliRunner = options.evidenceRunner ?? options.runner ?? evidenceRunner
+  const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const provenance = await computeHostPromptProvenance(lane.id)

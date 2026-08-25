@@ -635,13 +635,7 @@ type HostApprovalAssertion struct {
 	Worktree      string   `json:"worktree"`
 	IssuedAt      string   `json:"issued_at"`
 	Nonce         string   `json:"nonce"`
-	// Deprecated compatibility fields are intentionally ignored and excluded
-	// from signed bytes. Operator attribution comes from durable approval
-	// authority, never from adapter-selected identity.
-	OperatorPrincipalRef string `json:"-"`
-	OperatorAgentRef     string `json:"-"`
-	OperatorSessionRef   string `json:"-"`
-	Signature            []byte `json:"signature"`
+	Signature     []byte   `json:"signature"`
 }
 
 func CanonicalHostApprovalAssertion(a HostApprovalAssertion) []byte {

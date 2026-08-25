@@ -1,10 +1,28 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "State-not-wording assertion is enforced by the corpus runner's absent-probe guard under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go); its rejection test is TestEvaluateAbsentRequiresProbe."
+    },
+    {
+      "criterion": 2,
+      "exemption": "This criterion states what cannot authorize. It is enforced structurally: the corpus is the only accepted evidence path in .github/workflows/ci.yml, and no model-trial gate exists in any workflow."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Operator acceptance is recorded practice, not executable: the domain-overlap change carries it on issue #195, cited in TS1's approved amendments."
+    },
+    {
+      "criterion": 4,
+      "exemption": "The operational-plane boundary is enforced by scripts/check-public-content.py and the corpus runner's recorded measurements, which carry typed structural facts only."
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "scenarios/agent-jobs.v1.json",
-    "contracts/agent-jobs-scenarios.schema.json",
     "internal/agent/agent_jobs_corpus_test.go",
-    "scripts/check-agent-jobs.py"
+    ".github/workflows/ci.yml",
+    "scripts/check-public-content.py",
+    "scripts/check-agent-contracts.py"
   ],
   "home_domain_id": "agent-surface",
   "id": "TS9",
@@ -17,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:348a6e4d5af373fd8523675f8dfa49413fa3eae5e424f793e49efcdd25eb29f9",
+  "sha256": "sha256:6c55aaf837eca0a63ccd2dfb8baa795d0b02f4015fb98e3b0c39a2bcaf57b137",
   "status": "accepted",
   "summary": "Sets deterministic pre-go-live evidence: state and effect oracles, strict schemas, negative probes, and generated-drift gates.",
   "tags": [

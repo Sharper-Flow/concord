@@ -10,6 +10,24 @@
 > evidence, TS9 pre-go-live measurements, adapter package/repository name, UI styling,
 > C14, or C15.
 
+## Context
+
+Concord's Go core needs one primary client transport. The binding inputs are
+CD-0003's short-lived Go CLI decision, the accepted TS1 through TS5
+contracts, the capability-placement native-authority rule, and the official
+OpenCode custom-tool, plugin, permission, and MCP documentation reviewed
+2026-08-06. This record fixes the adapter as one thin TypeScript custom-tool
+module adapting the accepted tools to the short-lived CLI, with grant
+bootstrap, transport, and the host approval bridge.
+## Contract
+
+The binding contract is sections 1 through 5: the one-module decision and its
+three host responsibilities, the process and transport rules including grant
+bootstrap and renewal, the registration and schema rules including the hidden
+TS5 envelope, the approval bridge with its `always: []` rule, and the adapter
+boundary of allowed and forbidden behaviors. Sections 6 through 11 record the
+plugin and MCP alternatives, evidence, implementation acceptance, and
+falsifiers, and carry no obligation.
 ## 1. Decision
 
 Concord's primary OpenCode integration is one **thin TypeScript custom-tool adapter
@@ -273,3 +291,53 @@ Reopen TS6 when:
 
 Any replacement preserves one core authority, eight semantics, hidden verified
 context, operation-bound approval, same-key retries, and native-system ownership.
+
+## Acceptance criteria
+
+- Given a grant request
+  When the core validates it
+  Then signature, bounded timestamp, and unused nonce are all verified, and
+  unsigned, stale, replayed, wrong-client, or wrong-worktree requests fail
+  closed.
+
+- Given a grant and its envelope
+  When the model sends a tool call
+  Then grant secrets and the TS5 envelope never enter model-visible
+  arguments, logs, artifacts, or output.
+
+- Given a CLI invocation that completes
+  When stdout returns
+  Then it carries exactly one TS7 envelope and malformed output classifies as
+  a typed transport failure, never success.
+
+- Given a failed transport attempt with no typed core response
+  When the adapter retries
+  Then it reuses the same request and idempotency key, and never retries a
+  mutation with a new key.
+
+- Given a core approval challenge
+  When the host approves
+  Then the adapter resubmits the identical request, the core revalidates
+  digest, scope, and versions, and `always: []` keeps one host prompt from
+  becoming an unbounded approval.
+
+## Verification
+
+The transport is exercised below scenario grain, so every criterion carries a
+typed exemption in the record naming the test that proves the guarantee.
+
+- Criterion 1 is proved by `TestGrantJSONSignatureRoundTripAndFailuresAtCommandBoundary`
+  (`cmd/concord/main_test.go`) and `TestGrantBootstrapAndInvocationBinding`
+  (`internal/agent/authority_test.go`).
+- Criterion 2 is proved by `TestInvokeNeverEchoesGrantToken`
+  (`cmd/concord/main_test.go`) and `TestGrantRefusalsCarryTheUnauthorizedKind`
+  (`internal/agent/authority_refusal_kind_test.go`).
+- Criterion 3 is proved by `TestDecodeInvokeRequestRejectsInvalidTrailingJSON`
+  (`internal/agent/runtime_test.go`) and the adapter contract tests
+  (`adapter/opencode/generated-contract-tests.ts`).
+- Criterion 4 is proved by `TestDispatchIdempotentReplaySurvivesAmbientScopeDrift`
+  (`internal/agent/mutation_dispatch_test.go`).
+- Criterion 5 is proved by `TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse`
+  and `TestDispatchFailedDomainEffectRollsBackGrantAndApproval`
+  (`internal/agent/mutation_dispatch_test.go`). Section 11 records the
+  falsifiers for each guarantee.

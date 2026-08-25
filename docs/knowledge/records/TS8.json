@@ -1,10 +1,29 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Digest binding is a surface-identity property enforced by the generated drift validator scripts/check-agent-contracts.py over the generated contracts and manifest."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Generated-artifact unity is enforced by the validator's generated-drift checks in scripts/check-agent-contracts.py, which fail when the manifest and its artifacts disagree."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Fail-closed digest mismatch is an envelope-and-adapter property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields (internal/agent/envelope_test.go) and the strict unknown-input rejection of adapter/opencode/generated-contract-tests.ts."
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ5-resolve-domain-overlap"
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "contracts/agent-tool-surface.v1.json",
-    "contracts/agent-tool-surface.digest",
-    "internal/agent/generated_contracts.go",
-    "internal/agent/authority_test.go"
+    "scripts/check-agent-contracts.py",
+    "adapter/opencode/generated-contract-tests.ts",
+    "internal/agent/envelope_test.go",
+    "scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go"
   ],
   "home_domain_id": "agent-surface",
   "id": "TS8",
@@ -17,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:66dbe4f2f670d0b6505e5be1d834e7c3d342b3df4f3be9cebffa2cb2847d8d23",
+  "sha256": "sha256:0434da63fd9591bf4c424dfdf028c62ed73d4bd3321c27f91b6ec67665127f48",
   "status": "accepted",
   "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
   "tags": [

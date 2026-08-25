@@ -11,6 +11,10 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestGeneratedOperationsCarryManifestOwnedBoundaries"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
     }
   ],
   "id": "TS8",

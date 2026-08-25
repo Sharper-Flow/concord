@@ -11,6 +11,24 @@
 > surface identity/change evidence (TS8), measurement evidence (TS9), UI rendering,
 > C14, or C15.
 
+## Context
+
+Every tool call needs one shared result law. The binding inputs are PM1's
+universal query envelope and corpus and the accepted TS1 through TS6
+contracts. This record fixes the strict JSON envelope with exactly one
+outcome per call, its universal fields, the durable outcomes, the typed error
+contract, authority and freshness semantics, evidence locators, pagination
+and output bounds, and adapter transport failures. The producer-bounded
+result law is amended by issue #43.
+## Contract
+
+The binding contract is sections 1 through 9: the four-outcome decision,
+universal fields, the `ok` payload forms, durable `pending` and `partial`
+outcomes, the closed error contract with recovery actions, authority and
+freshness semantics, evidence reference locators, pagination and output
+bounds with the producer-side completeness obligation, and adapter transport
+failures. Sections 10 through 12 record scenario requirements, rejected
+alternatives, and falsifiers, and carry no obligation.
 ## 1. Decision
 
 Every Concord tool returns one strict JSON envelope with exactly one outcome:
@@ -318,3 +336,52 @@ Reopen TS7 when:
 
 Any new outcome, error kind, or recovery action requires a named scenario and TS8
 compatibility treatment. Prose convenience is not sufficient evidence.
+
+## Acceptance criteria
+
+- Given any envelope
+  When it is validated
+  Then unknown outcome, error, or recovery discriminants are rejected, and no
+  `success` boolean exists anywhere.
+
+- Given a degraded or unreachable authority
+  When a result returns
+  Then degraded carries named omissions and unreachable returns no data
+  payload; neither masquerades as authoritative.
+
+- Given a requested page that would cross any output bound
+  When the core responds
+  Then it returns fewer complete items plus a non-null cursor, and a producer
+  refuses an over-budget result rather than silently cutting content.
+
+- Given a cursor from one operation
+  When another operation, scope, or tampering attempt consumes it
+  Then the core returns `invalid_cursor`.
+
+- Given a committed-but-incomplete cross-authority operation
+  When the caller inspects it
+  Then the outcome is `pending` or `partial` with a versioned operation
+  reference and recovery action, never `ok`.
+
+## Verification
+
+The envelope is a per-call property below scenario grain, so every criterion
+carries a typed exemption in the record naming the envelope test that proves
+the guarantee.
+
+- Criterion 1 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields` and
+  `TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome`
+  (`internal/agent/envelope_test.go`).
+- Criterion 2 is proved by `TestEnvelopeGoldenOutcomes`
+  (`internal/agent/envelope_test.go`).
+- Criterion 3 is proved by `TestEnvelopeHasHardSerializedLimit`,
+  `TestMutationResultProducerAcceptsCanonicalPayload`
+  (`internal/agent/envelope_test.go`), and `TestBudgetFieldsRefuseOrBoundResultsStructurally`
+  (`internal/agent/runtime_test.go`).
+- Criterion 4 is proved by `TestAuthenticatedCursorBindsOperationAndRejectsTampering`
+  (`internal/agent/runtime_test.go`).
+- Criterion 5 is proved by `TestOutcomeMismatchIsClosedAndCannotDowngrade`
+  (`internal/agent/envelope_test.go`) and the bound `AJ6-partial-publication`
+  scenario of `scenarios/agent-jobs.v1.json`, executed by
+  `TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`).
+  Section 12 records the falsifiers for each guarantee.

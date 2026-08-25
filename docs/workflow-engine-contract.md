@@ -46,6 +46,28 @@ definition builder, with strict payload fields and no approval. The explicit
 continuity read does not automatically inject pinned context into current
 OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
+## Context
+
+The workflow engine carries a work item from an approved contract to a
+completed outcome. The binding inputs are CD-0013 as amended by CD-0015,
+CD-0016, and CD-0036, the typed carriers it names, and the scenario corpus
+with the two schemas it cites. This record fills the implementation boundary
+CD-0013 left open: the common representation, the definition registry and
+digest check, the instance state machine, the event families, the V15
+projections and folds, outcome evaluation, the ordered completion gate, actor
+distinctness, impact edges and notices, external condition resolution,
+dispatch, and the built-in family graphs.
+
+## Contract
+
+The binding contract is sections 1 through 12: the common representation and
+bounds, the definition registry, the instance state machine, the event
+families, the projections and folds, outcome evaluation and strength, the
+ordered completion gate, the actor tuple and evaluator distinctness, impact
+edges and notices, external condition resolution, dispatch, and the built-in
+family graphs and actions. Section 13 records implementation-deferred items
+and carries no obligation.
+
 ## 1. Common representation and bounds
 
 All identifiers are UTF-8 strings with 2–128 characters unless a narrower pattern
@@ -647,3 +669,54 @@ interpret the v1 carriers:
 The contract does not invent the deferred check catalog, surface registry, audience
 storage, or a new family. Implementers must refuse unknown values until those
 registries are separately supplied.
+
+## Acceptance criteria
+
+- Given a work item whose planning omits the required end-state
+  When approve_contract is dispatched
+  Then the engine refuses with invariant_violation and the instance remains
+  planned.
+
+- Given an approved outcome over two capabilities and a delivered outcome over
+  one of them
+  When complete is dispatched
+  Then the engine refuses with outcome_mismatch and appends no
+  workflow.completed event.
+
+- Given a completion verdict whose actor equals the executing actor
+  When record_verdict is dispatched
+  Then the engine refuses the verdict for missing actor distinctness.
+
+- Given a workflow action whose pinned definition digest is absent from the
+  registry
+  When the action is dispatched
+  Then the dispatcher refuses with invariant_violation and uses no fallback
+  definition.
+
+- Given a completion that satisfies the ordered completion gate
+  When the completion transaction commits
+  Then contract, verdict, evidence, notices, and workflow.completed commit
+  together or not at all.
+
+## Verification
+
+All five criteria are proved by scenarios of `scenarios/workflow-engine.v1.json`,
+executed against production dispatch by
+`TestWorkflowScenarioCorpusExecutesExactProductionActions`
+(`internal/store/workflow_conformance_test.go`).
+
+- Criterion 1 is proved by the bound `WF02-planning-requires-outcome`
+  scenario, which dispatches approve_contract without an end-state and asserts
+  an invariant_violation refusal with the instance still planned.
+- Criterion 2 is proved by the bound `WF04-weaker-delivery` scenario, whose
+  delivery covers one capability of an approved two-capability outcome and
+  asserts an outcome_mismatch refusal with no completion event.
+- Criterion 3 is proved by the bound `WF13-verdict-actor-distinctness`
+  scenario, whose verdict actor equals the executing actor and asserts the
+  refusal.
+- Criterion 4 is proved by the bound `WF37-action-availability-before-register`
+  scenario, which dispatches before the definition is registered and asserts
+  an invariant_violation refusal with no fallback.
+- Criterion 5 is proved by the bound `WF19-completion-one-transaction`
+  scenario, which drives a satisfying completion and asserts the contract,
+  verdict, evidence, notices, and completion event commit together.

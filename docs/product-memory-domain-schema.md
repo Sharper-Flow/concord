@@ -11,6 +11,23 @@
 > Product-internal architecture; `initiative` is the sole current grouping kind; typed
 > architecture relation families and bounded compatibility upcasters are required.
 
+## Context
+
+PM2's global SQLite authority needs a schema boundary. The binding inputs are
+the accepted PM1 query contract, PM2 global authority, and CD-0002 invariants
+I1 through I6. This record decides the hybrid explicit core: one generic
+append-only authoritative domain-event log, a small set of explicit typed
+relational projection tables, and JSON only for rare versioned extension
+metadata. It supersedes CD-0003 D1's generic entities spine narrowly; D2, D3,
+and the generic log remain binding.
+## Contract
+
+The binding contract is sections 1 through 4: the hybrid core decision, the
+stable conceptual object set, the authority and event-history pattern
+including the retention-bounded active-context exception, and the extension
+rule with its forbidden patterns. Sections 5 through 10 record rejected
+alternatives, external validation, deferred scope, falsifiers, supersession
+scope, and sources, and carry no obligation.
 ## 1. Decision
 
 Concord uses a **hybrid explicit Product-memory core**:
@@ -201,3 +218,38 @@ Reopen PM3 if research or implementation evidence shows:
 
 Exa and public-source search were used materially; source/public model claims are
 caveated, and no private SaaS storage internals are inferred.
+
+## Acceptance criteria
+
+- Given the authoritative domain-event log
+  When projections are rebuilt from the log
+  Then every work and relation projection is restored byte for byte, including
+  messages and resource claims.
+
+- Given the typed relational core
+  When the store opens
+  Then declared relationships hold real foreign-key endpoints enforced
+  behaviorally by SQLite, not application-side convention.
+
+- Given a schema migration
+  When the store opens on an existing database
+  Then the schema manifest applies completely and idempotently across
+  processes, with no partial application.
+
+## Verification
+
+The corpus scenarios are query-shaped and prove no schema-boundary claim, so
+every criterion carries a typed exemption in the record naming the store test
+that proves the guarantee.
+
+- Criterion 1 is proved by
+  `TestRebuildRestoresWorkAndRelationProjectionsByteForByte`
+  and `TestRebuildSurvivesMessagesAndClaims`
+  (`internal/store/lifecycle_relations_test.go`,
+  `internal/store/rebuild_msg_test.go`).
+- Criterion 2 is proved by `TestOpenEnforcesForeignKeysBehaviorally`
+  (`internal/store/store_test.go`).
+- Criterion 3 is proved by `TestOpenAppliesSchemaManifest` and
+  `TestOpenIsIdempotentAcrossProcesses` (`internal/store/schema_test.go`,
+  `internal/store/store_test.go`). Section 8 records the falsifiers for each
+  guarantee.

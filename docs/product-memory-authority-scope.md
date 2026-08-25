@@ -8,6 +8,24 @@
 > **Supersedes narrowly:** CD-0002's "one database file per Project"
 > configuration. SQLite/WAL/NORMAL/library-in-process/I1–I6 remain binding.
 
+## Context
+
+Concord's live Product memory needs one physical authority scope. The binding
+inputs are the accepted PM1 query contract, CD-0002 invariants I1 through I6,
+and the one-operator one-machine operating envelope. This record decides where
+live authority lives: one global local SQLite database per operator
+installation, with logical boundaries kept first-class in the domain model.
+PM2 supersedes CD-0002's per-Project file configuration narrowly; the SQLite
+engine, WAL, synchronous=NORMAL, and I1 through I6 remain binding.
+## Contract
+
+The binding contract is sections 1 and 2: the decision — one global local
+SQLite database in the per-user application-data directory, repo-local durable
+knowledge kept in git, and no per-Product or per-Project live shards — and the
+decisive constraints from PM1's no-fan-out requirement and SQLite's WAL
+atomicity guarantees. Sections 3 and 4 record the candidate assessment and
+external alignment; sections 5 through 8 record portability, falsifiers,
+consequences, and sources, and carry no obligation.
 ## 1. Decision
 
 Concord uses **one global local SQLite database per operator installation** as the
@@ -222,3 +240,37 @@ Accepted consequences:
 Exa was used materially to discover and compare the local-first, per-vault, and
 per-tenant architectures above. Vendor/community examples corroborate shape and
 tradeoffs; SQLite's official documentation remains authoritative for behavior.
+
+## Acceptance criteria
+
+- Given a Concord installation with an operating data directory
+  When the store opens
+  Then live authority is one SQLite database under the per-user
+  application-data home, never inside a Project repository.
+
+- Given the accepted WAL configuration
+  When the store opens
+  Then the required pragmas — including WAL and synchronous=NORMAL — are
+  applied by the open path itself.
+
+- Given the one global authority
+  When the operator backs up and restores through the CLI
+  Then one coherent round trip restores the corpus, with no multi-file
+  reconciliation.
+
+## Verification
+
+The corpus scenarios are query-shaped and prove no physical-scope claim, so
+every criterion carries a typed exemption in the record naming the store test
+that proves the guarantee.
+
+- Criterion 1 is proved by `TestDefaultPathHonorsDataHome` and
+  `TestDefaultPathFallsBackToHome` (`internal/store/store_test.go`), which
+  fix the per-user data home, and by
+  `TestDatabaseOverrideRefusesRepositoryLocalPath`
+  (`cmd/concord/main_test.go`), which refuses a repository-local authority.
+- Criterion 2 is proved by `TestOpenAppliesRequiredPragmas`
+  (`internal/store/store_test.go`).
+- Criterion 3 is proved by `TestBackupAndRestoreRoundTripViaCLI`
+  (`cmd/concord/main_test.go`). Section 6 records the falsifiers for each
+  guarantee.

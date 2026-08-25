@@ -2,6 +2,14 @@
 
 **Status:** Constitutional bootstrap record.
 
+## Purpose
+
+This record fixes the provenance boundary of the public Concord snapshot:
+what the public repository contains, what private predecessor material it
+deliberately excludes, and how public identifiers relate to the private
+design history they came from. The sections below carry that law — the
+origin and boundary itself, the authority transition, and the date record.
+
 ## Origin and boundary
 
 Concord's design originated in private product-planning work. This public snapshot

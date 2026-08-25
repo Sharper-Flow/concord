@@ -51,7 +51,6 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 		scopes.ProductIDs = append([]string{}, scopes.ProductIDs...)
 		scopes.ProjectIDs = append([]string{}, scopes.ProjectIDs...)
 		scopes.DomainIDs = append([]string{}, scopes.DomainIDs...)
-		scopes.ComponentIDs = nil
 		scopes.TagIDs = append([]string{}, scopes.TagIDs...)
 		record := KnowledgeRecord{
 			ID: fixture.ID, Kind: fixture.Kind, Path: fixture.Path, Status: fixture.Status,

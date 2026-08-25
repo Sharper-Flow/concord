@@ -8,15 +8,12 @@
     "schema_version",
     "supported_kinds",
     "indexed_kinds",
+    "domain_registry",
     "records"
   ],
   "properties": {
     "schema_version": {
-      "enum": [
-        "1.0",
-        "1.1",
-        "1.2"
-      ]
+      "const": "1.2"
     },
     "supported_kinds": {
       "type": "array",
@@ -69,99 +66,10 @@
       "type": "array",
       "maxItems": 1000,
       "items": {
-        "$ref": "#/$defs/record"
+        "$ref": "#/$defs/recordV12"
       }
     }
   },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "schema_version": {
-            "const": "1.0"
-          }
-        },
-        "required": [
-          "schema_version"
-        ]
-      },
-      "then": {
-        "not": {
-          "required": [
-            "domain_registry"
-          ]
-        },
-        "properties": {
-          "records": {
-            "items": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/recordV10"
-                },
-                {
-                  "not": {
-                    "required": [
-                      "law_relations"
-                    ]
-                  }
-                }
-              ]
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "schema_version": {
-            "const": "1.1"
-          }
-        },
-        "required": [
-          "schema_version"
-        ]
-      },
-      "then": {
-        "not": {
-          "required": [
-            "domain_registry"
-          ]
-        },
-        "properties": {
-          "records": {
-            "items": {
-              "$ref": "#/$defs/recordV10"
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "schema_version": {
-            "const": "1.2"
-          }
-        },
-        "required": [
-          "schema_version"
-        ]
-      },
-      "then": {
-        "required": [
-          "domain_registry"
-        ],
-        "properties": {
-          "records": {
-            "items": {
-              "$ref": "#/$defs/recordV12"
-            }
-          }
-        }
-      }
-    }
-  ],
   "$defs": {
     "id": {
       "type": "string",
@@ -205,9 +113,6 @@
         "project_ids": {
           "$ref": "#/$defs/ids"
         },
-        "component_ids": {
-          "$ref": "#/$defs/ids"
-        },
         "domain_ids": {
           "$ref": "#/$defs/ids"
         },
@@ -243,44 +148,6 @@
         }
       ]
     },
-    "scopeV10": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/scopeCommon"
-        },
-        {
-          "type": "object",
-          "required": [
-            "component_ids"
-          ],
-          "properties": {
-            "component_ids": {
-              "$ref": "#/$defs/ids"
-            },
-            "domain_ids": false
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "mode": {
-                "const": "home"
-              }
-            },
-            "required": [
-              "mode"
-            ]
-          },
-          "then": {
-            "properties": {
-              "component_ids": {
-                "maxItems": 0
-              }
-            }
-          }
-        }
-      ]
-    },
     "scopeV12": {
       "allOf": [
         {
@@ -294,8 +161,7 @@
           "properties": {
             "domain_ids": {
               "$ref": "#/$defs/ids"
-            },
-            "component_ids": false
+            }
           }
         },
         {
@@ -378,14 +244,7 @@
           "$ref": "#/$defs/ids"
         },
         "scopes": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/scopeV10"
-            },
-            {
-              "$ref": "#/$defs/scopeV12"
-            }
-          ]
+          "$ref": "#/$defs/scopeV12"
         },
         "successor": {
           "$ref": "#/$defs/id"
@@ -583,41 +442,6 @@
                 "criterion_bindings"
               ]
             }
-          }
-        }
-      ]
-    },
-    "recordV10": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/record"
-        },
-        {
-          "properties": {
-            "scopes": {
-              "$ref": "#/$defs/scopeV10"
-            }
-          }
-        },
-        {
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "home_domain_id"
-                ]
-              },
-              {
-                "required": [
-                  "applies_to_domain_ids"
-                ]
-              },
-              {
-                "required": [
-                  "product_wide_rationale"
-                ]
-              }
-            ]
           }
         }
       ]

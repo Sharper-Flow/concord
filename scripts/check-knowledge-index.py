@@ -22,7 +22,6 @@ MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count
 ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "dispositions", "doc_contract", "records"}
 ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
 ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
-ALLOWED_SCOPES_V10 = {"mode", "product_ids", "project_ids", "component_ids", "tag_ids"}
 ALLOWED_SCOPES_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 ALLOWED_DOMAIN_REGISTRY = {"schema_version", "product_key", "root_domain_id", "domains"}
 ALLOWED_DOMAIN = {"domain_id", "name", "purpose", "parent_domain_id", "status", "architecture_relations"}
@@ -290,8 +289,8 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     if unknown:
         fail(findings, f"manifest: unknown fields: {sorted(unknown)}")
     schema_version = data.get("schema_version")
-    if schema_version not in {"1.0", "1.1", "1.2"}:
-        fail(findings, "manifest: schema_version must be 1.0, 1.1, or 1.2")
+    if schema_version != "1.2":
+        fail(findings, "manifest: schema_version must be 1.2")
     supported = data.get("supported_kinds")
     indexed = data.get("indexed_kinds")
     records = data.get("records")
@@ -308,15 +307,10 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         records = []
 
     registry = data.get("domain_registry")
-    if schema_version == "1.2":
-        if not isinstance(registry, dict):
-            fail(findings, "manifest: schema 1.2 requires a domain_registry object")
-            registry = {}
-        domain_ids = validate_domain_registry(registry, findings)
-    else:
-        if "domain_registry" in data:
-            fail(findings, "manifest: domain_registry requires schema_version 1.2")
-        domain_ids = set()
+    if not isinstance(registry, dict):
+        fail(findings, "manifest: schema 1.2 requires a domain_registry object")
+        registry = {}
+    domain_ids = validate_domain_registry(registry, findings)
 
     ids: set[str] = set()
     paths: set[str] = set()
@@ -334,8 +328,6 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
             continue
 
-        if "law_relations" in record and schema_version not in {"1.1", "1.2"}:
-            fail(findings, f"{prefix}: law_relations require schema_version 1.1 or 1.2")
         relations = record.get("law_relations", [])
         if not isinstance(relations, list) or len(relations) > 32:
             fail(findings, f"{prefix}: law_relations must be a bounded array")
@@ -405,7 +397,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: invalid tags")
 
         scopes = record["scopes"]
-        allowed_scopes = ALLOWED_SCOPES_V12 if schema_version == "1.2" else ALLOWED_SCOPES_V10
+        allowed_scopes = ALLOWED_SCOPES_V12
         if not isinstance(scopes, dict) or set(scopes) != allowed_scopes or scopes.get("mode") not in {"home", "explicit"}:
             fail(findings, f"{prefix}: invalid closed scopes")
         else:
@@ -415,35 +407,32 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                     fail(findings, f"{prefix}: invalid {field}")
             if scopes["mode"] == "home" and any(scopes[field] for field in allowed_scopes - {"mode"}):
                 fail(findings, f"{prefix}: home scopes cannot contain explicit IDs")
-            if schema_version == "1.2" and any(domain_id not in domain_ids for domain_id in scopes["domain_ids"]):
+            if any(domain_id not in domain_ids for domain_id in scopes["domain_ids"]):
                 fail(findings, f"{prefix}: scope domain is dangling")
 
-        if schema_version != "1.2" and ("home_domain_id" in record or "applies_to_domain_ids" in record or "product_wide_rationale" in record):
-            fail(findings, f"{prefix}: law-home fields require schema_version 1.2")
-        elif schema_version == "1.2":
-            if not law_bearing and ("home_domain_id" in record or "applies_to_domain_ids" in record or "product_wide_rationale" in record):
-                fail(findings, f"{prefix}: non-law records cannot author law-home fields")
-            # The root is the only home reachable by deciding nothing, so it
-            # carries a stated claim. A child home has already decided and a
-            # rationale there would assert a reach the home contradicts.
-            root_homed = record.get("home_domain_id") == registry.get("root_domain_id")
-            rationale = record.get("product_wide_rationale")
-            if root_homed and not bounded_text(rationale, 512):
-                fail(findings, f"{prefix}: law homed to the root Domain must state product_wide_rationale")
-            if not root_homed and "product_wide_rationale" in record:
-                fail(findings, f"{prefix}: only root-homed law states product_wide_rationale")
-            if law_bearing and status == "accepted" and ("home_domain_id" not in record or not valid_id(record.get("home_domain_id"))):
-                fail(findings, f"{prefix}: an accepted law-bearing record requires one clean home_domain_id")
-            if "home_domain_id" in record and (not valid_id(record["home_domain_id"]) or record["home_domain_id"] not in domain_ids):
-                fail(findings, f"{prefix}: home domain is dangling or invalid")
-            if "applies_to_domain_ids" in record:
-                if "home_domain_id" not in record:
-                    fail(findings, f"{prefix}: applies_to_domain_ids requires home_domain_id")
-                values = record["applies_to_domain_ids"]
-                if not unique_string_list(values, 64) or not all(valid_id(item) and item in domain_ids for item in values):
-                    fail(findings, f"{prefix}: invalid or dangling applies_to_domain_ids")
-                if "home_domain_id" in record and record["home_domain_id"] in values:
-                    fail(findings, f"{prefix}: applies_to_domain_ids repeats home_domain_id")
+        if not law_bearing and ("home_domain_id" in record or "applies_to_domain_ids" in record or "product_wide_rationale" in record):
+            fail(findings, f"{prefix}: non-law records cannot author law-home fields")
+        # The root is the only home reachable by deciding nothing, so it
+        # carries a stated claim. A child home has already decided and a
+        # rationale there would assert a reach the home contradicts.
+        root_homed = record.get("home_domain_id") == registry.get("root_domain_id")
+        rationale = record.get("product_wide_rationale")
+        if root_homed and not bounded_text(rationale, 512):
+            fail(findings, f"{prefix}: law homed to the root Domain must state product_wide_rationale")
+        if not root_homed and "product_wide_rationale" in record:
+            fail(findings, f"{prefix}: only root-homed law states product_wide_rationale")
+        if law_bearing and status == "accepted" and ("home_domain_id" not in record or not valid_id(record.get("home_domain_id"))):
+            fail(findings, f"{prefix}: an accepted law-bearing record requires one clean home_domain_id")
+        if "home_domain_id" in record and (not valid_id(record["home_domain_id"]) or record["home_domain_id"] not in domain_ids):
+            fail(findings, f"{prefix}: home domain is dangling or invalid")
+        if "applies_to_domain_ids" in record:
+            if "home_domain_id" not in record:
+                fail(findings, f"{prefix}: applies_to_domain_ids requires home_domain_id")
+            values = record["applies_to_domain_ids"]
+            if not unique_string_list(values, 64) or not all(valid_id(item) and item in domain_ids for item in values):
+                fail(findings, f"{prefix}: invalid or dangling applies_to_domain_ids")
+            if "home_domain_id" in record and record["home_domain_id"] in values:
+                fail(findings, f"{prefix}: applies_to_domain_ids repeats home_domain_id")
 
         if not isinstance(record["sha256"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", record["sha256"]):
             fail(findings, f"{prefix}: invalid sha256 proof")
@@ -497,7 +486,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             owner = seen.setdefault(value.strip(), identifier)
             if owner != identifier:
                 fail(findings, f"manifest.records[{identifier}]: {field} duplicates {owner}; each record must describe its own law")
-    if schema_version == "1.2" and isinstance(registry, dict):
+    if isinstance(registry, dict):
         accepted_laws = {
             record.get("id")
             for record in records
@@ -540,13 +529,12 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                     fail(findings, f"{prefix}: supersedes relation disagrees with target successor")
             if kind in {"supersedes", "refines", "subordinate_to"}:
                 graph.setdefault(record.get("id"), []).append(relation.get("target_id"))
-    if schema_version in {"1.1", "1.2"}:
-        for record in records:
-            if not isinstance(record, dict) or not record.get("successor"):
-                continue
-            successor = by_id.get(record["successor"])
-            if not any(isinstance(r, dict) and r.get("kind") == "supersedes" and r.get("target_id") == record.get("id") for r in (successor or {}).get("law_relations", [])):
-                fail(findings, f"manifest.records: successor {record['successor']} lacks matching supersedes relation")
+    for record in records:
+        if not isinstance(record, dict) or not record.get("successor"):
+            continue
+        successor = by_id.get(record["successor"])
+        if not any(isinstance(r, dict) and r.get("kind") == "supersedes" and r.get("target_id") == record.get("id") for r in (successor or {}).get("law_relations", [])):
+            fail(findings, f"manifest.records: successor {record['successor']} lacks matching supersedes relation")
 
     def has_cycle(graph: dict[str, list[str]]) -> bool:
         visiting: set[str] = set()

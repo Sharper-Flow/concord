@@ -225,7 +225,7 @@ def test_scope_union_divergence_is_reported() -> None:
     del schema["$defs"]["scopeCommon"]["properties"]["tag_ids"]
     findings = validate(schema)
     assert findings == [
-        "ALLOWED_SCOPES_V10 | ALLOWED_SCOPES_V12: enforced by the checker, absent from the schema: tag_ids"
+        "ALLOWED_SCOPES_V12: enforced by the checker, absent from the schema: tag_ids"
     ]
 
 

@@ -226,33 +226,12 @@ func DomainEvidenceRepo(dir string) (string, error) {
 	return repo, nil
 }
 
-// encodeDomainManifest drops the retired component_ids scope key, which the
-// v1.2 manifest schema rejects, from the marshalled record scopes.
 func encodeDomainManifest(manifest store.KnowledgeManifest) (string, error) {
 	raw, err := json.Marshal(manifest)
 	if err != nil {
 		return "", fmt.Errorf("pm1fixture: marshal Domain manifest: %w", err)
 	}
-	var object map[string]any
-	if err := json.Unmarshal(raw, &object); err != nil {
-		return "", fmt.Errorf("pm1fixture: decode Domain manifest: %w", err)
-	}
-	records, ok := object["records"].([]any)
-	if !ok {
-		return "", fmt.Errorf("pm1fixture: Domain manifest records are not a list")
-	}
-	for _, record := range records {
-		scopes, ok := record.(map[string]any)["scopes"].(map[string]any)
-		if !ok {
-			return "", fmt.Errorf("pm1fixture: Domain manifest record has no scopes object")
-		}
-		delete(scopes, "component_ids")
-	}
-	out, err := json.Marshal(object)
-	if err != nil {
-		return "", fmt.Errorf("pm1fixture: re-encode Domain manifest: %w", err)
-	}
-	return string(out) + "\n", nil
+	return string(raw) + "\n", nil
 }
 
 type domainStatement struct {

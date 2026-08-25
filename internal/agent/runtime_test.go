@@ -516,13 +516,17 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 	contentHash := "sha256:" + hex.EncodeToString(hash[:])
 	if kind != "work_note" {
 		manifest := map[string]any{
-			"schema_version":  "1.0",
+			"schema_version":  "1.2",
 			"supported_kinds": []string{"work_note", "decision", "spec", "lesson", "research"},
 			"indexed_kinds":   []string{"work_note", "decision", "spec", "lesson"},
+			"domain_registry": map[string]any{
+				"schema_version": "1.0", "product_key": "runtime-product", "root_domain_id": "product-root:runtime-product",
+				"domains": []any{map[string]any{"domain_id": "product-root:runtime-product", "name": "Runtime product", "purpose": "Product-wide runtime fixture law", "status": "current", "architecture_relations": []any{}}},
+			},
 			"records": []any{map[string]any{
 				"id": id, "kind": kind, "path": notePath, "status": "published", "date": "2026-08-10T00:00:00Z",
 				"title": "Durable lesson", "summary": "Durable summary", "tags": []string{},
-				"scopes": map[string]any{"mode": scopeMode, "product_ids": []string{}, "project_ids": []string{}, "component_ids": []string{}, "tag_ids": []string{}},
+				"scopes": map[string]any{"mode": scopeMode, "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
 				"sha256": contentHash,
 			}},
 		}

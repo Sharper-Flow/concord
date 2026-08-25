@@ -369,30 +369,22 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 			}
 			*scope.target = values
 		}
-		if manifestSchemaVersion == "1.2" {
-			values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID)
+		values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID)
+		if queryErr != nil {
+			return out, queryErr
+		}
+		record.Scopes.DomainIDs = values
+		if kind == "decision" || kind == "spec" {
+			if err := q.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
+				return out, q10LawDomainProjectionFailure(err)
+			}
+			record.homeDomainPresent = true
+			record.productWideRationalePresent = record.ProductWideRationale != ""
+			values, queryErr = archivedLawApplicability(ctx, q, homeProject, homeLocator, lookupID)
 			if queryErr != nil {
 				return out, queryErr
 			}
-			record.Scopes.DomainIDs, record.Scopes.domainIDsPresent = values, true
-			if kind == "decision" || kind == "spec" {
-				if err := q.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
-					return out, q10LawDomainProjectionFailure(err)
-				}
-				record.homeDomainPresent = true
-				record.productWideRationalePresent = record.ProductWideRationale != ""
-				values, queryErr = archivedLawApplicability(ctx, q, homeProject, homeLocator, lookupID)
-				if queryErr != nil {
-					return out, queryErr
-				}
-				record.AppliesToDomainIDs, record.appliesToDomainsPresent = values, true
-			}
-		} else {
-			values, queryErr := archivedScopeIDs(ctx, q, "archived_work_components", "component_id", lookupID)
-			if queryErr != nil {
-				return out, queryErr
-			}
-			record.Scopes.ComponentIDs, record.Scopes.componentIDsPresent = values, true
+			record.AppliesToDomainIDs, record.appliesToDomainsPresent = values, true
 		}
 		if err := verifyManifestRecord(ctx, storedHome.RepoPath, commit, record); err != nil {
 			return q10HistoricalFailure(&out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)

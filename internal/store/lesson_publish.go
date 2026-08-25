@@ -50,7 +50,7 @@ type PublishedLesson struct {
 	CommitOID string
 }
 
-func (req LessonPublication) record(contentSHA string, date, notePath, schemaVersion string) KnowledgeRecord {
+func (req LessonPublication) record(contentSHA string, date, notePath string) KnowledgeRecord {
 	scopes := req.Scopes
 	if scopes.Mode == "" {
 		scopes.Mode = "home"
@@ -58,17 +58,7 @@ func (req LessonPublication) record(contentSHA string, date, notePath, schemaVer
 	scopes.ProductIDs = nonNilIDs(scopes.ProductIDs)
 	scopes.ProjectIDs = nonNilIDs(scopes.ProjectIDs)
 	scopes.TagIDs = nonNilIDs(scopes.TagIDs)
-	if schemaVersion == "1.2" {
-		scopes.ComponentIDs = nil
-		scopes.componentIDsPresent = false
-		scopes.DomainIDs = nonNilIDs(scopes.DomainIDs)
-		scopes.domainIDsPresent = true
-	} else {
-		scopes.ComponentIDs = nonNilIDs(scopes.ComponentIDs)
-		scopes.componentIDsPresent = true
-		scopes.DomainIDs = nil
-		scopes.domainIDsPresent = false
-	}
+	scopes.DomainIDs = nonNilIDs(scopes.DomainIDs)
 	tags := nonNilIDs(req.Tags)
 	return KnowledgeRecord{
 		ID: req.LessonID, Kind: "lesson", Path: notePath, Status: "published",
@@ -122,7 +112,7 @@ func validateLessonScopes(scopes KnowledgeRecordScopes) error {
 	if scopes.Mode == "" {
 		scopes.Mode = "home"
 	}
-	counts := len(scopes.ProductIDs) + len(scopes.ProjectIDs) + len(scopes.ComponentIDs) + len(scopes.DomainIDs) + len(scopes.TagIDs)
+	counts := len(scopes.ProductIDs) + len(scopes.ProjectIDs) + len(scopes.DomainIDs) + len(scopes.TagIDs)
 	switch scopes.Mode {
 	case "home":
 		if counts != 0 {
@@ -130,7 +120,7 @@ func validateLessonScopes(scopes KnowledgeRecordScopes) error {
 		}
 	case "explicit":
 		if counts == 0 {
-			return newFailure(KindInvalidNoteProof, "publish_lesson", "explicit scope must declare at least one scope ID", false, "declare the Product, Project, Domain, component, or tag scopes")
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "explicit scope must declare at least one scope ID", false, "declare the Product, Project, Domain, or tag scopes")
 		}
 	default:
 		return newFailure(KindInvalidNoteProof, "publish_lesson", "scope mode must be home or explicit", false, "supply home or explicit")
@@ -191,14 +181,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 			return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson path is already claimed by different content", false, "retitle the lesson")
 		}
 	}
-	if manifest.SchemaVersion == "1.2" && len(req.Scopes.ComponentIDs) > 0 {
-		return out, newFailure(KindInvalidNoteProof, "publish_lesson", "schema 1.2 lesson publication cannot use component scope IDs", false, "use domain scope IDs for a schema 1.2 manifest")
-	}
-	if manifest.SchemaVersion != "1.2" && len(req.Scopes.DomainIDs) > 0 {
-		return out, newFailure(KindInvalidNoteProof, "publish_lesson", "schema 1.0 or 1.1 lesson publication cannot use domain scope IDs", false, "use component scope IDs for a compatibility manifest")
-	}
-
-	record := req.record(contentSHA, date, notePath, manifest.SchemaVersion)
+	record := req.record(contentSHA, date, notePath)
 	if err := validateKnowledgeRecordForSchema(record, knowledgeKindsClosed, knowledgeKindsClosed, manifest.SchemaVersion); err != nil {
 		return out, err
 	}
@@ -276,9 +259,7 @@ func marshalKnowledgeManifest(manifest KnowledgeManifest) ([]byte, error) {
 	if len(manifest.Exclusions) > 0 {
 		values["exclusions"] = manifest.Exclusions
 	}
-	if manifest.SchemaVersion == "1.2" {
-		values["domain_registry"] = manifest.DomainRegistry
-	}
+	values["domain_registry"] = manifest.DomainRegistry
 	records := make([]any, 0, len(manifest.Records))
 	for _, record := range manifest.Records {
 		records = append(records, manifestRecordEntry(record))

@@ -7,41 +7,46 @@
       "purpose": "Local verification throttle; routes smoke, full, and targeted test tiers.",
       "invocation": "bin/oc-test full",
       "tier": "slow",
+      "cadence": "on_demand",
+      "cost_hint": "About 38 minutes under the local throttle.",
       "config_path": "bin/oc-test",
-      "in_ci": false,
       "notes": "Sanctioned local entry for the Go suite; the full tier for this repository measures about 38 minutes under throttle."
     },
     {
       "id": "go-test-race",
-      "purpose": "The Go test suite with the race detector, as required CI runs it.",
+      "purpose": "The Go test suite with the race detector.",
       "invocation": "go test -race -timeout=20m ./...",
       "tier": "slow",
-      "in_ci": true,
-      "ci_reference": "go test -race -timeout=20m ./..."
+      "cadence": "routine",
+      "cost_hint": "The command timeout is 20 minutes.",
+      "automation_path": ".github/workflows/ci.yml"
     },
     {
       "id": "go-vet",
       "purpose": "Standard Go static analysis over every package.",
       "invocation": "go vet ./...",
       "tier": "fast",
-      "in_ci": true,
-      "ci_reference": "go vet ./..."
+      "cadence": "routine",
+      "cost_hint": "Expected to complete in seconds.",
+      "automation_path": ".github/workflows/ci.yml"
     },
     {
       "id": "gofmt",
       "purpose": "Go source formatting check; empty output means formatted.",
       "invocation": "gofmt -l .",
       "tier": "fast",
-      "in_ci": true,
-      "ci_reference": "gofmt -l ."
+      "cadence": "routine",
+      "cost_hint": "Expected to complete in seconds.",
+      "automation_path": ".github/workflows/ci.yml"
     },
     {
       "id": "govulncheck",
       "purpose": "Go vulnerability scan against the pinned govulncheck version.",
       "invocation": "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
       "tier": "standard",
-      "in_ci": true,
-      "ci_reference": "govulncheck@v1.6.0",
+      "cadence": "routine",
+      "cost_hint": "Expected to complete in minutes.",
+      "automation_path": ".github/workflows/ci.yml",
       "notes": "The version pin is load-bearing; CI rejects an unpinned run."
     },
     {
@@ -49,8 +54,9 @@
       "purpose": "Repository contract drift checks; check-json.py chains the validator suite.",
       "invocation": "python3 scripts/check-json.py",
       "tier": "fast",
-      "in_ci": true,
-      "ci_reference": "python3 scripts/check-json.py",
+      "cadence": "routine",
+      "cost_hint": "Expected to complete in seconds.",
+      "automation_path": ".github/workflows/ci.yml",
       "notes": "The AGENTS.md Where-to-look table maps each validator to the question it answers."
     }
   ]

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/project-tooling.v1.schema.json",
   "title": "Concord project tooling declaration",
-  "description": "Shape of .concord/tooling.v1.json, the per-project record of which quality tools, scanners, and check commands are already set up. Intent fields (purpose, invocation, tier, notes) are hand-authored; resolution claims (config_path exists, ci_reference appears in a workflow) are proved by scripts/check-project-tooling.py, because JSON Schema cannot express them.",
+  "description": "Shape of .concord/tooling.v1.json, the per-project record of which quality tools, scanners, and check commands are already set up. Intent fields are hand-authored; referenced paths are proved to resolve inside the repository by scripts/check-project-tooling.py, because JSON Schema cannot express filesystem resolution.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "project", "tools"],
@@ -10,7 +10,7 @@
     "schema_version": { "const": "1.0" },
     "project": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "pattern": "^(?!.*[\\r\\n])[a-z][a-z0-9-]{1,63}$",
       "description": "Kebab-case project identifier."
     },
     "tools": {
@@ -24,62 +24,72 @@
     "tool": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "purpose", "invocation", "tier", "in_ci"],
+      "required": ["id", "purpose", "invocation", "tier", "cadence"],
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "pattern": "^(?!.*[\\r\\n])[a-z][a-z0-9-]{1,63}$",
           "description": "Stable kebab-case identifier, unique within the manifest."
         },
         "purpose": {
           "type": "string",
           "minLength": 4,
           "maxLength": 256,
+          "pattern": "[^ \\t\\r\\n]",
           "description": "What the tool checks or does, as one bounded sentence."
         },
         "invocation": {
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
+          "allOf": [
+            { "pattern": "[^ \\t\\r\\n]" },
+            { "pattern": "^[^\\u0000-\\u001F\\u007F]+$" }
+          ],
           "description": "The command an agent runs. A fact about the tool, not guidance about when to run it."
         },
         "tier": {
+          "type": "string",
           "enum": ["fast", "standard", "slow"],
           "description": "Cost class. fast runs in seconds, standard in minutes, slow beyond that."
+        },
+        "cadence": {
+          "type": "string",
+          "enum": ["routine", "on_demand"],
+          "description": "Declared project intent: routine means part of normal verification cadence; on_demand means selected when needed. This field does not prove automation."
+        },
+        "cost_hint": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "allOf": [
+            { "pattern": "[^ \\t\\r\\n]" },
+            { "pattern": "^[^\\u0000-\\u001F\\u007F]+$" }
+          ],
+          "description": "A bounded single-line estimate or known limit that makes the tier more useful."
         },
         "config_path": {
           "type": "string",
           "minLength": 3,
           "maxLength": 512,
-          "description": "Repository-relative path of the tool's configuration or entry script. Proved to resolve by the checker; omit when the tool needs no repository config."
+          "pattern": "^(?!/)(?!.*//)(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$",
+          "description": "Safe repository-relative path of the tool's configuration or entry script. The checker proves that it resolves to a regular file inside the repository."
         },
-        "in_ci": {
-          "type": "boolean",
-          "description": "Whether a required workflow already runs the tool. Separates checks that already ran from checks an agent must invoke itself."
-        },
-        "ci_reference": {
+        "automation_path": {
           "type": "string",
-          "minLength": 2,
-          "maxLength": 256,
-          "description": "Literal substring that must appear in a file under .github/workflows/. Required when in_ci is true, forbidden when false."
+          "minLength": 3,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*//)(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$",
+          "description": "Informational safe repository-relative path of related automation. The checker proves path resolution but does not parse the file or infer cadence."
         },
         "notes": {
           "type": "string",
           "minLength": 4,
           "maxLength": 512,
+          "pattern": "[^ \\t\\r\\n]",
           "description": "Non-obvious constraints an agent needs before running the tool. Facts only."
         }
-      },
-      "allOf": [
-        {
-          "if": { "properties": { "in_ci": { "const": true } }, "required": ["in_ci"] },
-          "then": { "required": ["ci_reference"] }
-        },
-        {
-          "if": { "properties": { "in_ci": { "const": false } }, "required": ["in_ci"] },
-          "then": { "not": { "required": ["ci_reference"] } }
-        }
-      ]
+      }
     }
   }
 }

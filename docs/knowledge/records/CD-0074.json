@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8c2f1d26471c26e4671023b93814fb0b103102528810753601a70013d138ec1b",
+  "sha256": "sha256:3cfd3e2be8610e67c0436d655501bcbf2029698676b73a3bfec7c9febbe660b2",
   "status": "accepted",
-  "summary": "D1 puts each project's ready tooling in one hand-authored manifest, .concord/tooling.v1.json, whose intent fields (id, purpose, invocation, tier, notes) have no upstream source to drift from; D2 proves every derived claim at check time through scripts/check-project-tooling.py wired into check-json.py, where config_path must resolve, ci_reference must appear in a workflow file, in_ci false forbids ci_reference, and a missing manifest is a finding rather than a vacuous pass; D3 holds the CD-0043 D1 boundary by carrying facts about tools (what exists, how it is invoked) and never methodology (when an agent should choose it); D4 performs file reads only so CD-0040 D6's probe-family limit holds and executing repo-named binaries stays unopened; D5 keeps CI as one derived attribute rather than the authority, because CI enumerates only the always-on subset and the infrequent tools are the operator's stated case.",
+  "summary": "D1 puts each project's ready tooling in one hand-authored manifest, .concord/tooling.v1.json, with required tier and independent cadence plus optional bounded cost_hint, config_path, automation_path, and notes; D2 aligns checker and schema text rules through raw string bounds and a required character outside JSON whitespace, validates shape without requiring adopters to vendor Concord's published schema, and proves that the manifest and referenced regular files remain inside the repository across symlinks; D3 holds the CD-0043 D1 boundary by carrying facts about tools and never methodology about when an agent should choose them; D4 performs file reads only so CD-0040 D6's probe-family limit holds and executing repository-named binaries stays unopened; D5 defines routine and on_demand as pure declared cadence intent, keeps automation_path informational, and rejects automation or CI text as cadence proof.",
   "tags": [
     "tooling",
     "manifest",

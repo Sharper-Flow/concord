@@ -33,9 +33,10 @@ beforehand (issue #510).
 ### D1. One hand-authored manifest per project holds the intent
 
 `.concord/tooling.v1.json` declares, per tool: an `id`, a `purpose`, the
-`invocation` an agent runs, a cost `tier`, an optional `config_path`, an
-`in_ci` boolean with its `ci_reference`, and optional `notes`. These fields are
-hand-authored because they have no upstream source to drift from. The
+`invocation` an agent runs, a required cost `tier`, an independent required
+`cadence`, optional `cost_hint`, optional `config_path`, optional
+`automation_path`, and optional `notes`. These fields are hand-authored because
+they have no upstream source to drift from. The
 invocation and the sanctioned entry point are exactly the facts a filesystem
 read cannot produce: both `go test ./...` and `bin/oc-test` work in this
 repository, and only intent says which one is sanctioned.
@@ -44,18 +45,26 @@ repository, and only intent says which one is sanctioned.
 
 `scripts/check-project-tooling.py` validates the manifest on every CI run,
 wired through `scripts/check-json.py`. It rejects unknown fields, bad tiers,
-duplicate ids, duplicate JSON keys, and unsafe paths. It proves resolution:
-`config_path` must exist on disk, and `ci_reference` must appear as a literal
-substring in a file under `.github/workflows/`. `in_ci: false` forbids a
-`ci_reference`. A missing manifest is a finding, not a vacuous pass — deleting
-the declaration must be a visible decision, the same unlapsed-coverage lesson
-CD-0047 records for `check-law-coverage.py`.
+bad cadences, duplicate ids, duplicate JSON keys, unsafe paths, text made only
+from JSON whitespace, and multiline invocations. Text bounds count raw string
+length, matching JSON Schema. It proves that `config_path` and
+`automation_path` resolve to
+regular files inside the repository. It rejects symlink escapes, including a
+manifest symlink that resolves outside the repository. It does not inspect
+automation file contents. A missing manifest is a finding, not a vacuous pass.
+Deleting the declaration must be a visible decision, the same
+unlapsed-coverage lesson CD-0047 records for `check-law-coverage.py`.
+
+Concord publishes and checks
+`contracts/project-tooling.v1.schema.json` as the owner of the contract. An
+adopting project needs only `.concord/tooling.v1.json` and any files that its
+entries reference. It does not need to vendor the schema.
 
 ### D3. The manifest carries facts, never methodology
 
 CD-0043 D1 excludes lane methodology from durable state, and this record keeps
-that boundary intact. "`gosec` is configured, invoked as `gosec ./...`, on
-demand, slow" is a fact about a tool and belongs in the manifest. "Run `gosec`
+that boundary intact. "`gosec` is configured, invoked as `gosec ./...`,
+on-demand, slow" is a fact about a tool and belongs in the manifest. "Run `gosec`
 before reviewing crypto changes" is methodology and stays host-owned. The
 manifest states what a tool is and how it is invoked; it never states when an
 agent should choose it.
@@ -63,34 +72,37 @@ agent should choose it.
 ### D4. No new probe family
 
 CD-0040 D6 restricts core execution to the accepted Git probes. The checker
-performs file reads only: manifest JSON, workflow YAML as text, and config
-path existence. Concord never executes a declared tool to test availability,
+performs file reads only: manifest JSON and referenced path resolution. Concord
+never executes a declared tool to test availability,
 because the commands come from repository content and executing them is a new
 probe family with security semantics this record does not open. Host
 availability, if ever needed, arrives as an attributed report from an
 authenticated trusted client under CD-0040 D6's existing channel.
 
-### D5. CI is an attribute, not the authority
+### D5. Cadence is declared intent
 
-CI enumerates only the always-on subset, and infrequent tools are deliberately
-outside it — that is the operator's stated case for this surface. The source of
-the declaration is configuration presence plus operator intent; `in_ci` is one
-derived boolean that separates "a required workflow already ran it" from "it
-runs only when an agent invokes it."
+The required `cadence` is `routine` or `on_demand`, independent of the required
+`tier` (`fast`, `standard`, or `slow`). `routine` means the project includes the
+tool in its normal verification cadence. It does not claim that automation runs
+the tool. Infrequent tools remain visible as `on_demand`. An optional bounded
+`cost_hint` adds an estimate or limit without changing either classification.
+An optional `automation_path` is an informational repository-relative pointer.
+The checker proves only safe file resolution. It does not parse the file, infer
+cadence, or use CI text as authority.
 
 ## Consequences
 
 - Every Concord-managed project may carry the manifest; this repository
   dogfoods it with six entries, including `bin/oc-test` as the sanctioned local
-  entry that CI does not run.
+  `on_demand` entry.
 - The schema documents shape; the checker enforces shape plus resolution,
-  because existence and workflow-membership checks are inexpressible in JSON
-  Schema.
+  because safe filesystem resolution is inexpressible in JSON Schema.
 - Adding a tool is a reviewed edit plus a passing check. Removing a tool's
   configuration without updating the manifest fails
   `check-project-tooling.py`.
-- Other projects adopt the surface by committing the same manifest shape; the
-  checker is a single file with no dependencies beyond the standard library.
+- Other projects adopt the surface by committing the manifest and any files it
+  references. They do not need to vendor Concord's published schema. The
+  checker has no dependencies beyond the standard library.
 
 ## Rejected alternatives
 
@@ -121,9 +133,11 @@ be structurally validated, drifts silently, and is already pointer-only by
   `scripts/check-project-tooling.py`, and `python3 scripts/check-json.py`
   passes.
 - `scripts/test-project-tooling.py` covers the failure modes (missing
-  manifest, unknown fields, bad tiers, duplicate ids, unresolvable and unsafe
-  paths, missing and forbidden `ci_reference`, duplicate keys, multiline
-  invocations) and runs in CI.
+  manifest, manifest and referenced-path symlink escapes, unknown fields, bad
+  tiers and cadences, unhashable scalar values, duplicate ids, unsafe paths,
+  duplicate keys, schema-free adoption, JSON-whitespace-only text, raw-length
+  boundaries, schema/checker lexical agreement, and multiline invocations) and
+  runs in CI.
 - `python3 scripts/check-doc-links.py`, `python3 scripts/check-agents-md.py`,
   `python3 scripts/check-cd-allocation.py --no-fetch`, and
   `python3 scripts/check-knowledge-index.py` pass.

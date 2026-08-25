@@ -2920,12 +2920,36 @@
       "title": "agent call context contract"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "Grant validation is a transport-layer property below scenario grain. The guarantee is proved by TestGrantJSONSignatureRoundTripAndFailuresAtCommandBoundary (cmd/concord/main_test.go) and TestGrantBootstrapAndInvocationBinding (internal/agent/authority_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "Secret non-exposure is a transport invariant. The guarantee is proved by TestInvokeNeverEchoesGrantToken (cmd/concord/main_test.go) and TestGrantRefusalsCarryTheUnauthorizedKind (internal/agent/authority_refusal_kind_test.go)."
+        },
+        {
+          "criterion": 3,
+          "exemption": "Single-envelope stdout is a transport property. The guarantee is proved by TestDecodeInvokeRequestRejectsInvalidTrailingJSON (internal/agent/runtime_test.go) and the adapter contract tests (adapter/opencode/generated-contract-tests.ts)."
+        },
+        {
+          "criterion": 4,
+          "exemption": "Same-key retry is a dispatch property. The guarantee is proved by TestDispatchIdempotentReplaySurvivesAmbientScopeDrift (internal/agent/mutation_dispatch_test.go)."
+        },
+        {
+          "criterion": 5,
+          "exemption": "The approval bridge is a host-adapter property. The guarantee is proved by TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse and TestDispatchFailedDomainEffectRollsBackGrantAndApproval (internal/agent/mutation_dispatch_test.go)."
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "adapter/opencode/concord.ts",
-        "adapter/opencode/dispatch.ts",
         "cmd/concord/main_test.go",
-        "scripts/check-agent-contracts.py"
+        "internal/agent/authority_test.go",
+        "internal/agent/authority_refusal_kind_test.go",
+        "internal/agent/runtime_test.go",
+        "internal/agent/mutation_dispatch_test.go",
+        "adapter/opencode/generated-contract-tests.ts"
       ],
       "home_domain_id": "agent-surface",
       "id": "TS6",
@@ -2938,7 +2962,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d10d570ea61459939e95efa326d0c27e4982f28d11f6239572a619d21748618b",
+      "sha256": "sha256:4b19b0494e96c5f1443bda0621e7ff8694c970574b23ac1f846be61649bfe5af",
       "status": "accepted",
       "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
       "tags": [
@@ -2949,7 +2973,36 @@
       "title": "agent adapter transport contract"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "Envelope closure is a per-call schema property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields and TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome (internal/agent/envelope_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "Authority semantics are per-call properties. The guarantee is proved by TestEnvelopeGoldenOutcomes (internal/agent/envelope_test.go)."
+        },
+        {
+          "criterion": 3,
+          "exemption": "Output bounds are producer-enforced per call. The guarantee is proved by TestEnvelopeHasHardSerializedLimit and TestMutationResultProducerAcceptsCanonicalPayload (internal/agent/envelope_test.go), and TestBudgetFieldsRefuseOrBoundResultsStructurally (internal/agent/runtime_test.go)."
+        },
+        {
+          "criterion": 4,
+          "exemption": "Cursor binding is a dispatch property. The guarantee is proved by TestAuthenticatedCursorBindsOperationAndRejectsTampering (internal/agent/runtime_test.go)."
+        },
+        {
+          "criterion": 5,
+          "exemption": "Durable-outcome honesty is proved at both levels: TestOutcomeMismatchIsClosedAndCannotDowngrade (internal/agent/envelope_test.go) and the AJ6-partial-publication scenario of the agent-jobs corpus under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go)."
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/agent/envelope_test.go",
+        "internal/agent/runtime_test.go",
+        "scenarios/agent-jobs.v1.json",
+        "internal/agent/agent_jobs_corpus_test.go",
+        "contracts/agent-tool-envelope.schema.json"
+      ],
       "home_domain_id": "agent-surface",
       "id": "TS7",
       "kind": "spec",
@@ -2961,7 +3014,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f9d3d48f5dcf5d2bee3d77d00bdf833fc58a78addfaeb5fcc1c1347811b1faed",
+      "sha256": "sha256:f6423e9a41ec7e2aee0bcc8dd98cae18b538060df08089ee25e344b09ebdfe79",
       "status": "accepted",
       "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
       "tags": [
@@ -2972,12 +3025,31 @@
       "title": "Agent result envelope"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "Digest binding is a surface-identity property enforced by the generated drift validator scripts/check-agent-contracts.py over the generated contracts and manifest."
+        },
+        {
+          "criterion": 2,
+          "exemption": "Generated-artifact unity is enforced by the validator's generated-drift checks in scripts/check-agent-contracts.py, which fail when the manifest and its artifacts disagree."
+        },
+        {
+          "criterion": 3,
+          "exemption": "Fail-closed digest mismatch is an envelope-and-adapter property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields (internal/agent/envelope_test.go) and the strict unknown-input rejection of adapter/opencode/generated-contract-tests.ts."
+        },
+        {
+          "criterion": 4,
+          "scenario": "AJ5-resolve-domain-overlap"
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "contracts/agent-tool-surface.v1.json",
-        "contracts/agent-tool-surface.digest",
-        "internal/agent/generated_contracts.go",
-        "internal/agent/authority_test.go"
+        "scripts/check-agent-contracts.py",
+        "adapter/opencode/generated-contract-tests.ts",
+        "internal/agent/envelope_test.go",
+        "scenarios/agent-jobs.v1.json",
+        "internal/agent/agent_jobs_corpus_test.go"
       ],
       "home_domain_id": "agent-surface",
       "id": "TS8",
@@ -2990,7 +3062,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:66dbe4f2f670d0b6505e5be1d834e7c3d342b3df4f3be9cebffa2cb2847d8d23",
+      "sha256": "sha256:0434da63fd9591bf4c424dfdf028c62ed73d4bd3321c27f91b6ec67665127f48",
       "status": "accepted",
       "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
       "tags": [
@@ -3000,12 +3072,30 @@
       "title": "agent tool surface evolution"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "State-not-wording assertion is enforced by the corpus runner's absent-probe guard under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go); its rejection test is TestEvaluateAbsentRequiresProbe."
+        },
+        {
+          "criterion": 2,
+          "exemption": "This criterion states what cannot authorize. It is enforced structurally: the corpus is the only accepted evidence path in .github/workflows/ci.yml, and no model-trial gate exists in any workflow."
+        },
+        {
+          "criterion": 3,
+          "exemption": "Operator acceptance is recorded practice, not executable: the domain-overlap change carries it on issue #195, cited in TS1's approved amendments."
+        },
+        {
+          "criterion": 4,
+          "exemption": "The operational-plane boundary is enforced by scripts/check-public-content.py and the corpus runner's recorded measurements, which carry typed structural facts only."
+        }
+      ],
       "date": "2026-08-06T00:00:00Z",
       "evidence": [
-        "scenarios/agent-jobs.v1.json",
-        "contracts/agent-jobs-scenarios.schema.json",
         "internal/agent/agent_jobs_corpus_test.go",
-        "scripts/check-agent-jobs.py"
+        ".github/workflows/ci.yml",
+        "scripts/check-public-content.py",
+        "scripts/check-agent-contracts.py"
       ],
       "home_domain_id": "agent-surface",
       "id": "TS9",
@@ -3018,7 +3108,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:348a6e4d5af373fd8523675f8dfa49413fa3eae5e424f793e49efcdd25eb29f9",
+      "sha256": "sha256:6c55aaf837eca0a63ccd2dfb8baa795d0b02f4015fb98e3b0c39a2bcaf57b137",
       "status": "accepted",
       "summary": "Sets deterministic pre-go-live evidence: state and effect oracles, strict schemas, negative probes, and generated-drift gates.",
       "tags": [

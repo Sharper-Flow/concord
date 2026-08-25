@@ -5,6 +5,21 @@
 > **Current boundary:** Concord is pre-go-live. The current agent surface has one
 > generated manifest and one identity: its exact manifest digest.
 
+## Context
+
+The agent surface needs one identity and one change law. The binding inputs
+are the accepted TS1 through TS7 contracts and CD-0042's amendment making the
+generated current manifest the only pre-go-live surface identity. Concord is
+pre-go-live: the current surface has one generated manifest whose exact
+digest is its identity.
+## Contract
+
+The binding contract is sections 1 through 3: the canonical manifest as the
+only source of agent-visible surface, the change rule before go-live with its
+four required evidence elements and the named domain-overlap proof, and
+digest failure with static loading. Section 4 records the first-go-live
+trigger that must define the future compatibility law; section 5 records
+evidence and falsifiers, and carries no obligation.
 ## 1. Current contract
 
 The canonical manifest is the only source for agent-visible tools, operations,
@@ -91,3 +106,45 @@ without lossy exceptions, a concrete accepted client requires a different identi
 or static loading cannot safely support a current operation. Any amendment keeps
 one generated source, exact digest binding, strict unknown-input rejection, and
 fail-closed authority.
+
+## Acceptance criteria
+
+- Given any grant, invocation, session-boot packet, or result envelope
+  When the core checks identity
+  Then it binds the exact manifest digest and a mismatch fails before any
+  domain effect, with no fallback meaning.
+
+- Given a changed accepted surface
+  When it lands
+  Then the canonical manifest and every generated artifact update together,
+  and hand-maintained copies hold no authority.
+
+- Given an adapter digest that does not match the core's current manifest
+  When a call arrives
+  Then the core fails closed with the typed `manifest_mismatch` before any
+  domain call, and recovery is regeneration and session restart, never
+  parsing unknown variants.
+
+- Given a domain-overlap resolution request through an ordinary relation
+  When the agent attempts it
+  Then the ordinary link writes no overlap authority; only the version-pinned
+  `resolve_overlap` with operator approval resolves it.
+
+## Verification
+
+Criteria 1 through 3 are structural surface-identity properties proved by the
+generated drift validator `scripts/check-agent-contracts.py` together with
+the generated contract tests (`adapter/opencode/generated-contract-tests.ts`).
+Criterion 4 is proved by the bound `AJ5-resolve-domain-overlap` scenario of
+`scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
+(`internal/agent/agent_jobs_corpus_test.go`) — the named proof section 2
+records.
+
+- Criterion 1 is proved by the validator's digest-binding checks over the
+  generated contracts and the manifest.
+- Criterion 2 is proved by the validator's generated-drift checks, which fail
+  when the manifest and its artifacts disagree.
+- Criterion 3 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields`
+  (`internal/agent/envelope_test.go`) and the adapter contract tests' strict
+  unknown-input rejection.
+- Criterion 4 is proved by the bound `AJ5-resolve-domain-overlap` scenario.

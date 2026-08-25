@@ -5,6 +5,23 @@
 > **Current boundary:** Concord is pre-go-live. This document defines deterministic
 > evidence for the current path, not a supported-model release gate.
 
+## Context
+
+Surface changes need one evidence authority before any supported-model
+population exists. The binding inputs are the accepted PM1 and TS1 scenario
+corpora, the strict generated schemas, and CD-0024's historical exception
+recorded as evidence only. This record defines the deterministic evidence
+contract for the pre-go-live path: what authorizes a change, what the
+evidence planes record, and what the first go-live decision must later
+define.
+## Contract
+
+The binding contract is sections 1 through 3: the pre-go-live authority rule
+that only deterministic scenario evidence authorizes a surface change, the
+deterministic evidence planes and their boundaries, and the six-element
+change-evidence requirement. Section 4 records the first-go-live measurement
+law future decisions must define; section 5 records review triggers and
+falsifiers, and carries no obligation.
 ## 1. Pre-go-live authority
 
 Before go-live, a surface change is accepted only when deterministic evidence shows
@@ -82,3 +99,43 @@ path, authoritative population identity cannot be preserved, or the first-go-liv
 measurement law proves incomplete. Any amendment keeps scenario-first evaluation,
 strict schemas, explicit population identity once applicable, no heuristic success
 authority, and operator acceptance for Product consequences.
+
+## Acceptance criteria
+
+- Given a scenario in the PM1 or TS1 corpus
+  When it is evaluated
+  Then it asserts authoritative state or effects rather than response
+  wording, and its prohibited-effect assertions are actively probed.
+
+- Given a surface change candidate
+  When it is judged
+  Then tool count, call count, model preference, benchmark scores, and
+  telemetry hold no release authority before go-live.
+
+- Given a change that alters Product authority or consequence
+  When it lands
+  Then it records explicit operator acceptance beside its deterministic
+  evidence.
+
+- Given the operational evidence plane
+  When it records a surface run
+  Then it retains no prompts, transcripts, secrets, raw process exhaust, or
+  Product identifiers beyond the approved bounded evidence artifact.
+
+## Verification
+
+The evidence contract is proved by the validators and corpus runner that
+enforce it, so every criterion carries a typed exemption in the record naming
+the enforcing mechanism.
+
+- Criterion 1 is proved by the absent-probe guard of
+  `TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`), whose
+  own rejection test is `TestEvaluateAbsentRequiresProbe`.
+- Criterion 2 is a law about what cannot authorize; it is enforced
+  structurally by the corpus being the only accepted evidence path in CI
+  (`.github/workflows/ci.yml`), with no model-trial gate in any workflow.
+- Criterion 3 is proved by the recorded operator acceptance on the
+  domain-overlap change (issue #195, cited in TS1's approved amendments).
+- Criterion 4 is proved by the operational-plane boundary checks in
+  `scripts/check-public-content.py` and the corpus runner's recorded
+  measurements, which carry typed structural facts only.

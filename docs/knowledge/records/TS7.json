@@ -1,5 +1,34 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Envelope closure is a per-call schema property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields and TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome (internal/agent/envelope_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Authority semantics are per-call properties. The guarantee is proved by TestEnvelopeGoldenOutcomes (internal/agent/envelope_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Output bounds are producer-enforced per call. The guarantee is proved by TestEnvelopeHasHardSerializedLimit and TestMutationResultProducerAcceptsCanonicalPayload (internal/agent/envelope_test.go), and TestBudgetFieldsRefuseOrBoundResultsStructurally (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Cursor binding is a dispatch property. The guarantee is proved by TestAuthenticatedCursorBindsOperationAndRejectsTampering (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Durable-outcome honesty is proved at both levels: TestOutcomeMismatchIsClosedAndCannotDowngrade (internal/agent/envelope_test.go) and the AJ6-partial-publication scenario of the agent-jobs corpus under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go)."
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/agent/envelope_test.go",
+    "internal/agent/runtime_test.go",
+    "scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "contracts/agent-tool-envelope.schema.json"
+  ],
   "home_domain_id": "agent-surface",
   "id": "TS7",
   "kind": "spec",
@@ -11,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f9d3d48f5dcf5d2bee3d77d00bdf833fc58a78addfaeb5fcc1c1347811b1faed",
+  "sha256": "sha256:f6423e9a41ec7e2aee0bcc8dd98cae18b538060df08089ee25e344b09ebdfe79",
   "status": "accepted",
   "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
   "tags": [

@@ -1,9 +1,31 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus case focus-priority encodes tier competition, but no harness executes the launcher corpus yet. The guarantee is proved by TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier and TestProductRowsC14ReturnsFiveGroups (internal/store/product_row_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Unavailable-count honesty is a projection property. The guarantee is proved by TestProductRowsC14AuthoritativeEmptyAndTerminalOnly (internal/store/product_row_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The corpus case active-quiet-duplicate encodes the stable suffix, but no harness executes the launcher corpus yet. The guarantee is proved by TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Focus-tier closure is a projection property. The guarantee is proved by TestProductRowsC14TerminalWorkCannotEnterAnyFocusTier (internal/store/product_row_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Cross-Project dedupe is a projection property. The guarantee is proved by TestProductRowsC14FocusTiersStageContextAndCrossProjectDedupe (internal/store/product_row_test.go)."
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "internal/store/product_row.go",
     "internal/store/product_row_test.go",
-    "internal/launcher/model_test.go"
+    "internal/launcher/model_test.go",
+    "scenarios/launcher-portfolio.v1.json"
   ],
   "home_domain_id": "operator-surface",
   "id": "C14",
@@ -16,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d2410a7fc62c434052a4233f86d13cbb2284e069d7f0c9963872533ef57cd19d",
+  "sha256": "sha256:c0c3ead5c9e68c87d41f48d26fd797540aa3038f7ad238c8b5a7a56759186a46",
   "status": "accepted",
   "summary": "Defines the five-group Product-row glance: identity, stage, reliance, action counts, and one deterministic focus item.",
   "tags": [

@@ -13,6 +13,24 @@
 > screen, Domain hierarchy/architecture graph, C15 managed-resource model, optional live-signal display,
 > workflow registration, or web/admin layout.
 
+## Context
+
+The operator's launcher opens onto a portfolio of Products, and each Product
+must answer one glance question first. The binding inputs are the Product-first
+operating envelope, Product and Domain navigation, active-work visibility,
+PM1 Q1/Q2/Q4/Q5, PM4/PM5 identity semantics, and the accepted TS7
+authority and freshness envelope. This record fixes the default Product row:
+its five field groups, the canonical row object, focus selection, and
+rendering rules. CD-0041 replaces component navigation with Product to
+Domain; the five field groups are unchanged.
+## Contract
+
+The binding contract is sections 1 through 5: the five field groups, the
+canonical row object with its typed unavailable states, the deterministic
+focus selection tiers, the rendering rules, and the explicit exclusions.
+Sections 6 through 11 record why these fields, the candidate comparison, the
+read-path and performance bounds, prototype acceptance, evidence, and
+falsifiers, and carry no obligation.
 ## 1. Decision
 
 The default Product row contains exactly five field groups:
@@ -225,3 +243,49 @@ Reopen C14 when:
 
 Any added field requires a named operator glance job and prototype evidence. Being
 available in storage is not evidence it belongs on the row.
+
+## Acceptance criteria
+
+- Given a Product with work in multiple focus tiers
+  When the launcher projects its row
+  Then exactly five field groups render, and focus selection picks the first
+  non-empty tier deterministically by priority, time, then stable ID.
+
+- Given required source coverage that is incomplete
+  When action counts render
+  Then the whole count group is `unavailable` with a typed reason, and
+  degraded or unknown data never renders as zero.
+
+- Given two Products whose display names collide on one page
+  When the rows render
+  Then every colliding row carries a fixed suffix derived from the immutable
+  Product ID.
+
+- Given terminal work only
+  When focus selection runs
+  Then no terminal work item can enter any focus tier.
+
+- Given cross-Project work
+  When it appears in a row
+  Then it appears once with `project_count` signaling breadth, never as
+  per-Project copies.
+
+## Verification
+
+The corpus case `active-quiet-duplicate` encodes criterion 3 and
+`focus-priority` encodes criterion 1, but no harness executes the launcher
+corpus yet, so criteria carry typed exemptions naming the Go tests that prove
+the guarantees.
+
+- Criterion 1 is proved by `TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier`
+  and `TestProductRowsC14ReturnsFiveGroups`
+  (`internal/store/product_row_test.go`).
+- Criterion 2 is proved by `TestProductRowsC14AuthoritativeEmptyAndTerminalOnly`
+  (`internal/store/product_row_test.go`).
+- Criterion 3 is proved by `TestProjectionIsDeterministicAndCarriesC14Meaning`
+  (`internal/launcher/model_test.go`), which fixes the stable-suffix rule.
+- Criterion 4 is proved by `TestProductRowsC14TerminalWorkCannotEnterAnyFocusTier`
+  (`internal/store/product_row_test.go`).
+- Criterion 5 is proved by `TestProductRowsC14FocusTiersStageContextAndCrossProjectDedupe`
+  (`internal/store/product_row_test.go`). Section 11 records the falsifiers
+  for each guarantee.

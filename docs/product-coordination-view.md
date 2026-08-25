@@ -22,6 +22,24 @@ Initiative grouping remains optional business context. Runtime support for the
 Domain/overlap layer is outstanding follow-up work and is not claimed by issue
 #51's existing implementation.
 
+## Context
+
+Selecting a Product row must open a coordination view, and before C17 no
+accepted document said what it renders. The binding inputs are Priority 5's
+visibility requirement, the accepted C14 Product row with its exclusions,
+and the canonical PM1 reads. This record accepts the coordination view: two
+bounded modes over canonical Product-scoped reads, structural grouping only,
+stored-priority ranking, and visible incomplete coverage. CD-0041 amends the
+shape: Product detail opens through Product to Domain first, and these two
+projections remain subordinate coordination views.
+## Contract
+
+The binding contract is sections 2, 3, and 5: the two accepted modes — the
+Q8 relation tree with structural grouping and the Q5/Q4 ranked work table —
+the reliance and coverage discipline, and the anti-requirements. Sections 1,
+4, and 6 through 10 record the gap, what the contract does not change, the
+read-path bounds, acceptance tests, sequencing, risks, and falsifiers, and
+carry no obligation.
 ## 1. The gap
 
 Priority 5 in [`priorities.md`](./priorities.md) requires that dependencies and
@@ -184,3 +202,52 @@ This contract must be revised or superseded when:
   prioritization deferral has since been lifted; or
 - the ranked table duplicates the C14 focus item without adding a distinct operator
   job.
+
+## Acceptance criteria
+
+- Given a relation cycle in the returned edge set
+  When mode 1 renders
+  Then it renders `invariant_violation` visibly, never hidden and never
+  silently broken.
+
+- Given a supersession chain
+  When mode 1 resolves it
+  Then the canonical successor resolves exactly once with no duplicate
+  authority.
+
+- Given a traversal that would cross the depth cap
+  When mode 1 renders
+  Then the boundary node is marked explicitly as truncated, never silently
+  cut.
+
+- Given structural grouping over declared edges
+  When two renders run over unchanged state
+  Then ordering and grouping are identical, with no thematic or inferred
+  clustering.
+
+- Given a higher-priority blocked item and the next unblocked item
+  When mode 2 ranks
+  Then the blocked item is excluded from ready ranking and the winner is
+  deterministic.
+
+## Verification
+
+No corpus scenario exercises the coordination view, so every criterion
+carries a typed exemption in the record naming the port test that proves
+the guarantee.
+
+- Criterion 1 is proved by `TestRelationTreeSurfacesCycles`
+  (`internal/launcher/storeport/port_test.go`).
+- Criterion 2 is proved by `TestRelationTreeResolvesSupersessionChainOnce`
+  (`internal/launcher/storeport/port_test.go`).
+- Criterion 3 is proved by `TestRelationTreeMarksDepthTruncationUnavailable`
+  (`internal/launcher/storeport/port_test.go`).
+- Criterion 4 is proved by
+  `TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle`
+  (`internal/launcher/storeport/port_test.go`) together with
+  `TestProjectionIsDeterministicAndCarriesC14Meaning`
+  (`internal/launcher/model_test.go`).
+- Criterion 5 is proved by the bound `Q5-ready-ranking` scenario of
+  `scenarios/product-memory-query.v1.json`, executed by
+  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+  Section 10 records the falsifiers for each guarantee.

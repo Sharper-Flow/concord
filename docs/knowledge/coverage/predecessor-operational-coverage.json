@@ -1,0 +1,5 @@
+{
+  "id": "predecessor-operational-coverage",
+  "reason": "Assessment record rather than a prescription. Its internal consistency is validated on every run by scripts/check-predecessor-coverage.py, and each gap it names is owned by its own issue.",
+  "state": "out_of_scope"
+}

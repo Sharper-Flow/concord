@@ -1,0 +1,5 @@
+{
+  "id": "self-documentation",
+  "reason": "Aligned companion describing surfaces the accepted specs establish. It prescribes nothing an implementation must satisfy on its own authority.",
+  "state": "out_of_scope"
+}

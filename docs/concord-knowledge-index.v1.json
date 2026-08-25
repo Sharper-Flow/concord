@@ -224,6 +224,87 @@
   },
   "records": [
     {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/store/product_row.go",
+        "internal/store/product_row_test.go",
+        "internal/launcher/model_test.go"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "C14",
+      "kind": "spec",
+      "path": "docs/product-row-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d2410a7fc62c434052a4233f86d13cbb2284e069d7f0c9963872533ef57cd19d",
+      "status": "accepted",
+      "summary": "Defines the five-group Product-row glance: identity, stage, reliance, action counts, and one deterministic focus item.",
+      "tags": [
+        "c14",
+        "product-row"
+      ],
+      "title": "product row contract"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/store/managed_resources.go",
+        "internal/store/managed_resources_test.go",
+        "internal/store/resource_claims.go"
+      ],
+      "home_domain_id": "work-coordination",
+      "id": "C15",
+      "kind": "spec",
+      "path": "docs/managed-resource-inventory.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:7f309b1d9226729017a63af1e3afffdb380f325c03f9792b6f53d2b4c17668c1",
+      "status": "accepted",
+      "summary": "Defines the resource-first managed-resource inventory with a singular owner Product, consumer links, and typed locators.",
+      "tags": [
+        "c15",
+        "managed-resources"
+      ],
+      "title": "managed resource inventory"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/launcher/storeport/port.go",
+        "internal/launcher/storeport/port_test.go",
+        "internal/launcher/answer_stack_test.go"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "C17",
+      "kind": "spec",
+      "path": "docs/product-coordination-view.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bb8eb56a09d61e4f659edc2ed66006e76fddbf966ecf93e624742197c8e90087",
+      "status": "accepted",
+      "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
+      "tags": [
+        "c17",
+        "coordination-view"
+      ],
+      "title": "product coordination view"
+    },
+    {
       "date": "2026-07-25T00:00:00Z",
       "home_domain_id": "durable-authority",
       "id": "CD-0002",
@@ -2236,6 +2317,63 @@
       "title": "Product memory query contract"
     },
     {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/store/backup.go",
+        "internal/store/backup_test.go",
+        "internal/store/fence_test.go",
+        "internal/store/store.go"
+      ],
+      "home_domain_id": "product-memory",
+      "id": "PM10",
+      "kind": "spec",
+      "path": "docs/product-memory-recovery.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:fcd468c87729365b6c3496bc6a93c89242b99400460a8ac153253d5c1bd51a0c",
+      "status": "accepted",
+      "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
+      "tags": [
+        "pm10",
+        "backup",
+        "restore"
+      ],
+      "title": "product memory recovery"
+    },
+    {
+      "date": "2026-08-05T00:00:00Z",
+      "evidence": [
+        "internal/store/store.go",
+        "internal/store/store_test.go",
+        "internal/store/schema.go",
+        "internal/store/query_corpus_test.go"
+      ],
+      "home_domain_id": "durable-authority",
+      "id": "PM2",
+      "kind": "spec",
+      "path": "docs/product-memory-authority-scope.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:16274558688e0949fdc88e6ff428e4fe1450f0acf7552df6d560fa22e9ca960a",
+      "status": "accepted",
+      "summary": "Defines one global local SQLite authority per installation under the XDG data home.",
+      "tags": [
+        "pm2",
+        "authority-scope"
+      ],
+      "title": "product memory authority scope"
+    },
+    {
       "applies_to_domain_ids": [
         "product-memory",
         "work-coordination"
@@ -2260,6 +2398,35 @@
         "schema"
       ],
       "title": "Product memory domain schema"
+    },
+    {
+      "date": "2026-08-05T00:00:00Z",
+      "evidence": [
+        "internal/store/lifecycle.go",
+        "internal/store/lifecycle_relations_test.go",
+        "internal/store/query_test.go",
+        "internal/store/schema.go"
+      ],
+      "home_domain_id": "work-coordination",
+      "id": "PM4",
+      "kind": "spec",
+      "path": "docs/product-memory-lifecycle-relations.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:01807bd13642c07f424e7b4c790df9dabfd05289430f8fe6a24793b962357238",
+      "status": "accepted",
+      "summary": "Defines the five-state work lifecycle, its closed transition table, and the typed relations derived from it.",
+      "tags": [
+        "pm4",
+        "lifecycle",
+        "relations"
+      ],
+      "title": "product memory lifecycle relations"
     },
     {
       "criterion_bindings": [
@@ -2358,6 +2525,63 @@
       "title": "Compaction retention policy"
     },
     {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/store/schema.go",
+        "internal/store/events.go",
+        "internal/store/pm8_pm9_absence_test.go",
+        "internal/store/backup.go"
+      ],
+      "home_domain_id": "product-memory",
+      "id": "PM8",
+      "kind": "spec",
+      "path": "docs/product-memory-evidence-store.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:6d0f506763603da7c5ca9916e20b453494e1c54efd185d483f3ee34b3dfdd5e0",
+      "status": "accepted",
+      "summary": "Declares no content-addressed evidence or blob store in v1; work-in-progress output stays process exhaust.",
+      "tags": [
+        "pm8",
+        "evidence-store",
+        "negative-contract"
+      ],
+      "title": "product memory evidence store"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/store/schema.go",
+        "internal/store/events.go",
+        "internal/store/pm8_pm9_absence_test.go"
+      ],
+      "home_domain_id": "product-memory",
+      "id": "PM9",
+      "kind": "spec",
+      "path": "docs/product-memory-process-exhaust.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d2bcfd5fa8ba82adad292540ccb047cec4326fd7c4527d7d215710efa3c4d0f5",
+      "status": "accepted",
+      "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; the durable sequence is the only receipt.",
+      "tags": [
+        "pm9",
+        "process-exhaust",
+        "negative-contract"
+      ],
+      "title": "product memory process exhaust"
+    },
+    {
       "date": "2026-08-22T00:00:00Z",
       "id": "README",
       "kind": "reference",
@@ -2377,6 +2601,62 @@
         "documentation"
       ],
       "title": "Concord documentation set"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "scenarios/agent-jobs.v1.json",
+        "contracts/agent-jobs-scenarios.schema.json",
+        "internal/agent/agent_jobs_corpus_test.go",
+        "scripts/check-agent-jobs.py"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "TS1",
+      "kind": "spec",
+      "path": "docs/agent-tool-surface-jobs.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d2c0d597b5c40df42fa1ecc78a513a00c4afc3e5fc041ce5fbcf5c9981d7608d",
+      "status": "accepted",
+      "summary": "Defines eight canonical agent jobs AJ1-AJ8 and the 23-scenario acceptance corpus that measures them.",
+      "tags": [
+        "ts1",
+        "agent-jobs"
+      ],
+      "title": "agent tool surface jobs"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "contracts/agent-tool-surface.schema.json",
+        "contracts/agent-tool-surface.v1.json",
+        "scripts/generate-agent-contracts.py",
+        "internal/agent/dispatch_coverage_test.go"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "TS2",
+      "kind": "spec",
+      "path": "docs/agent-tool-surface-budget.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d0d844289351d015861ec5ab43814103873016932ad8f57fff6f03737c728755",
+      "status": "accepted",
+      "summary": "Caps the always-visible agent surface and fixes the closed-operation granularity rule the manifest validator enforces.",
+      "tags": [
+        "ts2",
+        "tool-surface"
+      ],
+      "title": "agent tool surface budget"
     },
     {
       "date": "2026-08-06T00:00:00Z",
@@ -2403,6 +2683,92 @@
     },
     {
       "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "contracts/agent-tool-surface.v1.json",
+        "internal/agent/mutations.go",
+        "internal/agent/agent_jobs_compaction_bindings_test.go",
+        "internal/agent/workflow_overlap_dispatch_test.go"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "TS4",
+      "kind": "spec",
+      "path": "docs/agent-mutation-tool-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:636be1c0421bd378fc83c0b0fccdce2d6edeff938accb399d365529ce8eb9603",
+      "status": "accepted",
+      "summary": "Fixes the mutation tools, each committing one domain intent per SQLite transaction with sequenced git-first compaction.",
+      "tags": [
+        "ts4",
+        "mutations"
+      ],
+      "title": "agent mutation tool contract"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/agent/envelope.go",
+        "internal/agent/authority.go",
+        "internal/agent/context_freshness_test.go",
+        "internal/agent/mutation_dispatch_test.go"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "TS5",
+      "kind": "spec",
+      "path": "docs/agent-call-context-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:412d63be9e37e455e270a50d1000552bfdd402a0741ba92ad4fb7298e943203c",
+      "status": "accepted",
+      "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
+      "tags": [
+        "ts5",
+        "envelope",
+        "idempotency"
+      ],
+      "title": "agent call context contract"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "adapter/opencode/concord.ts",
+        "adapter/opencode/dispatch.ts",
+        "cmd/concord/main_test.go",
+        "scripts/check-agent-contracts.py"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "TS6",
+      "kind": "spec",
+      "path": "docs/agent-adapter-transport-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:d10d570ea61459939e95efa326d0c27e4982f28d11f6239572a619d21748618b",
+      "status": "accepted",
+      "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
+      "tags": [
+        "ts6",
+        "adapter",
+        "transport"
+      ],
+      "title": "agent adapter transport contract"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
       "home_domain_id": "agent-surface",
       "id": "TS7",
       "kind": "spec",
@@ -2423,6 +2789,62 @@
         "errors"
       ],
       "title": "Agent result envelope"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "contracts/agent-tool-surface.v1.json",
+        "contracts/agent-tool-surface.digest",
+        "internal/agent/generated_contracts.go",
+        "internal/agent/authority_test.go"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "TS8",
+      "kind": "spec",
+      "path": "docs/agent-tool-surface-evolution.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:66dbe4f2f670d0b6505e5be1d834e7c3d342b3df4f3be9cebffa2cb2847d8d23",
+      "status": "accepted",
+      "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
+      "tags": [
+        "ts8",
+        "manifest-digest"
+      ],
+      "title": "agent tool surface evolution"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "scenarios/agent-jobs.v1.json",
+        "contracts/agent-jobs-scenarios.schema.json",
+        "internal/agent/agent_jobs_corpus_test.go",
+        "scripts/check-agent-jobs.py"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "TS9",
+      "kind": "spec",
+      "path": "docs/agent-tool-surface-measurement.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:348a6e4d5af373fd8523675f8dfa49413fa3eae5e424f793e49efcdd25eb29f9",
+      "status": "accepted",
+      "summary": "Sets deterministic pre-go-live evidence: state and effect oracles, strict schemas, negative probes, and generated-drift gates.",
+      "tags": [
+        "ts9",
+        "evidence"
+      ],
+      "title": "agent tool surface measurement"
     },
     {
       "date": "2026-08-05T00:00:00Z",
@@ -2491,6 +2913,107 @@
       "title": "Agent lane contract"
     },
     {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/workflows.md"
+      ],
+      "id": "architecture-spike",
+      "kind": "reference",
+      "path": "docs/architecture-spike.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:fcb1855d2cbb50a1df40b400c17e2d3b73f62829444398e7321ffa674e83b3b1",
+      "status": "published",
+      "summary": "Shaped architecture-spike workflow type with open questions deferred. Not accepted, so it carries no law-bearing kind.",
+      "tags": [
+        "workflows",
+        "spike",
+        "draft"
+      ],
+      "title": "architecture spike"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/priorities.md",
+        "docs/feature-inventory.md"
+      ],
+      "id": "capability-placement",
+      "kind": "reference",
+      "path": "docs/capability-placement.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:cd468881e74d04fe0a9448f7584c3683c8b70c0929e246c3ab462bb8771f5aad",
+      "status": "published",
+      "summary": "Draft v2 rubric for placing a capability by its shape. Advisory, and its header names companions rather than claiming acceptance.",
+      "tags": [
+        "capability",
+        "rubric",
+        "draft"
+      ],
+      "title": "capability placement"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/priorities.md"
+      ],
+      "id": "clarifications",
+      "kind": "reference",
+      "path": "docs/clarifications.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:f114548262ec4567b6a7c8589727a3e1142544fd5679d4b1d5270f3134eba0dc",
+      "status": "published",
+      "summary": "Living index of resolved directions and the open questions still needing operator direction.",
+      "tags": [
+        "clarifications",
+        "open-questions"
+      ],
+      "title": "clarifications"
+    },
+    {
+      "date": "2026-08-24T00:00:00Z",
+      "evidence": [
+        "docs/concord-knowledge-index.v1.json",
+        "contracts/concord-knowledge-index.v1.schema.json",
+        "scripts/generate-knowledge-index.py"
+      ],
+      "id": "concord-knowledge-index",
+      "kind": "reference",
+      "path": "docs/concord-knowledge-index.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c12cb5be011380be854f6b10e3e6a7cd6c06104404adbd2d4140bb234ec0ba2a",
+      "status": "published",
+      "summary": "Describes the knowledge manifest, its shards, and the authoring flow that produces them.",
+      "tags": [
+        "knowledge",
+        "manifest"
+      ],
+      "title": "concord knowledge index"
+    },
+    {
       "date": "2026-08-24T00:00:00Z",
       "id": "core-architecture",
       "kind": "reference",
@@ -2513,6 +3036,59 @@
       "title": "Concord core architecture"
     },
     {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/priorities.md",
+        "docs/decisions/CD-0006-concord-root-product-policy.md"
+      ],
+      "id": "design-constraints",
+      "kind": "reference",
+      "path": "docs/design-constraints.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:5f749fa5fb4330da2e1838cc2c2ffbf97fa3473dd9d6d003064f8497cdc60c0b",
+      "status": "published",
+      "summary": "Non-functional requirements, hard constraints, and design directives aligned under CD-0006 and CD-0041.",
+      "tags": [
+        "constraints",
+        "non-functional"
+      ],
+      "title": "design constraints"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0010-pre-readiness-development-authority.md",
+        "scripts/check-predecessor-independence.py",
+        "AGENTS.md"
+      ],
+      "home_domain_id": "repository-verification",
+      "id": "development-authority",
+      "kind": "spec",
+      "path": "docs/development-authority.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:454dfcd8dae8358c69b028f5f8e373e1494c10d7b74148b326436adcfc1546a0",
+      "status": "accepted",
+      "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
+      "tags": [
+        "authority",
+        "process",
+        "cd-0010"
+      ],
+      "title": "development authority"
+    },
+    {
       "date": "2026-08-24T00:00:00Z",
       "id": "feature-inventory",
       "kind": "reference",
@@ -2533,6 +3109,31 @@
         "evidence"
       ],
       "title": "Concord feature inventory"
+    },
+    {
+      "date": "2026-08-24T00:00:00Z",
+      "evidence": [
+        "docs/floor-readiness.v1.json",
+        "scripts/check-floor-readiness.py"
+      ],
+      "id": "floor-readiness",
+      "kind": "reference",
+      "path": "docs/floor-readiness.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:2fd25e586b3cec4c5320bea19e128a3b0dbca1332811bc037004f6e6a56f849b",
+      "status": "published",
+      "summary": "Describes the floor-readiness contract and the check that measures distance from the first-usable floor.",
+      "tags": [
+        "floor",
+        "readiness"
+      ],
+      "title": "floor readiness"
     },
     {
       "date": "2026-08-24T00:00:00Z",
@@ -2602,6 +3203,31 @@
       "title": "Concord market landscape"
     },
     {
+      "date": "2026-08-24T00:00:00Z",
+      "evidence": [
+        "scripts/check-predecessor-coverage.py",
+        "docs/priorities.md"
+      ],
+      "id": "predecessor-operational-coverage",
+      "kind": "reference",
+      "path": "docs/predecessor-operational-coverage.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:2394b7c09ced4b249807f559bfb22ff339bc317519ebddf58a2c2b6b55dac53f",
+      "status": "published",
+      "summary": "Per-territory assessment of Concord's operational coverage against the predecessor, validated on every CI run.",
+      "tags": [
+        "predecessor",
+        "coverage"
+      ],
+      "title": "predecessor operational coverage"
+    },
+    {
       "date": "2026-08-22T00:00:00Z",
       "home_domain_id": "product-root:concord",
       "id": "priorities",
@@ -2626,6 +3252,210 @@
       "title": "Concord priorities"
     },
     {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0041-architecture-bound-product-law.md",
+        "internal/store/schema.go"
+      ],
+      "id": "product-data-model",
+      "kind": "reference",
+      "path": "docs/product-data-model.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a78864c750a5c567d6f4817d3314ecc4a57af52253fde734733b77e8ce03c88b",
+      "status": "published",
+      "summary": "Canonical Product data model with Domains and Initiative, aligned v4 under CD-0041.",
+      "tags": [
+        "data-model",
+        "domains"
+      ],
+      "title": "product data model"
+    },
+    {
+      "date": "2026-08-05T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0002-concord-state-authority.md",
+        "README.md"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "provenance",
+      "kind": "constitution",
+      "path": "docs/provenance.md",
+      "product_wide_rationale": "Records the origin and authority boundary of the whole public repository, including what the bootstrap excluded and where superseded records may be retained. No Domain inside the Product can own the record that establishes the Product's own provenance.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:0e6387187501e3211df7cba287a5db267adc3694e42a2a32afd06b573350b4c5",
+      "status": "accepted",
+      "summary": "Records Concord's public origin, the private material excluded at bootstrap, and the transition of authority to this repository.",
+      "tags": [
+        "provenance",
+        "bootstrap"
+      ],
+      "title": "provenance"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0007-concord-repository-bootstrap.md",
+        "docs/decisions/CD-0010-pre-readiness-development-authority.md"
+      ],
+      "id": "rollout-plan",
+      "kind": "reference",
+      "path": "docs/rollout-plan.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:dc5fc94fea9ef44ea711eae1244998c8d3c81d692ab2080da5e53518c9ee8cd7",
+      "status": "published",
+      "summary": "Sequences the public bootstrap and the path to replacement readiness under CD-0007 and CD-0010.",
+      "tags": [
+        "rollout",
+        "sequencing"
+      ],
+      "title": "rollout plan"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/priorities.md",
+        "docs/feature-inventory.md"
+      ],
+      "id": "self-documentation",
+      "kind": "reference",
+      "path": "docs/self-documentation.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:4cc533a7aaf622ee1652acbbda8bcaf67294003449b4f99509a82caedd6945b3",
+      "status": "published",
+      "summary": "Describes Concord's self-documentation surfaces and its input, output, storage, and memory model.",
+      "tags": [
+        "self-documentation"
+      ],
+      "title": "self documentation"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0006-concord-root-product-policy.md",
+        "docs/priorities.md"
+      ],
+      "id": "specs-as-laws",
+      "kind": "reference",
+      "path": "docs/specs-as-laws.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:7d491510c82a8f442d5839c0879353f3ba8306f288603128120954254f5009aa",
+      "status": "published",
+      "summary": "Explains the accepted spec-as-law decisions and how conflicts surface and evolve.",
+      "tags": [
+        "specs-as-laws",
+        "conflict"
+      ],
+      "title": "specs as laws"
+    },
+    {
+      "date": "2026-08-06T00:00:00Z",
+      "evidence": [
+        "internal/store/schema.go",
+        "internal/store/query_corpus_test.go"
+      ],
+      "id": "storage-spine-slice",
+      "kind": "reference",
+      "path": "docs/storage-spine-slice.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:ba09e26bab7fe5f8516dace712eb1d4be8affbf4d5e5db734475647445e1e499",
+      "status": "published",
+      "summary": "Acceptance slice exercising the PM1 through PM10 storage contract end to end. Ready for acceptance rather than accepted.",
+      "tags": [
+        "storage",
+        "acceptance-slice"
+      ],
+      "title": "storage spine slice"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0014-terminal-launcher-rendering.md",
+        "internal/launcher/model.go",
+        "internal/launcher/render/bubbletea/model_test.go",
+        "internal/launcher/storeport/domain_evidence_test.go"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "terminal-launcher-contract",
+      "kind": "spec",
+      "path": "docs/terminal-launcher-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bb6516643d910fc6ddf4dfdaf9dd7e7ed6485266390cd8c8ebbc9c6e368c47b4",
+      "status": "accepted",
+      "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
+      "tags": [
+        "launcher",
+        "rendering"
+      ],
+      "title": "terminal launcher contract"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/product-data-model.md",
+        "docs/workflows.md"
+      ],
+      "id": "vertical-integration",
+      "kind": "research",
+      "path": "docs/vertical-integration.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:1aabc5f6e4972a73bea6cca4294f41e22eeb4388d002975bb8df11e95215c958",
+      "status": "published",
+      "summary": "Investigates whether to own, absorb, or Product-scope the adjacent lgrep, vision, and episode tools.",
+      "tags": [
+        "vertical-integration",
+        "research"
+      ],
+      "title": "vertical integration"
+    },
+    {
       "date": "2026-08-08T00:00:00Z",
       "home_domain_id": "workflow-engine",
       "id": "workflow-engine-contract",
@@ -2646,6 +3476,31 @@
         "contract"
       ],
       "title": "Workflow engine contract"
+    },
+    {
+      "date": "2026-08-07T00:00:00Z",
+      "evidence": [
+        "docs/workflow-engine-contract.md",
+        "docs/priorities.md"
+      ],
+      "id": "workflows",
+      "kind": "reference",
+      "path": "docs/workflows.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:f313c7f6a32cf73fb21d470f38680867387037ab0773ff043a5baecb7fb03567",
+      "status": "published",
+      "summary": "Describes the plurality of purpose-built workflow types and their taxonomy, aligned v5.",
+      "tags": [
+        "workflows",
+        "taxonomy"
+      ],
+      "title": "workflows"
     }
   ]
 }

@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/workflow-engine-contract.md",
+    "docs/priorities.md"
+  ],
+  "id": "workflows",
+  "kind": "reference",
+  "path": "docs/workflows.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:f313c7f6a32cf73fb21d470f38680867387037ab0773ff043a5baecb7fb03567",
+  "status": "published",
+  "summary": "Describes the plurality of purpose-built workflow types and their taxonomy, aligned v5.",
+  "tags": [
+    "workflows",
+    "taxonomy"
+  ],
+  "title": "workflows"
+}

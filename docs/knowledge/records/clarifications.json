@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/priorities.md"
+  ],
+  "id": "clarifications",
+  "kind": "reference",
+  "path": "docs/clarifications.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:f114548262ec4567b6a7c8589727a3e1142544fd5679d4b1d5270f3134eba0dc",
+  "status": "published",
+  "summary": "Living index of resolved directions and the open questions still needing operator direction.",
+  "tags": [
+    "clarifications",
+    "open-questions"
+  ],
+  "title": "clarifications"
+}

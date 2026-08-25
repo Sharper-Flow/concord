@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/priorities.md",
+    "docs/feature-inventory.md"
+  ],
+  "id": "self-documentation",
+  "kind": "reference",
+  "path": "docs/self-documentation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:4cc533a7aaf622ee1652acbbda8bcaf67294003449b4f99509a82caedd6945b3",
+  "status": "published",
+  "summary": "Describes Concord's self-documentation surfaces and its input, output, storage, and memory model.",
+  "tags": [
+    "self-documentation"
+  ],
+  "title": "self documentation"
+}

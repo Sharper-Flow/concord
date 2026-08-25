@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-predecessor-independence.py"
+    }
+  ],
+  "id": "development-authority",
+  "state": "satisfied"
+}

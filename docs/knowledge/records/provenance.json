@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-05T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0002-concord-state-authority.md",
+    "README.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "provenance",
+  "kind": "constitution",
+  "path": "docs/provenance.md",
+  "product_wide_rationale": "Records the origin and authority boundary of the whole public repository, including what the bootstrap excluded and where superseded records may be retained. No Domain inside the Product can own the record that establishes the Product's own provenance.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:0e6387187501e3211df7cba287a5db267adc3694e42a2a32afd06b573350b4c5",
+  "status": "accepted",
+  "summary": "Records Concord's public origin, the private material excluded at bootstrap, and the transition of authority to this repository.",
+  "tags": [
+    "provenance",
+    "bootstrap"
+  ],
+  "title": "provenance"
+}

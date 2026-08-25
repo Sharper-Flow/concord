@@ -1,0 +1,26 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/priorities.md",
+    "docs/feature-inventory.md"
+  ],
+  "id": "capability-placement",
+  "kind": "reference",
+  "path": "docs/capability-placement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:cd468881e74d04fe0a9448f7584c3683c8b70c0929e246c3ab462bb8771f5aad",
+  "status": "published",
+  "summary": "Draft v2 rubric for placing a capability by its shape. Advisory, and its header names companions rather than claiming acceptance.",
+  "tags": [
+    "capability",
+    "rubric",
+    "draft"
+  ],
+  "title": "capability placement"
+}

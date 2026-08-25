@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/workflows.md"
+  ],
+  "id": "architecture-spike",
+  "kind": "reference",
+  "path": "docs/architecture-spike.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:fcb1855d2cbb50a1df40b400c17e2d3b73f62829444398e7321ffa674e83b3b1",
+  "status": "published",
+  "summary": "Shaped architecture-spike workflow type with open questions deferred. Not accepted, so it carries no law-bearing kind.",
+  "tags": [
+    "workflows",
+    "spike",
+    "draft"
+  ],
+  "title": "architecture spike"
+}

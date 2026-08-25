@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBackupUsesOnlineSnapshotAndPM10Manifest"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBackupRejectsForeignKeyOnlyCorruption"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBackupVerifyTamperAndOlderSchemaRejection"
+    }
+  ],
+  "id": "PM10",
+  "state": "satisfied"
+}

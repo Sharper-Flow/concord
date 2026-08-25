@@ -1,0 +1,27 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/product_row.go",
+    "internal/store/product_row_test.go",
+    "internal/launcher/model_test.go"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "C14",
+  "kind": "spec",
+  "path": "docs/product-row-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d2410a7fc62c434052a4233f86d13cbb2284e069d7f0c9963872533ef57cd19d",
+  "status": "accepted",
+  "summary": "Defines the five-group Product-row glance: identity, stage, reliance, action counts, and one deterministic focus item.",
+  "tags": [
+    "c14",
+    "product-row"
+  ],
+  "title": "product row contract"
+}

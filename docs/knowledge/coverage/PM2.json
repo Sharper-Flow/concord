@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDefaultPathHonorsDataHome"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDefaultPathFallsBackToHome"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOpenAppliesRequiredPragmas"
+    }
+  ],
+  "id": "PM2",
+  "state": "satisfied"
+}

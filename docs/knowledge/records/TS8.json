@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "contracts/agent-tool-surface.v1.json",
+    "contracts/agent-tool-surface.digest",
+    "internal/agent/generated_contracts.go",
+    "internal/agent/authority_test.go"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "TS8",
+  "kind": "spec",
+  "path": "docs/agent-tool-surface-evolution.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:66dbe4f2f670d0b6505e5be1d834e7c3d342b3df4f3be9cebffa2cb2847d8d23",
+  "status": "accepted",
+  "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
+  "tags": [
+    "ts8",
+    "manifest-digest"
+  ],
+  "title": "agent tool surface evolution"
+}

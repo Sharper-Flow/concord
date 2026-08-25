@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-05T00:00:00Z",
+  "evidence": [
+    "internal/store/lifecycle.go",
+    "internal/store/lifecycle_relations_test.go",
+    "internal/store/query_test.go",
+    "internal/store/schema.go"
+  ],
+  "home_domain_id": "work-coordination",
+  "id": "PM4",
+  "kind": "spec",
+  "path": "docs/product-memory-lifecycle-relations.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:01807bd13642c07f424e7b4c790df9dabfd05289430f8fe6a24793b962357238",
+  "status": "accepted",
+  "summary": "Defines the five-state work lifecycle, its closed transition table, and the typed relations derived from it.",
+  "tags": [
+    "pm4",
+    "lifecycle",
+    "relations"
+  ],
+  "title": "product memory lifecycle relations"
+}

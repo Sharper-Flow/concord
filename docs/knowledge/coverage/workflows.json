@@ -1,0 +1,5 @@
+{
+  "id": "workflows",
+  "reason": "Aligned companion to the workflow engine contract, which is the accepted spec and carries the coverage for engine behaviour.",
+  "state": "out_of_scope"
+}

@@ -15,6 +15,11 @@ decision dates. Those identifiers are document lineage, not a claim that exclude
 private predecessor artifacts are present here. Superseded private pre-public
 decisions remain private; CD-0002 is the first public retained authority decision.
 
+`docs/decisions/` holds the active public decisions. A superseded public record may
+be retained beside them only when its public content is safe to publish and the
+active decision names the supersession. No directory in this repository is a
+placeholder for imported private history.
+
 ## Authority transition
 
 The public Concord repository is:

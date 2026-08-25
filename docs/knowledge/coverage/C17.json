@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestRelationTreeSurfacesCycles"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestRelationTreeResolvesSupersessionChainOnce"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestRelationTreeMarksDepthTruncationUnavailable"
+    }
+  ],
+  "id": "C17",
+  "state": "satisfied"
+}

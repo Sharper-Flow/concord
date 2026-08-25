@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    "docs/priorities.md",
+    "docs/decisions/CD-0006-concord-root-product-policy.md"
+  ],
+  "id": "design-constraints",
+  "kind": "reference",
+  "path": "docs/design-constraints.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:5f749fa5fb4330da2e1838cc2c2ffbf97fa3473dd9d6d003064f8497cdc60c0b",
+  "status": "published",
+  "summary": "Non-functional requirements, hard constraints, and design directives aligned under CD-0006 and CD-0041.",
+  "tags": [
+    "constraints",
+    "non-functional"
+  ],
+  "title": "design constraints"
+}

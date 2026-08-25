@@ -1,0 +1,5 @@
+{
+  "id": "rollout-plan",
+  "reason": "Sequencing companion whose header names priorities.md as owner of the ranked priorities. The decisions it sequences carry their own coverage.",
+  "state": "out_of_scope"
+}

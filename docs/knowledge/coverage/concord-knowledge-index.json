@@ -1,0 +1,5 @@
+{
+  "id": "concord-knowledge-index",
+  "reason": "Descriptive companion to the manifest. The manifest schema, its generator, and scripts/check-knowledge-closure.py carry the executable authority it describes.",
+  "state": "out_of_scope"
+}

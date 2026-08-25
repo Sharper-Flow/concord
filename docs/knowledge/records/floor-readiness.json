@@ -1,0 +1,25 @@
+{
+  "date": "2026-08-24T00:00:00Z",
+  "evidence": [
+    "docs/floor-readiness.v1.json",
+    "scripts/check-floor-readiness.py"
+  ],
+  "id": "floor-readiness",
+  "kind": "reference",
+  "path": "docs/floor-readiness.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2fd25e586b3cec4c5320bea19e128a3b0dbca1332811bc037004f6e6a56f849b",
+  "status": "published",
+  "summary": "Describes the floor-readiness contract and the check that measures distance from the first-usable floor.",
+  "tags": [
+    "floor",
+    "readiness"
+  ],
+  "title": "floor readiness"
+}

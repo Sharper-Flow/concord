@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAgentJobsCorpus"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestEvaluateAbsentRequiresProbe"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-jobs.py"
+    }
+  ],
+  "id": "TS1",
+  "state": "satisfied"
+}

@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/schema.go",
+    "internal/store/events.go",
+    "internal/store/pm8_pm9_absence_test.go",
+    "internal/store/backup.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "PM8",
+  "kind": "spec",
+  "path": "docs/product-memory-evidence-store.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6d0f506763603da7c5ca9916e20b453494e1c54efd185d483f3ee34b3dfdd5e0",
+  "status": "accepted",
+  "summary": "Declares no content-addressed evidence or blob store in v1; work-in-progress output stays process exhaust.",
+  "tags": [
+    "pm8",
+    "evidence-store",
+    "negative-contract"
+  ],
+  "title": "product memory evidence store"
+}

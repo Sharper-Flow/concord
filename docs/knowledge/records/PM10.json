@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/backup.go",
+    "internal/store/backup_test.go",
+    "internal/store/fence_test.go",
+    "internal/store/store.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "PM10",
+  "kind": "spec",
+  "path": "docs/product-memory-recovery.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:fcd468c87729365b6c3496bc6a93c89242b99400460a8ac153253d5c1bd51a0c",
+  "status": "accepted",
+  "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
+  "tags": [
+    "pm10",
+    "backup",
+    "restore"
+  ],
+  "title": "product memory recovery"
+}

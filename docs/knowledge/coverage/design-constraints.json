@@ -1,0 +1,5 @@
+{
+  "id": "design-constraints",
+  "reason": "Aligned companion to priorities.md, which its header names as canonical for the subject. The decisions it aligns to carry their own coverage.",
+  "state": "out_of_scope"
+}

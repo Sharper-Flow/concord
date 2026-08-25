@@ -1,0 +1,28 @@
+{
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/store/schema.go",
+    "internal/store/events.go",
+    "internal/store/pm8_pm9_absence_test.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "PM9",
+  "kind": "spec",
+  "path": "docs/product-memory-process-exhaust.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d2bcfd5fa8ba82adad292540ccb047cec4326fd7c4527d7d215710efa3c4d0f5",
+  "status": "accepted",
+  "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; the durable sequence is the only receipt.",
+  "tags": [
+    "pm9",
+    "process-exhaust",
+    "negative-contract"
+  ],
+  "title": "product memory process exhaust"
+}

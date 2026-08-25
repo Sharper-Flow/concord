@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestPublicationOrderIsDeclaredNotIncidental"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestResolveOverlapApprovalBindsDirectionKindVersionsAndPersistsConsumedApproval"
+    },
+    {
+      "kind": "scenario",
+      "value": "AJ4-complete-valid-work"
+    }
+  ],
+  "id": "TS4",
+  "state": "satisfied"
+}

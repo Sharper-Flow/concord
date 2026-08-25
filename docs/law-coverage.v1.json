@@ -9,6 +9,68 @@
       "evidence": [
         {
           "kind": "go_test",
+          "value": "internal/store.TestProductRowsC14ReturnsFiveGroups"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestProductRowsC14UnavailableRequiredSourceNeverBecomesZero"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
+        }
+      ],
+      "id": "C14",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestCreateManagedResourceAndAddConsumerAreEventBacked"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestManagedResourceRejectsDuplicateConsumerAndEnvironmentOutsideResource"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestManagedResourceMetadataBoundsAndOtherKindDetail"
+        }
+      ],
+      "id": "C15",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestRelationTreeSurfacesCycles"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestRelationTreeResolvesSupersessionChainOnce"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestRelationTreeMarksDepthTruncationUnavailable"
+        }
+      ],
+      "id": "C17",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
           "value": "internal/store.TestOpenAppliesRequiredPragmas"
         }
       ],
@@ -1098,10 +1160,68 @@
       "evidence": [
         {
           "kind": "go_test",
+          "value": "internal/store.TestBackupUsesOnlineSnapshotAndPM10Manifest"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestBackupRejectsForeignKeyOnlyCorruption"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestBackupVerifyTamperAndOlderSchemaRejection"
+        }
+      ],
+      "id": "PM10",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestDefaultPathHonorsDataHome"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestDefaultPathFallsBackToHome"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestOpenAppliesRequiredPragmas"
+        }
+      ],
+      "id": "PM2",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
           "value": "internal/store.TestOpenAppliesSchemaManifest"
         }
       ],
       "id": "PM3",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestLifecycleTransitionsAreClosedAndTyped"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestQueryQ8DependsOnUsesInverseWithoutMirroredRow"
+        }
+      ],
+      "id": "PM4",
       "state": "satisfied"
     },
     {
@@ -1163,9 +1283,65 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestPM8AndPM9DeclareNoEvidenceOrReceiptStore"
+        }
+      ],
+      "id": "PM8",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestPM8AndPM9DeclareNoEvidenceOrReceiptStore"
+        }
+      ],
+      "id": "PM9",
+      "state": "satisfied"
+    },
+    {
       "id": "README",
       "reason": "Navigation material with status published, not law. It states a reading order and names companion documents; it asserts no rule an implementation could satisfy or violate. Link integrity, the one property it does carry, is proved by scripts/check-doc-links.py rather than by a coverage anchor on this record.",
       "state": "out_of_scope"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentJobsCorpus"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestEvaluateAbsentRequiresProbe"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-jobs.py"
+        }
+      ],
+      "id": "TS1",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-contracts.py"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestEveryContractOperationReachesADispatchArm"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestEveryDispatchArmNamesAContractOperation"
+        }
+      ],
+      "id": "TS2",
+      "state": "satisfied"
     },
     {
       "evidence": [
@@ -1181,10 +1357,100 @@
       "evidence": [
         {
           "kind": "go_test",
+          "value": "internal/agent.TestPublicationOrderIsDeclaredNotIncidental"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestResolveOverlapApprovalBindsDirectionKindVersionsAndPersistsConsumedApproval"
+        },
+        {
+          "kind": "scenario",
+          "value": "AJ4-complete-valid-work"
+        }
+      ],
+      "id": "TS4",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestDispatchIdempotentReplaySurvivesAmbientScopeDrift"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect"
+        }
+      ],
+      "id": "TS5",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestCLIEndToEndCreatesScopeGrantsAndInvokesRead"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-contracts.py"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestInvokeShapesUnsupportedOperationAsTypedEnvelope"
+        }
+      ],
+      "id": "TS6",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
           "value": "internal/agent.TestEnvelopeGoldenOutcomes"
         }
       ],
       "id": "TS7",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestGeneratedPayloadFixturesAreConsumedByGoValidator"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestGeneratedOperationsCarryManifestOwnedBoundaries"
+        }
+      ],
+      "id": "TS8",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAgentJobsCorpus"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestEvaluateAbsentRequiresProbe"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-jobs.py"
+        }
+      ],
+      "id": "TS9",
       "state": "satisfied"
     },
     {
@@ -1208,13 +1474,53 @@
       "state": "satisfied"
     },
     {
+      "id": "architecture-spike",
+      "reason": "Shaped proposal with deferred open questions and no acceptance marker in its header. It describes a workflow type Concord has not built, so it claims nothing about current behaviour.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "capability-placement",
+      "reason": "Advisory draft rubric that guides where a capability should live. It prescribes nothing an implementation must satisfy.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "clarifications",
+      "reason": "Living index of open questions and resolved directions. Each resolved item is owned by the decision or spec that resolved it, which carries its own coverage.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "concord-knowledge-index",
+      "reason": "Descriptive companion to the manifest. The manifest schema, its generator, and scripts/check-knowledge-closure.py carry the executable authority it describes.",
+      "state": "out_of_scope"
+    },
+    {
       "id": "core-architecture",
       "reason": "Descriptive architecture companion with status published and no authority over implementations; the decisions and specs it cites carry their own coverage. Its link integrity is proved by scripts/check-doc-links.py.",
       "state": "out_of_scope"
     },
     {
+      "id": "design-constraints",
+      "reason": "Aligned companion to priorities.md, which its header names as canonical for the subject. The decisions it aligns to carry their own coverage.",
+      "state": "out_of_scope"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "validator",
+          "value": "scripts/check-predecessor-independence.py"
+        }
+      ],
+      "id": "development-authority",
+      "state": "satisfied"
+    },
+    {
       "id": "feature-inventory",
       "reason": "Predecessor capability snapshot marked non-authorizing in its own header; it establishes no proposition this repository can prove or violate, and refreshes against public sources rather than executable evidence.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "floor-readiness",
+      "reason": "Descriptive companion. The authorizing record is docs/floor-readiness.v1.json and scripts/check-floor-readiness.py measures it on every run.",
       "state": "out_of_scope"
     },
     {
@@ -1233,9 +1539,71 @@
       "state": "out_of_scope"
     },
     {
+      "id": "predecessor-operational-coverage",
+      "reason": "Assessment record rather than a prescription. Its internal consistency is validated on every run by scripts/check-predecessor-coverage.py, and each gap it names is owned by its own issue.",
+      "state": "out_of_scope"
+    },
+    {
       "id": "priorities",
       "reason": "The ranked priority order and the operating envelope govern how a design tradeoff is resolved and which capabilities belong in Concord at all. Both are judgements applied by a reader to a proposed change, not propositions about a running system, so no executable anchor can decide whether a given decision honoured the order. Coverage would have to be assessed per companion document rather than against this record, and that assessment has not been made.",
       "state": "unmeasured"
+    },
+    {
+      "id": "product-data-model",
+      "reason": "Aligned companion that describes the model the accepted decisions establish. CD-0041 and the PM specs carry the coverage for the behaviour it describes.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "provenance",
+      "reason": "Constitutional origin record. It names what the public bootstrap excluded and when authority transferred. A running system cannot falsify a historical exclusion.",
+      "state": "unmeasured"
+    },
+    {
+      "id": "rollout-plan",
+      "reason": "Sequencing companion whose header names priorities.md as owner of the ranked priorities. The decisions it sequences carry their own coverage.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "self-documentation",
+      "reason": "Aligned companion describing surfaces the accepted specs establish. It prescribes nothing an implementation must satisfy on its own authority.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "specs-as-laws",
+      "reason": "Explanatory companion. Its own header states the accepted decisions are binding and this document explains them, so those decisions carry the coverage.",
+      "state": "out_of_scope"
+    },
+    {
+      "id": "storage-spine-slice",
+      "reason": "Implementation-acceptance slice whose header states it is ready for acceptance rather than accepted. The PM specs it exercises each carry their own coverage.",
+      "state": "out_of_scope"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestFullLauncherSessionAppendsNothingToTheEventLog"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher.TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther"
+        }
+      ],
+      "id": "terminal-launcher-contract",
+      "state": "satisfied"
+    },
+    {
+      "id": "vertical-integration",
+      "reason": "Investigation findings on adjacent tooling. It reports options and tradeoffs and reaches no accepted position, so it claims nothing about this Product's behaviour.",
+      "state": "out_of_scope"
     },
     {
       "evidence": [
@@ -1246,6 +1614,11 @@
       ],
       "id": "workflow-engine-contract",
       "state": "satisfied"
+    },
+    {
+      "id": "workflows",
+      "reason": "Aligned companion to the workflow engine contract, which is the accepted spec and carries the coverage for engine behaviour.",
+      "state": "out_of_scope"
     }
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPM8AndPM9DeclareNoEvidenceOrReceiptStore"
+    }
+  ],
+  "id": "PM9",
+  "state": "satisfied"
+}

@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestEveryContractOperationReachesADispatchArm"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestEveryDispatchArmNamesAContractOperation"
+    }
+  ],
+  "id": "TS2",
+  "state": "satisfied"
+}

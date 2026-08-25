@@ -14,6 +14,22 @@
 > on the pre-go-live primary path. Component inputs are not a compatibility
 > contract; new Domain writes remain unauthorized until #197 lands.
 
+## Context
+
+TS1's jobs need a bounded read surface. The binding inputs are the accepted
+PM1 Q1 through Q10 and query corpus, TS1 jobs and scenarios, and TS2 budget
+and granularity rules. This record fixes the four always-visible read tools
+and their closed discriminated operation unions. CD-0041 retires component
+identity and CD-0042 replaces component filters with Domain on the
+pre-go-live primary path.
+## Contract
+
+The binding contract is sections 1 through 3: the four-tool decision, each
+tool's operation table with typed payloads, and the shared read-input
+constraints including bounds, cursors, degraded enumeration opt-in, and the
+read-only guarantee. Section 4 records why four tools; sections 5 through 7
+record scenario mapping, rejected additions, and falsifiers, and carry no
+obligation.
 ## 1. Decision
 
 Concord exposes **four always-visible read tools**:
@@ -174,3 +190,46 @@ Reopen TS3 when:
 
 Any new read operation requires a named accepted scenario and strict schema variant.
 An existing table, CLI command, or API endpoint is not sufficient evidence.
+
+## Acceptance criteria
+
+- Given any read dispatch
+  When the operation is unknown to the generated manifest
+  Then the core refuses it before any domain effect, proving the closed
+  operation union.
+
+- Given a read that returns a cursor
+  When another operation attempts to consume that cursor
+  Then the core rejects the tampered or cross-operation cursor.
+
+- Given a knowledge index behind its git head
+  When `concord_knowledge.search` runs without `allow_degraded`
+  Then the search refuses rather than answering degraded.
+
+- Given a durable-knowledge search
+  When results return
+  Then each carries its canonical locator and index watermark, never an
+  unbounded artifact body.
+
+- Given any read scenario
+  When the runner probes prohibited effects
+  Then reads have mutated nothing, with the probe recorded.
+
+## Verification
+
+- Criterion 1 is proved by the generated manifest drift validator
+  `scripts/check-agent-contracts.py` together with `ValidateContractOperation`
+  in `internal/agent/generated_contracts.go`, exercised by
+  `TestDispatchProductResolveReturnsGeneratedPayload`
+  (`internal/agent/runtime_test.go`). The validator is anchored as a
+  validator in the record's coverage shard.
+- Criterion 2 is proved by
+  `TestAuthenticatedCursorBindsOperationAndRejectsTampering`
+  (`internal/agent/runtime_test.go`).
+- Criterion 3 is proved by the bound `AJ7-degraded-index` scenario of
+  `scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
+  (`internal/agent/agent_jobs_corpus_test.go`).
+- Criterion 4 is proved by the bound `AJ7-search-knowledge` scenario.
+- Criterion 5 is proved by the absent-probe guard of the same runner, which
+  fails any `absent` assertion a binding did not actively probe; the guard's
+  own test is `TestEvaluateAbsentRequiresProbe`.

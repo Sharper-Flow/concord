@@ -1,10 +1,31 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ1-ambient-ready-work"
+    },
+    {
+      "criterion": 2,
+      "scenario": "AJ2-blocker-explanation"
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ3-spec-conflict"
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ4-stale-version"
+    },
+    {
+      "criterion": 5,
+      "scenario": "AJ6-partial-publication"
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
     "scenarios/agent-jobs.v1.json",
-    "contracts/agent-jobs-scenarios.schema.json",
     "internal/agent/agent_jobs_corpus_test.go",
-    "scripts/check-agent-jobs.py"
+    "internal/agent/mutation_dispatch_test.go"
   ],
   "home_domain_id": "agent-surface",
   "id": "TS1",
@@ -17,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d2c0d597b5c40df42fa1ecc78a513a00c4afc3e5fc041ce5fbcf5c9981d7608d",
+  "sha256": "sha256:136e43edb001c3960517cff9b9a4515d2ace9b8a85e1213cbe987d53d8283a23",
   "status": "accepted",
   "summary": "Defines eight canonical agent jobs AJ1-AJ8 and the 23-scenario acceptance corpus that measures them.",
   "tags": [

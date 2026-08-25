@@ -1,10 +1,33 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus scenario AJ1-ambiguous-product proves the read-side refusal; the mutation-before-effect guarantee is proved by TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation (internal/agent/mutation_dispatch_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Context freshness is an envelope property below scenario grain. The guarantee is proved by TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect (internal/agent/context_freshness_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Replay across scope drift is a dispatch property. The guarantee is proved by TestDispatchIdempotentReplaySurvivesAmbientScopeDrift (internal/agent/mutation_dispatch_test.go) and TestMutationDigestBindsIntentNotApprovalTransportReference (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Approval consumption atomicity is a dispatch property. The guarantee is proved by TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse and TestDispatchFailedDomainEffectRollsBackGrantAndApproval (internal/agent/mutation_dispatch_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Cross-scope authorization is an envelope property. The guarantee is proved by TestDispatchCrossProductCaptureRequiresBoundApproval and TestDispatchCrossProductLinkRequiresCapabilityAndApproval (internal/agent/mutation_dispatch_test.go)."
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "internal/agent/envelope.go",
-    "internal/agent/authority.go",
+    "scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "internal/agent/mutation_dispatch_test.go",
     "internal/agent/context_freshness_test.go",
-    "internal/agent/mutation_dispatch_test.go"
+    "internal/agent/runtime_test.go"
   ],
   "home_domain_id": "agent-surface",
   "id": "TS5",
@@ -17,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8539cbc3473e5a2c0f296d761840db21934d1d69f7e1b253bf82f01d2e4cc6a3",
+  "sha256": "sha256:35a2fff986c59dab3dea8bfa1de1a7a4ed93d7f8c536c357c1f89478dcb58960",
   "status": "accepted",
   "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
   "tags": [

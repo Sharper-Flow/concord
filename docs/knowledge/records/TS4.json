@@ -1,10 +1,32 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ3-capture-work"
+    },
+    {
+      "criterion": 2,
+      "scenario": "AJ4-stale-version"
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ4-completion-missing-evidence"
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ5-atomic-supersession"
+    },
+    {
+      "criterion": 5,
+      "scenario": "AJ5-resolve-domain-overlap"
+    }
+  ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "contracts/agent-tool-surface.v1.json",
-    "internal/agent/mutations.go",
-    "internal/agent/agent_jobs_compaction_bindings_test.go",
-    "internal/agent/workflow_overlap_dispatch_test.go"
+    "scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "internal/agent/mutation_dispatch_test.go",
+    "internal/agent/runtime_test.go"
   ],
   "home_domain_id": "agent-surface",
   "id": "TS4",
@@ -17,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:636be1c0421bd378fc83c0b0fccdce2d6edeff938accb399d365529ce8eb9603",
+  "sha256": "sha256:4d2c8cd4eccb04e0b2155c6f4b1b94292b92a863403f19453744b31fc1eac9a5",
   "status": "accepted",
   "summary": "Fixes the mutation tools, each committing one domain intent per SQLite transaction with sequenced git-first compaction.",
   "tags": [

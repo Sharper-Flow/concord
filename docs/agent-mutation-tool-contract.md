@@ -14,6 +14,24 @@
 > CD-0042 makes the generated current manifest the only pre-go-live surface
 > identity; this contract does not authorize partial Domain or Initiative writes.
 
+## Context
+
+TS1's mutation jobs need a bounded mutation surface. The binding inputs are
+the accepted PM3 through PM7 domain operations, TS1 jobs and scenarios, TS2
+budget and granularity, the TS3 read surface, the capability-placement
+native-authority rule, and the Advance postmortem. This record fixes the four
+always-visible mutation tools, their operation tables, the batch boundary,
+and the inline-versus-durable execution rule. CD-0041 requires typed
+architecture binding through the direct Initiative route; CD-0042 makes the
+generated manifest the only pre-go-live surface identity.
+## Contract
+
+The binding contract is sections 1 through 4: the four-tool decision with the
+native-authority rule, each tool's operation table with core effects, the
+batch boundary of one domain intent per call, and the inline-versus-durable
+execution rule with the compaction recovery contract. Sections 5 through 7
+record scenario mapping including the native-run evidence law, rejected
+shapes, and falsifiers, and carry no obligation.
 ## 1. Decision
 
 Concord exposes **four always-visible mutation tools**:
@@ -243,3 +261,49 @@ Reopen TS4 when:
 Any added mutation must name its domain invariant, authority/consequence boundary,
 retry identity, successful state oracle, and recovery path. An existing CLI command
 or storage method is not sufficient evidence.
+
+## Acceptance criteria
+
+- Given a valid capture with Project membership
+  When `concord_work_define.capture` commits
+  Then the work item, its complete membership set, and its creation event
+  commit in one SQLite transaction.
+
+- Given a transition carrying a stale expected version
+  When any mutation tool dispatches it
+  Then the core refuses before approval consumption or any effect and returns
+  the current version.
+
+- Given a completion without its required evidence
+  When `concord_work_transition.lifecycle` attempts it
+  Then the core blocks the terminal transition with a typed error and no
+  event.
+
+- Given a valid supersession
+  When `concord_work_relate.supersede` commits
+  Then the edge and the predecessor's superseded state commit atomically, and
+  a cycle or second successor is refused.
+
+- Given two overlapping Product-changing items
+  When the agent links them with an ordinary relation
+  Then the link writes no overlap authority; only `resolve_overlap` with an
+  operator approval pinned to both work and contract versions resolves it.
+
+## Verification
+
+All five criteria are proved by scenarios of `scenarios/agent-jobs.v1.json`,
+executed by `TestAgentJobsCorpus`
+(`internal/agent/agent_jobs_corpus_test.go`), with dispatch-layer proofs in
+`internal/agent/mutation_dispatch_test.go`.
+
+- Criterion 1 is proved by the bound `AJ3-capture-work` scenario and
+  `TestDispatchCaptureCreatesWorkAndMembershipsAtomically`
+  (`internal/agent/runtime_test.go`).
+- Criterion 2 is proved by the bound `AJ4-stale-version` scenario.
+- Criterion 3 is proved by the bound `AJ4-completion-missing-evidence`
+  scenario.
+- Criterion 4 is proved by the bound `AJ5-atomic-supersession` and
+  `AJ5-reject-cycle` scenarios.
+- Criterion 5 is proved by the bound `AJ5-resolve-domain-overlap` scenario,
+  which drives the real `concord_work_relate.resolve_overlap` dispatch and
+  proves the ordinary link writes no overlap authority.

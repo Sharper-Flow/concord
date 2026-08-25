@@ -11,6 +11,22 @@
 > (TS7), current manifest identity/change evidence (TS8), or change evidence for the
 > surface (TS9).
 
+## Context
+
+Concord's agent surface must serve the Product-memory jobs the operator and
+its agents repeatedly perform. The binding inputs are the accepted PM1 query
+contract and corpus, PM2 through PM10, Concord priorities, workflows, design
+constraints, and the Advance postmortem. This record defines the smallest
+evidenced set of end-to-end agent jobs AJ1 through AJ8 and the tool-neutral
+scenario corpus that judges every later surface candidate.
+## Contract
+
+The binding contract is sections 1 through 4: the decision boundary, the
+canonical jobs with their successful outcomes, the shared success oracles
+every scenario applies, and the evaluation corpus contract with its passing
+rule and the absent-probe runner obligation. Sections 5 through 7 record the
+evidence basis, rejected or deferred jobs, and the falsifier and amendment
+rule with its approved amendments, and carry no obligation.
 ## 1. Decision boundary
 
 TS1 defines the smallest evidenced set of **end-to-end agent jobs** Concord's
@@ -278,3 +294,48 @@ authority. `TestAgentJobsCorpus/AJ5-resolve-domain-overlap` is the executable bi
 This amendment adds one scenario, bringing the corpus to 23. It does not add a ninth
 job or a tenth tool. Operator approval for the current manifest change is recorded in
 [issue #195](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5346330133).
+
+## Acceptance criteria
+
+- Given ambient Product context with needed, blocked, and terminal work
+  When AJ1 orients and selects ready work
+  Then one canonical work item appears once across Projects, blocked work is
+  excluded, and the answer is proved not to use a stored ready flag.
+
+- Given work blocked by an unresolved relation
+  When AJ2 explains the blockage
+  Then the answer derives blockage from relations and blocker terminality and
+  is proved not to use a stored blocked flag.
+
+- Given a capture whose scope conflicts with governing law
+  When AJ3 records the work
+  Then the core returns a typed conflict and no mutation, never a silent
+  scope reduction.
+
+- Given a transition carrying a stale expected version
+  When AJ4 attempts it
+  Then the core refuses before any effect, and a valid transition increments
+  the version by exactly one.
+
+- Given a compaction interrupted between git and SQLite
+  When AJ6 reconciles
+  Then the outcome is an explicit recoverable partial state and a retry
+  creates no second note and no competing authority.
+
+## Verification
+
+All five criteria are proved by scenarios of `scenarios/agent-jobs.v1.json`,
+executed by `TestAgentJobsCorpus`
+(`internal/agent/agent_jobs_corpus_test.go`).
+
+- Criterion 1 is proved by the bound `AJ1-ambient-ready-work` scenario, whose
+  authority assertion `stored_ready_flag_used=false` proves derivation.
+- Criterion 2 is proved by the bound `AJ2-blocker-explanation` scenario, whose
+  `stored_blocked_flag_used` assertion proves relation-derived blockage.
+- Criterion 3 is proved by the bound `AJ3-spec-conflict` scenario.
+- Criterion 4 is proved by the bound `AJ4-stale-version` and
+  `AJ4-complete-valid-work` scenarios, whose `version_increment` assertion
+  states the increment law structurally.
+- Criterion 5 is proved by the bound `AJ6-partial-publication` scenario and
+  by `TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote`
+  (`internal/agent/mutation_dispatch_test.go`).

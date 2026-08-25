@@ -10,6 +10,24 @@
 > layout (TS7), manifest identity/change evidence (TS8), measurement evidence (TS9), user-interface
 > rendering, C14, or C15.
 
+## Context
+
+Every tool call needs one typed scope, authorization, and idempotency
+envelope. The binding inputs are PM2 global local authority, PM5 membership
+semantics, the accepted TS1 through TS4 contracts, CD-0003's short-lived CLI,
+and the ambient-context native-authority constraints. This record fixes the
+call envelope fields, ambient context resolution and freshness, the principal
+and capability model, human approval evidence, expected versions, and
+idempotency.
+## Contract
+
+The binding contract is sections 1 through 8: the typed call envelope,
+ambient context resolution including ambiguity and explicit scope, context
+freshness, principal and authorization with the capability classes, human
+approval evidence, expected versions, idempotency with its key and replay
+contract, and request identity and audit. Sections 9 through 11 record
+scenario requirements, rejected alternatives, and falsifiers, and carry no
+obligation.
 ## 1. Decision
 
 Every Concord call carries one **typed call envelope** beside its tool-specific
@@ -285,3 +303,53 @@ Reopen TS5 when:
 Any amendment must preserve core-owned authorization, explicit cross-scope intent,
 expected-version conflict detection, operation-bound approval, and durable retry
 identity.
+
+## Acceptance criteria
+
+- Given a Project owned by multiple Products
+  When a Product-scoped mutation dispatches without an explicit selection
+  Then the core blocks it with typed `ambiguous_scope` and bounded candidates
+  before any effect.
+
+- Given a scope version outdated but semantically unchanged
+  When a read and then a mutation dispatch
+  Then the read executes with an explicit refreshed context version and the
+  mutation fails `stale_context` before any effect.
+
+- Given the same idempotency key replayed after ambient scope drift
+  When the retry dispatches
+  Then the core returns the original committed result with no new effect, and
+  a changed digest fails `idempotency_conflict`.
+
+- Given a single-use approval bound to exact content
+  When the domain effect fails or the version conflicts
+  Then the approval remains unconsumed, and on success the core consumes it
+  in the same transaction that records the intent.
+
+- Given a mutation spanning outside the selected ambient Product
+  When it dispatches
+  Then the core requires the `cross_scope` capability plus a durable approval
+  reference, and self-asserted booleans never authorize.
+
+## Verification
+
+- Criterion 1 is proved by the bound `AJ1-ambiguous-product` scenario of
+  `scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
+  (`internal/agent/agent_jobs_corpus_test.go`), and by
+  `TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation`
+  (`internal/agent/mutation_dispatch_test.go`).
+- Criterion 2 is proved by
+  `TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect`
+  (`internal/agent/context_freshness_test.go`).
+- Criterion 3 is proved by
+  `TestDispatchIdempotentReplaySurvivesAmbientScopeDrift` and
+  `TestMutationDigestBindsIntentNotApprovalTransportReference`
+  (`internal/agent/mutation_dispatch_test.go`,
+  `internal/agent/runtime_test.go`).
+- Criterion 4 is proved by
+  `TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse` and
+  `TestDispatchFailedDomainEffectRollsBackGrantAndApproval`
+  (`internal/agent/mutation_dispatch_test.go`).
+- Criterion 5 is proved by `TestDispatchCrossProductCaptureRequiresBoundApproval`
+  and `TestDispatchCrossProductLinkRequiresCapabilityAndApproval`
+  (`internal/agent/mutation_dispatch_test.go`).

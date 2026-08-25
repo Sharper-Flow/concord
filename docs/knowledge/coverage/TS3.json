@@ -3,6 +3,18 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestQueryQ10ContainsKnowledgeInSelectedProduct"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDispatchProductResolveReturnsGeneratedPayload"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuthenticatedCursorBindsOperationAndRejectsTampering"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
     }
   ],
   "id": "TS3",

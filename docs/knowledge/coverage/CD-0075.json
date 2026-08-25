@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-project-tooling.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-project-tooling.py"
+    }
+  ],
+  "id": "CD-0075",
+  "state": "satisfied"
+}

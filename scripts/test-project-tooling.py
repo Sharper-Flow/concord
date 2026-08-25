@@ -9,11 +9,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-try:
-    import jsonschema
-except ImportError:
-    jsonschema = None
-
 
 SCRIPT = Path(__file__).with_name("check-project-tooling.py")
 SPEC = importlib.util.spec_from_file_location("project_tooling_checker", SCRIPT)
@@ -28,7 +23,6 @@ def tool(identifier: str = "go-vet", **overrides: object) -> dict[str, object]:
         "purpose": "Standard static analysis.",
         "invocation": "go vet ./...",
         "tier": "fast",
-        "cadence": "routine",
         "automation_path": ".github/workflows/ci.yml",
     }
     entry.update(overrides)
@@ -55,7 +49,7 @@ class ProjectToolingTests(unittest.TestCase):
         )
 
     def test_schema_free_valid_adoption_passes(self) -> None:
-        on_demand = tool("slow-scan", invocation="slow-scan ./...", tier="slow", cadence="on_demand")
+        on_demand = tool("slow-scan", invocation="slow-scan ./...", tier="slow")
         del on_demand["automation_path"]
         self.manifest([tool(), on_demand])
 
@@ -87,27 +81,33 @@ class ProjectToolingTests(unittest.TestCase):
 
     def test_missing_required_field_is_reported(self) -> None:
         entry = tool()
-        del entry["cadence"]
+        del entry["tier"]
         self.manifest([entry])
 
         findings = checker.check(root=self.root)
 
         self.assertTrue(any("missing field" in finding for finding in findings))
 
-    def test_bad_tier_and_cadence_are_reported(self) -> None:
-        self.manifest([tool(tier="instant", cadence="sometimes")])
+    def test_bad_tier_is_reported(self) -> None:
+        self.manifest([tool(tier="instant")])
 
         findings = checker.check(root=self.root)
 
         self.assertTrue(any("tier must be one of" in finding for finding in findings))
-        self.assertTrue(any("cadence must be one of" in finding for finding in findings))
 
-    def test_unhashable_tier_and_cadence_are_reported_without_crashing(self) -> None:
-        for key, value in (("tier", []), ("cadence", {})):
-            with self.subTest(key=key):
-                self.manifest([tool(**{key: value})])
-                findings = checker.check(root=self.root)
-                self.assertTrue(any(f"{key} must be one of" in finding for finding in findings))
+    def test_unhashable_tier_is_reported_without_crashing(self) -> None:
+        self.manifest([tool(tier=[])])
+
+        findings = checker.check(root=self.root)
+
+        self.assertTrue(any("tier must be one of" in finding for finding in findings))
+
+    def test_cadence_is_rejected_as_methodology(self) -> None:
+        self.manifest([tool(cadence="on_demand")])
+
+        findings = checker.check(root=self.root)
+
+        self.assertTrue(any("unknown field(s): cadence" in finding for finding in findings))
 
     def test_duplicate_tool_id_is_reported(self) -> None:
         self.manifest([tool(), tool()])
@@ -221,82 +221,42 @@ class ProjectToolingTests(unittest.TestCase):
                 findings = checker.check(root=self.root)
                 self.assertTrue(any(f"{key} must contain a character outside JSON whitespace" in finding for finding in findings))
 
-    @unittest.skipIf(jsonschema is None, "jsonschema is not installed")
-    def test_checker_matches_schema_on_text_lexical_fixtures(self) -> None:
+    def test_schema_matches_checker_contract(self) -> None:
         schema = json.loads(
             (Path(__file__).resolve().parents[1] / "contracts/project-tooling.v1.schema.json").read_text(encoding="utf-8")
         )
-        validator = jsonschema.Draft202012Validator(schema)
-        fixtures = [
-            ("minimum raw lengths", self.document([tool(purpose=" a  ", invocation="x", cost_hint=" a  ", notes=" a  ")]), True),
-            (
-                "maximum padded lengths",
-                self.document([
-                    tool(
-                        purpose=" " + "p" * 254 + " ",
-                        invocation=" " + "i" * 510 + " ",
-                        cost_hint=" " + "c" * 126 + " ",
-                        notes=" " + "n" * 510 + " ",
-                    )
-                ]),
-                True,
-            ),
-            ("multiline invocation", self.document([tool(invocation="go vet\nnext")]), False),
-            ("control cost hint", self.document([tool(cost_hint="cost\tseconds")]), False),
-        ]
-        for key in ("purpose", "invocation", "cost_hint", "notes"):
-            fixtures.append((f"JSON whitespace {key}", self.document([tool(**{key: " \t\r\n"})]), False))
-        for name, character, control_allowed in (
-            ("U+001C", "\u001c", False),
-            ("U+001F", "\u001f", False),
-            ("U+0085", "\u0085", True),
-            ("NBSP", "\u00a0", True),
-        ):
-            fixtures.extend(
-                [
-                    (f"{name} purpose", self.document([tool(purpose=character * 4)]), True),
-                    (f"{name} invocation", self.document([tool(invocation=character)]), control_allowed),
-                    (f"{name} cost hint", self.document([tool(cost_hint=character * 4)]), control_allowed),
-                    (f"{name} notes", self.document([tool(notes=character * 4)]), True),
-                ]
-            )
-        trailing_project = self.document([tool()])
-        trailing_project["project"] = "demo\n"
-        fixtures.append(("trailing-newline project", trailing_project, False))
-
-        for name, document, expected_valid in fixtures:
-            with self.subTest(name=name):
-                (self.root / ".concord/tooling.v1.json").write_text(json.dumps(document), encoding="utf-8")
-                checker_valid = not checker.check(root=self.root)
-                schema_valid = not list(validator.iter_errors(document))
-                self.assertEqual(checker_valid, expected_valid)
-                self.assertEqual(schema_valid, expected_valid)
-
-    def test_schema_uses_checker_lexical_constraints(self) -> None:
-        schema = json.loads(
-            (Path(__file__).resolve().parents[1] / "contracts/project-tooling.v1.schema.json").read_text(encoding="utf-8")
-        )
+        root_properties = schema["properties"]
+        tool_schema = schema["$defs"]["tool"]
         properties = schema["$defs"]["tool"]["properties"]
 
+        self.assertEqual(set(schema["required"]), checker.ROOT_FIELDS)
+        self.assertEqual(set(root_properties), checker.ROOT_FIELDS)
+        self.assertEqual(root_properties["schema_version"]["const"], checker.SCHEMA_VERSION)
+        self.assertEqual(root_properties["project"]["pattern"], checker.IDENTIFIER_PATTERN)
+        self.assertEqual(root_properties["tools"]["maxItems"], checker.MAX_TOOLS)
+        self.assertEqual(set(properties), checker.TOOL_FIELDS)
+        self.assertEqual(set(tool_schema["required"]), checker.REQUIRED_TOOL_FIELDS)
+        self.assertEqual(properties["id"]["pattern"], checker.IDENTIFIER_PATTERN)
+        self.assertEqual(set(properties["tier"]["enum"]), checker.TIERS)
         self.assertEqual(properties["config_path"]["pattern"], checker.SAFE_PATH_PATTERN)
         self.assertEqual(properties["automation_path"]["pattern"], checker.SAFE_PATH_PATTERN)
-        self.assertEqual(properties["tier"]["type"], "string")
-        self.assertEqual(properties["cadence"]["type"], "string")
-        self.assertEqual(properties["cadence"]["enum"], ["routine", "on_demand"])
-        text_pattern = r"[^ \t\r\n]"
-        self.assertEqual(properties["purpose"]["pattern"], text_pattern)
-        self.assertEqual(properties["notes"]["pattern"], text_pattern)
-        self.assertIn({"pattern": text_pattern}, properties["invocation"]["allOf"])
-        self.assertIn({"pattern": text_pattern}, properties["cost_hint"]["allOf"])
-        self.assertIn("cadence", schema["$defs"]["tool"]["required"])
+        for key in ("config_path", "automation_path"):
+            self.assertEqual(properties[key]["minLength"], checker.PATH_MIN_LENGTH)
+            self.assertEqual(properties[key]["maxLength"], checker.PATH_MAX_LENGTH)
+        for key, (minimum, maximum, single_line) in checker.TEXT_CONSTRAINTS.items():
+            self.assertEqual(properties[key]["minLength"], minimum)
+            self.assertEqual(properties[key]["maxLength"], maximum)
+            patterns = properties[key]["allOf"] if "allOf" in properties[key] else [{"pattern": properties[key]["pattern"]}]
+            self.assertIn({"pattern": checker.NON_WHITESPACE_PATTERN}, patterns)
+            self.assertEqual({"pattern": checker.SINGLE_LINE_PATTERN} in patterns, single_line)
 
-    def test_dogfood_keeps_bin_oc_test_on_demand(self) -> None:
+    def test_dogfood_carries_no_selection_policy(self) -> None:
         repository = Path(__file__).resolve().parents[1]
         document = json.loads((repository / ".concord/tooling.v1.json").read_text(encoding="utf-8"))
         entries = {entry["id"]: entry for entry in document["tools"]}
 
-        self.assertEqual(entries["bin-oc-test"]["cadence"], "on_demand")
-        self.assertTrue(any(entry["cadence"] == "routine" for entry in document["tools"]))
+        self.assertEqual(entries["bin-oc-test"]["config_path"], "bin/oc-test")
+        self.assertTrue(all("cadence" not in entry for entry in document["tools"]))
 
     def test_repository_itself_passes(self) -> None:
         self.assertEqual(checker.check(root=Path(__file__).resolve().parents[1]), [])

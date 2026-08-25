@@ -98,8 +98,6 @@ func NewBuiltinLaneRegistry() LaneRegistry {
 
 var builtinLaneRegistry = NewBuiltinLaneRegistry()
 
-func BuiltinLaneRegistry() LaneRegistry { return builtinLaneRegistry }
-
 func BuiltinLaneDefinitions() []LaneDefinition {
 	result := make([]LaneDefinition, 0, len(generatedLaneDefinitions))
 	for _, definition := range generatedLaneDefinitions {

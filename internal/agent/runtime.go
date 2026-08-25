@@ -1862,15 +1862,3 @@ func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 // SignedCursor remains an agent-facing alias while the authority owns its
 // representation and authenticated serialization.
 type SignedCursor = store.SignedCursor
-
-// EncodeCursor preserves the agent package API without accepting a database
-// handle. Production callers use Store.EncodeCursor directly.
-func EncodeCursor(ctx context.Context, s *store.Store, cursor SignedCursor) (string, error) {
-	return s.EncodeCursor(ctx, cursor)
-}
-
-// DecodeCursor preserves the agent package API without accepting a database
-// handle. Production callers use Store.DecodeCursor directly.
-func DecodeCursor(ctx context.Context, s *store.Store, token string, expected SignedCursor) (SignedCursor, error) {
-	return s.DecodeCursor(ctx, token, expected)
-}

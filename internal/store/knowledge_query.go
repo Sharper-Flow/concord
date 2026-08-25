@@ -10,11 +10,6 @@ import (
 	"time"
 )
 
-func tableExists(ctx context.Context, db *sql.DB, table string) bool {
-	var exists int
-	return db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)`, table).Scan(&exists) == nil && exists == 1
-}
-
 type Q9Request struct {
 	Product       string
 	Project       string
@@ -610,28 +605,4 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 		scopeSelect +
 		`COALESCE((SELECT json_group_array(tag_id) FROM (SELECT tag_id FROM archived_work_tags WHERE work_id=aw.id ORDER BY tag_id)), '[]'),aw.match_class ` +
 		`FROM ranked aw` + cursorWhere + ` ORDER BY aw.match_class ASC, aw.completed_at DESC, aw.id ASC LIMIT ?`, args
-}
-
-func enrichKnowledgeScopes(ctx context.Context, db *sql.DB, item *KnowledgeItem) error {
-	for _, scope := range []struct {
-		table, column string
-		target        *[]string
-	}{{"archived_work_products", "product_id", &item.ProductIDs}, {"archived_work_projects", "project_id", &item.ProjectIDs}, {"archived_work_domains", "domain_id", &item.DomainIDs}, {"archived_work_tags", "tag_id", &item.TagIDs}} {
-		rows, err := db.QueryContext(ctx, "SELECT "+scope.column+" FROM "+scope.table+" WHERE work_id = ? ORDER BY "+scope.column, item.ID)
-		if err != nil {
-			return wrapFailure(KindUnavailable, "PM1.Q9", "cannot read indexed knowledge scope", true, "retry once the database is readable", err)
-		}
-		for rows.Next() {
-			var value string
-			if err := rows.Scan(&value); err != nil {
-				rows.Close()
-				return err
-			}
-			*scope.target = append(*scope.target, value)
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-	}
-	return nil
 }

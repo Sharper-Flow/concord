@@ -176,13 +176,6 @@ func terminalStreams(in io.Reader, out io.Writer) bool {
 	return inErr == nil && outErr == nil && inInfo.Mode()&os.ModeCharDevice != 0 && outInfo.Mode()&os.ModeCharDevice != 0
 }
 
-// runLauncherWithTerminalStreams is intentionally internal: production routing
-// requires actual terminal streams, while package tests may provide a PTY-like
-// harness and assert the command boundary without reading JSON stdin.
-func runLauncherWithTerminalStreams(args []string, in io.Reader, out, errOut io.Writer) int {
-	return runLauncherCommand(args, in, out, errOut, true)
-}
-
 func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, "concord launcher: unsupported arguments; launcher accepts no JSON stdin arguments")

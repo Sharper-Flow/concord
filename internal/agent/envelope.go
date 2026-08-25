@@ -270,19 +270,6 @@ func NewBase(requestID, tool, operation string) Envelope {
 	}
 	return e
 }
-func NewOKRead(base Envelope, queryID string, payload json.RawMessage, collection bool) Envelope {
-	base.Outcome = OutcomeOK
-	base.QueryID = queryID
-	if collection {
-		base.Items = []json.RawMessage{}
-		if len(payload) != 0 {
-			base.Items = append(base.Items, payload)
-		}
-	} else {
-		base.Result = payload
-	}
-	return base
-}
 func NewOKMutation(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent) Envelope {
 	base.Outcome = OutcomeOK
 	base.Result = payload
@@ -356,14 +343,6 @@ func (e *Envelope) UnmarshalJSON(data []byte) error {
 	return e.Validate()
 }
 func (e Envelope) Encode() ([]byte, error) { return json.Marshal(e) }
-func DecodeEnvelope(data []byte) (Envelope, error) {
-	var e Envelope
-	if len(data) > MaxEnvelopeBytes {
-		return e, fmt.Errorf("agent envelope exceeds %d bytes", MaxEnvelopeBytes)
-	}
-	return e, json.Unmarshal(data, &e)
-}
-
 func (e Envelope) Validate() error {
 	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" {
 		return errors.New("invalid envelope identity")

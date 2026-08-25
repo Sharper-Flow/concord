@@ -179,12 +179,6 @@ func (s *Store) AddResearchFinding(ctx context.Context, req ResearchFindingReque
 func (s *Store) UpdateResearchFinding(ctx context.Context, req ResearchFindingRequest) (ResearchFinding, error) {
 	return addResearchFinding(ctx, s, req, true)
 }
-func AddResearchFinding(ctx context.Context, s *Store, req ResearchFindingRequest) (ResearchFinding, error) {
-	return addResearchFinding(ctx, s, req, false)
-}
-func UpdateResearchFinding(ctx context.Context, s *Store, req ResearchFindingRequest) (ResearchFinding, error) {
-	return addResearchFinding(ctx, s, req, true)
-}
 
 func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingRequest, update bool) (ResearchFinding, error) {
 	var out ResearchFinding
@@ -315,12 +309,6 @@ func (s *Store) AddResearchSource(ctx context.Context, req ResearchSourceRequest
 	return addResearchSource(ctx, s, req, false)
 }
 func (s *Store) UpdateResearchSource(ctx context.Context, req ResearchSourceRequest) (ResearchSource, error) {
-	return addResearchSource(ctx, s, req, true)
-}
-func AddResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest) (ResearchSource, error) {
-	return addResearchSource(ctx, s, req, false)
-}
-func UpdateResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest) (ResearchSource, error) {
 	return addResearchSource(ctx, s, req, true)
 }
 
@@ -944,17 +932,6 @@ func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req Appe
 		return out, err
 	}
 	return out, nil
-}
-
-// RecordResearchFindingWithinTx runs the addResearchFinding core on the caller's transaction. The
-// caller owns idempotency; the research idempotency table is skipped, and
-// this function never rolls back or commits the caller's transaction.
-func RecordResearchFindingWithinTx(ctx context.Context, transaction *Transaction, req ResearchFindingRequest, update bool) (ResearchFinding, error) {
-	tx, err := transactionSQL(transaction, "research_finding_write")
-	if err != nil {
-		return ResearchFinding{}, err
-	}
-	return recordResearchFindingWithinRawTx(ctx, tx, req, update, transaction.now())
 }
 
 func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, update bool, observedAt time.Time) (ResearchFinding, error) {

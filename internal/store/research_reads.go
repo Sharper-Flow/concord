@@ -29,9 +29,6 @@ func (s *Store) ReadCompleteResearchPack(ctx context.Context, packID string) (Re
 func (s *Store) GetResearchPack(ctx context.Context, packID string, limit int) (ResearchPack, error) {
 	return ReadResearchPack(ctx, s, packID, limit)
 }
-func ReadCompleteResearchPack(ctx context.Context, s *Store, packID string) (ResearchPack, error) {
-	return ReadResearchPack(ctx, s, packID, 1000)
-}
 func GetResearchPack(ctx context.Context, s *Store, packID string, limit int) (ResearchPack, error) {
 	return ReadResearchPack(ctx, s, packID, limit)
 }
@@ -74,9 +71,6 @@ func ResearchFreshnessForPack(ctx context.Context, s *Store, packID string) (Res
 	out.Blocked = true
 	out.Reasons = []string{id + ":" + status}
 	return out, nil
-}
-func CheckResearchFreshness(ctx context.Context, s *Store, packID string) (ResearchFreshnessResult, error) {
-	return ResearchFreshnessForPack(ctx, s, packID)
 }
 
 // ResearchPacksByOwner lists the active packs owned by one work item, newest

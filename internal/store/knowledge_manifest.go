@@ -1190,10 +1190,6 @@ func validateManifestKindList(values []string, field string) (map[string]bool, e
 	return result, nil
 }
 
-func validateKnowledgeRecord(record KnowledgeRecord, supported, indexed map[string]bool) error {
-	return validateKnowledgeRecordForSchema(record, supported, indexed, "1.0")
-}
-
 func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string) error {
 	if len(record.CriterionBindings) > maxCriterionBindings {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many criterion bindings", false, "supply at most one thousand criterion bindings")
@@ -1340,10 +1336,6 @@ func manifestPathIneligible(value string) (string, bool) {
 func manifestIneligibleHint() string {
 	return "a record path may not start with " + strings.Join(manifestIneligiblePrefixes, " or ") +
 		", or contain " + strconv.Quote(manifestIneligibleSubstring)
-}
-
-func validateManifestScopes(scopes KnowledgeRecordScopes) error {
-	return validateManifestScopesForSchema(scopes, "1.0")
 }
 
 func validateManifestScopesForSchema(scopes KnowledgeRecordScopes, schemaVersion string) error {

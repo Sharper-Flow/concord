@@ -320,18 +320,18 @@ func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
 	}
 	defer s.Close()
 	want := SignedCursor{Tool: "concord_work_browse", Operation: "list", Scope: "product|project", Filter: "filters", Detail: "summary", Order: "priority", Source: "7", Last: "work-a", Inner: "inner-cursor"}
-	token, err := EncodeCursor(context.Background(), s, want)
+	token, err := s.EncodeCursor(context.Background(), want)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := DecodeCursor(context.Background(), s, token, want)
+	got, err := s.DecodeCursor(context.Background(), token, want)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Inner != want.Inner || !strings.Contains(token, ".") {
 		t.Fatalf("cursor=%+v token=%q", got, token)
 	}
-	if _, err := DecodeCursor(context.Background(), s, token, SignedCursor{Tool: "concord_work_trace", Operation: "history", Scope: want.Scope, Filter: want.Filter, Detail: want.Detail, Order: want.Order}); err == nil {
+	if _, err := s.DecodeCursor(context.Background(), token, SignedCursor{Tool: "concord_work_trace", Operation: "history", Scope: want.Scope, Filter: want.Filter, Detail: want.Detail, Order: want.Order}); err == nil {
 		t.Fatal("wrong operation accepted")
 	}
 	first := byte('A')
@@ -339,7 +339,7 @@ func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
 		first = 'B'
 	}
 	tampered := string(first) + token[1:]
-	if _, err := DecodeCursor(context.Background(), s, tampered, want); err == nil {
+	if _, err := s.DecodeCursor(context.Background(), tampered, want); err == nil {
 		t.Fatal("tampered cursor accepted")
 	}
 }

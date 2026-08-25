@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -233,12 +232,4 @@ func workflowLawHome(ctx context.Context, q queryer, workID string) (string, str
 		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the primary Git law home", true, "retry once the workflow scope is readable", err)
 	}
 	return project, locator, nil
-}
-
-// SortLawIDs is a presentation helper only. Sorting never decides relation
-// precedence; it merely makes bounded diagnostics deterministic.
-func SortLawIDs(ids []string) []string {
-	result := append([]string(nil), ids...)
-	sort.Strings(result)
-	return result
 }

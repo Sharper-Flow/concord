@@ -267,7 +267,9 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 		out.Omissions = append(out.Omissions, "Product work omitted by launcher limit")
 	}
 	// All Product edges are read in the same transaction as the rows. The
-	// depends_on inverse is a display label, not a second stored relation.
+	// blocked_by edge is a display inverse of a stored blocks edge, not a stored
+	// relation. It carries the inverse label the relation vocabulary declares for
+	// blocks, so it cannot be mistaken for the stored depends_on kind.
 	erows, err := tx.QueryContext(ctx, `SELECT r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE r.kind IN ('parent','includes','blocks','supersedes','implements') AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_from AND pp.product_id=?) AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_to AND pp.product_id=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 201`, req.Product, req.Product)
 	if err != nil {
 		return out, err
@@ -278,9 +280,10 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 			erows.Close()
 			return out, err
 		}
+		e.Depth = 1
 		out.Edges = append(out.Edges, e)
 		if e.Kind == "blocks" {
-			out.Edges = append(out.Edges, RelationEdge{Kind: "depends_on", Source: e.Target, Target: e.Source})
+			out.Edges = append(out.Edges, RelationEdge{Kind: "blocked_by", Source: e.Target, Target: e.Source, Depth: 1})
 		}
 	}
 	if err := erows.Close(); err != nil {
@@ -290,12 +293,12 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 		return out, err
 	}
 	if len(out.Edges) > 200 {
-		// A stored blocks edge expands to a display-only depends_on inverse, so
+		// A stored blocks edge expands to a display-only blocked_by inverse, so
 		// preserve the first 200 stored edges and their inverses as one unit.
 		trimmed := make([]RelationEdge, 0, 400)
 		stored := 0
 		for _, edge := range out.Edges {
-			if edge.Kind != "depends_on" {
+			if edge.Kind != "blocked_by" {
 				if stored == 200 {
 					break
 				}

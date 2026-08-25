@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/relation-vocabulary.schema.json",
+  "title": "Concord work relation vocabulary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "summary", "kinds"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "summary": {"type": "string", "minLength": 2, "maxLength": 1024},
+    "kinds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/relation_kind"}
+    }
+  },
+  "$defs": {
+    "term": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"},
+    "event_kind": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"},
+    "relation_kind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "summary", "inverse_label", "transitive", "link", "written_by"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/term"},
+        "summary": {"type": "string", "minLength": 2, "maxLength": 512},
+        "inverse_label": {
+          "oneOf": [{"$ref": "#/$defs/term"}, {"type": "null"}],
+          "description": "Query label that reads this kind with its endpoints inverted. Null when the kind has no distinct inverse reading."
+        },
+        "transitive": {
+          "type": "boolean",
+          "description": "Whether same-kind chaining is a sound reading of this relation. Only transitive kinds admit a read depth greater than 1."
+        },
+        "transitive_meaning": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 512,
+          "description": "Required when transitive is true. States what the closure asserts, so a derived edge has a declared meaning."
+        },
+        "link": {
+          "enum": ["allowed", "refused", "internal"],
+          "description": "allowed: an ordinary relate.link may create it. refused: a composite operation owns it, and link reports link_refusal. internal: no operator surface addresses it."
+        },
+        "link_refusal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message", "recovery"],
+          "properties": {
+            "message": {"type": "string", "minLength": 2, "maxLength": 512},
+            "recovery": {"type": "string", "minLength": 2, "maxLength": 512}
+          }
+        },
+        "written_by": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/event_kind"},
+          "description": "Every event kind whose fold creates this relation. The union across all kinds is the event population that assigns relation identity."
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"transitive": {"const": true}}},
+          "then": {"required": ["transitive_meaning"]}
+        },
+        {
+          "if": {"properties": {"link": {"const": "refused"}}},
+          "then": {"required": ["link_refusal"]},
+          "else": {"not": {"required": ["link_refusal"]}}
+        }
+      ]
+    }
+  }
+}

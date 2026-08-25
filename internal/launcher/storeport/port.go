@@ -171,7 +171,10 @@ func relationTree(edges []store.RelationEdge, depth int, authority string) launc
 	indegree := map[string]int{}
 	for _, edge := range raw {
 		nodes[edge.Source], nodes[edge.Target] = true, true
-		if edge.Kind != "depends_on" {
+		// blocked_by is the display inverse of a stored blocks edge. Counting both
+		// directions would forge a two-node cycle, so only the stored direction
+		// enters the canonical graph. Stored kinds all participate.
+		if edge.Kind != "blocked_by" {
 			canonical[edge.Source] = append(canonical[edge.Source], edge.Target)
 			indegree[edge.Target]++
 		}

@@ -1218,7 +1218,15 @@
         },
         {
           "kind": "go_test",
-          "value": "internal/store.TestQueryQ8DependsOnUsesInverseWithoutMirroredRow"
+          "value": "internal/store.TestQueryQ8InverseLabelReadsWithoutMirroredRow"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestQueryQ8DependsOnUsesForwardStoredKind"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestRelationSchemaKindsMatchVocabulary"
         }
       ],
       "id": "PM4",

@@ -2982,19 +2982,40 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
-    "relation_kind": {
+    "relation_link_kind": {
+      "description": "Stored relation kinds an ordinary relate.link request may name. Derived from contracts/relation-vocabulary.v1.json: every kind whose link is allowed or refused. A refused kind is admitted here so the runtime can answer with the composite operation that owns it, rather than a bare enum mismatch.",
       "enum": [
-        "parent",
-        "includes",
-        "included_by",
         "blocks",
-        "implements",
-        "supersedes",
-        "superseded_by",
-        "raised_from",
-        "depends_on",
         "compatible_with",
-        "merged_into"
+        "depends_on",
+        "implements",
+        "includes",
+        "merged_into",
+        "parent",
+        "raised_from",
+        "supersedes"
+      ],
+      "type": "string"
+    },
+    "relation_query_label": {
+      "description": "Labels the relation read surface serves. Derived from contracts/relation-vocabulary.v1.json: every kind's forward label, plus each declared inverse label.",
+      "enum": [
+        "blocked_by",
+        "blocks",
+        "child_of",
+        "compatible_with",
+        "depends_on",
+        "forward_link",
+        "implemented_by",
+        "implements",
+        "included_by",
+        "includes",
+        "merged_into",
+        "parent",
+        "raised",
+        "raised_from",
+        "superseded_by",
+        "supersedes"
       ],
       "type": "string"
     },
@@ -4868,7 +4889,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "kind": {
-          "$ref": "#/$defs/relation_kind"
+          "$ref": "#/$defs/relation_link_kind"
         },
         "reason": {
           "$ref": "#/$defs/short"
@@ -5290,11 +5311,17 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "additionalProperties": false,
             "properties": {
+              "depth": {
+                "description": "Hops from the requested work item. An edge at depth 1 is stored. An edge at a greater depth is derived by same-kind closure, which only a transitive kind admits.",
+                "maximum": 3,
+                "minimum": 1,
+                "type": "integer"
+              },
               "from": {
                 "$ref": "#/$defs/id"
               },
               "kind": {
-                "$ref": "#/$defs/relation_kind"
+                "$ref": "#/$defs/relation_query_label"
               },
               "to": {
                 "$ref": "#/$defs/id"
@@ -5303,7 +5330,8 @@ const GeneratedPayloadSchemaDocument = `{
             "required": [
               "from",
               "to",
-              "kind"
+              "kind",
+              "depth"
             ],
             "type": "object"
           },
@@ -5569,9 +5597,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "relation_kinds": {
           "items": {
-            "$ref": "#/$defs/relation_kind"
+            "$ref": "#/$defs/relation_query_label"
           },
-          "maxItems": 8,
+          "maxItems": 16,
           "type": "array",
           "uniqueItems": true
         },

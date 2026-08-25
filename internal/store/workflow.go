@@ -528,7 +528,7 @@ func workflowProjectionError(err error, message string) error {
 	if err == nil {
 		return nil
 	}
-	if isUniqueViolation(err) {
+	if isIdentityConflict(err) {
 		return newFailure(KindProjectionConflict, "fold_event", message, false, "append a new workflow version")
 	}
 	return wrapFailure(KindUnavailable, "fold_event", fmt.Sprintf("%s: %v", message, err), true, "retry once the database is writable", err)
@@ -1618,15 +1618,7 @@ func workflowEdgeWouldCycle(ctx context.Context, tx *sql.Tx, source, target, kin
 }
 
 func insertWorkflowForwardRelation(ctx context.Context, tx *sql.Tx, event Event, successor string) error {
-	var relationID int64
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE seq <= ? AND kind IN ('relation.added','work.superseded','work.reopened_from_superseded','initiative_entry.added','workflow.successor_linked')`, event.Seq).Scan(&relationID); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic forward-link identity", true, "retry once the event log is readable", err)
-	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at) VALUES(?,?,?,?,?)`, relationID, event.SubjectID, successor, "forward_link", event.OccurredAt.UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return workflowProjectionError(err, "cannot record forward-link relation")
-	}
-	return nil
+	return insertRelation(ctx, tx, event, relationPayload{From: event.SubjectID, To: successor, Kind: "forward_link"})
 }
 
 func WorkflowNoticeID(sourceWorkID string, sourceContractVersion int64, entityKind, entityRef, targetWorkID, severity string) string {

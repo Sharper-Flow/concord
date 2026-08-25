@@ -594,6 +594,10 @@
         {
           "kind": "validator",
           "value": "scripts/check-knowledge-index.py"
+        },
+        {
+          "kind": "generated",
+          "value": "internal/store/generated_agent_lanes.go#LaneRegistryManifestDigest"
         }
       ],
       "id": "CD-0043",

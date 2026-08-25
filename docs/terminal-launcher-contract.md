@@ -15,6 +15,26 @@ runtime work remains outstanding and no floor satisfaction is inferred here.
 This document is the accepted C18 launcher contract. CD-0014 records the rendering
 spike, exact dependency inventory, evidence gate, and Product-only query scope.
 
+## Context
+
+The launcher is the operator's single entry surface. The binding inputs are the
+C14 Product-row contract, the C17 coordination view, CD-0014 for rendering, and
+the accepted priorities. This record decides the container the operator
+actually runs: the three-screen model, ambient Product context, the interaction
+model, the action surface, the refresh model, rendering constraints, the read
+path and its bounds, failure and first-run behavior, and the accepted Bubble
+Tea dependency.
+
+## Contract
+
+The binding contract is sections 1 through 13: the gap and the launcher's job,
+the screen model, ambient Product context, the interaction model, the action
+surface, the refresh model, rendering constraints, the read path and bounds,
+failure and first-run behavior, the implementation boundary, the
+anti-requirements, and the acceptance tests. Section 14 records resolved
+operator questions; sections 15 through 18 record sequencing, risks,
+falsifiers, and sources, and carry no obligation.
+
 ## 1. The gap
 
 [`priorities.md`](./priorities.md) makes the Product-first terminal launcher the
@@ -679,3 +699,52 @@ This accepted contract should be reopened when:
   (<https://github.com/gdamore/tcell>, <https://github.com/rivo/tview/issues/1145>);
   `charmbracelet/bubbletea` v2 publishes a component set covering tables, viewports,
   lists, help, and key maps (<https://github.com/charmbracelet/bubbletea>).
+
+## Acceptance criteria
+
+- Given a launcher session that enters S1, moves, scrolls, edits, pastes, and
+  clears a filter, opens help, refreshes, selects, goes back, and quits
+  When the session ends
+  Then reads occurred only on entry and explicit refresh, and the session
+  produced no durable effect.
+
+- Given portfolio rows active, quiet, duplicate-a, and duplicate-b
+  When the launcher projects the portfolio
+  Then the rows resolve to the five C14 groups with a stable suffix
+  distinguishing the duplicates.
+
+- Given rows approval-required, active-problem, blocked, in-progress, and ready
+  When the launcher orders focus
+  Then approval-required wins and the remaining order is deterministic by
+  priority, then time, then id.
+
+- Given degraded, unreachable, and stale-blocked coverage states
+  When the portfolio renders those sections
+  Then unavailable counts are never presented as zero and focus absence
+  carries its typed reason.
+
+- Given a first run with no authority database
+  When the operator opens the launcher
+  Then the launcher renders its typed first-run state and creates no authority.
+
+## Verification
+
+The corpus `scenarios/launcher-portfolio.v1.json` encodes all five criteria as
+declared cases bound to C14, C18, and CD-0014. No harness executes the
+launcher corpus yet, so each criterion carries a typed exemption in the record
+rather than a scenario binding.
+
+- Criterion 1 is proved by `TestModelReadsOnlyOnEntrySubmitAndRefresh`
+  (`internal/launcher/model_test.go`) and
+  `TestLauncherSessionHasNoDurableEffects` (`cmd/concord/main_test.go`).
+- Criterion 2 is proved by `TestProjectionIsDeterministicAndCarriesC14Meaning`
+  (`internal/launcher/model_test.go`).
+- Criterion 3 is proved by `TestProjectionIsDeterministicAndCarriesC14Meaning`
+  (`internal/launcher/model_test.go`).
+- Criterion 4 is proved by
+  `TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection`
+  (`internal/launcher/storeport/port_test.go`).
+- Criterion 5 is proved by
+  `TestLauncherFirstRunRendersWithoutCreatingAuthority`
+  (`cmd/concord/main_test.go`). Section 17 records the falsifiers for each
+  guarantee.

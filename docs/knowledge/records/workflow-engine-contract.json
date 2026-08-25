@@ -1,5 +1,31 @@
 {
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "WF02-planning-requires-outcome"
+    },
+    {
+      "criterion": 2,
+      "scenario": "WF04-weaker-delivery"
+    },
+    {
+      "criterion": 3,
+      "scenario": "WF13-verdict-actor-distinctness"
+    },
+    {
+      "criterion": 4,
+      "scenario": "WF37-action-availability-before-register"
+    },
+    {
+      "criterion": 5,
+      "scenario": "WF19-completion-one-transaction"
+    }
+  ],
   "date": "2026-08-08T00:00:00Z",
+  "evidence": [
+    "scenarios/workflow-engine.v1.json",
+    "internal/store/workflow_conformance_test.go"
+  ],
   "home_domain_id": "workflow-engine",
   "id": "workflow-engine-contract",
   "kind": "spec",
@@ -11,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b381273d829d4d69a0e85554d0a838ddd90e8b2ba6f4fd0baa0652d2c1e81b90",
+  "sha256": "sha256:dcf679a87e3a78ec314ddaa20df053238639ed09b8db59adc994baf8f0a6c95b",
   "status": "accepted",
   "summary": "Defines the machine-readable workflow engine implementation contract.",
   "tags": [

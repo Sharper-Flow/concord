@@ -3381,12 +3381,37 @@
       "title": "storage spine slice"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "exemption": "The corpus case launcher-session (scenarios/launcher-portfolio.v1.json) encodes these expectations through only_entry_and_refresh_read and no_durable_effects, but no harness executes the launcher corpus yet. The guarantee is proved by TestModelReadsOnlyOnEntrySubmitAndRefresh (internal/launcher/model_test.go) and TestLauncherSessionHasNoDurableEffects (cmd/concord/main_test.go)."
+        },
+        {
+          "criterion": 2,
+          "exemption": "The corpus case active-quiet-duplicate encodes five_c14_groups and stable_name_suffix, but no harness executes the launcher corpus yet. The guarantee is proved by TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+        },
+        {
+          "criterion": 3,
+          "exemption": "The corpus case focus-priority encodes approval_required_wins and deterministic ordering, but no harness executes the launcher corpus yet. The guarantee is proved by TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+        },
+        {
+          "criterion": 4,
+          "exemption": "The corpus case coverage-states encodes unavailable_counts_are_not_zero and typed_focus_absence, but no harness executes the launcher corpus yet. The guarantee is proved by TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection (internal/launcher/storeport/port_test.go)."
+        },
+        {
+          "criterion": 5,
+          "exemption": "The corpus case first-run encodes typed_first_run and filesystem_unchanged, but no harness executes the launcher corpus yet. The guarantee is proved by TestLauncherFirstRunRendersWithoutCreatingAuthority (cmd/concord/main_test.go)."
+        }
+      ],
       "date": "2026-08-07T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0014-terminal-launcher-rendering.md",
         "internal/launcher/model.go",
         "internal/launcher/render/bubbletea/model_test.go",
-        "internal/launcher/storeport/domain_evidence_test.go"
+        "internal/launcher/storeport/domain_evidence_test.go",
+        "scenarios/launcher-portfolio.v1.json",
+        "cmd/concord/main_test.go",
+        "internal/launcher/model_test.go"
       ],
       "home_domain_id": "operator-surface",
       "id": "terminal-launcher-contract",
@@ -3399,7 +3424,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bb6516643d910fc6ddf4dfdaf9dd7e7ed6485266390cd8c8ebbc9c6e368c47b4",
+      "sha256": "sha256:b4e3de50ae656567bfcecbee4328a5a4d226a4be04150e35b08ef7bc14ab8edf",
       "status": "accepted",
       "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
       "tags": [
@@ -3434,7 +3459,33 @@
       "title": "vertical integration"
     },
     {
+      "criterion_bindings": [
+        {
+          "criterion": 1,
+          "scenario": "WF02-planning-requires-outcome"
+        },
+        {
+          "criterion": 2,
+          "scenario": "WF04-weaker-delivery"
+        },
+        {
+          "criterion": 3,
+          "scenario": "WF13-verdict-actor-distinctness"
+        },
+        {
+          "criterion": 4,
+          "scenario": "WF37-action-availability-before-register"
+        },
+        {
+          "criterion": 5,
+          "scenario": "WF19-completion-one-transaction"
+        }
+      ],
       "date": "2026-08-08T00:00:00Z",
+      "evidence": [
+        "scenarios/workflow-engine.v1.json",
+        "internal/store/workflow_conformance_test.go"
+      ],
       "home_domain_id": "workflow-engine",
       "id": "workflow-engine-contract",
       "kind": "spec",
@@ -3446,7 +3497,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:b381273d829d4d69a0e85554d0a838ddd90e8b2ba6f4fd0baa0652d2c1e81b90",
+      "sha256": "sha256:dcf679a87e3a78ec314ddaa20df053238639ed09b8db59adc994baf8f0a6c95b",
       "status": "accepted",
       "summary": "Defines the machine-readable workflow engine implementation contract.",
       "tags": [

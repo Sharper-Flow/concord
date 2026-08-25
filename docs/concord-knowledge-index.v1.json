@@ -163,11 +163,6 @@
   ],
   "dispositions": [
     {
-      "path": "docs/pane-title-ownership-note.md",
-      "disposition": "archived",
-      "reason": "The note records observations from building the zlauncher and Advance pane-title surfaces, and it states in its own body that it carries no requirements. Its durable content is a set of constraints on a launcher surface Concord has not yet built: the title-writer precedence chain, the projection fields a title needs, and the terminal capability limits. Those constraints bind whichever change implements the CD-0014 launcher title surface, and they belong in that change's spec and its acceptance criteria, where they can be tested. Registering the note as reference would create a second, untestable statement of the same constraints beside the spec that will own them, and registering it as law would grant accepted authority to observations drawn from a predecessor product rather than from an accepted Concord decision."
-    },
-    {
       "path": "docs/compaction-design.md",
       "disposition": "archived",
       "reason": "Design-history source material for compaction. The binding compaction and retention law is the accepted PM7 record (compaction-retention-policy.md), which superseded this design's proposals during acceptance; PM7's Related section carries the lineage. Registering the design as law would create a second statement of policy beside the accepted record, and registering it as reference would imply current operational content it no longer carries."
@@ -3042,7 +3037,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:0d3176241d6eadb1c847f336b659d4c0a8ecc24110e711693757083734a142f8",
+      "sha256": "sha256:eb464e017c649ab5862288747cd0881aad804f23bcbfa98d3425f2c6c873b9ac",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [

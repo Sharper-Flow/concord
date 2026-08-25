@@ -854,7 +854,7 @@ func mutationEnvelope(grant Grant, scopeVersion string) CallEnvelope {
 }
 
 func signedHostApproval(privateKey ed25519.PrivateKey, challenge, digest string, scope, versions map[string]any, session, agent, worktree string, issued time.Time, nonce string) *HostApprovalAssertion {
-	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, IssuedAt: issued.Format(time.RFC3339Nano), Nonce: nonce, OperatorPrincipalRef: "human-1", OperatorAgentRef: "operator:" + agent, OperatorSessionRef: "operator:" + session}
+	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, IssuedAt: issued.Format(time.RFC3339Nano), Nonce: nonce}
 	assertion.Signature = ed25519.Sign(privateKey, CanonicalHostApprovalAssertion(*assertion))
 	return assertion
 }

@@ -165,18 +165,6 @@ re-litigate them silently.
   until replacement readiness. TS tracks govern later release
   completeness rather than reopening the accepted storage authority.
 
-### C3. Read-path language rule scope
-- **Status:** ✅ **Superseded (2026-08-02)** by R6 and
-  [`core-architecture.md`](./core-architecture.md). The Go-core direction is
-  adopted from day one; the read-path is Go, not cached TypeScript. The
-  question below is retained for historical context only.
-- **Question (historical):** Your "Go or Rust **if a rebuild**" — does that
-  apply to the *new* fast read-path (greenfield), or only to reworking
-  *existing* ADV components? (i.e., can the new read-path be cached-TS, or
-  must it be Go/Rust?)
-- **Resolution:** Go. The core language direction is settled in
-  [`core-architecture.md`](./core-architecture.md) §1.
-
 ---
 
 ## 🟠 High-value — shape the design

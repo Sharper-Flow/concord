@@ -1,0 +1,30 @@
+{
+  "date": "2026-08-25T00:00:00Z",
+  "evidence": [
+    "contracts/project-tooling.v1.schema.json",
+    ".concord/tooling.v1.json",
+    "scripts/check-project-tooling.py",
+    "scripts/test-project-tooling.py"
+  ],
+  "home_domain_id": "repository-verification",
+  "id": "CD-0075",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0075-tooling-inventory-excludes-selection-cadence.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:b1a4ff6d9968553e19d9985799532af610122e457599a5abf139c5537b8066a7",
+  "status": "accepted",
+  "summary": "D1 removes cadence from the project tooling schema, checker, tests, and dogfood manifest because routine and on_demand state when an agent should select a command and therefore cross CD-0043 D1's host-owned methodology boundary; the remaining fields describe identity, invocation, cost, and referenced repository files without a selection schedule; D2 replaces an optional jsonschema test, which CI could skip, with direct standard-library comparison of the checker's contract constants against the published schema; D3 changes accepted law by narrowly superseding CD-0074's cadence clauses while preserving its path-containment rules and probe-family exclusion.",
+  "tags": [
+    "tooling",
+    "manifest",
+    "methodology-boundary",
+    "schema-parity"
+  ],
+  "title": "A tooling inventory excludes command-selection cadence"
+}

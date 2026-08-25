@@ -24,7 +24,7 @@
     "tool": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "purpose", "invocation", "tier", "cadence"],
+      "required": ["id", "purpose", "invocation", "tier"],
       "properties": {
         "id": {
           "type": "string",
@@ -52,11 +52,6 @@
           "type": "string",
           "enum": ["fast", "standard", "slow"],
           "description": "Cost class. fast runs in seconds, standard in minutes, slow beyond that."
-        },
-        "cadence": {
-          "type": "string",
-          "enum": ["routine", "on_demand"],
-          "description": "Declared project intent: routine means part of normal verification cadence; on_demand means selected when needed. This field does not prove automation."
         },
         "cost_hint": {
           "type": "string",

@@ -21,6 +21,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path(".concord/tooling.v1.json")
 MAX_FINDINGS = 100
+SCHEMA_VERSION = "1.0"
+MAX_TOOLS = 64
+PATH_MIN_LENGTH = 3
+PATH_MAX_LENGTH = 512
 
 ROOT_FIELDS = {"schema_version", "project", "tools"}
 TOOL_FIELDS = {
@@ -28,17 +32,23 @@ TOOL_FIELDS = {
     "purpose",
     "invocation",
     "tier",
-    "cadence",
     "cost_hint",
     "config_path",
     "automation_path",
     "notes",
 }
-REQUIRED_TOOL_FIELDS = {"id", "purpose", "invocation", "tier", "cadence"}
+REQUIRED_TOOL_FIELDS = {"id", "purpose", "invocation", "tier"}
 TIERS = {"fast", "standard", "slow"}
-CADENCES = {"routine", "on_demand"}
 IDENTIFIER_PATTERN = r"^(?!.*[\r\n])[a-z][a-z0-9-]{1,63}$"
 SAFE_PATH_PATTERN = r"^(?!/)(?!.*//)(?!\.{1,2}(?:/|$))(?!.*\/\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+NON_WHITESPACE_PATTERN = r"[^ \t\r\n]"
+SINGLE_LINE_PATTERN = r"^[^\u0000-\u001F\u007F]+$"
+TEXT_CONSTRAINTS = {
+    "purpose": (4, 256, False),
+    "invocation": (1, 512, True),
+    "cost_hint": (4, 128, True),
+    "notes": (4, 512, False),
+}
 JSON_WHITESPACE = {" ", "\t", "\r", "\n"}
 IDENTIFIER = re.compile(IDENTIFIER_PATTERN)
 SAFE_PATH = re.compile(SAFE_PATH_PATTERN)
@@ -83,8 +93,8 @@ def inside_repository(root: Path, target: Path) -> bool:
 
 
 def validate_file_path(root: Path, label: str, key: str, value: object, findings: list[str]) -> None:
-    if not isinstance(value, str) or not 3 <= len(value) <= 512 or not SAFE_PATH.fullmatch(value):
-        findings.append(f"{label}: {key} must be a safe repository-relative path of 3..512 characters")
+    if not isinstance(value, str) or not PATH_MIN_LENGTH <= len(value) <= PATH_MAX_LENGTH or not SAFE_PATH.fullmatch(value):
+        findings.append(f"{label}: {key} must be a safe repository-relative path of {PATH_MIN_LENGTH}..{PATH_MAX_LENGTH} characters")
         return
     try:
         resolved = (root / value).resolve(strict=True)
@@ -127,8 +137,8 @@ def check(*, root: Path = ROOT) -> list[str]:
         findings.append(f"{MANIFEST}: missing root field(s): {', '.join(sorted(missing_root))}")
         return findings
 
-    if document["schema_version"] != "1.0":
-        findings.append(f"{MANIFEST}: schema_version must be \"1.0\"")
+    if document["schema_version"] != SCHEMA_VERSION:
+        findings.append(f"{MANIFEST}: schema_version must be \"{SCHEMA_VERSION}\"")
     project = document["project"]
     if not isinstance(project, str) or not IDENTIFIER.fullmatch(project):
         findings.append(f"{MANIFEST}: project must match {IDENTIFIER.pattern}")
@@ -137,8 +147,8 @@ def check(*, root: Path = ROOT) -> list[str]:
     if not isinstance(tools, list) or not tools:
         findings.append(f"{MANIFEST}: tools must be a non-empty array")
         return findings
-    if len(tools) > 64:
-        findings.append(f"{MANIFEST}: tools must hold at most 64 entries")
+    if len(tools) > MAX_TOOLS:
+        findings.append(f"{MANIFEST}: tools must hold at most {MAX_TOOLS} entries")
 
     seen_ids: set[str] = set()
     for index, tool in enumerate(tools):
@@ -161,19 +171,12 @@ def check(*, root: Path = ROOT) -> list[str]:
             findings.append(f"{label}: duplicate tool id")
         else:
             seen_ids.add(tool["id"])
-        bounded_text(label, "purpose", tool["purpose"], 4, 256, findings)
-        bounded_text(label, "invocation", tool["invocation"], 1, 512, findings, single_line=True)
-        if "cost_hint" in tool:
-            bounded_text(label, "cost_hint", tool["cost_hint"], 4, 128, findings, single_line=True)
-        if "notes" in tool:
-            bounded_text(label, "notes", tool["notes"], 4, 512, findings)
+        for key, (minimum, maximum, single_line) in TEXT_CONSTRAINTS.items():
+            if key in tool:
+                bounded_text(label, key, tool[key], minimum, maximum, findings, single_line=single_line)
         tier = tool["tier"]
         if not isinstance(tier, str) or tier not in TIERS:
             findings.append(f"{label}: tier must be one of: {', '.join(sorted(TIERS))}")
-        cadence = tool["cadence"]
-        if not isinstance(cadence, str) or cadence not in CADENCES:
-            findings.append(f"{label}: cadence must be one of: {', '.join(sorted(CADENCES))}")
-
         for key in ("config_path", "automation_path"):
             if key in tool:
                 validate_file_path(root, label, key, tool[key], findings)

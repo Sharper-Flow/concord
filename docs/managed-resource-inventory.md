@@ -77,14 +77,14 @@ URL authority, etc.); `authority_id` identifies the account/installation/host; a
 optional `namespace` scopes non-global names. Examples: cloud resource ID, SaaS
 project/account ref, service-unit name, URL, or provider slug.
 
-- Concord ID—not locator—is the FK/membership key.
+- Concord ID—not locator—is the foreign key (FK) and membership key.
 - Uniqueness/resolution uses `(authority_kind, authority_id, namespace, kind,
   normalized value)`. A locator may omit namespace only when that authority/kind
   guarantees uniqueness within `authority_id`; no value is assumed globally unique.
 - Locator rename/move appends history without changing resource ID.
 - One resource may have several locators or none only with typed
   `planned|not_addressable` reason.
-- No credential, token, DSN secret, connection string, or provider response body.
+- No credential, token, data source name (DSN) secret, connection string, or provider response body.
 
 ### 2.3 Product links
 
@@ -267,7 +267,7 @@ Prove:
 
 - Credentials, secrets, private connection strings, tokens, provider payloads.
 - Live health/status mixed into inventory authority.
-- Cost/billing attribution, team assignments, on-call, SLA, or incident ownership.
+- Cost/billing attribution, team assignments, on-call, service level agreement (SLA), or incident ownership.
 - Product-specific copies of stage/lifecycle/replacement.
 - Multiple owners, ownerless resources, inferred owner from consumer order.
 - Generic tags as identity or authorization.

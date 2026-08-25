@@ -6,7 +6,7 @@
 > **Purpose:** What else is trying to do what Concord aims at, plus adjacent
 > tools worth learning from. Grounds Concord's differentiation and borrow-list.
 > **Method:** Three parallel sourced research passes (2026-07-25) — competitor
-> landscape, Clay/GTM, PostHog. Every material claim carries a source; items the
+> landscape, Clay go-to-market (GTM), PostHog. Every material claim carries a source; items the
 > researchers could not verify from vendor sources are flagged.
 > **Mechanism addendum:** [`research/R4-competitive-mechanism-hardening.md`](./research/R4-competitive-mechanism-hardening.md)
 > compares current agent/durable-execution mechanisms without adopting competitor

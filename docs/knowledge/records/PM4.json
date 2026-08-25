@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:01807bd13642c07f424e7b4c790df9dabfd05289430f8fe6a24793b962357238",
+  "sha256": "sha256:31d835675ebd3efad9f7cce568d1e36beaac451bf59f898d804080c8691b75da",
   "status": "accepted",
   "summary": "Defines the five-state work lifecycle, its closed transition table, and the typed relations derived from it.",
   "tags": [

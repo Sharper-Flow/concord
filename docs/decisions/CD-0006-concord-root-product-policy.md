@@ -160,7 +160,7 @@ Combine formula: `effective_rigor = floor ∪ max(maturity_obligation, audience_
 Global floor (all work): stated purpose + owner, at least one proof artifact,
 no silent weakening. Maturity bands: prototype (proof artifact), alpha
 (functional verification), beta (draft SLOs + graduation criteria), production
-(SLO + PRR + monitoring + rollback), deprecated (sunset date + migration path).
+(SLO + production readiness review (PRR) + monitoring + rollback), deprecated (sunset date + migration path).
 Audience bands: operator_only (minimal threat model), limited (opt-in terms +
 proportional review), public (full threat model + security review). Products may
 strengthen but never weaken the floor. Prototype/operator_only/limited are

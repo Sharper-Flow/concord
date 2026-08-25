@@ -224,7 +224,7 @@ and approval-bound consequence content.
   publication/external effect.
 
 Idempotency identity remains reconstructable for as long as the referenced domain
-event or durable operation remains authoritative. No short TTL may make a valid
+event or durable operation remains authoritative. No short time to live (TTL) may make a valid
 retry duplicate a durable effect.
 
 ## 8. Request identity and audit

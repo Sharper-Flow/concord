@@ -85,14 +85,14 @@ SQLite snapshot, and git clones; rebuilds every disposable projection; validates
 locators; and passes the PM1 query corpus with no hidden local state.
 
 Required fault tests: concurrent-writer backup; interrupted backup/restore; corrupted
-snapshot; FK-only violation; missing git object; projection-only corruption; schema
+snapshot; foreign key (FK) only violation; missing git object; projection-only corruption; schema
 version direction; compaction-prune recovery; safe temporary-file/projection GC; and
 proof that no screenshot/log/CAS/receipt is required.
 
 ## 6. Reopen criteria
 
 Reopen if the one-file snapshot cannot meet measured recovery objectives, clean-machine
-restore needs an omitted authority, required RPO/RTO needs continuous replication, or a
+restore needs an omitted authority, a required recovery point objective (RPO) or recovery time objective (RTO) needs continuous replication, or a
 safe deletion job needs retention/backup behavior this decision does not specify.
 Any replacement must name its recovery job, authority, failure mode, retention, and
 restore proof before introducing a daemon, remote store, or blob mechanism.

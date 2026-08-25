@@ -82,7 +82,7 @@ owner is nonterminal.
 ```text
 active_research_packs
 - pack_id
-- owner_work_id                 # FK to nonterminal work item
+- owner_work_id                 # foreign key (FK) to nonterminal work item
 - current_revision
 - freshness                    # current | stale | unknown
 - expected_version
@@ -149,7 +149,7 @@ Active research is an explicit exception to PM3's retained event-fold boundary:
 - pack tables are not Product-memory projections and are not rebuilt from the domain
   log;
 - every write goes through one pack-operation boundary with SQLite transaction,
-  expected version, idempotency identity, FK/enum validation, and postcondition
+  expected version, idempotency identity, foreign key (FK) and enum validation, and postcondition
   readback;
 - PM10 backup/restore includes active tables while they exist, but no special research
   retention or secure-erasure promise is introduced. Older backups age out under the

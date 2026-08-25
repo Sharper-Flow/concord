@@ -36,7 +36,7 @@ PM4/PM5/C15 semantics (now settled separately).
 | `work_items` | one canonical typed work projection; extensible `kind`; rare metadata JSON; CD-0041 amends CD-0009 so `initiative` and `research` are ordinary kinds | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; #196 directly establishes the Initiative runtime forms |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
 | Work↔Project membership | typed relational edge; no copied status | Q6 both directions | PM5: role-only, optional singular primary, derived Product scope |
-| `relations` | typed edge structure with real FK endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
+| `relations` | typed edge structure with real foreign key (FK) endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
 | `labels` / tagging | typed many-to-many categorical extension | Q3/Q9 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8/Q10 links | provider-specific validation |
 | Managed-resource identity | first-class typed canonical identity need for infra/SaaS resources because stage/sharing/replacement attach | Q1 ownership and Product context | C15 selects resource-first identity, one owner plus consumers, typed locators/work/replacement edges; exact subtype/index DDL remains implementation design |
@@ -72,7 +72,7 @@ design.
 
 The generic event header is not a domain-relation table. PM3 therefore requires
 referential integrity for typed domain edges, but does not choose a universal
-identity registry or a polymorphic-FK scheme merely to store an event subject.
+identity registry or a polymorphic foreign key (FK) scheme merely to store an event subject.
 The accepted append/fold contract must validate each subject reference; its exact
 storage representation remains implementation design.
 

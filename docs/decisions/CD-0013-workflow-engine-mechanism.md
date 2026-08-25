@@ -216,7 +216,7 @@ evidence is bound. For an architecture spike this is mandatory and specific: bot
 `accepted_decision` and `insufficient_evidence` require a bound, reviewer-validated,
 operator-accepted decision record carrying every field required by
 [`architecture-spike.md`](../architecture-spike.md) §3 — framed questions, options
-considered, decision, rationale, consequences, inputs, POC findings where one was
+considered, decision, rationale, consequences, inputs, proof of concept (POC) findings where one was
 built, and supersession position. `insufficient_evidence` additionally requires the
 recorded unknowns and what would be required to decide. An unaccepted record does
 not satisfy the predicate and does not unblock dependent Epic entries.

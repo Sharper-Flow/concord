@@ -386,7 +386,7 @@ every refresh, and a stale one is indistinguishable from a current one.
 
 CD-0041 assigns Domain replacement to a stateful, same-Product Domain relation.
 Product, Project, and workflow-type replacement still require their own typed
-homes; no polymorphic weak-FK relation is implied.
+homes; no polymorphic weak foreign key (FK) relation is implied.
 
 ### 10.5 Scope boundary
 
@@ -402,7 +402,7 @@ products, repos, or resources.
 
 ## 11. How the three compose
 
-Stage (§8.5), sharing (§9), and replacement (§10.3) compose into two cross-field rules — **effective rigor is the greatest across the touch set** (no field can lower the rigor owed to anything else) and **a replacement cannot be declared cutover-ready at lower maturity than the incumbent**. Each is binding; together they make the three fields one model.
+Stage (§8.5), sharing (§9), and replacement (§10.3) compose into two cross-field rules. First, **effective rigor is the greatest across the touch set**: no field can lower the rigor owed to anything else. Second, **a replacement cannot be declared cutover-ready at lower maturity than the incumbent**. Each rule is binding, and together they make the three fields one model.
 
 ---
 

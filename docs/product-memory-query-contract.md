@@ -252,7 +252,7 @@ The JSON corpus is executable through a candidate adapter implementing
   successor without duplicate authority.
 - **PM4 semantics:** relation kinds, inverse reads, acyclicity, and supersession
   uniqueness follow the accepted PM4 contract.
-- **PM7 semantics:** live relation rows remain FK-clean. A follow-up to pruned work
+- **PM7 semantics:** live relation rows remain foreign key (FK) clean. A follow-up to pruned work
   is a separate typed `archived_work_linked` result, not a PM4 live relation.
 
 ### Q9. Search durable Product knowledge

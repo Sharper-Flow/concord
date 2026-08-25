@@ -2291,6 +2291,36 @@
       "title": "A scenario override is honored by its binding or it is not in the corpus"
     },
     {
+      "date": "2026-08-25T00:00:00Z",
+      "evidence": [
+        "contracts/project-tooling.v1.schema.json",
+        ".concord/tooling.v1.json",
+        "scripts/check-project-tooling.py",
+        "scripts/test-project-tooling.py"
+      ],
+      "home_domain_id": "repository-verification",
+      "id": "CD-0074",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0074-project-tooling-declaration.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:3cfd3e2be8610e67c0436d655501bcbf2029698676b73a3bfec7c9febbe660b2",
+      "status": "accepted",
+      "summary": "D1 puts each project's ready tooling in one hand-authored manifest, .concord/tooling.v1.json, with required tier and independent cadence plus optional bounded cost_hint, config_path, automation_path, and notes; D2 aligns checker and schema text rules through raw string bounds and a required character outside JSON whitespace, validates shape without requiring adopters to vendor Concord's published schema, and proves that the manifest and referenced regular files remain inside the repository across symlinks; D3 holds the CD-0043 D1 boundary by carrying facts about tools and never methodology about when an agent should choose them; D4 performs file reads only so CD-0040 D6's probe-family limit holds and executing repository-named binaries stays unopened; D5 defines routine and on_demand as pure declared cadence intent, keeps automation_path informational, and rejects automation or CI text as cadence proof.",
+      "tags": [
+        "tooling",
+        "manifest",
+        "validation",
+        "agent-experience"
+      ],
+      "title": "A project declares its ready tooling as a validated manifest"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

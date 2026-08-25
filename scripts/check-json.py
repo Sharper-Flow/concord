@@ -99,6 +99,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"agent jobs drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    project_tooling_checker = ROOT / "scripts/check-project-tooling.py"
+    if project_tooling_checker.is_file():
+        checked = subprocess.run([sys.executable, str(project_tooling_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"project tooling drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     # Deliberately not guarded by is_file(). CD-0047 records which law is proved
     # by which check; a coverage validator that skips itself when absent would
     # let the whole record lapse silently, which is the failure it exists to

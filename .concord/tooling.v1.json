@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "project": "concord",
+  "tools": [
+    {
+      "id": "bin-oc-test",
+      "purpose": "Local verification throttle; routes smoke, full, and targeted test tiers.",
+      "invocation": "bin/oc-test full",
+      "tier": "slow",
+      "config_path": "bin/oc-test",
+      "in_ci": false,
+      "notes": "Sanctioned local entry for the Go suite; the full tier for this repository measures about 38 minutes under throttle."
+    },
+    {
+      "id": "go-test-race",
+      "purpose": "The Go test suite with the race detector, as required CI runs it.",
+      "invocation": "go test -race -timeout=20m ./...",
+      "tier": "slow",
+      "in_ci": true,
+      "ci_reference": "go test -race -timeout=20m ./..."
+    },
+    {
+      "id": "go-vet",
+      "purpose": "Standard Go static analysis over every package.",
+      "invocation": "go vet ./...",
+      "tier": "fast",
+      "in_ci": true,
+      "ci_reference": "go vet ./..."
+    },
+    {
+      "id": "gofmt",
+      "purpose": "Go source formatting check; empty output means formatted.",
+      "invocation": "gofmt -l .",
+      "tier": "fast",
+      "in_ci": true,
+      "ci_reference": "gofmt -l ."
+    },
+    {
+      "id": "govulncheck",
+      "purpose": "Go vulnerability scan against the pinned govulncheck version.",
+      "invocation": "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+      "tier": "standard",
+      "in_ci": true,
+      "ci_reference": "govulncheck@v1.6.0",
+      "notes": "The version pin is load-bearing; CI rejects an unpinned run."
+    },
+    {
+      "id": "repo-validators",
+      "purpose": "Repository contract drift checks; check-json.py chains the validator suite.",
+      "invocation": "python3 scripts/check-json.py",
+      "tier": "fast",
+      "in_ci": true,
+      "ci_reference": "python3 scripts/check-json.py",
+      "notes": "The AGENTS.md Where-to-look table maps each validator to the question it answers."
+    }
+  ]
+}

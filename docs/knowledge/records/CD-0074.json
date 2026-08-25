@@ -1,0 +1,30 @@
+{
+  "date": "2026-08-25T00:00:00Z",
+  "evidence": [
+    "contracts/project-tooling.v1.schema.json",
+    ".concord/tooling.v1.json",
+    "scripts/check-project-tooling.py",
+    "scripts/test-project-tooling.py"
+  ],
+  "home_domain_id": "repository-verification",
+  "id": "CD-0074",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0074-project-tooling-declaration.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:8c2f1d26471c26e4671023b93814fb0b103102528810753601a70013d138ec1b",
+  "status": "accepted",
+  "summary": "D1 puts each project's ready tooling in one hand-authored manifest, .concord/tooling.v1.json, whose intent fields (id, purpose, invocation, tier, notes) have no upstream source to drift from; D2 proves every derived claim at check time through scripts/check-project-tooling.py wired into check-json.py, where config_path must resolve, ci_reference must appear in a workflow file, in_ci false forbids ci_reference, and a missing manifest is a finding rather than a vacuous pass; D3 holds the CD-0043 D1 boundary by carrying facts about tools (what exists, how it is invoked) and never methodology (when an agent should choose it); D4 performs file reads only so CD-0040 D6's probe-family limit holds and executing repo-named binaries stays unopened; D5 keeps CI as one derived attribute rather than the authority, because CI enumerates only the always-on subset and the infrequent tools are the operator's stated case.",
+  "tags": [
+    "tooling",
+    "manifest",
+    "validation",
+    "agent-experience"
+  ],
+  "title": "A project declares its ready tooling as a validated manifest"
+}

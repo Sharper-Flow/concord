@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/project-tooling.v1.schema.json",
+  "title": "Concord project tooling declaration",
+  "description": "Shape of .concord/tooling.v1.json, the per-project record of which quality tools, scanners, and check commands are already set up. Intent fields (purpose, invocation, tier, notes) are hand-authored; resolution claims (config_path exists, ci_reference appears in a workflow) are proved by scripts/check-project-tooling.py, because JSON Schema cannot express them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project", "tools"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "project": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "description": "Kebab-case project identifier."
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/tool" }
+    }
+  },
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "purpose", "invocation", "tier", "in_ci"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "description": "Stable kebab-case identifier, unique within the manifest."
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 256,
+          "description": "What the tool checks or does, as one bounded sentence."
+        },
+        "invocation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "The command an agent runs. A fact about the tool, not guidance about when to run it."
+        },
+        "tier": {
+          "enum": ["fast", "standard", "slow"],
+          "description": "Cost class. fast runs in seconds, standard in minutes, slow beyond that."
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 512,
+          "description": "Repository-relative path of the tool's configuration or entry script. Proved to resolve by the checker; omit when the tool needs no repository config."
+        },
+        "in_ci": {
+          "type": "boolean",
+          "description": "Whether a required workflow already runs the tool. Separates checks that already ran from checks an agent must invoke itself."
+        },
+        "ci_reference": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 256,
+          "description": "Literal substring that must appear in a file under .github/workflows/. Required when in_ci is true, forbidden when false."
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 512,
+          "description": "Non-obvious constraints an agent needs before running the tool. Facts only."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "in_ci": { "const": true } }, "required": ["in_ci"] },
+          "then": { "required": ["ci_reference"] }
+        },
+        {
+          "if": { "properties": { "in_ci": { "const": false } }, "required": ["in_ci"] },
+          "then": { "not": { "required": ["ci_reference"] } }
+        }
+      ]
+    }
+  }
+}

@@ -1421,6 +1421,204 @@ def test_activation_sequence_requires_a_prior_committed_criterion() -> None:
 
 
 
+
+def test_url_path_segments_are_not_scanned_for_abbreviations() -> None:
+    """A URL is an address, not prose. Its path segments carry the remote
+    site's capitalization, so scanning one reports the host's spelling as the
+    author's defect. Both sides: the URL is silent, and the same token written
+    as prose on the same page still fires."""
+    root = sandbox()
+    body = """# Spec
+
+## Context
+
+See <https://cwiki.apache.org/confluence/display/KAFKA/KIP-161+handlers> for prior art.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/url-tokens.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="u")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    noisy = body.replace("for prior art.", "for prior art. The KIP process applies.")
+    write_spec(root, path, noisy)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ABBR=KIP" in stdout, stdout
+
+
+def test_markdown_link_text_is_still_scanned_but_target_is_not() -> None:
+    """Link text is prose the author wrote and stays in scope; the target is an
+    address and does not."""
+    root = sandbox()
+    body = """# Spec
+
+## Context
+
+Read [the handler guide](https://example.test/display/KAFKA/index.html) first.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/link-target.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="l")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    noisy = body.replace("[the handler guide]", "[the KAFKA guide]")
+    write_spec(root, path, noisy)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ABBR=KAFKA" in stdout, stdout
+
+
+def test_sentence_length_measures_a_sentence_not_a_line() -> None:
+    """The limit is per sentence. Two short sentences sharing one source line
+    are two sentences, and a paragraph that happens to be unwrapped is not one
+    long sentence. Both sides: the pair is silent, and a single sentence over
+    the limit on the same page still fires."""
+    root = sandbox()
+    pair = " ".join(["word"] * 30) + ". " + " ".join(["word"] * 30) + "."
+    body = f"""# Spec
+
+## Context
+
+{pair}
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/two-sentences.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="s")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    single = body.replace(pair, " ".join(["word"] * 60) + ".")
+    write_spec(root, path, single)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ste-sentence-length" in stdout and "(60 words)" in stdout, stdout
+
+
+def test_identifiers_and_references_count_as_one_word_each() -> None:
+    """ASD-STE100 rule 8.6 counts an identifier and a reference as one word.
+    Counting their internal characters measures the length of a filename, not
+    the length of the prose. Both sides: a sentence carrying many references is
+    silent, and the same sentence padded with real words still fires."""
+    root = sandbox()
+    refs = " ".join(
+        f"[`../product-memory-{n}-contract.md`](../product-memory-{n}-contract.md)"
+        for n in range(12)
+    )
+    body = f"""# Spec
+
+## Context
+
+This record is superseded in part by {refs} and nothing else.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/references.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="r")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    padded = body.replace("and nothing else.", "and " + " ".join(["word"] * 45) + ".")
+    write_spec(root, path, padded)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ste-sentence-length" in stdout, stdout
+
+
+def test_emphasis_words_and_proper_names_are_not_flagged() -> None:
+    """An English word capitalized as a step label has no expansion, and a name
+    is not an expandable phrase. Both sides: every excluded token is silent, and
+    an ordinary unexpanded abbreviation on the same page still fires."""
+    root = sandbox()
+    body = """# Spec
+
+## Context
+
+The flow is DETECT, then PAUSE, then PRESENT CHOICE, then RECORD. It cites NIST SHA-256 and OCI descriptors, and the RB #5 item.
+
+## Contract
+
+Body.
+
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    path = "docs/emphasis-tokens.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="e2")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 0, stdout
+
+    noisy = body.replace("and the RB #5 item.", "and the RB #5 item. A SPOF remains.")
+    write_spec(root, path, noisy)
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, stdout
+    assert "ABBR=SPOF" in stdout, stdout
+
+
 def main() -> int:
     tests = [
         value

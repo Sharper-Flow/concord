@@ -19,16 +19,16 @@
   "allowances": [
     {
       "function": "internal/agent.(runtime).mutate",
-      "measured": 388,
+      "measured": 386,
       "state": "outstanding",
       "issue": 406,
-      "reason": "868 lines across 29 dispatch arms, with 150 lines at indent depth 4 or deeper. Scores 2.1x its cyclomatic number, so the complexity is nesting inside the arms rather than the breadth of the switch. CD-0068 added two flat arms; the nesting that drives the score is unchanged."
+      "reason": "The dispatch remains outstanding under #406. Extracting shared work-kind refusal selection removed nested selection branches from the capture and revise arms and lowered the measured score from 388 to 386."
     },
     {
       "function": "internal/store.workflowSemanticActionEvents",
-      "measured": 192,
+      "measured": 183,
       "state": "unmeasured",
-      "reason": "Flat dispatch over 15 action kinds: 345 lines with only 4% past indent depth 3. The breadth is the action vocabulary itself, so splitting it would move arms rather than remove branching. No decision has assessed whether the vocabulary should be narrowed. Score moved 193 to 192 under the #400 collapse, which removed a version-keyed branch."
+      "reason": "The dispatch remains a flat action vocabulary. Extracting pinned successor-family lookup and composition validation lowered the measured score from 192 to 183 without moving an action arm."
     },
     {
       "function": "internal/agent.(runtime).read",

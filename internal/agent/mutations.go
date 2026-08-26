@@ -861,6 +861,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	return result, nil
 }
 
+func workKindMutationRefusal(kind string, allowed bool, fallback string) (string, bool) {
+	if allowed {
+		return "", false
+	}
+	message, _, ok := store.WorkKindRefusalFor(kind)
+	if ok {
+		return message, true
+	}
+	return fallback, true
+}
+
 func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
@@ -887,11 +898,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		if !store.WorkKindAgentCaptureAllowed(in.Kind) {
-			message, _, ok := store.WorkKindRefusalFor(in.Kind)
-			if !ok {
-				message = "work kind is not capturable"
-			}
+		if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindAgentCaptureAllowed(in.Kind), "work kind is not capturable"); refused {
 			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
 		}
 		if len(in.ProjectIDs) == 0 {
@@ -983,11 +990,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		if !store.WorkKindFoldReviseAllowed(in.Kind) {
-			message, _, ok := store.WorkKindRefusalFor(in.Kind)
-			if !ok {
-				message = "work kind cannot be revised"
-			}
+		if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindFoldReviseAllowed(in.Kind), "work kind cannot be revised"); refused {
 			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
 		}
 		versions["work"] = in.ExpectedVersion

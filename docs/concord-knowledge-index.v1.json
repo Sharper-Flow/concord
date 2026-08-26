@@ -2471,6 +2471,35 @@
       "title": "Storage vocabularies have one machine-readable authority"
     },
     {
+      "date": "2026-08-26T00:00:00Z",
+      "evidence": [
+        "internal/launcher/host_boundary_test.go",
+        "internal/launcher/render/bubbletea/model.go",
+        "internal/launcher/render/bubbletea/model_test.go"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "CD-0078",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0078-terminal-placement-belongs-to-the-host.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:5aaed805b737cdf2a76eb88b71c898303ebfd62007ccd70d57438320b7568feb",
+      "status": "accepted",
+      "summary": "Terminal placement belongs to the host. No Concord component creates, names, or focuses a multiplexer tab or pane. Launch suspends the launcher in the terminal it was given and restores it when the session exits. Launch is one action; attach is display text, and no session identifier is forwarded because CD-0031 derives continuity from the canonical projection.",
+      "tags": [
+        "launcher",
+        "operator-surface",
+        "session",
+        "boundary"
+      ],
+      "title": "Terminal placement belongs to the host"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

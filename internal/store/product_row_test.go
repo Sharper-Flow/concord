@@ -60,7 +60,7 @@ func seedProductRowFixture(t *testing.T, s *Store) {
 		INSERT INTO product_projects(product_id,project_id,role) VALUES ('product-row','project-row','primary');
 		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES
 		('approval-work','task','Approve contract','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z',NULL),
-		('problem-work','problem','Fix problem','in_progress',2,1,'2026-08-02T00:00:00Z','2026-08-02T00:00:00Z',NULL),
+		('problem-work','bug','Fix problem','in_progress',2,1,'2026-08-02T00:00:00Z','2026-08-02T00:00:00Z',NULL),
 		('blocked-work','task','Blocked task','needed',3,1,'2026-08-03T00:00:00Z','2026-08-03T00:00:00Z',NULL),
 		('ready-work','task','Ready task','needed',4,1,'2026-08-04T00:00:00Z','2026-08-04T00:00:00Z',NULL),
 		('blocker-work','task','Blocker','in_progress',5,1,'2026-08-05T00:00:00Z','2026-08-05T00:00:00Z',NULL);
@@ -193,7 +193,7 @@ func TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier(t *testing.T)
 		INSERT INTO product_projects(product_id,project_id,role) VALUES ('tiers','tiers-project','primary');
 		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES
 		('tier-approval','task','Approval','needed',99,1,?,?,NULL),
-		('tier-problem','problem','Problem','in_progress',98,1,?,?,NULL),
+		('tier-problem','bug','Problem','in_progress',98,1,?,?,NULL),
 		('tier-blocked','task','Blocked','needed',97,1,?,?,NULL),
 		('tier-progress','task','Progress','in_progress',96,1,?,?,NULL),
 		('tier-ready','task','Ready','needed',95,1,?,?,NULL),
@@ -401,7 +401,7 @@ func seedProductRowPerformanceFixture(t *testing.T, s *Store) {
 			terminal := "NULL"
 			switch work {
 			case 1:
-				kind, lifecycle = "problem", "in_progress"
+				kind, lifecycle = "bug", "in_progress"
 			case 4:
 				lifecycle, terminal = "completed", "'2026-08-05T00:00:00Z'"
 			case 5:

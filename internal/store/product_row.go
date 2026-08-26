@@ -216,7 +216,7 @@ WITH page_products AS (
 			  AND r.kind = 'blocks'
 			  AND blocker.lifecycle IN ('needed', 'in_progress')
 		)) AS ready,
-		(w.kind = 'problem' AND w.lifecycle IN ('needed', 'in_progress')) AS active_problem,
+		(w.kind = 'bug' AND w.lifecycle IN ('needed', 'in_progress')) AS active_problem,
 		(w.lifecycle IN ('needed', 'in_progress') AND EXISTS (
 			SELECT 1
 			FROM workflow_external_conditions c

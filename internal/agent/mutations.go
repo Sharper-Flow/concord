@@ -861,6 +861,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	return result, nil
 }
 
+func workKindMutationRefusal(kind string, allowed bool, fallback string) (string, bool) {
+	if allowed {
+		return "", false
+	}
+	message, _, ok := store.WorkKindRefusalFor(kind)
+	if ok {
+		return message, true
+	}
+	return fallback, true
+}
+
 func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
@@ -887,8 +898,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		if in.Kind == "epic" || in.Kind == "initiative" {
-			return coreError(base, "invalid_input", "capture cannot create Initiative work; use concord_work_initiative.create", "use_initiative_operation", false), nil
+		if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindAgentCaptureAllowed(in.Kind), "work kind is not capturable"); refused {
+			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
 		}
 		if len(in.ProjectIDs) == 0 {
 			return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil
@@ -979,8 +990,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		if in.Kind == "epic" || in.Kind == "initiative" {
-			return coreError(base, "invalid_input", "revise_intent cannot create Initiative work; use the dedicated Initiative operation", "use_initiative_operation", false), nil
+		if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindFoldReviseAllowed(in.Kind), "work kind cannot be revised"); refused {
+			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
 		}
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}

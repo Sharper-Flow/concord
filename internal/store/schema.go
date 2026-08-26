@@ -2525,6 +2525,106 @@ BEGIN
 END;
 		`,
 	},
+	{
+		Version: 49,
+		Name:    "work_kind_and_native_run_vocabularies",
+		SQL: `
+CREATE TABLE work_kinds (
+    kind         TEXT PRIMARY KEY,
+    stored       INTEGER NOT NULL CHECK(stored IN (0,1)),
+    fold_create  INTEGER NOT NULL CHECK(fold_create IN (0,1)),
+    fold_revise  INTEGER NOT NULL CHECK(fold_revise IN (0,1)),
+    agent_capture INTEGER NOT NULL CHECK(agent_capture IN (0,1))
+);
+INSERT INTO work_kinds(kind,stored,fold_create,fold_revise,agent_capture) VALUES ('bug',1,1,1,1);
+INSERT INTO work_kinds(kind,stored,fold_create,fold_revise,agent_capture) VALUES ('decision',1,1,1,1);
+INSERT INTO work_kinds(kind,stored,fold_create,fold_revise,agent_capture) VALUES ('epic',0,0,0,0);
+INSERT INTO work_kinds(kind,stored,fold_create,fold_revise,agent_capture) VALUES ('initiative',1,1,0,0);
+INSERT INTO work_kinds(kind,stored,fold_create,fold_revise,agent_capture) VALUES ('other',1,1,1,1);
+INSERT INTO work_kinds(kind,stored,fold_create,fold_revise,agent_capture) VALUES ('research',1,1,1,1);
+INSERT INTO work_kinds(kind,stored,fold_create,fold_revise,agent_capture) VALUES ('task',1,1,1,1);
+
+CREATE TABLE workflow_native_run_statuses (
+    phase   TEXT NOT NULL,
+    status  TEXT NOT NULL,
+    failure INTEGER NOT NULL CHECK(failure IN (0,1)),
+    PRIMARY KEY(phase,status)
+);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('start','started',0);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('start','failed_to_start',1);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('health','healthy',0);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('health','degraded',0);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('health','failed',1);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('rollback','rolled_back',1);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('rollback','partially_rolled_back',1);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('rollback','rollback_failed',1);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('cleanup','cleaned',0);
+INSERT INTO workflow_native_run_statuses(phase,status,failure) VALUES ('cleanup','cleanup_failed',1);
+
+CREATE TRIGGER work_kinds_registry_no_insert
+BEFORE INSERT ON work_kinds FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_kinds registry is immutable');
+END;
+CREATE TRIGGER work_kinds_registry_no_update
+BEFORE UPDATE ON work_kinds FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_kinds registry is immutable');
+END;
+CREATE TRIGGER work_kinds_registry_no_delete
+BEFORE DELETE ON work_kinds FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_kinds registry is immutable');
+END;
+
+CREATE TRIGGER workflow_native_run_statuses_registry_no_insert
+BEFORE INSERT ON workflow_native_run_statuses FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'workflow_native_run_statuses registry is immutable');
+END;
+CREATE TRIGGER workflow_native_run_statuses_registry_no_update
+BEFORE UPDATE ON workflow_native_run_statuses FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'workflow_native_run_statuses registry is immutable');
+END;
+CREATE TRIGGER workflow_native_run_statuses_registry_no_delete
+BEFORE DELETE ON workflow_native_run_statuses FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'workflow_native_run_statuses registry is immutable');
+END;
+
+CREATE TRIGGER work_items_kind_registry_insert
+BEFORE INSERT ON work_items FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1)
+BEGIN
+    SELECT RAISE(ABORT, 'work_items kind is not a stored work kind');
+END;
+CREATE TRIGGER work_items_kind_registry_update
+BEFORE UPDATE OF kind ON work_items FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1)
+BEGIN
+    SELECT RAISE(ABORT, 'work_items kind is not a stored work kind');
+END;
+
+CREATE TRIGGER workflow_native_runs_status_registry_insert
+BEFORE INSERT ON workflow_native_runs FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM workflow_native_run_statuses WHERE phase=NEW.phase AND status=NEW.status)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow native run phase and status are not a declared pair');
+END;
+CREATE TRIGGER workflow_native_runs_status_registry_update
+BEFORE UPDATE OF phase,status ON workflow_native_runs FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM workflow_native_run_statuses WHERE phase=NEW.phase AND status=NEW.status)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow native run phase and status are not a declared pair');
+END;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE work_items SET kind=kind;
+UPDATE workflow_native_runs SET phase=phase,status=status;
+DELETE FROM fold_guard;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

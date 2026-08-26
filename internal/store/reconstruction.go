@@ -235,7 +235,7 @@ func insertScratchProject(ctx context.Context, tx *sql.Tx, id string) error {
 }
 
 func insertScratchWork(ctx context.Context, tx *sql.Tx, id string) error {
-	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_items (id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at) VALUES (?, 'reconstruction', ?, 'needed', 0, 'standard', 1, 'reconstruction', 'reconstruction')`, id, "reconstructed work "+id)
+	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_items (id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at) VALUES (?, 'task', ?, 'needed', 0, 'standard', 1, 'reconstruction', 'reconstruction')`, id, "reconstructed work "+id)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "reconstruct_subject", "cannot prepare a scoped work endpoint", true,
 			"retry once the temporary database is available", err)

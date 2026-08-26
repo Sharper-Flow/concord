@@ -616,19 +616,20 @@ func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing
 		{EventID: "architecture-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: "architecture-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
 		{EventID: "architecture-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "product", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "architecture-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "architecture_spike", "title": "Spike", "priority": 1})},
+		{EventID: "architecture-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
 		{EventID: "architecture-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "spike", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0, VersionRef(SubjectWorkItem, "spike"): 0}}); err != nil {
 		t.Fatal(err)
 	}
+	initializeCompositionWorkflow(t, s, "spike", "workflow.architecture_spike", WorkflowActor{PrincipalRef: "principal:architecture", ClientRef: "client:architecture", AgentRef: "agent:architecture", SessionRef: "session:architecture", ActorClass: ActorAgent})
 	pack := createSimplePack(t, s, "spike-research", "spike")
 	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("spike-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingConclusion, Statement: "research alone is not accepted decision proof", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
 		t.Fatal(err)
 	}
 	beforeEvents := countRows(t, s, "domain_events")
-	event, _ := operationEventForResearch("spike-complete", "work.transitioned", SubjectWorkItem, "spike", map[string]any{"from": "needed", "to": "completed", "reason": "research complete", "evidence_refs": []string{"research:f1"}, "expected_version": 2, "resulting_version": 3})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "spike"): 2}}); err == nil {
+	event, _ := operationEventForResearch("spike-complete", "work.transitioned", SubjectWorkItem, "spike", map[string]any{"from": "needed", "to": "completed", "reason": "research complete", "evidence_refs": []string{"research:f1"}, "expected_version": 4, "resulting_version": 5})
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "spike"): 4}}); err == nil {
 		t.Fatal("architecture_spike completed without accepted decision proof")
 	} else {
 		assertFailureKind(t, err, KindDecisionRecordRequired)

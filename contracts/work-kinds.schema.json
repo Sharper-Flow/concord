@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/work-kinds.schema.json",
+  "title": "Concord operator work-item kind vocabulary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "summary", "kinds"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "summary": {"type": "string", "minLength": 2, "maxLength": 2048},
+    "kinds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/work_kind"}
+    }
+  },
+  "$defs": {
+    "term": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"},
+    "policy": {"enum": ["allowed", "refused"]},
+    "work_kind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "summary", "stored", "fold_create", "fold_revise", "agent_capture"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/term"},
+        "summary": {"type": "string", "minLength": 2, "maxLength": 512},
+        "stored": {"type": "boolean"},
+        "fold_create": {"$ref": "#/$defs/policy"},
+        "fold_revise": {"$ref": "#/$defs/policy"},
+        "agent_capture": {"$ref": "#/$defs/policy"},
+        "refusal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message", "recovery"],
+          "properties": {
+            "message": {"type": "string", "minLength": 2, "maxLength": 512},
+            "recovery": {"type": "string", "minLength": 2, "maxLength": 512}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"fold_create": {"const": "refused"}}, "required": ["fold_create"]},
+          "then": {"required": ["refusal"]}
+        },
+        {
+          "if": {"properties": {"fold_revise": {"const": "refused"}}, "required": ["fold_revise"]},
+          "then": {"required": ["refusal"]}
+        },
+        {
+          "if": {"properties": {"agent_capture": {"const": "refused"}}, "required": ["agent_capture"]},
+          "then": {"required": ["refusal"]}
+        },
+        {
+          "if": {"properties": {"stored": {"const": false}}, "required": ["stored"]},
+          "then": {
+            "properties": {
+              "fold_create": {"const": "refused"},
+              "fold_revise": {"const": "refused"},
+              "agent_capture": {"const": "refused"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

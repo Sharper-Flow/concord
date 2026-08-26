@@ -234,7 +234,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF01-capture-late-outcome fixture",
               "priority": 1
             }
@@ -362,7 +362,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF02-planning-requires-outcome fixture",
               "priority": 1
             }
@@ -634,7 +634,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF03-vacuous-end-state fixture",
               "priority": 1
             }
@@ -913,7 +913,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF04-weaker-delivery fixture",
               "priority": 1
             }
@@ -1359,7 +1359,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF05-stronger-delivery fixture",
               "priority": 1
             }
@@ -1805,7 +1805,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF06-absence-removal fixture",
               "priority": 1
             }
@@ -2755,7 +2755,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF09-execution-write-outcome fixture",
               "priority": 1
             }
@@ -3079,9 +3079,45 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "break_fix",
+              "work_kind": "task",
               "title": "WF10 successor fixture",
               "priority": 1
+            }
+          },
+          {
+            "event_id": "wf10-forward-link-discovery-successor-actor",
+            "kind": "workflow.actor_recorded",
+            "work_id": "work-child",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "actor_class": "agent",
+              "work_id": "work-child",
+              "expected_version": 2,
+              "resulting_version": 3
+            }
+          },
+          {
+            "event_id": "wf10-forward-link-discovery-successor-definition",
+            "kind": "workflow.definition_selected",
+            "work_id": "work-child",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "ref": "workflow.break_fix",
+              "version": 1,
+              "digest": "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
+              "work_kind": "break_fix",
+              "work_id": "work-child",
+              "expected_version": 3,
+              "resulting_version": 4
             }
           },
           {
@@ -3318,7 +3354,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF11-end-state-supersession-audit fixture",
               "priority": 1
             }
@@ -3599,7 +3635,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF12-self-authored-check fixture",
               "priority": 1
             }
@@ -3922,7 +3958,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "WF13-same-actor fixture",
                   "priority": 1
                 }
@@ -4234,7 +4270,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "WF13-partial-tuple fixture",
                   "priority": 1
                 }
@@ -4546,7 +4582,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "WF13-empty-tuple fixture",
                   "priority": 1
                 }
@@ -4837,7 +4873,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF13-verdict-actor-distinctness fixture",
               "priority": 1
             }
@@ -4958,7 +4994,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF14-undeclared-route-convention fixture",
               "priority": 1
             }
@@ -5235,7 +5271,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF15-lowest-rigor-floor fixture",
               "priority": 1
             }
@@ -5891,7 +5927,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "architecture_spike",
+              "work_kind": "task",
               "title": "work-spike fixture",
               "priority": 1,
               "work_id": "work-spike"
@@ -6442,7 +6478,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "work-alpha fixture",
               "priority": 1,
               "work_id": "work-alpha"
@@ -6872,7 +6908,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "work-alpha fixture",
               "priority": 1,
               "work_id": "work-alpha"
@@ -7320,7 +7356,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "work-alpha fixture",
               "priority": 1,
               "work_id": "work-alpha"
@@ -7612,7 +7648,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "ops_runbook",
+              "work_kind": "task",
               "title": "work-ops fixture",
               "priority": 1,
               "work_id": "work-ops"
@@ -7848,7 +7884,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "ops_runbook",
+              "work_kind": "task",
               "title": "work-ops fixture",
               "priority": 1,
               "work_id": "work-ops"
@@ -8106,7 +8142,7 @@
               "occurred_at": "2026-08-09T00:00:00Z",
               "payload_version": 2,
               "payload": {
-                "work_kind": "ops_runbook",
+                "work_kind": "task",
                 "title": "WF22-checkpoint-resume fixture",
                 "priority": 1
               }
@@ -8208,7 +8244,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "work-alpha fixture",
               "priority": 1,
               "work_id": "work-alpha"
@@ -8474,7 +8510,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "ops_runbook",
+              "work_kind": "task",
               "title": "work-ops fixture",
               "priority": 1,
               "work_id": "work-ops"
@@ -8701,7 +8737,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "ops_runbook",
+              "work_kind": "task",
               "title": "work-ops fixture",
               "priority": 1,
               "work_id": "work-ops"
@@ -9047,7 +9083,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "ops_runbook",
+              "work_kind": "task",
               "title": "work-ops fixture",
               "priority": 1,
               "work_id": "work-ops"
@@ -9478,7 +9514,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "ops_runbook",
+              "work_kind": "task",
               "title": "work-ops fixture",
               "priority": 1,
               "work_id": "work-ops"
@@ -9821,7 +9857,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "ops_runbook",
+              "work_kind": "task",
               "title": "work-ops fixture",
               "priority": 1,
               "work_id": "work-ops"
@@ -10208,7 +10244,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "break_fix",
+              "work_kind": "task",
               "title": "work-child fixture",
               "priority": 1,
               "work_id": "work-child"
@@ -10350,7 +10386,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "work-alpha fixture",
               "priority": 1,
               "work_id": "work-alpha"
@@ -10858,7 +10894,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "break_fix",
+              "work_kind": "task",
               "title": "work-child fixture",
               "priority": 1,
               "work_id": "work-child"
@@ -10958,7 +10994,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "work-alpha fixture",
               "priority": 1,
               "work_id": "work-alpha"
@@ -11191,7 +11227,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "WF30-hard-breaking child",
                   "priority": 1,
                   "work_id": "work-child"
@@ -11375,7 +11411,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "work-alpha fixture",
                   "priority": 1,
                   "work_id": "work-alpha"
@@ -11744,7 +11780,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "WF30-soft-breaking child",
                   "priority": 1,
                   "work_id": "work-child"
@@ -11928,7 +11964,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "work-alpha fixture",
                   "priority": 1,
                   "work_id": "work-alpha"
@@ -12296,7 +12332,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "WF30-hard-non-breaking child",
                   "priority": 1,
                   "work_id": "work-child"
@@ -12480,7 +12516,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "work-alpha fixture",
                   "priority": 1,
                   "work_id": "work-alpha"
@@ -12840,7 +12876,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "break_fix",
+              "work_kind": "task",
               "title": "work-child fixture",
               "priority": 1,
               "work_id": "work-child"
@@ -12940,7 +12976,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "work-alpha fixture",
               "priority": 1,
               "work_id": "work-alpha"
@@ -13183,7 +13219,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "break_fix",
+                  "work_kind": "task",
                   "title": "work-child fixture",
                   "priority": 1,
                   "work_id": "work-child"
@@ -13325,7 +13361,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "work-alpha fixture",
                   "priority": 1,
                   "work_id": "work-alpha"
@@ -13631,7 +13667,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "break_fix",
+                  "work_kind": "task",
                   "title": "work-child fixture",
                   "priority": 1,
                   "work_id": "work-child"
@@ -13773,7 +13809,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "work-alpha fixture",
                   "priority": 1,
                   "work_id": "work-alpha"
@@ -14079,7 +14115,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "break_fix",
+                  "work_kind": "task",
                   "title": "work-child fixture",
                   "priority": 1,
                   "work_id": "work-child"
@@ -14190,7 +14226,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "work-alpha fixture",
                   "priority": 1,
                   "work_id": "work-alpha"
@@ -14496,7 +14532,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "break_fix",
+                  "work_kind": "task",
                   "title": "work-child fixture",
                   "priority": 1,
                   "work_id": "work-child"
@@ -14638,7 +14674,7 @@
                 "occurred_at": "2026-08-09T00:00:00Z",
                 "payload_version": 2,
                 "payload": {
-                  "work_kind": "implementation",
+                  "work_kind": "task",
                   "title": "work-alpha fixture",
                   "priority": 1,
                   "work_id": "work-alpha"
@@ -15012,7 +15048,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "break_fix",
+              "work_kind": "task",
               "title": "work-child fixture",
               "priority": 1,
               "work_id": "work-child"
@@ -15493,7 +15529,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "architecture_spike",
+              "work_kind": "task",
               "title": "WF33-forbid-nested-composition fixture",
               "priority": 1
             }
@@ -15506,7 +15542,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "architecture_spike",
+              "work_kind": "task",
               "title": "WF33 nested successor fixture",
               "priority": 1
             }
@@ -15603,7 +15639,7 @@
             "target": "state",
             "path": "successor.kind",
             "op": "eq",
-            "value": "static_analysis"
+            "value": "task"
           },
           {
             "target": "state",
@@ -15644,7 +15680,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "generic_one_off",
+              "work_kind": "task",
               "title": "WF34-generic-forward-any-family fixture",
               "priority": 1
             }
@@ -15657,9 +15693,45 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "static_analysis",
+              "work_kind": "task",
               "title": "WF34 generic successor fixture",
               "priority": 1
+            }
+          },
+          {
+            "event_id": "wf34-generic-forward-any-family-child-actor",
+            "kind": "workflow.actor_recorded",
+            "work_id": "work-child",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "principal_ref": "principal:operator",
+              "client_ref": "client:concord-1",
+              "agent_ref": "agent-engineer",
+              "session_ref": "session-executor",
+              "actor_class": "agent",
+              "work_id": "work-child",
+              "expected_version": 2,
+              "resulting_version": 3
+            }
+          },
+          {
+            "event_id": "wf34-generic-forward-any-family-child-definition",
+            "kind": "workflow.definition_selected",
+            "work_id": "work-child",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "ref": "workflow.static_analysis",
+              "version": 1,
+              "digest": "sha256:d0bc28751b65cb1ae5a0dc31e8db177a6ffe4480f39725fb16e467d88ef4c038",
+              "work_kind": "static_analysis",
+              "work_id": "work-child",
+              "expected_version": 3,
+              "resulting_version": 4
             }
           }
         ],
@@ -15730,7 +15802,7 @@
             "target": "state",
             "path": "successor.kind",
             "op": "eq",
-            "value": "static_analysis"
+            "value": "task"
           }
         ]
       }
@@ -15792,7 +15864,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF35-rebuild-byte-equal fixture",
               "priority": 1
             }
@@ -15835,7 +15907,7 @@
               "occurred_at": "2026-08-09T00:00:00Z",
               "payload_version": 2,
               "payload": {
-                "work_kind": "implementation",
+                "work_kind": "task",
                 "title": "WF35-rebuild-byte-equal fixture",
                 "priority": 1
               }
@@ -15936,7 +16008,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF36-point-in-time-reconstruction fixture",
               "priority": 1
             }
@@ -15979,7 +16051,7 @@
               "occurred_at": "2026-08-09T00:00:00Z",
               "payload_version": 2,
               "payload": {
-                "work_kind": "implementation",
+                "work_kind": "task",
                 "title": "WF36-point-in-time-reconstruction fixture",
                 "priority": 1
               }
@@ -16095,7 +16167,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF37-action-availability-before-register fixture",
               "priority": 1
             }
@@ -16228,7 +16300,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF38-action-payload-step-actor fixture",
               "priority": 1
             }
@@ -16361,7 +16433,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF39-action-error-envelope fixture",
               "priority": 1
             }
@@ -16494,7 +16566,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF40-staleness-block fixture",
               "priority": 1
             }
@@ -16665,7 +16737,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF41-staleness-warning-recorded fixture",
               "priority": 1
             }
@@ -17132,7 +17204,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF42-ten-worktrees-one-truth fixture",
               "priority": 1
             }
@@ -17258,7 +17330,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "break_fix",
+              "work_kind": "task",
               "title": "WF43-unreadable-possible-blocker fixture",
               "priority": 1
             }
@@ -17411,7 +17483,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF44-unrelated-unreadable fixture",
               "priority": 1
             }
@@ -17865,7 +17937,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF45-corruption-versus-poison fixture",
               "priority": 1
             }
@@ -17926,7 +17998,7 @@
               "occurred_at": "2026-08-09T00:00:00Z",
               "payload_version": 2,
               "payload": {
-                "work_kind": "implementation",
+                "work_kind": "task",
                 "title": "WF45-corruption-versus-poison fixture",
                 "priority": 1
               }
@@ -18035,7 +18107,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
             "payload": {
-              "kind": "implementation",
+              "kind": "task",
               "title": "WF46-event-version-fail-closed fixture",
               "priority": 1
             }
@@ -18085,7 +18157,7 @@
               "occurred_at": "2026-08-09T00:00:00Z",
               "payload_version": 1,
               "payload": {
-                "kind": "implementation",
+                "kind": "task",
                 "title": "WF46-event-version-fail-closed fixture",
                 "priority": 1
               }
@@ -18119,7 +18191,7 @@
               "occurred_at": "2026-08-09T00:00:01Z",
               "payload_version": 99,
               "payload": {
-                "work_kind": "implementation",
+                "work_kind": "task",
                 "title": "future event",
                 "priority": 1
               }
@@ -18221,7 +18293,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF47-evidence-commit-binding fixture",
               "priority": 1
             }
@@ -18401,7 +18473,7 @@
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
-              "work_kind": "implementation",
+              "work_kind": "task",
               "title": "WF48 lane pipeline fixture",
               "priority": 1,
               "work_id": "work-alpha"

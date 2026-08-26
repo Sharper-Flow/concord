@@ -37,36 +37,6 @@ func nativeRunPolicyRefs() (string, string) {
 	return ref, ref
 }
 
-var nativeRunStatusVocab = map[string]map[string]bool{
-	"start":    {"started": true, "failed_to_start": true},
-	"health":   {"healthy": true, "degraded": true, "failed": true},
-	"rollback": {"rolled_back": true, "partially_rolled_back": true, "rollback_failed": true},
-	"cleanup":  {"cleaned": true, "cleanup_failed": true},
-}
-
-// nativeRunFailureStatuses are the report statuses under which the approved
-// logical operation did not complete successfully; the action outcome is
-// partial or failed, never ok (CD-0039 D8).
-// NativeRunStatusIsFailure is the exported classification the agent surface
-// uses to derive the partial outcome (CD-0039 D7/D8).
-func NativeRunStatusIsFailure(phase, status string) bool {
-	return nativeRunStatusIsFailure(phase, status)
-}
-
-func nativeRunStatusIsFailure(phase, status string) bool {
-	// Every rollback-phase report means the approved change was undone or its
-	// undo failed; either way the logical operation did not complete
-	// successfully (CD-0039 D7).
-	if phase == "rollback" {
-		return true
-	}
-	switch status {
-	case "failed_to_start", "failed", "cleanup_failed":
-		return true
-	}
-	return false
-}
-
 type nativeRunPayload struct {
 	WorkID                string `json:"work_id"`
 	RunID                 string `json:"run_id"`
@@ -104,7 +74,7 @@ func validateNativeRunShape(payload *nativeRunPayload) error {
 	if len(payload.EvidenceRef) < 1 || len(payload.EvidenceRef) > 2048 || len(payload.EvidenceDigest) < 1 || len(payload.EvidenceDigest) > 256 {
 		return newFailure(KindInvalidPayload, "validate_event", "native run evidence is not bounded", false, "supply the native authority's evidence reference and digest")
 	}
-	if !nativeRunStatusVocab[payload.Phase][payload.Status] {
+	if !NativeRunStatusAllowed(payload.Phase, payload.Status) {
 		return newFailure(KindInvalidPayload, "validate_event", "native run status is outside the phase vocabulary", false, "use the closed status vocabulary for the reported phase")
 	}
 	if payload.SubjectDigest == "" {

@@ -66,7 +66,6 @@ This accepted change retires the previous external-blob assumption across:
 - CD-0003's `blobs(...)` spine row;
 - PM2 backup/export wording that currently names CAS or an evidence manifest;
 - PM3's `artifacts / blobs` row;
-- compaction-design's §2d dependency and live-tier blob diagram;
 - PM1's external-blob budget exception; PM6/PM7 PM8 deferrals; the PM6 dependency
   cell; the PM8 and PM10 rows in both clarification tables; and the TS7 durable-ID/
   hash claim and PM8 dependency;
@@ -170,8 +169,8 @@ promise, or recovery value. It is observability noise, not product memory.
 
 ### Inline raw output in SQLite or git notes
 
-Rejected. It recreates the process-exhaust dump that CD-0002 and compaction design
-explicitly reject, increases authority/backup weight, and does not name a future-reader
+Rejected. It recreates the process-exhaust dump that CD-0002
+explicitly rejects, increases authority/backup weight, and does not name a future-reader
 benefit.
 
 ### Store caller-selected external file paths

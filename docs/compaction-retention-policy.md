@@ -2,9 +2,9 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** PM7; binding compaction-design/PM6 amendment.
+> **Decision:** PM7; binding PM6 amendment.
 > **Binding inputs:** PM1 Q2/Q3/Q7–Q10, CD-0002 I1–I6, PM4 lifecycle,
-> PM5 membership, PM6 canonical note/link proof, and compaction design.
+> PM5 membership, and PM6 canonical note/link proof.
 > **Operator choices:** pruned work IDs remain immutable; renewed need creates a new
 > linked work item. Pruning uses bounded lazy maintenance, not a fixed calendar sweep.
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
@@ -22,8 +22,8 @@
 
 Compaction linkage makes terminal work eligible to leave live typed
 projections. The binding inputs are PM1 Q2/Q3/Q7 through Q10, CD-0002
-invariants, PM4 lifecycle, PM5 membership, PM6 note and link proof, and the
-compaction design. This record fixes the retention split: what stays
+invariants, PM4 lifecycle, PM5 membership, and PM6 note and link proof.
+This record fixes the retention split: what stays
 authoritative after pruning, the minimum git-rebuildable historical
 projection, query behavior across live and historical tiers, and the reopen
 boundary. CD-0066 defers the pruning mechanism itself with live projections

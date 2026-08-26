@@ -2,9 +2,9 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
-> **Decision:** PM6; binding compaction-design amendment.
+> **Decision:** PM6; binding CD-0002 §2c/§2d specification.
 > **Binding inputs:** PM1 Q9/Q10, PM2 git durable-knowledge authority, PM5
-> membership/optional-primary semantics, CD-0002 I1–I6, and compaction design.
+> membership/optional-primary semantics, and CD-0002 I1–I6.
 > **Operator choice:** when no deterministic git home exists, compaction blocks with
 > typed `ambiguous`; Concord does not add a global fallback knowledge repository.
 > **Research basis:** public predecessor lessons plus Fowler ADR guidance,
@@ -104,7 +104,7 @@ docs/decisions/CD-NNNN-{slug}.md
 ```
 
 The work note includes machine-readable identity metadata plus the concise human
-template from compaction design:
+template:
 
 ```yaml
 ---
@@ -178,7 +178,6 @@ monotonic publish protocol rather than pretending cross-store atomicity:
 6. Accepted PM7 may later prune only verified eligible projections through a bounded
    lazy operation; it retains `domain_events` and the git-rebuildable historical index.
 
-Step 6 supersedes compaction-design §6's former immediate live-projection pruning.
 PM6 proves durable linkage; accepted PM7 owns the bounded lazy pruning transition.
 
 Failure before step 3 leaves only a draft. Failure after git commit but before step 5
@@ -331,7 +330,7 @@ Reopen PM6 if:
 - Git notes: https://git-scm.com/docs/git-notes
 - Git hash transition/content addressing: https://git-scm.com/docs/hash-function-transition
 
-External sources are comparison evidence. PM1, PM2, PM5, CD-0002, compaction design,
+External sources are comparison evidence. PM1, PM2, PM5, CD-0002,
 operator choice, and the falsifiers above remain controlling.
 
 ## Acceptance criteria

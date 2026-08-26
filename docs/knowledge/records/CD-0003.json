@@ -11,7 +11,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9cb7d22ddb1406b50d5b619245f645452934f61fdf9d12de7162979f66aec1f5",
+  "sha256": "sha256:480aaae04a49f9fc8b79ddfbe88024be335dd91300ec0dc616db8c18a2ada37b",
   "status": "accepted",
   "summary": "Defines the initial storage layer shape and boundaries.",
   "tags": [

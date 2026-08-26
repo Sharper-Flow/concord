@@ -2,7 +2,7 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** PM9; binding compaction-design/CD-0002 amendment.
+> **Decision:** PM9; binding CD-0002 amendment.
 > **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
 > PM6 publish proof, and PM7 retention.
 > **Does not decide:** PM10 backup/restore, C14/C15, TS1–TS9, external CI retention,
@@ -10,8 +10,8 @@
 
 ## Context
 
-Compaction design deferred a salvage-and-receipt handoff for process
-exhaust, and CD-0002 carried a process-exhaust rule that assumed one. The
+CD-0002 carried a process-exhaust rule that assumed a salvage-and-receipt
+handoff. The
 binding inputs are PM1 Q7/Q9/Q10, the accepted PM2 through PM8, PM6 publish
 proof, and PM7 retention. This record closes the deferral: the existing
 durable sequence — terminal events, the approved PM6 note, the verified
@@ -46,7 +46,7 @@ deletion of those bytes.
 
 This accepted change closes the receipt/salvage deferrals across:
 
-- CD-0002's process-exhaust rule and compaction-design's salvage/receipt handoff;
+- CD-0002's process-exhaust rule and its assumed salvage/receipt handoff;
 - PM6 and PM7 header/scope/Q7/retention-table PM9 pointers;
 - PM8's PM9 receipt-versus-durable-knowledge deferral;
 - README, storage-slice, lifecycle, and clarification PM9/PM10 status wording; and

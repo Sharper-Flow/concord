@@ -137,6 +137,47 @@ class CDAllocationTests(RepoFixture):
             checker.check(root=self.root, against="main", no_fetch=True), []
         )
 
+    def write_decision(self, name: str, heading: str) -> str:
+        decisions = self.root / "docs/decisions"
+        decisions.mkdir(parents=True, exist_ok=True)
+        (decisions / name).write_text(f"{heading}\n", encoding="utf-8")
+        return f"docs/decisions/{name}"
+
+    def test_heading_number_must_match_record_id(self) -> None:
+        path = self.write_decision("CD-0002-title.md", "# CD-0001: Wrong number")
+        self.write_manifest(["CD-0001", "CD-0002"], paths={"CD-0002": path})
+
+        findings = checker.check(root=self.root, against="main", no_fetch=True)
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("h1-mismatch", findings[0])
+        self.assertIn("heading names CD-0001", findings[0])
+        self.assertIn("manifest record id is CD-0002", findings[0])
+
+    def test_heading_without_a_cd_id_is_reported(self) -> None:
+        path = self.write_decision("CD-0002-title.md", "# A title with no record id")
+        self.write_manifest(["CD-0001", "CD-0002"], paths={"CD-0002": path})
+
+        findings = checker.check(root=self.root, against="main", no_fetch=True)
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("h1-mismatch", findings[0])
+        self.assertIn("does not name a CD record id", findings[0])
+
+    def test_matching_heading_and_unreadable_paths_pass(self) -> None:
+        path = self.write_decision("CD-0002-title.md", "# CD-0002 — Correct")
+        self.write_manifest(
+            ["CD-0001", "CD-0002", "CD-0003"],
+            paths={
+                "CD-0002": path,
+                "CD-0003": "docs/decisions/CD-0003-absent.md",
+            },
+        )
+
+        self.assertEqual(
+            checker.check(root=self.root, against="main", no_fetch=True), []
+        )
+
     def test_duplicate_json_keys_are_rejected(self) -> None:
         self.write_manifest(["CD-0001"])
         (self.root / "docs/concord-knowledge-index.v1.json").write_text(

@@ -25,6 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path("docs/concord-knowledge-index.v1.json")
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
+HEADING_CD_RE = re.compile(r"^#\s+(CD-[0-9]{4})\b")
 PEER_NAMESPACE = "refs/remotes/origin"
 
 
@@ -130,6 +131,35 @@ def cd_record_paths(data: dict[str, object]) -> dict[str, str]:
         if isinstance(identifier, str) and CD_ID_RE.fullmatch(identifier) and isinstance(path, str):
             paths.setdefault(identifier, path)
     return paths
+
+
+def heading_findings(root: Path, data: dict[str, object]) -> list[str]:
+    """Require each decision document's first heading to name its record id.
+
+    The manifest binds a CD id to a document path, and nothing compared the
+    two before: a document renumbered by filename alone kept a heading naming
+    another decision. The heading is where a reader lands first, so a mismatch
+    cites the wrong record. Unreadable paths stay with the knowledge-index
+    checker that owns path existence.
+    """
+    findings: list[str] = []
+    for identifier, path in sorted(cd_record_paths(data).items()):
+        try:
+            text = (root / path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        heading = next((line for line in text.splitlines() if line.startswith("#")), "")
+        match = HEADING_CD_RE.match(heading)
+        if match is None:
+            findings.append(
+                f"h1-mismatch: {path}: first heading does not name a CD record id"
+            )
+        elif match.group(1) != identifier:
+            findings.append(
+                f"h1-mismatch: {path}: heading names {match.group(1)}, "
+                f"manifest record id is {identifier}"
+            )
+    return findings
 
 
 def is_ancestor(root: Path, ref: str) -> bool:
@@ -265,6 +295,8 @@ def check(
     findings: list[str] = []
     tree = load_tree_manifest(root, findings)
     comparison = load_comparison_manifest(root, against, no_fetch, findings)
+    if tree is not None:
+        findings.extend(heading_findings(root, tree))
     if tree is None or comparison is None:
         return findings
 

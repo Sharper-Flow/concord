@@ -354,10 +354,12 @@ typed Product-memory projection shape. See
 [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md)
 and [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md).
 
-**Now closed by the compaction design (2026-08-05):** compaction trigger (at
+**Now closed by PM6, PM7, and PM9 (2026-08-05/06):** compaction trigger (at
 terminal transition), note template, generation pattern (agent-drafts +
 operator-approves), salvage rule, and the git-authority/SQLite-derived-index
-pattern. See [`../compaction-design.md`](../compaction-design.md).
+pattern. See [`../canonical-git-note-placement.md`](../canonical-git-note-placement.md),
+[`../compaction-retention-policy.md`](../compaction-retention-policy.md), and
+[`../product-memory-process-exhaust.md`](../product-memory-process-exhaust.md).
 
 **Closed earlier by this record:** structured artifact placement (§2d — markdown as
 TEXT rows; PM8 excludes WIP byte storage), concurrency topology (§2b —

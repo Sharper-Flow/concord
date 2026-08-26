@@ -63,8 +63,8 @@ of PM1 is the final check that no repeated Product-memory job is missing.
 | Q6 | Inspect cross-Project work | PM5; product-data-model §4 |
 | Q7 | Explain why work changed state | workflows §2.2; postmortem C2 |
 | Q8 | Inspect dependencies and supersession | PM4; product-data-model §10 |
-| Q9 | Search prior work, decisions, lessons, and specs | compaction-design §1; self-documentation |
-| Q10 | Resolve a canonical durable note | PM6; compaction-design §5 |
+| Q9 | Search prior work, decisions, lessons, and specs | PM7 historical index; PM6 durable notes |
+| Q10 | Resolve a canonical durable note | PM6 |
 
 Rejected/deferred reads are listed in §6. The corpus remains small on purpose: a
 new canonical query requires a real unmet operator/agent job and a success oracle,

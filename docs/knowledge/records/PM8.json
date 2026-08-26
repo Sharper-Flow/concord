@@ -30,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:882f6f6d5c6e9d44bb66659547dfbe41cc669779259ab2ee0e79c380a2814763",
+  "sha256": "sha256:2e60878029ffec7b87dff040a9f65d03637589f925ad064da38e79ee69de9e88",
   "status": "accepted",
   "summary": "Declares no content-addressed evidence or blob store in v1; work-in-progress output stays process exhaust.",
   "tags": [

@@ -161,13 +161,7 @@
     "docs/generated-agent-tool-surface.md",
     "docs/research/"
   ],
-  "dispositions": [
-    {
-      "path": "docs/compaction-design.md",
-      "disposition": "archived",
-      "reason": "Design-history source material for compaction. The binding compaction and retention law is the accepted PM7 record (compaction-retention-policy.md), which superseded this design's proposals during acceptance; PM7's Related section carries the lineage. Registering the design as law would create a second statement of policy beside the accepted record, and registering it as reference would imply current operational content it no longer carries."
-    }
-  ],
+  "dispositions": [],
   "doc_contract": {
     "enforced": true,
     "constitution": {
@@ -376,7 +370,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:8845fa90545ce9c9e7d62333340803704af3e0b5a17e8ec6bd62f67dd19726c4",
+      "sha256": "sha256:aa38d545b03275f49c344b6b0395ed86537461b902e5a93cefdb38b0568b29f9",
       "status": "accepted",
       "summary": "Defines SQLite authority and durable state boundaries.",
       "tags": [
@@ -398,7 +392,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:9cb7d22ddb1406b50d5b619245f645452934f61fdf9d12de7162979f66aec1f5",
+      "sha256": "sha256:480aaae04a49f9fc8b79ddfbe88024be335dd91300ec0dc616db8c18a2ada37b",
       "status": "accepted",
       "summary": "Defines the initial storage layer shape and boundaries.",
       "tags": [
@@ -2516,7 +2510,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:603796a2a956798d38cce7245c92682e05df1cc9f6eb37fd572094c3a3d6170e",
+      "sha256": "sha256:67e48290c4c2f960306132f4005d668caa189fcb8bd00d80348d1145d8766df2",
       "status": "accepted",
       "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
       "tags": [
@@ -2807,7 +2801,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5854f55ddda31da5a564d876f9dc067ab56db100174d9ce840ebc692f6fbc454",
+      "sha256": "sha256:15273bcc406250af99d4f8e47c5bbbf6ea2d9c6cf44d73ead152bf7c6d860591",
       "status": "accepted",
       "summary": "Defines canonical home placement and git-first proof for durable notes.",
       "tags": [
@@ -2861,7 +2855,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:c981402e990a67a2e39848e686eb63205f7fc888b7674a9f07713816945943e9",
+      "sha256": "sha256:7a17f858fce8df48762c64063c1108f18e9468cb052638fedc356cced515e3ec",
       "status": "accepted",
       "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
       "tags": [
@@ -2903,7 +2897,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:882f6f6d5c6e9d44bb66659547dfbe41cc669779259ab2ee0e79c380a2814763",
+      "sha256": "sha256:2e60878029ffec7b87dff040a9f65d03637589f925ad064da38e79ee69de9e88",
       "status": "accepted",
       "summary": "Declares no content-addressed evidence or blob store in v1; work-in-progress output stays process exhaust.",
       "tags": [
@@ -2945,7 +2939,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:25ac7f03bdd712eaaf92c84d275e3e75fd167e2d5022744f54d63cf14daa99a3",
+      "sha256": "sha256:97bb29b37879afa41ad5d8d46c92a4a39c5884cbeac14d44a8216e63d92d4ed9",
       "status": "accepted",
       "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; the durable sequence is the only receipt.",
       "tags": [
@@ -3532,7 +3526,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:eb464e017c649ab5862288747cd0881aad804f23bcbfa98d3425f2c6c873b9ac",
+      "sha256": "sha256:d3175c205cbfdfd9a87978cdae6fdfa14e237672461e33b1a1986039d45d1ba1",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [

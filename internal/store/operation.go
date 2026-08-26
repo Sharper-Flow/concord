@@ -336,6 +336,7 @@ func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return attributeFailure(err, event, prepared.stage)
 	}
+	advanceWorkflowReplay(ctx, event)
 	if err := prepared.registration.Fold(ctx, tx, prepared.current); err != nil {
 		stage := StageFold
 		var failure *Failure

@@ -428,6 +428,78 @@ func TestRebuildRestoresWorkAndRelationProjectionsByteForByte(t *testing.T) {
 	}
 }
 
+func TestRebuildPreservesGapAfterHighestRelationIDIsRemoved(t *testing.T) {
+	s := openTemp(t)
+	for _, id := range []string{"a", "b", "c", "d"} {
+		seedWork(t, s, id)
+	}
+	for _, event := range []Event{
+		relationAddedEvent("relation-1", "implements", "a", "b", 2, 3),
+		relationAddedEvent("relation-2", "implements", "b", "c", 2, 3),
+		relationAddedEvent("relation-3", "implements", "c", "d", 2, 3),
+		relationRemovedEvent("remove-relation-3", "implements", "c", "d", 3, 4),
+		relationAddedEvent("relation-4", "implements", "d", "a", 2, 3),
+	} {
+		if err := applyWorkEvent(t, s, event, nil); err != nil {
+			t.Fatalf("ApplyOperation(%s) error = %v", event.EventID, err)
+		}
+	}
+	if got, want := relationProjectionIDs(t, s), "[1 2 4]"; got != want {
+		t.Fatalf("relation IDs before rebuild = %s, want %s", got, want)
+	}
+	want := fullPM4Snapshot(t, s)
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatalf("RebuildFromLog() error = %v", err)
+	}
+	if got := fullPM4Snapshot(t, s); got != want {
+		t.Fatalf("PM4 snapshot after rebuild =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestReplayRelationIdentityAllocationDoesNotReadEventLog(t *testing.T) {
+	ctx := workflowReplayContext(context.Background())
+	var want int64
+	for range 128 {
+		for _, kind := range relationIdentityEventKinds {
+			advanceWorkflowReplay(ctx, Event{Kind: "work.created"})
+			advanceWorkflowReplay(ctx, Event{Kind: kind})
+			want++
+
+			got, err := relationIdentity(ctx, nil, Event{})
+			if err != nil {
+				t.Fatalf("relationIdentity() error = %v", err)
+			}
+			if got != want {
+				t.Fatalf("relationIdentity() = %d, want %d after %s", got, want, kind)
+			}
+		}
+	}
+}
+
+func TestWorkflowReplayRelationIdentitiesAreIsolated(t *testing.T) {
+	first := workflowReplayContext(context.Background())
+	second := workflowReplayContext(context.Background())
+	advanceWorkflowReplay(first, Event{Kind: "relation.added"})
+	advanceWorkflowReplay(first, Event{Kind: "relation.added"})
+	advanceWorkflowReplay(second, Event{Kind: "relation.added"})
+
+	for name, testCase := range map[string]struct {
+		ctx  context.Context
+		want int64
+	}{
+		"first":  {ctx: first, want: 2},
+		"second": {ctx: second, want: 1},
+	} {
+		got, err := relationIdentity(testCase.ctx, nil, Event{})
+		if err != nil {
+			t.Fatalf("%s relationIdentity() error = %v", name, err)
+		}
+		if got != testCase.want {
+			t.Fatalf("%s relationIdentity() = %d, want %d", name, got, testCase.want)
+		}
+	}
+}
+
 func TestRelationRemovalAndFoldGuard(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "a")
@@ -497,6 +569,27 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		}
 	}
 	return out
+}
+
+func relationProjectionIDs(t *testing.T, s *Store) string {
+	t.Helper()
+	rows, err := s.DatabaseForTesting().Query(`SELECT id FROM relations ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprint(ids)
 }
 
 func TestSupersessionReleasesHeldResourceClaims(t *testing.T) {

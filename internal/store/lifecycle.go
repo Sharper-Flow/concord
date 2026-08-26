@@ -892,26 +892,17 @@ func relationWouldCycle(ctx context.Context, tx *sql.Tx, from, to, kind string) 
 
 func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relationPayload) error {
 	// AUTOINCREMENT IDs are part of the projection snapshot. Deriving the ID
-	// from the ordered relation-creating event count makes replay reproduce IDs,
-	// including gaps left by removed historical edges.
-	var relationID int64
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(relationIdentityEventKinds)), ",")
-	args := []any{event.EventID}
-	for _, kind := range relationIdentityEventKinds {
-		args = append(args, kind)
-	}
-	if err := tx.QueryRowContext(ctx, `
-		SELECT count(*) FROM domain_events
-		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		AND kind IN (`+placeholders+`)`, args...).Scan(&relationID); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
-			"retry once the event log is readable", err)
+	// from the ordered relation-creating event count reproduces gaps left by
+	// removed historical edges. Replay maintains that count in memory.
+	relationID, err := relationIdentity(ctx, tx, event)
+	if err != nil {
+		return err
 	}
 	resolutionID := any(nil)
 	if event.Kind == WorkflowOverlapResolved {
 		resolutionID = event.EventID
 	}
-	_, err := tx.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO relations (id, work_id_from, work_id_to, kind, created_at, resolution_id)
 		VALUES (?, ?, ?, ?, ?, ?)`, relationID, payload.From, payload.To, payload.Kind, event.OccurredAt.UTC().Format(time.RFC3339Nano), resolutionID)
 	if err == nil {
@@ -927,4 +918,28 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	}
 	return wrapFailure(KindUnavailable, "fold_event", "cannot add relation projection", true,
 		"retry once the database is writable", err)
+}
+
+func relationIdentity(ctx context.Context, tx *sql.Tx, event Event) (int64, error) {
+	if relationID, replay := workflowReplayRelationIdentity(ctx); replay {
+		if relationID < 1 {
+			return 0, newFailure(KindInvalidEvent, "fold_event", "relation identity replay state was not advanced", false,
+				"repair the relation event vocabulary before replaying the log")
+		}
+		return relationID, nil
+	}
+	var relationID int64
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(relationIdentityEventKinds)), ",")
+	args := []any{event.EventID}
+	for _, kind := range relationIdentityEventKinds {
+		args = append(args, kind)
+	}
+	if err := tx.QueryRowContext(ctx, `
+		SELECT count(*) FROM domain_events
+		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
+		AND kind IN (`+placeholders+`)`, args...).Scan(&relationID); err != nil {
+		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
+			"retry once the event log is readable", err)
+	}
+	return relationID, nil
 }

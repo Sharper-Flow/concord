@@ -82,7 +82,11 @@ func build() {
 		buildErr = fmt.Errorf("storetest: create template dir: %w", err)
 		return
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil && buildErr == nil {
+			buildErr = fmt.Errorf("storetest: remove template dir: %w", err)
+		}
+	}()
 
 	path := filepath.Join(dir, "template.db")
 	s, err := store.Open(context.Background(), path)
@@ -100,7 +104,14 @@ func build() {
 		buildErr = fmt.Errorf("storetest: reopen template: %w", err)
 		return
 	}
-	defer db.Close()
+	dbClosed := false
+	defer func() {
+		if !dbClosed {
+			if err := db.Close(); err != nil && buildErr == nil {
+				buildErr = fmt.Errorf("storetest: close template handle: %w", err)
+			}
+		}
+	}()
 	// Drop the installation key so each copy mints its own, and VACUUM so the
 	// captured bytes are a single self-contained file with no WAL sidecar.
 	if _, err := db.Exec(`DELETE FROM agent_installation_keys`); err != nil {
@@ -112,11 +123,13 @@ func build() {
 		return
 	}
 	if err := db.Close(); err != nil {
+		dbClosed = true
 		buildErr = fmt.Errorf("storetest: close template handle: %w", err)
 		return
 	}
+	dbClosed = true
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the fixed template filename inside the fresh private temporary directory above.
 	if err != nil {
 		buildErr = fmt.Errorf("storetest: read template: %w", err)
 		return

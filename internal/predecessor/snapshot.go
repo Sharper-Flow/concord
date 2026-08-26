@@ -107,19 +107,23 @@ func Load(path string) (Snapshot, error) {
 			RecoveryAction: "reduce the snapshot or split it into multiple files"}
 	}
 
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // Load explicitly accepts one operator-selected snapshot file and validates its type and size above.
 	if err != nil {
 		return Snapshot{}, &store.Failure{Kind: store.KindUnavailable, Op: failureOp,
 			Detail:         fmt.Sprintf("cannot open snapshot file: %s", err.Error()),
 			RecoveryAction: "verify the path is readable"}
 	}
-	defer file.Close()
-
 	limited := io.LimitReader(file, MaxSnapshotBytes+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
+		_ = file.Close()
 		return Snapshot{}, &store.Failure{Kind: store.KindUnavailable, Op: failureOp,
 			Detail:         fmt.Sprintf("cannot read snapshot file: %s", err.Error()),
+			RecoveryAction: "verify the path is readable"}
+	}
+	if err := file.Close(); err != nil {
+		return Snapshot{}, &store.Failure{Kind: store.KindUnavailable, Op: failureOp,
+			Detail:         fmt.Sprintf("cannot close snapshot file: %s", err.Error()),
 			RecoveryAction: "verify the path is readable"}
 	}
 	if int64(len(raw)) > MaxSnapshotBytes {

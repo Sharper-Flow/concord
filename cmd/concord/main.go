@@ -209,12 +209,8 @@ func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, term
 	}
 	defer closeStore()
 	core := launcher.New(port)
-	if err := core.Enter(context.Background()); err != nil {
-		// A failed explicit read is retained as typed unavailable state by the
-		// framework-independent model. Render it instead of falling back to the
-		// prior snapshot or creating a cache authority; the operator can quit or
-		// explicitly retry with r.
-	}
+	// The model retains a failed explicit read as typed unavailable state for rendering.
+	_ = core.Enter(context.Background())
 	profile := bubbletea.Profile{Color: os.Getenv("NO_COLOR") == ""}
 	model := bubbletea.New(core, context.Background(), profile)
 	program := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
@@ -233,7 +229,7 @@ const dbOverrideEnv = "CONCORD_DB_PATH"
 // same value against the digest the dispatch_worker completion recorded.
 var workerPacketDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.Writer) int {
+func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.Writer) (exitCode int) {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, fmt.Sprintf("concord: unsupported arguments: %s", strings.Join(append([]string{command}, args...), " ")))
 		writeUsage(errOut)
@@ -264,7 +260,12 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		writeDiagnostic(errOut, err.Error())
 		return 1
 	}
-	defer s.Close()
+	defer func() {
+		if err := s.Close(); err != nil && exitCode == 0 {
+			writeDiagnostic(errOut, "concord: cannot close store: "+err.Error())
+			exitCode = 1
+		}
+	}()
 	clock := func() time.Time { return time.Now().UTC() }
 	s.Clock = clock
 	service := agent.NewService(s)
@@ -575,7 +576,7 @@ func databasePath() (string, error) {
 			}
 			probe = parent
 		}
-		if _, err := exec.Command("git", "-C", probe, "rev-parse", "--show-toplevel").Output(); err == nil {
+		if _, err := exec.Command("git", "-C", probe, "rev-parse", "--show-toplevel").Output(); err == nil { //nolint:gosec // git is fixed, probe is a separate absolute argv value, and no shell is invoked.
 			return "", fmt.Errorf("database override refused inside a git repository or worktree")
 		}
 		return absolute, nil

@@ -261,7 +261,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 			if value == "" {
 				return newFailure(KindInvalidPayload, "fold_event", "compaction scope contains an empty ID", false, "supply non-empty frozen scope IDs")
 			}
-			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (work_id, "+column+") VALUES (?, ?)", payload.ID, value); err != nil {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (work_id, "+column+") VALUES (?, ?)", payload.ID, value); err != nil { //nolint:gosec // table and column come from the closed maps above and both values stay parameter-bound.
 				return wrapFailure(KindUnavailable, "fold_event", "cannot write archived scope projection", true, "retry once the database is writable", err)
 			}
 		}
@@ -414,6 +414,10 @@ func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, 
 			return result, err
 		}
 		products = append(products, product)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return result, err
 	}
 	if err := rows.Close(); err != nil {
 		return result, err
@@ -572,7 +576,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		return err
 	}
 	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_domains", "archived_work_tags", "archived_work"} {
-		deleteSQL := "DELETE FROM " + table + " WHERE home_project_id = ? AND home_locator_id = ?"
+		deleteSQL := "DELETE FROM " + table + " WHERE home_project_id = ? AND home_locator_id = ?" //nolint:gosec // table comes from the closed literal list and all values stay parameter-bound.
 		if table != "archived_work" {
 			deleteSQL = "DELETE FROM " + table + " WHERE work_id IN (SELECT id FROM archived_work WHERE home_project_id = ? AND home_locator_id = ?)"
 		}
@@ -581,12 +585,12 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		}
 	}
 	for _, table := range []string{"law_relations", "law_subjects"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed law table list and all values stay parameter-bound.
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
 	for _, table := range []string{"domain_relation_governing_laws", "law_domain_applicability", "law_domain_homes", "domain_architecture_relations", "domains", "domain_registries"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed Domain table list and all values stay parameter-bound.
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear Domain projection "+table, true, "retry once the database is writable", err)
 		}
 	}
@@ -708,7 +712,7 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, scopeTable: scopeIDs, "archived_work_tags": note.TagIDs} {
 		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_tags": "tag_id", scopeTable: scopeColumn}[table]
 		for _, value := range values {
-			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (work_id, "+column+") VALUES (?, ?)", note.ID, value); err != nil {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (work_id, "+column+") VALUES (?, ?)", note.ID, value); err != nil { //nolint:gosec // table and column come from closed scope maps and both values stay parameter-bound.
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert indexed note scope", true, "retry once the database is writable", err)
 			}
 		}
@@ -832,6 +836,9 @@ func knowledgeCoverageOmissions(ctx context.Context, db queryer, home KnowledgeH
 		if rows.Scan(&kind) == nil {
 			omissions = append(omissions, "knowledge_kind_not_indexed:"+kind)
 		}
+	}
+	if rows.Err() != nil {
+		return []string{"knowledge_kind_coverage_unavailable"}
 	}
 	return omissions
 }

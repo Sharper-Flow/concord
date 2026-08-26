@@ -76,6 +76,8 @@ jobs:
         run: git diff --exit-code
       - name: Vet
         run: go vet ./...
+      - name: Lint Go
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --output.text.colors=false ./...
       - name: Validate product reachability
         run: python3 scripts/check-reachability.py
       - name: Validate cognitive-complexity budget

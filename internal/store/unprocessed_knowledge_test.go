@@ -32,3 +32,10 @@ func TestUnprocessedKnowledgeDocsFixture(t *testing.T) {
 	}
 	t.Logf("UNPROCESSED_JSON=%s", encoded)
 }
+
+func TestUnprocessedKnowledgeDocsRejectsEscapingRoot(t *testing.T) {
+	manifest := KnowledgeManifest{KnowledgeRoots: []string{"../outside"}}
+	if _, err := UnprocessedKnowledgeDocs(manifest, t.TempDir()); err == nil {
+		t.Fatal("escaping knowledge root was accepted")
+	}
+}

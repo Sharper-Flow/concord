@@ -152,6 +152,10 @@ func resolveCompactionHome(ctx context.Context, q queryer, workID string) (Knowl
 		}
 		productHomes = append(productHomes, c)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return KnowledgeHome{}, err
+	}
 	if err := rows.Close(); err != nil {
 		return KnowledgeHome{}, err
 	}

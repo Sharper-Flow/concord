@@ -436,7 +436,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			lawModifies = append([]string(nil), request.LawModifies...)
 		}
 		rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
-		contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": json.RawMessage(outcome), "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+		contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": outcome, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
 		productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
 		bindingRaw, bindingPresent := fields["architecture_binding"]
 		binding, bindingErr := parseWorkflowArchitectureBinding(bindingRaw)

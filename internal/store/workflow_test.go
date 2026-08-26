@@ -632,7 +632,6 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 				version++
 			}
 			events = append(events, workflowEventWithActor("edge-"+dependentID, WorkflowImpactDeclared, dependentID, dependentActor, map[string]any{"work_id": dependentID, "expected_version": version, "resulting_version": version + 1, "edge_id": "edge:" + dependentID, "edge_kind": "depends_on", "edge_class": testCase.edgeClass, "target_work_id": sourceID, "target_kind": "work_item", "severity": "informational"}))
-			version++
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, dependentID): 2}}); err != nil {
 				t.Fatal(err)
 			}
@@ -1024,6 +1023,10 @@ func assertWorkflowUniqueKey(t *testing.T, s *Store, table string, want []string
 			indexes = append(indexes, name)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatal(err)
+	}
 	rows.Close()
 	for _, name := range indexes {
 		info, err := s.DatabaseForTesting().Query(`PRAGMA index_info(` + name + `)`)
@@ -1039,6 +1042,10 @@ func assertWorkflowUniqueKey(t *testing.T, s *Store, table string, want []string
 				t.Fatal(err)
 			}
 			got = append(got, column)
+		}
+		if err := info.Err(); err != nil {
+			info.Close()
+			t.Fatal(err)
 		}
 		info.Close()
 		if strings.Join(got, "|") == strings.Join(want, "|") {
@@ -1066,6 +1073,9 @@ func assertWorkflowColumns(t *testing.T, s *Store, table string, want []string) 
 		}
 		got = append(got, name)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("columns = %v, want %v", got, want)
 	}
@@ -1086,6 +1096,9 @@ func assertWorkflowForeignKeys(t *testing.T, s *Store, table string, want []stri
 			t.Fatal(err)
 		}
 		got = append(got, ref)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	sort.Strings(got)
 	sort.Strings(want)

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"strings"
 )
 
@@ -29,12 +30,16 @@ func WorkflowProjectionHash(ctx context.Context, s *Store) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		query := "SELECT " + strings.Join(columns, ",") + " FROM " + table + " ORDER BY " + strings.Join(columns, ",")
+		quotedColumns := make([]string, len(columns))
+		for i, column := range columns {
+			quotedColumns[i] = quoteSQLiteIdentifier(column)
+		}
+		query := "SELECT " + strings.Join(quotedColumns, ",") + " FROM " + quoteSQLiteIdentifier(table) + " ORDER BY " + strings.Join(quotedColumns, ",") //nolint:gosec // every dynamic fragment is quoted as a SQLite identifier and no value is concatenated.
 		rows, err := s.db.QueryContext(ctx, query)
 		if err != nil {
 			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+table, true, "retry once the database is readable", err)
 		}
-		fmt.Fprintf(h, "table:%d:%s\x00", len(table), table)
+		writeHashf(h, "table:%d:%s\x00", len(table), table)
 		for rows.Next() {
 			values := make([]any, len(columns))
 			pointers := make([]any, len(values))
@@ -46,11 +51,11 @@ func WorkflowProjectionHash(ctx context.Context, s *Store) (string, error) {
 				return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot scan "+table, true, "retry once the database is readable", err)
 			}
 			for i, value := range values {
-				fmt.Fprintf(h, "%d:%s=", len(columns[i]), columns[i])
+				writeHashf(h, "%d:%s=", len(columns[i]), columns[i])
 				writeHashValue(h, value)
-				h.Write([]byte{0})
+				writeHashf(h, "%c", byte(0))
 			}
-			h.Write([]byte{0})
+			writeHashf(h, "%c", byte(0))
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -59,6 +64,10 @@ func WorkflowProjectionHash(ctx context.Context, s *Store) (string, error) {
 		rows.Close()
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func quoteSQLiteIdentifier(identifier string) string {
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
 func projectionColumns(ctx context.Context, db *sql.DB, table string) ([]string, error) {
@@ -87,14 +96,19 @@ func projectionColumns(ctx context.Context, db *sql.DB, table string) ([]string,
 	return columns, nil
 }
 
-func writeHashValue(h interface{ Write([]byte) (int, error) }, value any) {
+// hash.Hash.Write always returns a nil error by contract.
+func writeHashf(h hash.Hash, format string, args ...any) {
+	_, _ = fmt.Fprintf(h, format, args...)
+}
+
+func writeHashValue(h hash.Hash, value any) {
 	switch value := value.(type) {
 	case nil:
-		fmt.Fprint(h, "null")
+		writeHashf(h, "null")
 	case []byte:
-		fmt.Fprintf(h, "bytes:%d:", len(value))
-		h.Write(value)
+		writeHashf(h, "bytes:%d:", len(value))
+		writeHashf(h, "%s", value)
 	default:
-		fmt.Fprintf(h, "%T:%v", value, value)
+		writeHashf(h, "%T:%v", value, value)
 	}
 }

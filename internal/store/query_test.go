@@ -293,7 +293,11 @@ func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocato
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "lesson", id, "2026-08-07T00:00:00Z", "published", "[]", "completed", 1, "summary", homeProject, homeLocator, path, commit, hash); err != nil {
 		t.Fatal(err)
 	}

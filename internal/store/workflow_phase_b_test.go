@@ -278,12 +278,11 @@ func TestWorkflowDefinitionCanonicalEncodingMatchesPublicFixture(t *testing.T) {
 	if err := json.Unmarshal(fixture.Cases[0].Instance, &object); err != nil {
 		t.Fatal(err)
 	}
-	wantDigest := string(object["digest"])
 	var digest string
 	if err := json.Unmarshal(object["digest"], &digest); err != nil {
 		t.Fatal(err)
 	}
-	wantDigest = digest
+	wantDigest := digest
 	delete(object, "digest")
 	delete(object, "schema_version")
 	definitionJSON, err := json.Marshal(object)
@@ -489,16 +488,6 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 	if err == nil || called {
 		t.Fatalf("registry drift did not fail before authorization: err=%v called=%v", err, called)
 	}
-}
-
-type phaseBGroundTruth map[string]WorkflowGroundTruth
-
-func (r phaseBGroundTruth) Resolve(_ string, subject string) (WorkflowGroundTruth, error) {
-	state, ok := r[subject]
-	if !ok {
-		return "", workflowOutcomeFailure("test resolver was asked for an unregistered subject")
-	}
-	return state, nil
 }
 
 type phaseBCheckResolver struct{ strength WorkflowStrength }

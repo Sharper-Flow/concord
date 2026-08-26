@@ -292,7 +292,7 @@ func bumpVersion(ctx context.Context, tx *sql.Tx, table string, event Event, exp
 		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: event.SubjectType, SubjectID: event.SubjectID, Version: current, Exists: true}}
 		return f
 	}
-	result, err := tx.ExecContext(ctx, "UPDATE "+table+" SET version = ?, updated_at = ? WHERE id = ? AND version = ?",
+	result, err := tx.ExecContext(ctx, "UPDATE "+table+" SET version = ?, updated_at = ? WHERE id = ? AND version = ?", //nolint:gosec // all callers use products, projects, or work_items and every value stays parameter-bound.
 		resulting, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), event.SubjectID, expected)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot update "+label+" version", true,
@@ -368,7 +368,7 @@ func membershipImpact(ctx context.Context, tx *sql.Tx, operation Operation) (Mem
 		placeholders = append(placeholders, "?")
 		args = append(args, projectID)
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT DISTINCT work_id FROM work_projects WHERE project_id IN ("+strings.Join(placeholders, ",")+") ORDER BY work_id", args...)
+	rows, err := tx.QueryContext(ctx, "SELECT DISTINCT work_id FROM work_projects WHERE project_id IN ("+strings.Join(placeholders, ",")+") ORDER BY work_id", args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every Project ID stays parameter-bound.
 	if err != nil {
 		return impact, wrapFailure(KindUnavailable, "apply_operation", "cannot compute membership impact", true,
 			"retry once the database is readable", err)

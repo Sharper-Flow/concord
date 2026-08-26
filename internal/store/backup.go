@@ -424,9 +424,9 @@ func projectionDigest(ctx context.Context, db *sql.DB) (string, error) {
 				_ = rows.Close()
 				return "", wrapFailure(KindUnavailable, "restore_backup", "cannot decode "+item.name+" projection", true, "retry the restore", err)
 			}
-			fmt.Fprintf(hash, "%s\x00", item.name)
+			writeHashf(hash, "%s\x00", item.name)
 			for _, value := range values {
-				fmt.Fprintf(hash, "%T:%v\x00", value, value)
+				writeHashf(hash, "%T:%v\x00", value, value)
 			}
 		}
 		if err := rows.Err(); err != nil {
@@ -454,7 +454,7 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int,
 	if err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot open backup snapshot", false, "supply a readable SQLite snapshot", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	var schema int
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&schema); err != nil {
@@ -481,6 +481,9 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int,
 	result.SourceEventMaxSeq = result.EventWatermark
 	result.FileSHA256 = result.DBChecksum
 	result.BackupTime = nowFromClock(clock).Format(time.RFC3339Nano)
+	if err := db.Close(); err != nil {
+		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot close backup snapshot", true, "retry the backup verification", err)
+	}
 	return result, nil
 }
 
@@ -575,13 +578,16 @@ func readOnlyDataSource(path string) string {
 }
 
 func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // callers supply a validated backup path or an internally-created test fixture path.
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	if err := f.Close(); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
@@ -626,7 +632,7 @@ func writeBackupManifest(destination string, manifest BackupManifest) error {
 		return wrapFailure(KindUnavailable, "backup", "cannot create temporary manifest", true, "check destination permissions", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		return wrapFailure(KindUnavailable, "backup", "cannot protect temporary manifest", false, "check destination permissions", err)

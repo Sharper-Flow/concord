@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// These types are the code-owned representation of the v1 workflow-definition
+// WorkKind identifies a work class in the code-owned v1 workflow-definition
 // manifest. They deliberately contain no executable code or file path: a
 // registered definition is data compiled into the binary.
 type WorkKind string

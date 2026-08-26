@@ -86,10 +86,10 @@ func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 // executable. `rev-parse --verify <ref>^{commit}` refuses anything that does
 // not resolve to exactly one commit, including ambiguous or truncated input.
 func resolveCommitSHA(ctx context.Context, repo, ref string) (string, error) {
-	if strings.ContainsAny(ref, " \t\n\r\x00") {
-		return "", fmt.Errorf("ref contains whitespace or NUL")
+	if strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n\r\x00") {
+		return "", fmt.Errorf("ref starts with a dash or contains whitespace or NUL")
 	}
-	output, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--verify", ref+"^{commit}").Output()
+	output, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--verify", ref+"^{commit}").Output() //nolint:gosec // git is fixed, the ref rejects option and delimiter bytes, and no shell is invoked.
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve %s to a commit in %s", ref, repo)
 	}

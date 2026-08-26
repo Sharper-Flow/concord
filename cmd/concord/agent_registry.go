@@ -83,14 +83,19 @@ func probeHostAgentRegistry(ctx context.Context, cwd string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(sink.Name())
-	defer sink.Close()
+	defer func() {
+		_ = sink.Close()
+		_ = os.Remove(sink.Name())
+	}()
 	cmd := exec.CommandContext(ctx, hostRegistryProbeCommand[0], hostRegistryProbeCommand[1:]...)
 	cmd.Dir = cwd
 	// Only stdout carries the document. Host plugins log to stderr, and
 	// mixing the two would corrupt the JSON.
 	cmd.Stdout = sink
 	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	if err := sink.Close(); err != nil {
 		return nil, err
 	}
 	return os.ReadFile(sink.Name())

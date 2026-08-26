@@ -592,7 +592,7 @@ func PruneResearchRevisions(ctx context.Context, s *Store, req ResearchPackMutat
 			return 0, researchUnavailable("cannot decode prune result", err)
 		}
 		_ = tx.Commit()
-		return int(result.Count), nil
+		return result.Count, nil
 	}
 	pack, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion)
 	if err != nil {
@@ -822,9 +822,6 @@ func BindResearchFindingSource(ctx context.Context, s *Store, req ResearchFindin
 	return nil
 }
 
-// CD-0024 WithinTx cores: the agent tool surface composes research authoring
-// into its own transaction; the pack-operation boundary above stays the sole
-// idempotent route for direct callers.
 // CreateResearchPackWithinTx runs the CreateResearchPack core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
@@ -1116,7 +1113,7 @@ func setResearchFreshnessWithinRawTx(ctx context.Context, tx *sql.Tx, req SetRes
 	return nil
 }
 
-// RecordResearchFindingWithinTx records a finding: update when the finding
+// RecordResearchFindingWithinTxUpsert records a finding: update when the finding
 // already exists in the revision, add otherwise. Deterministic on stored
 // state and idempotent under the caller's replay semantics.
 func RecordResearchFindingWithinTxUpsert(ctx context.Context, transaction *Transaction, req ResearchFindingRequest) (ResearchFinding, error) {

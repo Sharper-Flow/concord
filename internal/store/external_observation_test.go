@@ -53,9 +53,7 @@ func TestObservedUniverseRejectsUnearnedCompleteness(t *testing.T) {
 	// Twelve observed against an exact total of fifteen is structurally
 	// invalid, not a warning.
 	twelve := append([]string(nil), refs...)
-	for _, name := range []string{"svc-d", "svc-e", "svc-f", "svc-g", "svc-h", "svc-i", "svc-j", "svc-k", "svc-l"} {
-		twelve = append(twelve, name)
-	}
+	twelve = append(twelve, "svc-d", "svc-e", "svc-f", "svc-g", "svc-h", "svc-i", "svc-j", "svc-k", "svc-l")
 	if err := ValidateObservedUniverse(testUniverse(CoverageComplete, twelve, TotalEq, 15, CompletionExhaustiveLocal, "anchor-1")); err == nil {
 		t.Fatal("twelve identities against an exact total of fifteen validated as complete")
 	}

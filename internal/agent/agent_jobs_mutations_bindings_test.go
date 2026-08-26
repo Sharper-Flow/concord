@@ -1107,8 +1107,6 @@ var _ ed25519.PrivateKey
 func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
-
 	requirement, _ := sc.InitialState["governing_requirement"].(string)
 	if requirement == "" {
 		t.Fatalf("AJ3-spec-conflict: missing governing_requirement in initial_state")
@@ -1118,7 +1116,7 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	}
 	// Seeding moved the Project version, so the call envelope must resolve the
 	// current scope version rather than the pre-seed one.
-	env = agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
 
 	driver := resolveDriver(t, sc)
 	if !driver.approvalWithheld() {

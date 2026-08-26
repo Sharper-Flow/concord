@@ -51,7 +51,7 @@ func (ExecGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byt
 		return nil, fmt.Errorf("empty git directory")
 	}
 	command := append([]string{"-C", dir}, args...)
-	return exec.CommandContext(ctx, "git", command...).Output()
+	return exec.CommandContext(ctx, "git", command...).Output() //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
 }
 
 type ProjectResolution struct {

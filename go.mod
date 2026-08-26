@@ -2,7 +2,7 @@ module github.com/sharper-flow/concord
 
 go 1.26
 
-toolchain go1.26.5
+toolchain go1.26.7
 
 require (
 	charm.land/bubbles/v2 v2.1.1

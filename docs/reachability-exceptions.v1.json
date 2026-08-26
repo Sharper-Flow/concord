@@ -57,6 +57,7 @@
         "internal/store.predicateStringSet",
         "internal/store.productRowStepRequiresApproval",
         "internal/store.projectionColumns",
+        "internal/store.quoteSQLiteIdentifier",
         "internal/store.readWorkflowStalenessWarnings",
         "internal/store.setContains",
         "internal/store.workflowResumePreflight",

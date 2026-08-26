@@ -112,6 +112,9 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 		}
 		kinds = append(kinds, kind)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 	want := []string{WorkflowActionCompleted, WorkflowActionCompleted, WorkflowActionCompleted, WorkflowContractApproved, WorkflowActionCompleted, WorkflowEvidenceBound, WorkflowActionCompleted}
 	if len(kinds) != len(want) {
 		t.Fatalf("semantic event order=%v, want %v", kinds, want)

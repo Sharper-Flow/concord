@@ -66,8 +66,12 @@ func UnprocessedKnowledgeDocs(manifest KnowledgeManifest, repoRoot string) ([]st
 }
 
 func walkKnowledgeRoot(repoRoot, root string, found map[string]struct{}) error {
-	absolute := filepath.Join(repoRoot, filepath.FromSlash(root))
-	err := filepath.WalkDir(absolute, func(candidate string, entry fs.DirEntry, walkErr error) error {
+	relativeRoot := filepath.Clean(filepath.FromSlash(root))
+	if root == "" || filepath.IsAbs(relativeRoot) || relativeRoot == ".." || strings.HasPrefix(relativeRoot, ".."+string(filepath.Separator)) {
+		return newFailure(KindInvalidNoteProof, "unprocessed_knowledge", "knowledge root escapes the repository: "+root, false, "declare a non-empty repository-relative knowledge root")
+	}
+	absolute := filepath.Join(repoRoot, relativeRoot)
+	err := filepath.WalkDir(absolute, func(candidate string, entry fs.DirEntry, walkErr error) error { //nolint:gosec // relativeRoot rejects absolute and parent traversal before joining it to repoRoot.
 		if walkErr != nil {
 			if errors.Is(walkErr, os.ErrNotExist) && candidate == absolute {
 				return fs.SkipDir

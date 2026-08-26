@@ -128,10 +128,10 @@ func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, conte
 			return CommittedNote{CommitOID: existing.CommitOID, NotePath: existing.NotePath}, nil
 		}
 	}
-	if err := os.MkdirAll(path.Dir(fullPath), 0o755); err != nil {
+	if err := os.MkdirAll(path.Dir(fullPath), 0o755); err != nil { //nolint:gosec // canonical notes are public repository content and require normal Git directory permissions.
 		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot create the canonical note directory", true, "restore write access to the git home", err)
 	}
-	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil { //nolint:gosec // canonical notes are public repository content and require normal Git file permissions.
 		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot write the canonical note draft", true, "restore write access to the git home", err)
 	}
 	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath); err != nil {
@@ -316,6 +316,9 @@ func resolveKnowledgeHead(ctx context.Context, home KnowledgeHome) (string, erro
 	if home.HomeProjectID == "" || home.HomeLocatorID == "" || home.RepoPath == "" || home.HeadRef == "" {
 		return "", newFailure(KindInvalidFilter, "knowledge_home", "KnowledgeHome requires stable IDs, repository path, and head ref", false, "supply a complete explicit KnowledgeHome")
 	}
+	if strings.HasPrefix(home.HeadRef, "-") || strings.ContainsAny(home.HeadRef, " \t\n\r\x00") {
+		return "", newFailure(KindInvalidFilter, "knowledge_home", "KnowledgeHome head ref contains option or delimiter bytes", false, "supply a Git ref without a leading dash, whitespace, or NUL")
+	}
 	ref, err := runGit(ctx, home.RepoPath, "rev-parse", "--verify", home.HeadRef+"^{commit}")
 	if err != nil {
 		return "", wrapFailure(KindGitUnreachable, "knowledge_home", "cannot resolve the current git head", true, "restore access to the git home and retry", err)
@@ -334,7 +337,7 @@ func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
 	gitCtx, cancel := context.WithTimeout(ctx, gitCommandTimeout)
 	defer cancel()
 	cmdArgs := append([]string{"-C", repo}, args...)
-	cmd := exec.CommandContext(gitCtx, "git", cmdArgs...)
+	cmd := exec.CommandContext(gitCtx, "git", cmdArgs...) //nolint:gosec // git is fixed, callers pass separate guarded argv values, and no shell is invoked.
 	output := boundedGitOutput{limit: maxGitOutput}
 	cmd.Stdout = &output
 	if err := cmd.Run(); err != nil {

@@ -90,7 +90,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
 	if currentStep == "start" {
-		entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: definition.Digest})
+		entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +107,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 		return nil, newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 	}
-	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: definition.Digest})
+	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 }
 
 func workflowOperatorQuestionTx(workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, error) {
-	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: definition.Digest})
+	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
-	entry, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: definition.Digest})
+	entry, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
 	if err != nil {
 		return err
 	}

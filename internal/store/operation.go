@@ -665,7 +665,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		"initiative_entries", "relations", "work_projects", "work_items", "product_projects",
 		"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
 	} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil { //nolint:gosec // table comes only from the closed replay projection list above and no values are interpolated.
 			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,
 				"retry once the database is writable", err))
@@ -991,7 +991,7 @@ func foldProductStageChanged(ctx context.Context, tx *sql.Tx, event Event) error
 func updateProduct(ctx context.Context, tx *sql.Tx, event Event, fields string, args ...any) error {
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	args = append(args, now, event.SubjectID)
-	result, err := tx.ExecContext(ctx, "UPDATE products SET "+fields+`, version = version + 1, updated_at = ? WHERE id = ?`, args...)
+	result, err := tx.ExecContext(ctx, "UPDATE products SET "+fields+`, version = version + 1, updated_at = ? WHERE id = ?`, args...) //nolint:gosec // callers choose one of two fixed field clauses and all values stay parameter-bound.
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot update Product projection", true,
 			"retry once the database is writable", err)

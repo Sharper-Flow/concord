@@ -44,7 +44,11 @@ func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	insert := `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES(?,?,?,?,1,1,?,?,NULL)`
 	if _, err := db.ExecContext(ctx, insert, "stored-bug", "bug", "Bug", "needed", "now", "now"); err != nil {
 		t.Fatalf("stored bug rejected: %v", err)

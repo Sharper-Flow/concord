@@ -617,6 +617,9 @@ func TestMembershipReplacementReplacesTheWholeSet(t *testing.T) {
 			}
 			out[project] = role
 		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
 		return out
 	}
 

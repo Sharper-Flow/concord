@@ -128,7 +128,11 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','invalid','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
 		t.Fatal("invalid coverage kind passed CHECK")
 	}
@@ -170,7 +174,11 @@ func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testin
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +284,11 @@ func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := db.ExecContext(ctx, `UPDATE work_items SET narrative=? WHERE id='pre-existing'`, strings.Repeat("n", 16385)); err == nil {
 		t.Fatal("oversize narrative bypassed bounded CHECK")
 	}
@@ -327,7 +339,11 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,resolved_model,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work','attempt', 'research',1,?,'research','routing-v1','openai/gpt-5.6-luna','', '1.0','1.0','dispatched','now')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatalf("default routing evidence insert failed: %v", err)
 	}
@@ -895,7 +911,11 @@ func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) 
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('native-registry-work','task','Native registry','needed',1,1,'now','now',NULL)`); err != nil {
 		t.Fatal(err)
 	}

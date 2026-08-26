@@ -106,7 +106,11 @@ func authorizeKnowledgeLocator(t *testing.T, s *Store, home KnowledgeHome) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +125,11 @@ func authorizeKnowledgeProductHome(t *testing.T, s *Store, productID string, hom
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +161,11 @@ func authorizeKnowledgeProductMembership(t *testing.T, s *Store, productID, proj
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
 		t.Fatal(err)
 	}

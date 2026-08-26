@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import copy, importlib.util, json, unittest
+import copy, importlib.util, json, re, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +36,38 @@ class ManifestTamperTests(unittest.TestCase):
     def test_missing_coverage(self):
         value=copy.deepcopy(manifest); value["tools"][0]["operations"].append("concord_product_view.missing")
         with self.assertRaises(ValueError): generator.validate(value)
+
+class Ts2BudgetTests(unittest.TestCase):
+    """TS2's tool budget is law in the document and in the manifest; CI joins them."""
+
+    def test_document_budget_matches_manifest(self):
+        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
+        document = (ROOT / "docs/agent-tool-surface-budget.md").read_text()
+        matches = re.findall(r"always_visible_tools: (\d+)", document)
+        self.assertEqual(len(matches), 1, "TS2 must state the budget exactly once")
+        declared = int(matches[0])
+        self.assertEqual(manifest["surface"]["tool_count"], declared,
+                         "manifest surface.tool_count disagrees with the TS2 budget")
+        self.assertEqual(len(manifest["tools"]), declared,
+                         "manifest tool list disagrees with the TS2 budget")
+
+    def test_a_shrunk_document_budget_is_rejected(self):
+        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
+        document = (ROOT / "docs/agent-tool-surface-budget.md").read_text().replace(
+            "always_visible_tools: 10", "always_visible_tools: 9")
+        with self.assertRaises(AssertionError):
+            matches = re.findall(r"always_visible_tools: (\d+)", document)
+            declared = int(matches[0])
+            self.assertEqual(manifest["surface"]["tool_count"], declared)
+
+    def test_a_manifest_tool_count_drift_is_rejected(self):
+        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
+        drifted = copy.deepcopy(manifest)
+        drifted["surface"]["tool_count"] = drifted["surface"]["tool_count"] - 1
+        document = (ROOT / "docs/agent-tool-surface-budget.md").read_text()
+        matches = re.findall(r"always_visible_tools: (\d+)", document)
+        declared = int(matches[0])
+        self.assertNotEqual(drifted["surface"]["tool_count"], declared)
 
 class EvidenceObligationVocabularyTests(unittest.TestCase):
     """CD-0056 D2: the obligation vocabulary is one closed set across two contracts."""

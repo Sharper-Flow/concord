@@ -169,7 +169,7 @@
     }
   ],
   "doc_contract": {
-    "enforced": false,
+    "enforced": true,
     "constitution": {
       "required_sections": [
         "Purpose"

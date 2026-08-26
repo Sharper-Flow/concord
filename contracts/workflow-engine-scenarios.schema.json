@@ -832,30 +832,8 @@
           "minLength": 3,
           "maxLength": 128
         },
-        "work_kind": {
-          "enum": [
-            "implementation",
-            "break_fix",
-            "research",
-            "architecture_spike",
-            "ops_runbook",
-            "static_analysis",
-            "generic_one_off",
-            "task"
-          ]
-        },
-        "kind": {
-          "enum": [
-            "implementation",
-            "break_fix",
-            "research",
-            "architecture_spike",
-            "ops_runbook",
-            "static_analysis",
-            "generic_one_off",
-            "task"
-          ]
-        },
+        "work_kind": {},
+        "kind": {},
         "title": {
           "$ref": "#/$defs/short"
         },
@@ -1394,6 +1372,53 @@
         }
       }
     },
+    "operatorWorkKind": {
+      "enum": [
+        "task",
+        "bug",
+        "decision",
+        "research",
+        "other",
+        "initiative"
+      ]
+    },
+    "workflowFamily": {
+      "enum": [
+        "implementation",
+        "break_fix",
+        "research",
+        "architecture_spike",
+        "ops_runbook",
+        "static_analysis",
+        "generic_one_off"
+      ]
+    },
+    "workCreatedPayload": {
+      "allOf": [
+        {"$ref": "#/$defs/eventPayload"},
+        {
+          "oneOf": [
+            {
+              "required": ["kind"],
+              "properties": {"kind": {"$ref": "#/$defs/operatorWorkKind"}}
+            },
+            {
+              "required": ["work_kind"],
+              "properties": {"work_kind": {"$ref": "#/$defs/operatorWorkKind"}}
+            }
+          ]
+        }
+      ]
+    },
+    "workflowDefinitionSelectedPayload": {
+      "allOf": [
+        {"$ref": "#/$defs/eventPayload"},
+        {
+          "required": ["work_kind"],
+          "properties": {"work_kind": {"$ref": "#/$defs/workflowFamily"}}
+        }
+      ]
+    },
     "initialEvent": {
       "type": "object",
       "additionalProperties": false,
@@ -1459,7 +1484,17 @@
         "payload": {
           "$ref": "#/$defs/eventPayload"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "work.created"}}, "required": ["kind"]},
+          "then": {"properties": {"payload": {"$ref": "#/$defs/workCreatedPayload"}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "workflow.definition_selected"}}, "required": ["kind"]},
+          "then": {"properties": {"payload": {"$ref": "#/$defs/workflowDefinitionSelectedPayload"}}}
+        }
+      ]
     },
     "projectionInput": {
       "type": "object",

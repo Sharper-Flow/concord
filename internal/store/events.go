@@ -70,6 +70,9 @@ type Event struct {
 	// PayloadVersion selects the payload shape, and later selects the upcasters
 	// a rebuild runs.
 	PayloadVersion int
+	// replaySourcePayloadVersion records the stored version when an upcaster
+	// changes the in-memory event. Folds use it only for versioned replay rules.
+	replaySourcePayloadVersion int
 	// Payload is a JSON object.
 	Payload []byte
 }

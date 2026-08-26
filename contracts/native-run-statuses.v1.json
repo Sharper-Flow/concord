@@ -1,0 +1,37 @@
+{
+  "$schema": "contracts/native-run-statuses.schema.json",
+  "schema_version": "1.0",
+  "summary": "The single declaration of native-run phases, statuses, and failure classification.",
+  "phases": [
+    {
+      "phase": "start",
+      "statuses": [
+        {"status": "started", "failure": false},
+        {"status": "failed_to_start", "failure": true}
+      ]
+    },
+    {
+      "phase": "health",
+      "statuses": [
+        {"status": "healthy", "failure": false},
+        {"status": "degraded", "failure": false},
+        {"status": "failed", "failure": true}
+      ]
+    },
+    {
+      "phase": "rollback",
+      "statuses": [
+        {"status": "rolled_back", "failure": true},
+        {"status": "partially_rolled_back", "failure": true},
+        {"status": "rollback_failed", "failure": true}
+      ]
+    },
+    {
+      "phase": "cleanup",
+      "statuses": [
+        {"status": "cleaned", "failure": false},
+        {"status": "cleanup_failed", "failure": true}
+      ]
+    }
+  ]
+}

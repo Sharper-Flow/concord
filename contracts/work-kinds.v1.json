@@ -1,0 +1,71 @@
+{
+  "$schema": "contracts/work-kinds.schema.json",
+  "schema_version": "1.0",
+  "summary": "The single declaration of the work-item operator taxonomy. This vocabulary answers what an operator says a work item IS. It is not the workflow family, which answers which workflow a work item RUNS: that set is fixed by CD-0013 D14, lives on the workflow definition, and is resolved through workflow_instances.definition_ref. The two sets are disjoint in meaning and must never be compared. Every projection of this vocabulary is derived from this file: the seeded work_kinds registry, the work_items membership trigger, the fold's create and revise gates, and the agent capture enum.",
+  "kinds": [
+    {
+      "kind": "bug",
+      "summary": "Reported unintended behavior in a Product.",
+      "stored": true,
+      "fold_create": "allowed",
+      "fold_revise": "allowed",
+      "agent_capture": "allowed"
+    },
+    {
+      "kind": "decision",
+      "summary": "A choice that needs making and recording.",
+      "stored": true,
+      "fold_create": "allowed",
+      "fold_revise": "allowed",
+      "agent_capture": "allowed"
+    },
+    {
+      "kind": "epic",
+      "summary": "Retired container kind. No work item may carry it.",
+      "stored": false,
+      "fold_create": "refused",
+      "fold_revise": "refused",
+      "agent_capture": "refused",
+      "refusal": {
+        "message": "obsolete work kind is not accepted",
+        "recovery": "use Initiative through the dedicated Initiative operation"
+      }
+    },
+    {
+      "kind": "initiative",
+      "summary": "An ordered container of member work items. Created only by the Initiative operation, which owns its membership rows.",
+      "stored": true,
+      "fold_create": "allowed",
+      "fold_revise": "refused",
+      "agent_capture": "refused",
+      "refusal": {
+        "message": "initiative work kind is reserved for the dedicated Initiative operation",
+        "recovery": "use Initiative through the dedicated Initiative operation"
+      }
+    },
+    {
+      "kind": "other",
+      "summary": "Work the operator declines to classify further.",
+      "stored": true,
+      "fold_create": "allowed",
+      "fold_revise": "allowed",
+      "agent_capture": "allowed"
+    },
+    {
+      "kind": "research",
+      "summary": "An open question to investigate before committing to a direction.",
+      "stored": true,
+      "fold_create": "allowed",
+      "fold_revise": "allowed",
+      "agent_capture": "allowed"
+    },
+    {
+      "kind": "task",
+      "summary": "Work with a known shape that needs doing.",
+      "stored": true,
+      "fold_create": "allowed",
+      "fold_revise": "allowed",
+      "agent_capture": "allowed"
+    }
+  ]
+}

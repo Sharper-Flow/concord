@@ -29,6 +29,7 @@ class RelationVocabularyFixture(unittest.TestCase):
             "internal/store/generated_relation_vocabulary.go",
             "contracts/relation-vocabulary.digest",
             "scripts/generate-relation-vocabulary.py",
+            "scripts/vocabulary_utils.py",
         ):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)

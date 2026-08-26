@@ -881,6 +881,137 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 	}
 }
 
+func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) {
+	s := openTemp(t)
+	db := s.DatabaseForTesting()
+	ctx := context.Background()
+	var workKinds, nativeStatuses int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM work_kinds`).Scan(&workKinds); err != nil || workKinds != 7 {
+		t.Fatalf("work kind rows=%d err=%v", workKinds, err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_native_run_statuses`).Scan(&nativeStatuses); err != nil || nativeStatuses != 10 {
+		t.Fatalf("native status rows=%d err=%v", nativeStatuses, err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, `DELETE FROM fold_guard`)
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('native-registry-work','task','Native registry','needed',1,1,'now','now',NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	pairs := []struct{ phase, status string }{
+		{"start", "started"}, {"start", "failed_to_start"},
+		{"health", "healthy"}, {"health", "degraded"}, {"health", "failed"},
+		{"rollback", "rolled_back"}, {"rollback", "partially_rolled_back"}, {"rollback", "rollback_failed"},
+		{"cleanup", "cleaned"}, {"cleanup", "cleanup_failed"},
+	}
+	for i, pair := range pairs {
+		args := []any{"native-registry-work", "run-" + pair.phase, pair.phase, pair.status, "event-" + pair.phase, "client", "actor", "native://run", "sha256:" + strings.Repeat("a", 64), "evidence://run", "sha256:" + strings.Repeat("b", 64), "2026-08-25T00:00:00Z", "2026-08-25T00:00:00Z", "trusted_client_report", "{}", "policy", "policy"}
+		if i > 0 {
+			args[1] = "run-" + pair.phase + "-" + pair.status
+		}
+		if _, err := db.ExecContext(ctx, insert, args...); err != nil {
+			t.Fatalf("declared native pair %s/%s rejected: %v", pair.phase, pair.status, err)
+		}
+	}
+	for _, pair := range []struct{ phase, status string }{{"start", "healthy"}, {"health", "unknown"}} {
+		args := []any{"native-registry-work", "bad-" + pair.phase + pair.status, pair.phase, pair.status, "event-bad", "client", "actor", "native://run", "sha256:" + strings.Repeat("a", 64), "evidence://run", "sha256:" + strings.Repeat("b", 64), "2026-08-25T00:00:00Z", "2026-08-25T00:00:00Z", "trusted_client_report", "{}", "policy", "policy"}
+		if _, err := db.ExecContext(ctx, insert, args...); err == nil || !strings.Contains(err.Error(), "workflow native run phase and status are not a declared pair") {
+			t.Fatalf("invalid native pair %s/%s error=%v", pair.phase, pair.status, err)
+		}
+	}
+}
+
+func TestMigration49RejectsInvalidPreMigrationRows(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		seed string
+	}{
+		{name: "work kind", seed: `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('invalid-pre-work','problem','Invalid','needed',1,1,'now','now',NULL);`},
+		{name: "native status", seed: `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref) VALUES('pre-native-work','run','start','healthy','event','client','actor','native://run','sha256:` + strings.Repeat("a", 64) + `','evidence://run','sha256:` + strings.Repeat("b", 64) + `','2026-08-25T00:00:00Z','2026-08-25T00:00:00Z','trusted_client_report','{}','policy','policy');`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "pre-migration.db")
+			db, err := sql.Open(driverName, dataSourceName(path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			db.SetMaxOpenConns(1)
+			defer db.Close()
+			ctx := context.Background()
+			if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+				t.Fatal(err)
+			}
+			for _, migration := range migrations[:48] {
+				if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+					t.Fatalf("migration %d: %v", migration.Version, err)
+				}
+				if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-25T00:00:00Z"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "native status" {
+				if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('pre-native-work','task','Pre native','needed',1,1,'now','now',NULL);`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.ExecContext(ctx, tc.seed); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+				t.Fatal(err)
+			}
+			if err := Migrate(ctx, db); err == nil {
+				t.Fatal("migration preserved an invalid pre-migration row")
+			}
+		})
+	}
+}
+
+func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "valid-pre-migration.db")
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:48] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-25T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('valid-pre-work','task','Valid','needed',1,1,'now','now',NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref) VALUES('valid-pre-work','run','health','degraded','event','client','actor','native://run','sha256:`+strings.Repeat("a", 64)+`','evidence://run','sha256:`+strings.Repeat("b", 64)+`','2026-08-25T00:00:00Z','2026-08-25T00:00:00Z','trusted_client_report','{}','policy','policy')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("valid pre-migration rows failed upgrade: %v", err)
+	}
+	if version, err := SchemaVersion(ctx, db); err != nil || version != 49 {
+		t.Fatalf("upgraded schema version=%d err=%v", version, err)
+	}
+}
+
 func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

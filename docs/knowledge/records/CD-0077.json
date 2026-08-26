@@ -1,0 +1,33 @@
+{
+  "date": "2026-08-25T00:00:00Z",
+  "evidence": [
+    "contracts/work-kinds.v1.json",
+    "contracts/native-run-statuses.v1.json",
+    "internal/agent/workflow_composition_test.go",
+    "internal/store/schema.go",
+    "internal/store/workflow_composition_test.go",
+    "internal/store/work_kind_vocabulary_test.go",
+    "internal/store/native_run_status_vocabulary_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0077",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0077-storage-vocabularies-have-one-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:8c84506a4a4c04481816e8a0f6490855490bbf791441c4154e06478bbc708063",
+  "status": "accepted",
+  "summary": "Work-item operator kinds and workflow families remain separate vocabularies. Composition resolves the pinned workflow definition. Work kinds and native-run phase/status pairs each have one contract, generated Go projections, literal immutable SQLite registry rows, database triggers, and closure validators that bind all copies.",
+  "tags": [
+    "workflow",
+    "storage",
+    "vocabulary",
+    "contracts"
+  ],
+  "title": "Storage vocabularies have one machine-readable authority"
+}

@@ -729,22 +729,16 @@ This accepted contract should be reopened when:
 
 ## Verification
 
-The corpus `scenarios/launcher-portfolio.v1.json` encodes all five criteria as
-declared cases bound to C14, C18, and CD-0014. No harness executes the
-launcher corpus yet, so each criterion carries a typed exemption in the record
-rather than a scenario binding.
+The runner `TestLauncherPortfolioCorpus` consumes
+`scenarios/launcher-portfolio.v1.json` and executes all five cases against
+production read, launcher-model, and first-run paths.
 
-- Criterion 1 is proved by `TestModelReadsOnlyOnEntrySubmitAndRefresh`
-  (`internal/launcher/model_test.go`) and
-  `TestLauncherSessionHasNoDurableEffects` (`cmd/concord/main_test.go`).
-- Criterion 2 is proved by `TestProjectionIsDeterministicAndCarriesC14Meaning`
-  (`internal/launcher/model_test.go`).
-- Criterion 3 is proved by `TestProjectionIsDeterministicAndCarriesC14Meaning`
-  (`internal/launcher/model_test.go`).
-- Criterion 4 is proved by
-  `TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection`
-  (`internal/launcher/storeport/port_test.go`).
-- Criterion 5 is proved by
-  `TestLauncherFirstRunRendersWithoutCreatingAuthority`
-  (`cmd/concord/main_test.go`). Section 17 records the falsifiers for each
-  guarantee.
+- Criterion 1 binds to `launcher-session`.
+- Criterion 2 binds to `active-quiet-duplicate`.
+- Criterion 3 binds to `focus-priority`.
+- Criterion 4 binds to `coverage-states`.
+- Criterion 5 binds to `first-run`.
+
+`TestLauncherPortfolioCorpusMutationFails` changes a corpus assertion and
+proves that the runner rejects the mutation. Section 17 records the falsifiers
+for each guarantee.

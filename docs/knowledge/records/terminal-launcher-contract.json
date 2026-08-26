@@ -2,23 +2,23 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "The corpus case launcher-session (scenarios/launcher-portfolio.v1.json) encodes these expectations through only_entry_and_refresh_read and no_durable_effects, but no harness executes the launcher corpus yet. The guarantee is proved by TestModelReadsOnlyOnEntrySubmitAndRefresh (internal/launcher/model_test.go) and TestLauncherSessionHasNoDurableEffects (cmd/concord/main_test.go)."
+      "scenario": "launcher-session"
     },
     {
       "criterion": 2,
-      "exemption": "The corpus case active-quiet-duplicate encodes five_c14_groups and stable_name_suffix, but no harness executes the launcher corpus yet. The guarantee is proved by TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+      "scenario": "active-quiet-duplicate"
     },
     {
       "criterion": 3,
-      "exemption": "The corpus case focus-priority encodes approval_required_wins and deterministic ordering, but no harness executes the launcher corpus yet. The guarantee is proved by TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+      "scenario": "focus-priority"
     },
     {
       "criterion": 4,
-      "exemption": "The corpus case coverage-states encodes unavailable_counts_are_not_zero and typed_focus_absence, but no harness executes the launcher corpus yet. The guarantee is proved by TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection (internal/launcher/storeport/port_test.go)."
+      "scenario": "coverage-states"
     },
     {
       "criterion": 5,
-      "exemption": "The corpus case first-run encodes typed_first_run and filesystem_unchanged, but no harness executes the launcher corpus yet. The guarantee is proved by TestLauncherFirstRunRendersWithoutCreatingAuthority (cmd/concord/main_test.go)."
+      "scenario": "first-run"
     }
   ],
   "date": "2026-08-07T00:00:00Z",
@@ -29,7 +29,8 @@
     "internal/launcher/storeport/domain_evidence_test.go",
     "scenarios/launcher-portfolio.v1.json",
     "cmd/concord/main_test.go",
-    "internal/launcher/model_test.go"
+    "internal/launcher/model_test.go",
+    "cmd/concord/launcher_portfolio_corpus_test.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "terminal-launcher-contract",
@@ -42,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b4e3de50ae656567bfcecbee4328a5a4d226a4be04150e35b08ef7bc14ab8edf",
+  "sha256": "sha256:72be379b1722c1d0b6fd39ec7f06b6b4cc03d294fb7c2774dada53069a4f0261",
   "status": "accepted",
   "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
   "tags": [

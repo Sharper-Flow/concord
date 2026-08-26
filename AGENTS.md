@@ -101,10 +101,10 @@ the inverse-coverage validator: it walks every `*.md` under the manifest's
 `--strict` for cutover checks. `scripts/check-doc-contract.py` applies the
 required outline, Gherkin AC grammar, and STE subset (sentence length,
 banned phrases, abbreviation discipline) to records whose kind is in scope;
-hard-fail mode is gated by `doc_contract.enforced` in the manifest
-(seeded `false` so the existing corpus dogfoods as findings rather than
-build-breakers). The anti-conflation rule for agents: a document not
-resovable through `concord_knowledge` is not law — `resolve_note` returning
+hard-fail mode is gated by `doc_contract.enforced` in the manifest, which owns
+the current setting and its activation evidence. The anti-conflation rule for
+agents: a document not resolvable through `concord_knowledge` is not law —
+`resolve_note` returning
 `knowledge_missing` is the authoritative negative, never text-grep for law
 state when a record exists.
 

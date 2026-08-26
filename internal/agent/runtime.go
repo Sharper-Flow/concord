@@ -827,7 +827,7 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "invariant_violation"
 	case store.KindIllegalLifecycleTransition:
 		return "invalid_transition"
-	case store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
+	case store.KindInvalidRelation, store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
 		return "invalid_relation"
 	case store.KindInitiativeScopeViolation:
 		return "invariant_violation"

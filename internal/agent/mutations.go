@@ -887,8 +887,12 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		if in.Kind == "epic" || in.Kind == "initiative" {
-			return coreError(base, "invalid_input", "capture cannot create Initiative work; use concord_work_initiative.create", "use_initiative_operation", false), nil
+		if !store.WorkKindAgentCaptureAllowed(in.Kind) {
+			message, _, ok := store.WorkKindRefusalFor(in.Kind)
+			if !ok {
+				message = "work kind is not capturable"
+			}
+			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
 		}
 		if len(in.ProjectIDs) == 0 {
 			return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil
@@ -979,8 +983,12 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		if in.Kind == "epic" || in.Kind == "initiative" {
-			return coreError(base, "invalid_input", "revise_intent cannot create Initiative work; use the dedicated Initiative operation", "use_initiative_operation", false), nil
+		if !store.WorkKindFoldReviseAllowed(in.Kind) {
+			message, _, ok := store.WorkKindRefusalFor(in.Kind)
+			if !ok {
+				message = "work kind cannot be revised"
+			}
+			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
 		}
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}

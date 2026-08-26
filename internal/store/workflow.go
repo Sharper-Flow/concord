@@ -262,6 +262,14 @@ type workflowSuccessorLinkedPayload struct {
 	DefinitionRef   string `json:"definition_ref"`
 }
 
+func upcastWorkflowSuccessorLinkedV1(event Event) (Event, error) {
+	if event.PayloadVersion != 1 {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.successor_linked upcaster requires payload version 1", false, "supply a legacy v1 successor-link payload")
+	}
+	event.PayloadVersion = 2
+	return event, nil
+}
+
 type workflowImpactDeclaredPayload struct {
 	WorkflowVersionFields
 	EdgeID       string `json:"edge_id"`
@@ -1521,11 +1529,28 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	if p.SuccessorKind != "" && p.SuccessorKind != successorKind {
 		return newFailure(KindInvalidRelation, "fold_event", "successor kind does not match the authoritative work item", false, "reread the successor work item")
 	}
+	legacyUnpinned := isWorkflowReplay(ctx) && event.replaySourcePayloadVersion == 1 && p.DefinitionRef == ""
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, p.SuccessorWorkID).Scan(&definitionRef); err != nil && err != sql.ErrNoRows {
 		return workflowProjectionError(err, "cannot read successor workflow definition")
 	}
+	if definitionRef == "" && !legacyUnpinned {
+		return newFailure(KindInvalidRelation, "fold_event", "successor has no workflow instance, so its family is undetermined", false, "select a workflow definition for the successor before linking it")
+	}
+	if p.DefinitionRef == "" && !legacyUnpinned {
+		return newFailure(KindInvalidRelation, "fold_event", "successor definition reference is required", false, "record the pinned successor workflow definition")
+	}
 	if p.DefinitionRef != "" && p.DefinitionRef != definitionRef {
 		return newFailure(KindInvalidRelation, "fold_event", "successor definition does not match the authoritative workflow instance", false, "reread the successor workflow definition")
+	}
+	var successorFamily WorkKind
+	if legacyUnpinned {
+		successorFamily = WorkKind(p.SuccessorKind)
+	} else {
+		successorDefinition, successorErr := BuiltinWorkflowDefinitionForRef(definitionRef)
+		if successorErr != nil {
+			return successorErr
+		}
+		successorFamily = successorDefinition.Definition.WorkKind
 	}
 	var sourceDefinitionRef string
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&sourceDefinitionRef); err != nil {
@@ -1535,7 +1560,7 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if !containsWorkKind(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, WorkKind(successorKind)) {
+	if !containsWorkKind(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, successorFamily) {
 		return newFailure(KindInvalidRelation, "fold_event", "successor family is not allowed by the source workflow composition", false, "use an allowed forward-linked successor family")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {

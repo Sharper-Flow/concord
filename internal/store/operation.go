@@ -237,7 +237,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowEvidenceBound:                     workflowRegistration[workflowEvidenceBoundPayload](1, nil, foldWorkflowEvidenceBound),
 	WorkflowVerdictRecorded:                   workflowRegistration[workflowVerdictRecordedPayload](1, nil, foldWorkflowVerdictRecorded),
 	WorkflowPremiseConfirmed:                  workflowRegistration[workflowPremiseConfirmedPayload](1, nil, foldWorkflowPremiseConfirmed),
-	WorkflowSuccessorLinked:                   workflowRegistration[workflowSuccessorLinkedPayload](1, nil, foldWorkflowSuccessorLinked),
+	WorkflowSuccessorLinked:                   workflowRegistration[workflowSuccessorLinkedPayload](2, map[int]Upcaster{1: upcastWorkflowSuccessorLinkedV1}, foldWorkflowSuccessorLinked),
 	WorkflowImpactDeclared:                    workflowRegistration[workflowImpactDeclaredPayload](1, nil, foldWorkflowImpactDeclared),
 	WorkflowImpactNoticeRecorded:              workflowRegistration[workflowImpactNoticeRecordedPayload](2, map[int]Upcaster{1: upcastWorkflowImpactNoticeRecordedV1}, foldWorkflowImpactNoticeRecorded),
 	WorkflowConditionAdded:                    workflowRegistration[workflowConditionAddedPayload](1, nil, foldWorkflowConditionAdded),
@@ -281,6 +281,7 @@ func upcastEventWithRegistration(event Event, registration EventKindRegistration
 	if event.PayloadVersion < registration.MinSupported || event.PayloadVersion > registration.CurrentVersion {
 		return Event{}, unsupportedEventVersion(event, registration)
 	}
+	storedPayloadVersion := event.PayloadVersion
 	for event.PayloadVersion < registration.CurrentVersion {
 		upcaster := registration.Upcasters[event.PayloadVersion]
 		if upcaster == nil {
@@ -297,6 +298,9 @@ func upcastEventWithRegistration(event Event, registration EventKindRegistration
 	}
 	if event.PayloadVersion != registration.CurrentVersion {
 		return Event{}, unsupportedEventVersion(event, registration)
+	}
+	if storedPayloadVersion < registration.CurrentVersion {
+		event.replaySourcePayloadVersion = storedPayloadVersion
 	}
 	return event, nil
 }

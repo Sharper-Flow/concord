@@ -172,8 +172,13 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "work.created payload work_id does not match the event subject", false,
 			"address the event to the work item it creates")
 	}
-	if payload.WorkKind == "epic" {
-		return newFailure(KindInvalidPayload, "fold_event", "obsolete work kind is not accepted", false, "use Initiative through the dedicated Initiative operation")
+	if !WorkKindFoldCreateAllowed(payload.WorkKind) {
+		message, recovery, ok := WorkKindRefusalFor(payload.WorkKind)
+		if !ok {
+			message = "work kind is not declared"
+			recovery = "use a declared stored work kind"
+		}
+		return newFailure(KindInvalidPayload, "fold_event", message, false, recovery)
 	}
 	urgency := payload.Urgency
 	if urgency == "" {
@@ -218,8 +223,13 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.Title == "" || payload.ValueStatement == "" || payload.Kind == "" || payload.Reason == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "work.intent_revised payload is incomplete", false, "supply the complete mutable intent and reason")
 	}
-	if payload.Kind == "epic" || payload.Kind == "initiative" {
-		return newFailure(KindInvalidPayload, "fold_event", "obsolete work kind is not accepted", false, "use Initiative through the dedicated Initiative operation")
+	if !WorkKindFoldReviseAllowed(payload.Kind) {
+		message, recovery, ok := WorkKindRefusalFor(payload.Kind)
+		if !ok {
+			message = "work kind is not declared"
+			recovery = "use a declared revisable work kind"
+		}
+		return newFailure(KindInvalidPayload, "fold_event", message, false, recovery)
 	}
 	urgency := payload.Urgency
 	if urgency == "" {
@@ -342,13 +352,26 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err != nil {
 			return err
 		}
-		if kind == "architecture_spike" {
+		var definitionRef string
+		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&definitionRef)
+		if definitionErr != nil && definitionErr != sql.ErrNoRows {
+			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
+		}
+		architectureWorkflow := false
+		if definitionErr == nil {
+			definition, lookupErr := BuiltinWorkflowDefinitionForRef(definitionRef)
+			if lookupErr != nil {
+				return lookupErr
+			}
+			architectureWorkflow = definition.Definition.WorkKind == WorkKindArchitectureSpike
+		}
+		if architectureWorkflow {
 			// Fail closed until an accepted workflow adds structural decision-record
 			// acceptance. Research attachments and EvidenceRefs are intentionally
 			// not treated as heuristic substitutes for that future proof.
 			return newFailure(KindDecisionRecordRequired, "fold_event", "architecture_spike completion requires an accepted decision record", false, "complete through the accepted decision-record workflow once implemented")
 		}
-		if kind == "initiative" {
+		if WorkKindRequiresDedicatedOperation(kind) {
 			if _, err := initiativeRequiredChildrenComplete(ctx, tx, event.SubjectID); err != nil {
 				return err
 			}

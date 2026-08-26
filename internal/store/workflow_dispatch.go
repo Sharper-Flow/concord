@@ -294,7 +294,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if len(missing) > 0 || runID == "" || subjectRef == "" || status == "" || evidenceRef == "" || evidenceDigest == "" {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", request.ActionID+" requires typed native-run fields: run_id, native_subject_ref, status, evidence_ref, evidence_digest", false, "supply the native authority's attributed report fields")
 		}
-		if !nativeRunStatusVocab[phase][status] {
+		if !NativeRunStatusAllowed(phase, status) {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", status+" is not a "+phase+" status", false, "use the closed status vocabulary for this phase")
 		}
 		nativeEvent, err := buildNativeRunEvent(eventID+":native-run", request.WorkID, request.Actor, request.Now, expected, phase, runID, subjectRef, status, evidenceRef, evidenceDigest, assertedAt)
@@ -589,7 +589,14 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if sourceErr != nil {
 			return nil, sourceErr
 		}
-		if !containsWorkKind(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, WorkKind(successorKind)) {
+		if definitionRef == "" {
+			return nil, newFailure(KindInvalidRelation, "workflow_action", "successor has no workflow instance, so its family is undetermined", false, "select a workflow definition for the successor before linking it")
+		}
+		successorDefinition, successorErr := BuiltinWorkflowDefinitionForRef(definitionRef)
+		if successorErr != nil {
+			return nil, successorErr
+		}
+		if !containsWorkKind(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, successorDefinition.Definition.WorkKind) {
 			return nil, newFailure(KindInvalidRelation, "workflow_action", "successor family is not allowed by the source workflow composition", false, "use an allowed forward-linked successor family")
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind, "definition_ref": definitionRef})}, nil

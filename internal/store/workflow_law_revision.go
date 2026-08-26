@@ -9,13 +9,40 @@ import (
 
 type workflowReplayContextKey struct{}
 
+// A replay folds events serially in one transaction. The running identity
+// count therefore matches the event-log order without a query for each edge.
+type workflowReplayState struct {
+	relationIdentity int64
+}
+
 func workflowReplayContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, workflowReplayContextKey{}, true)
+	return context.WithValue(ctx, workflowReplayContextKey{}, &workflowReplayState{})
 }
 
 func isWorkflowReplay(ctx context.Context) bool {
-	value, _ := ctx.Value(workflowReplayContextKey{}).(bool)
-	return value
+	_, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
+	return ok
+}
+
+func advanceWorkflowReplay(ctx context.Context, event Event) {
+	state, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
+	if !ok {
+		return
+	}
+	for _, kind := range relationIdentityEventKinds {
+		if event.Kind == kind {
+			state.relationIdentity++
+			return
+		}
+	}
+}
+
+func workflowReplayRelationIdentity(ctx context.Context) (int64, bool) {
+	state, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
+	if !ok {
+		return 0, false
+	}
+	return state.relationIdentity, true
 }
 
 // WorkflowLawRevision is the immutable law proof captured when a workflow

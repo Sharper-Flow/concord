@@ -1,4 +1,4 @@
-# CD-0075: The current knowledge manifest has no legacy migration path
+# CD-0076: The current knowledge manifest has no legacy migration path
 
 - **Status:** Accepted
 - **Date:** 2026-08-25

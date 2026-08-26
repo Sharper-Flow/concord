@@ -7,9 +7,10 @@ OpenCode adapter with public contracts, scenarios, and repository validators.
 
 ## Status
 
-Concord is pre-replacement-readiness. Until the accepted readiness floor is
-proven, GitHub issues, pull requests, and worktrees remain the authority for
-Concord's own development; Concord must not coordinate its own development.
+Concord is pre-replacement-readiness. Until the
+[accepted readiness floor](docs/floor-readiness.md) is proven, GitHub issues,
+pull requests, and worktrees remain the authority for Concord's own
+development; Concord must not coordinate its own development.
 
 Published releases support Linux amd64 only.
 
@@ -76,7 +77,7 @@ bootstrap commands and closed command vocabulary.
 
 ## Build and verify from source
 
-Source development uses the Go toolchain pinned in `go.mod` (Go 1.26.5) and
+Source development uses the Go toolchain pinned in [`go.mod`](go.mod) and
 Python 3 for repository validators.
 
 ```sh

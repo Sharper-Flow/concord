@@ -26,6 +26,8 @@ linters:
       excludes:
         - G104
     staticcheck:
+      # The governed deadcode manifest owns reachability. Quick-fix checks are
+      # optional rewrites rather than defects; staticcheck still runs SA, S, and ST checks.
       checks:
         - all
         - -U1000

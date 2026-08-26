@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"time"
+	"unicode/utf8"
 )
 
 // SubjectRef identifies a versioned projection without conflating equal IDs
@@ -929,6 +930,17 @@ func validateProductStage(maturity, audience string) bool {
 	return validMaturity[maturity] && validAudience[audience]
 }
 
+// maxDisplayNameLength bounds a Product or Project display name. It matches the
+// agent contract's `short` bound, so a stored name is always representable by
+// the read surface. SQLite counts characters in length(), and this counts
+// runes, so the trigger in migration 50 and this check agree on multi-byte
+// names.
+const maxDisplayNameLength = 256
+
+func validDisplayName(name string) bool {
+	return name != "" && utf8.RuneCountInString(name) <= maxDisplayNameLength
+}
+
 func foldProductCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectProduct); err != nil {
 		return err
@@ -937,9 +949,9 @@ func foldProductCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if payload.DisplayName == "" || !validateProductStage(payload.StageMaturity, payload.StageAudienceCommitment) {
+	if !validDisplayName(payload.DisplayName) || !validateProductStage(payload.StageMaturity, payload.StageAudienceCommitment) {
 		return newFailure(KindInvalidPayload, "fold_event", "product.created payload has invalid fields", false,
-			"supply a display name and accepted Product stage values")
+			"supply a display name of 1 to 256 characters and accepted Product stage values")
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	_, err := tx.ExecContext(ctx, `
@@ -966,9 +978,9 @@ func foldProductRenamed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if payload.DisplayName == "" {
-		return newFailure(KindInvalidPayload, "fold_event", "product.renamed payload has no display name", false,
-			"supply a non-empty display name")
+	if !validDisplayName(payload.DisplayName) {
+		return newFailure(KindInvalidPayload, "fold_event", "product.renamed payload has an invalid display name", false,
+			"supply a display name of 1 to 256 characters")
 	}
 	return updateProduct(ctx, tx, event, `display_name = ?`, payload.DisplayName)
 }
@@ -1015,9 +1027,9 @@ func foldProjectCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if payload.DisplayName == "" {
-		return newFailure(KindInvalidPayload, "fold_event", "project.created payload has no display name", false,
-			"supply a non-empty display name")
+	if !validDisplayName(payload.DisplayName) {
+		return newFailure(KindInvalidPayload, "fold_event", "project.created payload has an invalid display name", false,
+			"supply a display name of 1 to 256 characters")
 	}
 	overrideMaturity, overrideAudience, err := decodeProjectStagePair(payload.StageMaturityOverride, payload.StageAudienceCommitmentOverride, true)
 	if err != nil {
@@ -1081,9 +1093,9 @@ func foldProjectRenamed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if payload.DisplayName == "" {
-		return newFailure(KindInvalidPayload, "fold_event", "project.renamed payload has no display name", false,
-			"supply a non-empty display name")
+	if !validDisplayName(payload.DisplayName) {
+		return newFailure(KindInvalidPayload, "fold_event", "project.renamed payload has an invalid display name", false,
+			"supply a display name of 1 to 256 characters")
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	result, err := tx.ExecContext(ctx,

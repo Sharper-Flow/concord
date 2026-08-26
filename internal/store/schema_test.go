@@ -1027,7 +1027,7 @@ func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("valid pre-migration rows failed upgrade: %v", err)
 	}
-	if version, err := SchemaVersion(ctx, db); err != nil || version != 49 {
+	if version, err := SchemaVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
 		t.Fatalf("upgraded schema version=%d err=%v", version, err)
 	}
 }

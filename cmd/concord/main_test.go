@@ -514,6 +514,7 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-locator-add"}, {"project", "locator-add"},
 		{"project-locator-update"}, {"project", "locator-update"},
 		{"project-locator-remove"}, {"project", "locator-remove"},
+		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
 		{"project-create"}, {"project", "create"},
 		{"product-project-add"}, {"product", "project-add"},

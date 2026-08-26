@@ -2625,6 +2625,51 @@ UPDATE workflow_native_runs SET phase=phase,status=status;
 DELETE FROM fold_guard;
 		`,
 	},
+	{
+		Version: 50,
+		Name:    "display_name_bounds",
+		SQL: `
+-- The agent read surface bounds a Product or Project display name at 256
+-- characters. Without the same bound at capture, a longer name is storable and
+-- then fails outbound schema validation on every read, so the row becomes
+-- authority that no agent can represent. SQLite cannot add a CHECK to an
+-- existing table, and rebuilding these two tables would drop the foreign keys
+-- that make Project identity stable, so the bound is a trigger.
+CREATE TRIGGER products_display_name_bound_insert
+BEFORE INSERT ON products FOR EACH ROW
+WHEN length(NEW.display_name) NOT BETWEEN 1 AND 256
+BEGIN
+    SELECT RAISE(ABORT, 'Product display name must be 1 to 256 characters');
+END;
+CREATE TRIGGER products_display_name_bound_update
+BEFORE UPDATE OF display_name ON products FOR EACH ROW
+WHEN length(NEW.display_name) NOT BETWEEN 1 AND 256
+BEGIN
+    SELECT RAISE(ABORT, 'Product display name must be 1 to 256 characters');
+END;
+
+CREATE TRIGGER projects_display_name_bound_insert
+BEFORE INSERT ON projects FOR EACH ROW
+WHEN length(NEW.display_name) NOT BETWEEN 1 AND 256
+BEGIN
+    SELECT RAISE(ABORT, 'Project display name must be 1 to 256 characters');
+END;
+CREATE TRIGGER projects_display_name_bound_update
+BEFORE UPDATE OF display_name ON projects FOR EACH ROW
+WHEN length(NEW.display_name) NOT BETWEEN 1 AND 256
+BEGIN
+    SELECT RAISE(ABORT, 'Project display name must be 1 to 256 characters');
+END;
+
+-- Prove the stored corpus already conforms. A no-op update fires the new
+-- triggers on every existing row, so migration refuses rather than admitting a
+-- row the read surface cannot return.
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE products SET display_name=display_name;
+UPDATE projects SET display_name=display_name;
+DELETE FROM fold_guard;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

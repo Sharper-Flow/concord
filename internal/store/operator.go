@@ -84,8 +84,8 @@ func entityVersion(ctx context.Context, q queryer, subjectType SubjectType, id s
 }
 
 func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCreation) (ApplyOperationResult, error) {
-	if request.ProductID == "" || request.DisplayName == "" || request.ProjectID == "" || request.ProjectDisplayName == "" || !validateProductStage(request.StageMaturity, request.StageAudienceCommitment) || !validateProjectStageOverride(request.ProjectStageMaturityOverride, request.ProjectStageAudienceCommitmentOverride) {
-		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "product_create", "Product and initial Project fields are required", false, "supply valid Product stage and non-empty identities")
+	if request.ProductID == "" || !validDisplayName(request.DisplayName) || request.ProjectID == "" || !validDisplayName(request.ProjectDisplayName) || !validateProductStage(request.StageMaturity, request.StageAudienceCommitment) || !validateProjectStageOverride(request.ProjectStageMaturityOverride, request.ProjectStageAudienceCommitmentOverride) {
+		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "product_create", "Product and initial Project fields are required", false, "supply valid Product stage, non-empty identities, and display names of 1 to 256 characters")
 	}
 	if request.Role != "primary" && request.Role != "secondary" {
 		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "product_create", "membership role is not recognized", false, "use primary or secondary")
@@ -118,8 +118,8 @@ func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCre
 }
 
 func (s *Store) CreateProjectForProduct(ctx context.Context, request ProjectCreation) (ApplyOperationResult, error) {
-	if request.ProjectID == "" || request.DisplayName == "" || request.ProductID == "" || request.ExpectedProductVersion < 1 || !validateProjectStageOverride(request.StageMaturityOverride, request.StageAudienceCommitmentOverride) {
-		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "project_create", "Project, Product, and positive Product version are required", false, "supply an existing Product and its current version")
+	if request.ProjectID == "" || !validDisplayName(request.DisplayName) || request.ProductID == "" || request.ExpectedProductVersion < 1 || !validateProjectStageOverride(request.StageMaturityOverride, request.StageAudienceCommitmentOverride) {
+		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "project_create", "Project, Product, and positive Product version are required", false, "supply an existing Product, its current version, and a display name of 1 to 256 characters")
 	}
 	if request.Role != "primary" && request.Role != "secondary" {
 		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "project_create", "membership role is not recognized", false, "use primary or secondary")

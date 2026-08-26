@@ -15,8 +15,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-const maxInputBytes = 65536
-
 // CallEnvelope is the hidden TS5 portion of an invoke request. The CLI accepts
 // it only from trusted client code; model-facing input is validated separately.
 type CallEnvelope struct {

@@ -385,12 +385,10 @@ var workerProvenanceKinds = map[string]bool{
 	"agent_definition": true, "agents_md": true, "instruction_file": true, "unenumerated": true,
 }
 
-// validateWorkerHostProvenance enforces the CD-0034 declared rule at the
+// ValidateWorkerHostProvenance enforces the CD-0034 declared rule at the
 // evidence boundary: when present the provenance must be complete and
 // closed. Payload version 3 requires it; that gate is the emitter's
 // contract, pinned by the adapter's own tests.
-// ValidateWorkerHostProvenance is the exported gate for CLI/adapter
-// callers composing dispatch evidence.
 func ValidateWorkerHostProvenance(p *WorkerHostProvenance) error {
 	if p == nil {
 		return nil

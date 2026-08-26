@@ -8,8 +8,6 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -166,33 +164,5 @@ func TestWorkerDispatchCapabilityIsInTheClientPolicyAllowList(t *testing.T) {
 		ClientRef: "client-bogus", KeyID: "key-bogus", PublicKey: publicKey2, Policy: bogusPolicy,
 	}); err == nil {
 		t.Fatal("client policy carrying unknown capability was registered")
-	}
-}
-
-// cd0059SeedWorkItem creates a work item the dispatch_worker invocation
-// can target. The fixture has already created product-1 and project-1;
-// the test folds in the work item, its primary membership, and the
-// workflow definition pin the agent dispatch path requires.
-func cd0059SeedWorkItem(t *testing.T, s *store.Store, workID string) {
-	t.Helper()
-	ctx := context.Background()
-	registry := store.BuiltinWorkflowRegistry()
-	entry, ok := registry.Lookup("workflow.implementation", 1)
-	if !ok {
-		t.Fatal("workflow.implementation is not registered")
-	}
-	actor := store.WorkflowActor{PrincipalRef: "operator", ClientRef: "operator", AgentRef: "operator", SessionRef: workID, ActorClass: store.ActorOperator}
-	actorRef, err := store.WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	events := []store.Event{
-		{EventID: "cd0059-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"CD0059","priority":1}`)},
-		{EventID: "cd0059-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		{EventID: "cd0059-work-actor", Kind: store.WorkflowActorRecorded, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(fmt.Sprintf(`{"work_id":"%s","expected_version":2,"resulting_version":3,"actor_ref":"%s","principal_ref":"%s","client_ref":"%s","agent_ref":"%s","session_ref":"%s","actor_class":"operator"}`, workID, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef))},
-		{EventID: "cd0059-work-definition", Kind: store.WorkflowDefinitionSelected, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(fmt.Sprintf(`{"work_id":"%s","expected_version":3,"resulting_version":4,"ref":"workflow.implementation","version":1,"digest":"%s","work_kind":"implementation"}`, workID, entry.Digest))},
-	}
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
-		t.Fatal(err)
 	}
 }

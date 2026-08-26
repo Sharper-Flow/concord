@@ -126,7 +126,7 @@ type Q1Result struct {
 	Result       *Q1ResultPayload    `json:"result,omitempty"`
 }
 
-// Result mirrors specialized fields to reconcile PM1's universal envelope with
+// Q1ResultPayload mirrors specialized fields to reconcile PM1's universal envelope with
 // accepted scenario paths without duplicating database state.
 type Q1ResultPayload struct {
 	Products     []Product           `json:"products,omitempty"`
@@ -840,7 +840,7 @@ func attachDerivedFlags(ctx context.Context, tx *sql.Tx, items []WorkItem) ([]Wo
 		args[i] = items[i].ID
 		byID[items[i].ID] = i
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT w.id, EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) FROM work_items w WHERE w.id IN (`+strings.Join(ph, ",")+`)`, args...)
+	rows, err := tx.QueryContext(ctx, `SELECT w.id, EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) FROM work_items w WHERE w.id IN (`+strings.Join(ph, ",")+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query", "cannot derive work readiness", true, "retry once the database is readable", err)
 	}
@@ -874,7 +874,7 @@ func attachWorkMemberships(ctx context.Context, tx *sql.Tx, items []WorkItem, id
 		args[i] = id
 		byID[id] = i
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT wp.work_id, p.id,p.display_name,wp.role FROM work_projects wp JOIN projects p ON p.id=wp.project_id WHERE wp.work_id IN (`+strings.Join(ph, ",")+`) ORDER BY CASE wp.role WHEN 'primary' THEN 0 ELSE 1 END,p.id`, args...)
+	rows, err := tx.QueryContext(ctx, `SELECT wp.work_id, p.id,p.display_name,wp.role FROM work_projects wp JOIN projects p ON p.id=wp.project_id WHERE wp.work_id IN (`+strings.Join(ph, ",")+`) ORDER BY CASE wp.role WHEN 'primary' THEN 0 ELSE 1 END,p.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query", "cannot read work memberships", true, "retry once the database is readable", err)
 	}
@@ -1033,6 +1033,7 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 		args = append(args, item.ID, i)
 	}
 	args = append(args, depth, edgeLimit+1)
+	//nolint:gosec // values contains only fixed (?,?) tuples and all IDs, positions, and limits stay parameter-bound.
 	q := `WITH RECURSIVE selected(id,position) AS (VALUES ` + strings.Join(values, ",") + `), graph(root_id,parent_id,blocker_id,depth) AS (
 		SELECT s.id,s.id,r.work_id_from,1
 		FROM selected s
@@ -1369,7 +1370,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		kindPlaceholders[i] = "?"
 		args = append(args, kind)
 	}
-	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?`
+	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?` //nolint:gosec // placeholders are fixed, where and order are closed branches, and all request values stay parameter-bound.
 	args = append(args, limit+1)
 	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -1608,7 +1609,7 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 		}())
 		args = append(args, spec.label, spec.invert, spec.invert, spec.stored, req.Work)
 	}
-	q := strings.Join(parts, " UNION ALL ") + ` ORDER BY kind,source,target`
+	q := strings.Join(parts, " UNION ALL ") + ` ORDER BY kind,source,target` //nolint:gosec // parts use one fixed SQL template and closed direction branches while every relation value stays parameter-bound.
 	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q8", "cannot read relations", true, "retry once the database is readable", err)

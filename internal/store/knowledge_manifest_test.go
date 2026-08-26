@@ -303,6 +303,10 @@ func knowledgeProjectionSnapshot(t *testing.T, s *Store) string {
 			}
 			lines = append(lines, strings.Join(fields, "|"))
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
 		if err := rows.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -516,6 +520,9 @@ func TestLegacyManifestAbsenceCoverageIsExplicit(t *testing.T) {
 			t.Fatal(err)
 		}
 		coverage[kind] = value
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	if coverage["work_note"] != "indexed" || coverage["lesson"] != "supported_not_indexed" || coverage["decision"] != "supported_not_indexed" || coverage["spec"] != "supported_not_indexed" || coverage["research"] != "supported_not_indexed" {
 		t.Fatalf("legacy coverage=%v", coverage)

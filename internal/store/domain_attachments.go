@@ -221,10 +221,10 @@ func replaceDomainAttachmentSet(ctx context.Context, tx *sql.Tx, setTable, edgeT
 	if current != expected {
 		return versionConflict(SubjectProduct, productID, expected, current, true)
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO "+setTable+"(product_id,domain_id,version) VALUES(?,?,?) ON CONFLICT(product_id,domain_id) DO UPDATE SET version=excluded.version", productID, domainID, resulting); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO "+setTable+"(product_id,domain_id,version) VALUES(?,?,?) ON CONFLICT(product_id,domain_id) DO UPDATE SET version=excluded.version", productID, domainID, resulting); err != nil { //nolint:gosec // callers select setTable from the two internal attachment tables and all values stay parameter-bound.
 		return wrapFailure(KindUnavailable, "fold_event", "cannot advance Domain attachment-set version", true, "retry once the database is writable", err)
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM "+edgeTable+" WHERE product_id=? AND domain_id=?", productID, domainID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM "+edgeTable+" WHERE product_id=? AND domain_id=?", productID, domainID); err != nil { //nolint:gosec // callers select edgeTable from the two internal attachment tables and all values stay parameter-bound.
 		return wrapFailure(KindUnavailable, "fold_event", "cannot replace Domain attachment edges", true, "retry once the database is writable", err)
 	}
 	return nil

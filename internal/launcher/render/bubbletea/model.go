@@ -917,7 +917,7 @@ func sessionProcess(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 	if err != nil || executable == "" {
 		return nil, fmt.Errorf("cannot identify the running Concord binary")
 	}
-	cmd := exec.Command(executable, "session")
+	cmd := exec.Command(executable, "session") //nolint:gosec // executable comes from os.Executable and the fixed argv does not invoke a shell.
 	cmd.Env = handoffEnv(handoff)
 	return cmd, nil
 }

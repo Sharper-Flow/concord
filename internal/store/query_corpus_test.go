@@ -298,9 +298,7 @@ func pathValue(root any, path string) any {
 	if path == "$" || path == "" {
 		return root
 	}
-	if strings.HasPrefix(path, "$") {
-		path = path[1:]
-	}
+	path = strings.TrimPrefix(path, "$")
 	var current = []any{root}
 	for len(path) > 0 {
 		if path[0] == '.' {

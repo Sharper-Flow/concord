@@ -61,7 +61,7 @@ type LauncherWorkResult struct {
 	Edges    []RelationEdge
 }
 
-// LauncherSearchResult is a private launcher projection, not a new PM query or
+// LauncherSearchRequest selects a private launcher projection, not a new PM query or
 // public tool. One operation owns the Product-scoped work and knowledge matches.
 type LauncherSearchRequest struct {
 	Product string
@@ -348,7 +348,7 @@ func launcherBlockersForWorks(ctx context.Context, tx *sql.Tx, workIDs []string)
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_to,b.id,b.title,COALESCE((SELECT c.resolution_authority FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),'canonical'),COALESCE((SELECT c.condition_id FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),''),b.created_at FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to IN (`+strings.Join(placeholders, ",")+`) AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') ORDER BY r.work_id_to,b.created_at,b.id`, args...)
+	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_to,b.id,b.title,COALESCE((SELECT c.resolution_authority FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),'canonical'),COALESCE((SELECT c.condition_id FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),''),b.created_at FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to IN (`+strings.Join(placeholders, ",")+`) AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') ORDER BY r.work_id_to,b.created_at,b.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
 		return nil, err
 	}
@@ -430,6 +430,10 @@ func (s *Store) QueryLauncherWork(ctx context.Context, req LauncherWorkRequest) 
 		}
 		out.Events = append(out.Events, e)
 	}
+	if err := erows.Err(); err != nil {
+		erows.Close()
+		return out, err
+	}
 	if err := erows.Close(); err != nil {
 		return out, err
 	}
@@ -452,6 +456,10 @@ func (s *Store) QueryLauncherWork(ctx context.Context, req LauncherWorkRequest) 
 			return out, err
 		}
 		out.Edges = append(out.Edges, e)
+	}
+	if err := rrows.Err(); err != nil {
+		rrows.Close()
+		return out, err
 	}
 	if err := rrows.Close(); err != nil {
 		return out, err

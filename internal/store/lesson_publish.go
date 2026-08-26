@@ -155,7 +155,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	recordShardFullPath := path.Join(home.RepoPath, recordShardPath)
 
 	// Existing manifest governs idempotency and conflicts.
-	manifestBytes, readErr := os.ReadFile(manifestFullPath)
+	manifestBytes, readErr := os.ReadFile(manifestFullPath) //nolint:gosec // lessonManifestPath is fixed and home.RepoPath is the operator-selected Git authority.
 	if readErr != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read the knowledge manifest", true, "restore the git knowledge home", readErr)
 	}
@@ -186,20 +186,20 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		return out, err
 	}
 
-	if err := os.MkdirAll(path.Dir(fullNotePath), 0o755); err != nil {
+	if err := os.MkdirAll(path.Dir(fullNotePath), 0o755); err != nil { //nolint:gosec // lessons are public repository content and require normal Git directory permissions.
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson directory", true, "restore write access to the git home", err)
 	}
-	if err := os.WriteFile(fullNotePath, []byte(req.Content), 0o644); err != nil {
+	if err := os.WriteFile(fullNotePath, []byte(req.Content), 0o644); err != nil { //nolint:gosec // lessons are public repository content and require normal Git file permissions.
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson draft", true, "restore write access to the git home", err)
 	}
-	if err := os.MkdirAll(path.Dir(recordShardFullPath), 0o755); err != nil {
+	if err := os.MkdirAll(path.Dir(recordShardFullPath), 0o755); err != nil { //nolint:gosec // record shards are public repository content and require normal Git directory permissions.
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson record directory", true, "restore write access to the git home", err)
 	}
 	shard, err := marshalKnowledgeRecord(record)
 	if err != nil {
 		return out, err
 	}
-	if err := os.WriteFile(recordShardFullPath, shard, 0o644); err != nil {
+	if err := os.WriteFile(recordShardFullPath, shard, 0o644); err != nil { //nolint:gosec // record shards are public repository content and require normal Git file permissions.
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson record shard", true, "restore write access to the git home", err)
 	}
 
@@ -215,7 +215,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	if err != nil {
 		return out, err
 	}
-	if err := os.WriteFile(manifestFullPath, updated, 0o644); err != nil {
+	if err := os.WriteFile(manifestFullPath, updated, 0o644); err != nil { //nolint:gosec // the knowledge manifest is public repository content and requires normal Git file permissions.
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the knowledge manifest", true, "restore write access to the git home", err)
 	}
 

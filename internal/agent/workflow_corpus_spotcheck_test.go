@@ -181,7 +181,7 @@ func TestWorkflowCorpusWF39DispatchesThroughAgentWorkflowAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: selected.Action, Input: inputRaw}
-	outer, err := json.Marshal(map[string]any{"call_envelope": env, "tool": request.Tool, "operation": request.Operation, "input": json.RawMessage(request.Input)})
+	outer, err := json.Marshal(map[string]any{"call_envelope": env, "tool": request.Tool, "operation": request.Operation, "input": request.Input})
 	if err != nil {
 		t.Fatal(err)
 	}

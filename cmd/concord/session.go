@@ -56,7 +56,7 @@ func hostLaneAgentIdentity() error {
 // transaction. The verification runs before any store interaction so a
 // missing definition fails closed without touching the database — the
 // session either records the assertion it required or refuses.
-func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (string, error) {
+func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (handleResult string, errResult error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = ""
@@ -86,7 +86,12 @@ func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (st
 	if err != nil {
 		return "", err
 	}
-	defer s.Close()
+	defer func() {
+		if closeErr := s.Close(); closeErr != nil && errResult == nil {
+			handleResult = ""
+			errResult = closeErr
+		}
+	}()
 	eventID := orchestratorAssertionEventID(productID, workID)
 	if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, s.Now(), assertion); err != nil {
 		return "", err
@@ -107,12 +112,17 @@ func orchestratorAssertionEventID(productID, workID string) string {
 	return "session-orchestrator-identity:" + scope + ":" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
-func deriveSessionBoot(ctx context.Context, database, productID, workID string) ([]byte, error) {
+func deriveSessionBoot(ctx context.Context, database, productID, workID string) (packet []byte, errResult error) {
 	s, err := store.Open(ctx, database)
 	if err != nil {
 		return nil, err
 	}
-	defer s.Close()
+	defer func() {
+		if closeErr := s.Close(); closeErr != nil && errResult == nil {
+			packet = nil
+			errResult = closeErr
+		}
+	}()
 	snapshot, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: workID, Limit: 1})
 	if err != nil {
 		return nil, err
@@ -121,7 +131,7 @@ func deriveSessionBoot(ctx context.Context, database, productID, workID string) 
 }
 
 func runOpenCode(ctx context.Context, argv, env []string, in io.Reader, out, errOut io.Writer) error {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the sole caller builds fixed opencode argv values and this call does not invoke a shell.
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
 	return cmd.Run()

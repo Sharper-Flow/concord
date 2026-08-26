@@ -39,7 +39,7 @@ var (
 	boundaryCreateTableRe = regexp.MustCompile(
 		"(?i)\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:\"([^\"]+)\"|`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*))",
 	)
-	boundarySQLOperationRe = regexp.MustCompile("(?i)\\b(SELECT|INSERT|UPDATE|DELETE|REPLACE)\\b")
+	boundarySQLOperationRe = regexp.MustCompile(`(?i)\b(SELECT|INSERT|UPDATE|DELETE|REPLACE)\b`)
 	boundarySQLTableRefRe  = regexp.MustCompile(
 		"(?i)\\b(?:FROM|JOIN|INTO|UPDATE|DELETE(?:\\s+FROM)?)\\s+(?:[A-Za-z_][A-Za-z0-9_]*\\.)?[\"`]?([A-Za-z_][A-Za-z0-9_]*)[\"`]?",
 	)

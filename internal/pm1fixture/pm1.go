@@ -155,7 +155,7 @@ func Load() (Corpus, error) {
 		return corpus, fmt.Errorf("pm1fixture: runtime.Caller failed")
 	}
 	path := filepath.Join(filepath.Dir(file), "..", "..", "scenarios", "product-memory-query.v1.json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // runtime.Caller anchors this code-owned scenario path inside the repository.
 	if err != nil {
 		return corpus, fmt.Errorf("pm1fixture: read %s: %w", path, err)
 	}
@@ -355,11 +355,11 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err := writeKnowledgeFile(repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-04T12:00:00Z", []string{"sqlite", "governance"})); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write decision note: %w", err)
 	}
-	lessonContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(lessonPath)))
+	lessonContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(lessonPath))) //nolint:gosec // repo is a fresh fixture repository and lessonPath is a fixed internal path.
 	if err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: read lesson note: %w", err)
 	}
-	decisionContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(decisionPath)))
+	decisionContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(decisionPath))) //nolint:gosec // repo is a fresh fixture repository and decisionPath is a fixed internal path.
 	if err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: read decision note: %w", err)
 	}
@@ -449,15 +449,8 @@ func SeedLaggingKnowledge(home store.KnowledgeHome) (string, error) {
 	return id, nil
 }
 
-// fixtureEvent is the local helper that builds a store.Event. It mirrors the
-// historical fixtureEvent helper that lived inside internal/store's test
-// package; behaviour and payload-version rule (work.created uses v2, all
-// others use v1) are preserved verbatim.
 // SeedGoverningRequirement declares one CD-0035 governing requirement against a
-// seeded Project. It is deliberately additive and separate from Seed: folding it
-// into the base fixture would move every Project version and shift expected
-// versions under every PM1-bound scenario, which is the coupling issue #169
-// already tracks.
+// seeded Project. It stays separate from Seed to keep base Project versions stable.
 func SeedGoverningRequirement(ctx context.Context, s *store.Store, projectID, requirementRef, reason string) error {
 	var current int64
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, projectID).Scan(&current); err != nil {
@@ -519,10 +512,10 @@ func initKnowledgeRepo(dir string) (string, error) {
 
 func writeKnowledgeFile(repo, path, content string) error {
 	full := filepath.Join(repo, filepath.FromSlash(path))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil { //nolint:gosec // fixture repositories contain public Git content with repository-standard directory permissions.
 		return err
 	}
-	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil { //nolint:gosec // fixture repositories contain public Git content with repository-standard file permissions.
 		return err
 	}
 	return nil
@@ -547,7 +540,7 @@ func commitKnowledgeRepo(repo, message string) (string, error) {
 // identical commit OIDs across runs, which the fixture relies on for
 // commit-alias resolution.
 func runKnowledgeGit(repo string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...) //nolint:gosec // this fixture passes code-owned git argv values directly without a shell.
 	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE=2026-08-07T00:00:00Z", "GIT_COMMITTER_DATE=2026-08-07T00:00:00Z")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -685,11 +678,16 @@ func nonNil(values []string) []string {
 	return values
 }
 
-func authorizeKnowledgeLocator(ctx context.Context, s *store.Store, home store.KnowledgeHome) error {
+func authorizeKnowledgeLocator(ctx context.Context, s *store.Store, home store.KnowledgeHome) (err error) {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		return err
 	}
-	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		_, cleanupErr := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+		if err == nil {
+			err = cleanupErr
+		}
+	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
 		return err
 	}
@@ -699,14 +697,19 @@ func authorizeKnowledgeLocator(ctx context.Context, s *store.Store, home store.K
 	return nil
 }
 
-func authorizeKnowledgeProductHome(ctx context.Context, s *store.Store, productID string, home store.KnowledgeHome) error {
+func authorizeKnowledgeProductHome(ctx context.Context, s *store.Store, productID string, home store.KnowledgeHome) (err error) {
 	if err := authorizeKnowledgeLocator(ctx, s, home); err != nil {
 		return err
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		return err
 	}
-	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		_, cleanupErr := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+		if err == nil {
+			err = cleanupErr
+		}
+	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
 		return err
 	}

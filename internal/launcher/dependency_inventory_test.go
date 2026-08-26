@@ -669,7 +669,7 @@ func tempFilesystemFreeBytes() (uint64, error) {
 	if stat.Bavail <= 0 || stat.Bsize <= 0 {
 		return 0, nil
 	}
-	return uint64(stat.Bavail) * uint64(stat.Bsize), nil
+	return stat.Bavail * uint64(stat.Bsize), nil
 }
 
 func requireHermeticCacheSpace(t *testing.T) {

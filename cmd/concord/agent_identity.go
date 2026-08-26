@@ -42,7 +42,7 @@ var orchestratorAgentName = strings.TrimSuffix(orchestratorAgentFileName, ".md")
 // column 0 inside the leading frontmatter block, value trimmed, symmetric
 // quotes stripped. Anything else reads as the stem.
 func orchestratorInvocationHandle(resolved string) string {
-	data, err := os.ReadFile(resolved)
+	data, err := os.ReadFile(resolved) //nolint:gosec // resolved is an operator-owned host agent definition selected from the fixed search roots.
 	if err != nil {
 		return orchestratorAgentName
 	}
@@ -259,11 +259,11 @@ func collectOrchestratorArtifactSources(definition, cwd string) []store.Orchestr
 // non-regular file returns ok=false so the caller skips it rather than
 // recording a declared-but-absent artifact (CD-0061 Invariant 4).
 func hashOrchestratorSource(kind, path string) (store.OrchestratorArtifactSource, bool) {
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) //nolint:gosec // path is a fixed host artifact candidate or an operator-declared instruction file.
 	if err != nil || !info.Mode().IsRegular() {
 		return store.OrchestratorArtifactSource{}, false
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // the regular-file check above guards the operator-owned host artifact path.
 	if err != nil {
 		return store.OrchestratorArtifactSource{}, false
 	}

@@ -164,11 +164,11 @@ func (s *Service) RevokeClient(ctx context.Context, clientRef string) error {
 	return s.Store.RevokeTrustedClient(ctx, clientRef, s.now().Format(time.RFC3339Nano))
 }
 
-// CanonicalAssertion is the byte format signed by a trusted client. It is
-// intentionally not JSON: v1 is `v1\0`, followed by fixed, named fields encoded
-// as `name=<UTF-8 byte length>:<UTF-8 value>|`. The field order is part of the
-// contract and matches generated-contracts.ts. List values are pre-normalized
-// by the caller and use comma-separated sorted members.
+// SignedAssertion contains the values signed by a trusted client.
+// CanonicalAssertion encodes the signed bytes as `v1\0`, followed by fixed,
+// named fields in the form `name=<UTF-8 byte length>:<UTF-8 value>|`. The field
+// order matches generated-contracts.ts. The caller pre-normalizes list values
+// as comma-separated sorted members.
 type SignedAssertion struct {
 	ClientRef             string       `json:"client_ref"`
 	SessionRef            string       `json:"session_ref"`

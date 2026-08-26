@@ -200,7 +200,7 @@ func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Gra
 		if challengeRef == "" {
 			t.Fatalf("%s minted no challenge: %+v", action, resp.Error.Details)
 		}
-		withApproval := map[string]any(input)
+		withApproval := input
 		withApproval["approval"] = map[string]any{"approval_ref": challengeRef}
 		approvedRaw, _ := json.Marshal(withApproval)
 		scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": env.ScopeVersion}

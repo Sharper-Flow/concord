@@ -15,10 +15,7 @@ type Projection struct {
 // Project is a deterministic, terminal-independent projection. It performs
 // no reads and emits textual reliance markers so meaning survives no-color
 // output and screen-reader consumption.
-func Project(snapshot Snapshot, width int) Projection {
-	if width < 80 {
-		width = 80
-	}
+func Project(snapshot Snapshot, _ int) Projection {
 	columns := []string{"Product", "Stage", "Reliance", "Actions", "Focus"}
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))

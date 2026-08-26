@@ -235,6 +235,10 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 		}
 		out.Boundaries = append(out.Boundaries, item)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot finish reading context boundary history", true, "retry once the database is readable", err)
+	}
 	rows.Close()
 	if len(out.Boundaries) > req.Limit {
 		last := out.Boundaries[req.Limit-1]

@@ -1970,6 +1970,9 @@ func inlineTransactionEvidence(ctx context.Context, s *Store, workID string, bef
 		}
 		events = append(events, event)
 	}
+	if rows.Err() != nil {
+		return nil, false
+	}
 	if len(events) < 2 || events[len(events)-1].seq-events[0].seq != int64(len(events)-1) {
 		return nil, false
 	}
@@ -2098,6 +2101,10 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 			}
 			versions = append(versions, version)
 			contracts[fmt.Sprintf("%d", version)] = map[string]any{"premise": premise}
+		}
+		if err := contractRows.Err(); err != nil {
+			contractRows.Close()
+			return observation, err
 		}
 		contractRows.Close()
 		contracts["versions"] = versions
@@ -2240,6 +2247,9 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 					epochs[fmt.Sprintf("epoch-%d", epoch)] = entry
 					observation.State[fmt.Sprintf("epoch-%d", epoch)] = entry
 				}
+			}
+			if err := operationRows.Err(); err != nil {
+				return observation, err
 			}
 			observation.State["epochs"] = epochs
 		}

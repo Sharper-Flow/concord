@@ -42,7 +42,6 @@ func addAwaitCondition(t *testing.T, s *Store, conditionID string, boundSeconds 
 	if boundSeconds > 0 {
 		payload["expected_within_seconds"] = boundSeconds
 	}
-	raw, _ := json.Marshal(payload)
 	// The resolution authority must be a recorded durable operation on this
 	// work item — the same engine rule production add_condition satisfies.
 	authorityOp := "op-await-" + conditionID
@@ -53,7 +52,7 @@ func addAwaitCondition(t *testing.T, s *Store, conditionID string, boundSeconds 
 		t.Fatal(err)
 	}
 	payload["resolution_authority"] = "durable_operation:" + authorityOp
-	raw, _ = json.Marshal(payload)
+	raw, _ := json.Marshal(payload)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

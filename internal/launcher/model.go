@@ -244,8 +244,6 @@ type Model struct {
 	width      int
 	height     int
 	section    Section
-	cursor     int
-	scroll     int
 	navigation []Snapshot
 }
 
@@ -494,14 +492,8 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	cloned.Domains.Registry = snapshot.Domains.Registry
 	cloned.Domains.State, cloned.Domains.Reason = snapshot.Domains.State, snapshot.Domains.Reason
 	cloned.Domains.Truncated = snapshot.Domains.Truncated
-	cloned.Domains.Domains = nil
-	for _, domain := range snapshot.Domains.Domains {
-		cloned.Domains.Domains = append(cloned.Domains.Domains, domain)
-	}
-	cloned.Domains.Relations = nil
-	for _, relation := range snapshot.Domains.Relations {
-		cloned.Domains.Relations = append(cloned.Domains.Relations, relation)
-	}
+	cloned.Domains.Domains = append([]DomainRow(nil), snapshot.Domains.Domains...)
+	cloned.Domains.Relations = append([]DomainRelationEdge(nil), snapshot.Domains.Relations...)
 	cloned.Domains.Overlaps = nil
 	for _, pair := range snapshot.Domains.Overlaps {
 		pair.SharedDomains = cloneStrings(pair.SharedDomains)

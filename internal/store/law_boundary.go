@@ -126,6 +126,10 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 			accepted[id] = true
 		}
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
+	}
 	if err := rows.Close(); err != nil {
 		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
 	}
@@ -163,6 +167,10 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 			_ = conflictRows.Close()
 			return result, newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved explicit conflict: %s and %s", source, target), false, "resolve the Git law conflict or declare and approve the amendment path")
 		}
+	}
+	if err := conflictRows.Err(); err != nil {
+		conflictRows.Close()
+		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
 	}
 	if err := conflictRows.Close(); err != nil {
 		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)

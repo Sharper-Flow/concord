@@ -146,7 +146,7 @@ func (s *Store) RecordOrchestratorIdentityAssertion(ctx context.Context, eventID
 func appendOrchestratorIdentityAssertionTx(ctx context.Context, transaction *Transaction, eventID string, occurredAt time.Time, assertion OrchestratorIdentityAssertion, seqOut *Sequence) error {
 	sources := make([]orchestratorArtifactSource, len(assertion.Sources))
 	for i, src := range assertion.Sources {
-		sources[i] = orchestratorArtifactSource{Kind: src.Kind, Path: src.Path, SHA256: src.SHA256}
+		sources[i] = orchestratorArtifactSource(src)
 	}
 	payload, err := json.Marshal(orchestratorIdentityAssertedPayload{
 		Type:          assertion.Type,

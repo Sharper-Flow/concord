@@ -549,28 +549,6 @@ func readRecordedAssertion(t *testing.T, dbPath string) (recordedAssertion, erro
 	return ra, nil
 }
 
-func convertSources(src []store.OrchestratorArtifactSource) []store.OrchestratorArtifactSource {
-	out := make([]store.OrchestratorArtifactSource, len(src))
-	copy(out, src)
-	return out
-}
-
-func convertSourcesFromPaths(t *testing.T, home, cwd, definition string) []store.OrchestratorArtifactSource {
-	t.Helper()
-	assertion, _, err := verifyOrchestratorIdentity(home, cwd)
-	if err != nil {
-		t.Fatalf("recompute sources: %v", err)
-	}
-	// Override definition path: verifyOrchestratorIdentity only looks at
-	// searched directories. When definition sits inside cwd, its path is
-	// already in the resolved list; this is just a safety net.
-	if len(assertion.Sources) > 0 {
-		return assertion.Sources
-	}
-	_ = definition
-	return nil
-}
-
 // _ ensures time is referenced even when a future refactor drops every
 // direct time mention in this file; it keeps the import set honest.
 var _ = time.RFC3339Nano

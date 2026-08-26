@@ -426,6 +426,10 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 			out.UnreadableConditions = append(out.UnreadableConditions, condition.ID)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot finish reading workflow history conditions", true, "retry once the database is readable", err)
+	}
 	rows.Close()
 	if out.Conditions == nil {
 		out.Ready = true

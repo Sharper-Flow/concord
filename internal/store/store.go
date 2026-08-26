@@ -105,11 +105,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, newFailure(KindUnavailable, "open", "empty database path", false,
 			"pass a database path or use DefaultPath")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { //nolint:gosec // path is the explicit operator-selected authority path and private permissions constrain its parent.
 		return nil, wrapFailure(KindUnavailable, "open", "cannot create the data directory", true,
 			"check directory permissions", err)
 	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil { //nolint:gosec // the explicit authority parent is forced to private directory permissions.
 		return nil, wrapFailure(KindUnavailable, "open", "cannot secure the data directory", true,
 			"check directory permissions", err)
 	}
@@ -134,7 +134,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := os.Chmod(path, 0o600); err != nil { //nolint:gosec // the explicit authority file is forced to private file permissions after migration.
 		_ = db.Close()
 		return nil, wrapFailure(KindUnavailable, "open", "cannot secure the database file", true,
 			"check database file permissions", err)

@@ -1,0 +1,50 @@
+version: "2"
+
+run:
+  timeout: 10m
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - rowserrcheck
+    - staticcheck
+    - unconvert
+  settings:
+    errcheck:
+      # Query iteration errors are checked by rowserrcheck. Close and rollback
+      # remain cleanup operations whose primary operation error has precedence.
+      exclude-functions:
+        - "(*database/sql.Rows).Close"
+        - "(*database/sql.Tx).Rollback"
+    gosec:
+      # errcheck owns unchecked operation errors; gosec still runs every other rule.
+      excludes:
+        - G104
+    staticcheck:
+      checks:
+        - all
+        - -U1000
+        - -QF*
+  exclusions:
+    warn-unused: true
+    rules:
+      # Test fixtures use synthetic paths, commands, and permissions. Production
+      # packages retain complete gosec coverage.
+      - path: _test\.go
+        linters:
+          - gosec
+      # Test cleanup cannot affect the production result. Operation errors and
+      # row iteration errors remain checked.
+      - path: _test\.go
+        text: 'Error return value of .*\.(Close|Remove|RemoveAll).* is not checked'
+        linters:
+          - errcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

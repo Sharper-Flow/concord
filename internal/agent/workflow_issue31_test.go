@@ -49,6 +49,9 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 		}
 		eventKinds = append(eventKinds, kind)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 	want := []string{"work.created", "work.memberships_replaced", store.WorkflowActorRecorded, store.WorkflowDefinitionSelected}
 	if len(eventKinds) != len(want) {
 		t.Fatalf("initialization events=%v, want %v", eventKinds, want)

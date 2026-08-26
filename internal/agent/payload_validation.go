@@ -153,7 +153,7 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 			}
 		}
 		if additional, exists := schema["additionalProperties"]; exists {
-			if additionalPropertiesFalse, ok := additional.(bool); ok && additionalPropertiesFalse == false {
+			if additionalPropertiesFalse, ok := additional.(bool); ok && !additionalPropertiesFalse {
 				for key := range object {
 					if _, exists := properties[key]; !exists {
 						return fmt.Errorf("unknown property %s.%s", path, key)

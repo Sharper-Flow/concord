@@ -52,7 +52,11 @@ func seedProductRowFixture(t *testing.T, s *Store) {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES
 		('product-row','Portfolio','alpha','limited',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
@@ -85,7 +89,11 @@ func productRowExec(t *testing.T, s *Store, statement string, args ...any) {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, statement, args...); err != nil {
 		t.Fatal(err)
 	}

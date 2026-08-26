@@ -8,10 +8,35 @@
 > (TS3), mutation operations (TS4), call context (TS5), transport (TS6), result
 > envelopes (TS7), current manifest identity/change evidence (TS8), or measurement evidence (TS9).
 
+## Context
+
+TS1's eight evidenced job families need a governed tool surface that avoids
+both CRUD explosion and mega-dispatch. The binding inputs are the accepted
+TS1 canonical jobs and their 23-scenario corpus, PM1's bounded-query
+requirements, the Advance postmortem's large-catalog lessons, and the
+external tool-design evidence TS1 records. This record fixes the budget and
+the granularity rule that TS3 and TS4 chose inside, and the evaluation law
+any candidate surface must pass.
+
+## Contract
+
+The binding contract is sections 1 through 3 and 5: the budget decision and
+the static-surface rule, the granularity rule with its sharing conditions
+and mandatory split boundaries, the budget accounting that counts every
+always-visible schema, and the selection rule for comparing candidates.
+Section 4 records the candidate comparison; sections 6 through 8 record
+evidence, rejected shortcuts, and falsifiers, and carry no obligation.
+
 ## 1. Decision
 
-Concord v1 exposes **at most nine always-visible domain tools** to an agent. TS3
-and TS4 choose the exact count and boundaries inside that cap.
+Concord v1 exposes **at most ten always-visible domain tools** to an agent. TS3
+and TS4 chose eight tools inside that cap; CD-0041 added two more under the
+accepted amendment recorded at the end of this record. Budget:
+`always_visible_tools: 10`. The canonical machine-readable count is the
+generated manifest's `surface.tool_count`
+([`contracts/agent-tool-surface.v1.json`](../contracts/agent-tool-surface.v1.json)),
+and `scripts/test-agent-contracts.py` fails if this document and the manifest
+disagree.
 
 The cap is a Concord governance constraint derived from TS1's eight evidenced job
 families and the explicit need to avoid both CRUD explosion and mega-dispatch. It
@@ -56,7 +81,7 @@ unbounded parameter maps are not.
 
 ### Always-visible budget
 
-The nine-tool cap counts every agent-callable schema included without an explicit
+The tool cap counts every agent-callable schema included without an explicit
 discovery step, including any status, catalog, or helper tool. Renaming a helper as
 "meta" does not remove its prompt and selection cost.
 
@@ -106,14 +131,15 @@ records, per scenario and candidate:
 
 1. Reject any candidate that fails a hard scenario oracle, crosses an authority or
    consequence boundary, requires callers to sequence domain invariants manually,
-   or exceeds nine always-visible tools.
+   or exceeds ten always-visible tools.
 2. For a deterministic corpus run, compare success and recovery counts directly.
    For stochastic evaluation, predeclare the model, run count, sampling settings,
    and confidence interval before comparing candidates; reject a candidate whose
    interval establishes a success or recovery regression.
 3. Choose the remaining candidate with the fewest always-visible tools, then the
    smallest total schema/context cost, then the fewest calls and retries.
-4. If no candidate under nine tools passes, do not add a tenth by default. Identify
+4. If no candidate within the recorded budget passes, do not add one more by
+   default. Identify
    the named failing TS1 scenario and revisit the granularity rule, TS1 job model,
    or dynamic-discovery evidence explicitly.
 
@@ -153,7 +179,8 @@ approval, transaction, or recovery boundary.
 
 Reopen TS2 when:
 
-- no structurally valid TS3/TS4 candidate under nine tools passes all TS1 scenarios;
+- no structurally valid TS3/TS4 candidate within the recorded budget passes all
+  TS1 scenarios;
 - a repeated scenario shows two tools are indistinguishable to supported agents;
 - two tools are always chained and a merged candidate improves outcomes without
   crossing a required split boundary;
@@ -165,3 +192,66 @@ Reopen TS2 when:
 
 Any expansion, split, merge, discovery layer, or alias after launch follows TS8/TS9;
 it does not silently amend this budget.
+
+## Approved amendments
+
+**2026-08-26 — the budget is amended from nine to ten under CD-0041.**
+CD-0041 added two always-visible tools through issues #196 and #197:
+`concord_domain` (Product → Domain navigation and Domain detail reads) and
+`concord_work_initiative` (the Initiative grouping surface). Each addition
+carried the full TS8 change evidence — named scenario, canonical manifest
+and generated artifacts updated together, strict schema and conformance
+proofs, and recorded operator acceptance (issue #195 for the overlap
+operation) — but the budget consequence was never recorded here, and TS2's
+own rule says expansion never silently amends this budget. The surface has
+therefore run ahead of this record since #197.
+
+The operator approved recording the budget at ten rather than folding the
+surface back under nine. The budget's authority is now structural in both
+directions: the generator refuses any manifest whose `surface.tool_count`
+disagrees with its actual tool list, and
+`scripts/test-agent-contracts.py` fails when this document's
+`always_visible_tools` value disagrees with the manifest. A future
+expansion must amend this record, the manifest, and the generated artifacts
+in one change, with the TS8 evidence, or CI fails.
+
+## Acceptance criteria
+
+- Given the generated manifest
+  When its surface is counted
+  Then the always-visible tool count equals the budget this record
+  declares, and every tool in the manifest is counted.
+
+- Given a tool section in the manifest
+  When it is validated
+  Then it is closed — identifier, description, and declared operations
+  only — and every declared operation exists exactly once.
+
+- Given any tool or operation entry
+  When aliases are searched for
+  Then none exist; permanent aliases are not permitted outside the budget.
+
+- Given a candidate surface for evaluation
+  When it is judged
+  Then a candidate that crosses an authority, approval, transaction, or
+  recovery boundary is rejected regardless of its tool count.
+
+## Verification
+
+The budget and shape laws are enforced by the generator and the contract
+tests, so every criterion carries a typed exemption naming the enforcing
+mechanism.
+
+- Criterion 1 is proved by the manifest equality pins of
+  `scripts/generate-agent-contracts.py` (exact tool count, unique
+  identifiers, `surface.tool_count` agreement) and the document-manifest
+  join test of `scripts/test-agent-contracts.py`
+  (`Ts2BudgetTests.test_document_budget_matches_manifest`).
+- Criterion 2 is proved by the generator's closed-tool-section and
+  operation-coverage checks, exercised by `ManifestTamperTests`
+  (`scripts/test-agent-contracts.py`).
+- Criterion 3 is proved by the generator's alias rejection.
+- Criterion 4 is law for future evaluations; it is enforced by the TS8
+  change rule, which requires a named scenario and generated-artifact unity
+  for any surface change, and by TS1's corpus, which a boundary-crossing
+  candidate fails. Section 8 records the falsifiers.

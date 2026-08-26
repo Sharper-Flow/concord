@@ -2500,6 +2500,36 @@
       "title": "Terminal placement belongs to the host"
     },
     {
+      "date": "2026-08-26T00:00:00Z",
+      "evidence": [
+        "cmd/concord/project_resolve.go",
+        "cmd/concord/project_resolve_test.go",
+        "internal/store/project_locator.go",
+        "docs/capability-placement.md"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "CD-0079",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0079-directory-to-project-resolution-is-an-operator-read.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:1a90976667fd060cb048e8e72b87fe58b580f48a6e8d17ed91875eada17167dd",
+      "status": "accepted",
+      "summary": "Directory-to-Project resolution becomes a read-only project-resolve CLI verb returning the Project, its owning Products, and the membership scope_version. The verb does not authenticate, because the operator trust boundary is filesystem access to the authority database. It stays off the agent tool surface and appends no event.",
+      "tags": [
+        "operator-surface",
+        "locator",
+        "identity",
+        "boundary"
+      ],
+      "title": "Directory-to-Project resolution is an operator read"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -3530,7 +3560,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:cd468881e74d04fe0a9448f7584c3683c8b70c0929e246c3ab462bb8771f5aad",
+      "sha256": "sha256:2ca8d1bc381e4a85cab45e672c275ce65f38343403d1eed16304066122d582d0",
       "status": "published",
       "summary": "Draft v2 rubric for placing a capability by its shape. Advisory, and its header names companions rather than claiming acceptance.",
       "tags": [

@@ -5323,6 +5323,9 @@ const GeneratedPayloadSchemaDocument = `{
               "kind": {
                 "$ref": "#/$defs/relation_query_label"
               },
+              "relation_id": {
+                "$ref": "#/$defs/id"
+              },
               "to": {
                 "$ref": "#/$defs/id"
               }
@@ -5331,7 +5334,8 @@ const GeneratedPayloadSchemaDocument = `{
               "from",
               "to",
               "kind",
-              "depth"
+              "depth",
+              "relation_id"
             ],
             "type": "object"
           },

@@ -231,10 +231,11 @@ type Q7ResultPayload struct {
 }
 
 type RelationEdge struct {
-	Kind   string `json:"kind"`
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Depth  int    `json:"depth"`
+	Kind       string `json:"kind"`
+	Source     string `json:"source"`
+	Target     string `json:"target"`
+	Depth      int    `json:"depth"`
+	RelationID string `json:"relation_id"`
 }
 
 type Q8Result struct {
@@ -1489,11 +1490,11 @@ func readRelationDepth(ctx context.Context, tx *sql.Tx, work string, specs []rel
 				recurse = "r.work_id_from=g.source"
 			}
 		}
-		q := `WITH RECURSIVE graph(depth,source,target) AS (
-SELECT 1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM relations r WHERE r.kind=? AND ` + anchor + `
+		q := `WITH RECURSIVE graph(depth,relation_id,source,target) AS (
+SELECT 1, r.id, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM relations r WHERE r.kind=? AND ` + anchor + `
 UNION
-SELECT g.depth+1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM graph g JOIN relations r ON r.kind=? AND ` + recurse + ` WHERE g.depth < ?
-) SELECT ? AS kind,source,target,depth FROM graph ORDER BY depth,source,target`
+SELECT g.depth+1, r.id, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END FROM graph g JOIN relations r ON r.kind=? AND ` + recurse + ` WHERE g.depth < ?
+) SELECT ? AS kind,source,target,depth,relation_id FROM graph ORDER BY depth,source,target`
 		args := []any{spec.invert, spec.invert, spec.stored, work, spec.invert, spec.invert, spec.stored, depth, spec.label}
 		rows, err := tx.QueryContext(ctx, q, args...)
 		if err != nil {
@@ -1501,10 +1502,12 @@ SELECT g.depth+1, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END, CASE 
 		}
 		for rows.Next() {
 			var edge RelationEdge
-			if err := rows.Scan(&edge.Kind, &edge.Source, &edge.Target, &edge.Depth); err != nil {
+			var relationID int64
+			if err := rows.Scan(&edge.Kind, &edge.Source, &edge.Target, &edge.Depth, &relationID); err != nil {
 				rows.Close()
 				return nil, err
 			}
+			edge.RelationID = strconv.FormatInt(relationID, 10)
 			out = append(out, edge)
 		}
 		if err := rows.Err(); err != nil {
@@ -1601,7 +1604,7 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 	parts := make([]string, 0, len(specs))
 	args := []any{}
 	for _, spec := range specs {
-		parts = append(parts, `SELECT ? AS kind, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END AS source, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END AS target, 1 AS depth FROM relations r WHERE r.kind=? AND `+func() string {
+		parts = append(parts, `SELECT ? AS kind, CASE WHEN ?=1 THEN r.work_id_to ELSE r.work_id_from END AS source, CASE WHEN ?=1 THEN r.work_id_from ELSE r.work_id_to END AS target, 1 AS depth, r.id AS relation_id FROM relations r WHERE r.kind=? AND `+func() string {
 			if spec.invert && direction == "outgoing" || !spec.invert && direction == "incoming" {
 				return "r.work_id_to=?"
 			}
@@ -1617,9 +1620,11 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var e RelationEdge
-		if err := rows.Scan(&e.Kind, &e.Source, &e.Target, &e.Depth); err != nil {
+		var relationID int64
+		if err := rows.Scan(&e.Kind, &e.Source, &e.Target, &e.Depth, &relationID); err != nil {
 			return out, err
 		}
+		e.RelationID = strconv.FormatInt(relationID, 10)
 		out.Edges = append(out.Edges, e)
 	}
 	if err := rows.Err(); err != nil {

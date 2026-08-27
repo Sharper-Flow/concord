@@ -1810,7 +1810,7 @@ func (r runtime) q8(base Envelope, q store.Q8Result) (Envelope, error) {
 	// layer. Translating here keeps both contracts intact.
 	edges := make([]map[string]any, 0, len(q.Edges))
 	for _, e := range q.Edges {
-		edges = append(edges, map[string]any{"from": e.Source, "to": e.Target, "kind": e.Kind, "depth": e.Depth})
+		edges = append(edges, map[string]any{"from": e.Source, "to": e.Target, "kind": e.Kind, "depth": e.Depth, "relation_id": e.RelationID})
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges, "replacement_state": relationReplacementState(q.Edges)})
 }

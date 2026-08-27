@@ -152,6 +152,11 @@ func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
 		{"project insert", "projects", `INSERT INTO projects (id, display_name, version, created_at, updated_at) VALUES ('p', 'P', 1, 'now', 'now')`},
 		{"project update", "projects", `UPDATE projects SET display_name = 'changed' WHERE id = 'project-1'`},
 		{"project delete", "projects", `DELETE FROM projects`},
+		// UPDATE and DELETE triggers fire per matching row, so seed one under
+		// the fold guard before attempting the guarded write.
+		{"product knowledge home insert", "product_knowledge_homes", `INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l')`},
+		{"product knowledge home update", "product_knowledge_homes", `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM fold_guard; UPDATE product_knowledge_homes SET locator_id = 'other'`},
+		{"product knowledge home delete", "product_knowledge_homes", `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM fold_guard; DELETE FROM product_knowledge_homes`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := s.DatabaseForTesting().ExecContext(ctx, tc.stmt); err == nil {

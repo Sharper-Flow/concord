@@ -74,6 +74,7 @@
       "functions": [
         "internal/store.ReconstructSubjectAt",
         "internal/store.excludedFromReconstructionSnapshot",
+        "internal/store.insertScratchLocator",
         "internal/store.insertScratchProject",
         "internal/store.insertScratchWork",
         "internal/store.newReconstructionStore",

@@ -2670,6 +2670,33 @@ UPDATE projects SET display_name=display_name;
 DELETE FROM fold_guard;
 		`,
 	},
+	{
+		Version: 51,
+		Name:    "product_knowledge_home_fold_guards",
+		SQL: `
+-- Product knowledge homes are event-folded operator configuration (PM6 §2/§3),
+-- like every other Product projection. The fold guard refuses direct writes
+-- outside a fold.
+CREATE TRIGGER product_knowledge_homes_guard_insert
+BEFORE INSERT ON product_knowledge_homes FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'product_knowledge_homes is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER product_knowledge_homes_guard_update
+BEFORE UPDATE ON product_knowledge_homes FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'product_knowledge_homes is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER product_knowledge_homes_guard_delete
+BEFORE DELETE ON product_knowledge_homes FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'product_knowledge_homes is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

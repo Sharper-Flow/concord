@@ -115,6 +115,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
 	{Canonical: "project-create", TwoWord: "project create", RequiredFields: requiredFields(field("project_id"), field("display_name"), field("product_id"), field("role"), field("expected_product_version")), Optional: "reason", Enums: "role: primary | secondary"},
 	{Canonical: "product-project-add", TwoWord: "product project-add", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("role"), field("expected_version")), Optional: "reason", Enums: "role: primary | secondary"},
+	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
+	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
@@ -826,6 +828,45 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		result, err := s.AddProductProjectMembership(ctx, store.ProductMembershipAddition{
 			ProductID: request.ProductID, ProjectID: request.ProjectID, Role: request.Role,
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		})
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "product-knowledge-home-designate":
+		var request struct {
+			ProductID       string `json:"product_id"`
+			ProjectID       string `json:"project_id"`
+			LocatorID       string `json:"locator_id"`
+			Reason          string `json:"reason"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		result, err := s.DesignateProductKnowledgeHome(ctx, store.ProductKnowledgeHomeDesignation{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		})
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "product-knowledge-home-clear":
+		var request struct {
+			ProductID       string `json:"product_id"`
+			Reason          string `json:"reason"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		result, err := s.ClearProductKnowledgeHome(ctx, store.ProductKnowledgeHomeDesignation{
+			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
 		if err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())

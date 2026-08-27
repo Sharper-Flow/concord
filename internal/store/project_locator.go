@@ -459,6 +459,16 @@ func foldProjectLocatorRemoved(ctx context.Context, tx *sql.Tx, event Event) err
 	if err != nil {
 		return err
 	}
+	// A Product knowledge home references its locator with ON DELETE RESTRICT.
+	// Refuse with a typed failure instead of letting the constraint abort the
+	// fold as an opaque retryable error.
+	var designated int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM product_knowledge_homes WHERE locator_id = ? LIMIT 1`, p.LocatorID).Scan(&designated); err == nil {
+		return newFailure(KindProjectionConflict, "fold_event", "Project locator is a Product knowledge home", false,
+			"clear the Product's knowledge home designation before removing the locator")
+	} else if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read Product knowledge homes", true, "retry once the database is readable", err)
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM project_locators WHERE locator_id=? AND project_id=?`, p.LocatorID, p.ProjectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove Project locator", true, "retry once the database is writable", err)

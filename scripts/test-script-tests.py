@@ -35,14 +35,14 @@ class ScriptTestCoverageTests(unittest.TestCase):
     def test_every_suite_referenced_passes(self) -> None:
         self.suite("test-alpha.py")
         self.suite("test-beta.py")
-        self.workflow("ci.yml", "run: python3 scripts/test-alpha.py && python3 scripts/test-beta.py\n")
+        self.workflow("ci.yml", "        run: python3 scripts/test-alpha.py && python3 scripts/test-beta.py\n")
 
         self.assertEqual(checker.check(root=self.root), [])
 
     def test_unrun_suite_is_reported(self) -> None:
         self.suite("test-alpha.py")
         self.suite("test-orphan.py")
-        self.workflow("ci.yml", "run: python3 scripts/test-alpha.py\n")
+        self.workflow("ci.yml", "        run: python3 scripts/test-alpha.py\n")
 
         findings = checker.check(root=self.root)
 
@@ -52,7 +52,7 @@ class ScriptTestCoverageTests(unittest.TestCase):
 
     def test_stale_reference_is_reported(self) -> None:
         self.suite("test-alpha.py")
-        self.workflow("ci.yml", "run: python3 scripts/test-alpha.py && python3 scripts/test-gone.py\n")
+        self.workflow("ci.yml", "        run: python3 scripts/test-alpha.py && python3 scripts/test-gone.py\n")
 
         findings = checker.check(root=self.root)
 
@@ -62,20 +62,54 @@ class ScriptTestCoverageTests(unittest.TestCase):
 
     def test_reference_from_any_workflow_counts(self) -> None:
         self.suite("test-alpha.py")
-        self.workflow("ci.yml", "run: echo nothing\n")
-        self.workflow("release.yml", "run: python3 scripts/test-alpha.py\n")
+        self.workflow("ci.yml", "        run: echo nothing\n")
+        self.workflow("release.yml", "        run: python3 scripts/test-alpha.py\n")
 
         self.assertEqual(checker.check(root=self.root), [])
 
     def test_non_test_scripts_are_ignored(self) -> None:
         self.suite("test-alpha.py")
         (self.root / "scripts/check-alpha.py").write_text("#\n", encoding="utf-8")
-        self.workflow("ci.yml", "run: python3 scripts/test-alpha.py\n")
+        self.workflow("ci.yml", "        run: python3 scripts/test-alpha.py\n")
 
         self.assertEqual(checker.check(root=self.root), [])
 
     def test_repository_itself_passes(self) -> None:
         self.assertEqual(checker.check(root=Path(__file__).resolve().parents[1]), [])
+
+    def test_wrong_run_indent_is_reported(self) -> None:
+        self.suite("test-alpha.py")
+        self.workflow("ci.yml", "         run: python3 scripts/test-alpha.py\n")
+
+        findings = checker.check(root=self.root)
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("workflow-structure", findings[0])
+        self.assertIn("indented 9 spaces", findings[0])
+
+    def test_wrong_step_name_indent_is_reported(self) -> None:
+        self.suite("test-alpha.py")
+        self.workflow("ci.yml", "       - name: Check\n        run: python3 scripts/test-alpha.py\n")
+
+        findings = checker.check(root=self.root)
+
+        self.assertTrue(
+            any(
+                "workflow-structure" in finding and "`- name:`" in finding
+                for finding in findings
+            ),
+            findings,
+        )
+
+    def test_unparseable_workflow_is_reported(self) -> None:
+        if checker.yaml is None:
+            self.skipTest("PyYAML unavailable")
+        self.suite("test-alpha.py")
+        self.workflow("ci.yml", "        run: [unbalanced\n")
+
+        findings = checker.check(root=self.root)
+
+        self.assertTrue(any("workflow-parse" in finding for finding in findings))
 
 
 if __name__ == "__main__":

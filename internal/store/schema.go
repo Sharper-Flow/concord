@@ -2944,6 +2944,61 @@ UPDATE product_knowledge_homes SET project_id=project_id;
 DELETE FROM fold_guard;
 		`,
 	},
+	{
+		Version: 53,
+		Name:    "native_run_verification_state_check",
+		SQL: `
+DROP TRIGGER IF EXISTS workflow_native_runs_guard_insert;
+DROP TRIGGER IF EXISTS workflow_native_runs_guard_update;
+DROP TRIGGER IF EXISTS workflow_native_runs_guard_delete;
+DROP TRIGGER IF EXISTS workflow_native_runs_status_registry_insert;
+DROP TRIGGER IF EXISTS workflow_native_runs_status_registry_update;
+ALTER TABLE workflow_native_runs RENAME TO workflow_native_runs_v53;
+CREATE TABLE workflow_native_runs (
+    work_id                TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    run_id                 TEXT NOT NULL CHECK(length(run_id) BETWEEN 1 AND 128),
+    phase                  TEXT NOT NULL CHECK(phase IN ('start','health','rollback','cleanup')),
+    status                 TEXT NOT NULL,
+    event_id               TEXT NOT NULL,
+    reporting_authority_ref TEXT NOT NULL CHECK(length(reporting_authority_ref) BETWEEN 1 AND 128),
+    actor_ref              TEXT NOT NULL CHECK(length(actor_ref) BETWEEN 1 AND 256),
+    native_subject_ref     TEXT NOT NULL CHECK(length(native_subject_ref) BETWEEN 1 AND 2048),
+    subject_digest         TEXT NOT NULL CHECK(length(subject_digest)=71 AND substr(subject_digest,1,7)='sha256:'),
+    evidence_ref           TEXT NOT NULL CHECK(length(evidence_ref) BETWEEN 1 AND 2048),
+    evidence_digest        TEXT NOT NULL CHECK(length(evidence_digest) BETWEEN 1 AND 256),
+    asserted_at            TEXT NOT NULL,
+    recorded_at            TEXT NOT NULL,
+    capture_method         TEXT NOT NULL CHECK(capture_method='trusted_client_report'),
+    observed_universe      TEXT NOT NULL CHECK(json_valid(observed_universe) AND json_type(observed_universe)='object'),
+    freshness_policy_ref   TEXT NOT NULL CHECK(length(freshness_policy_ref) BETWEEN 1 AND 256),
+    divergence_policy_ref  TEXT NOT NULL CHECK(length(divergence_policy_ref) BETWEEN 1 AND 256),
+    observation_id         TEXT,
+    verification_state     TEXT NOT NULL DEFAULT 'unverified' CHECK(verification_state IN ('unverified','verified','diverged_expected','diverged_unexpected','unverifiable')),
+    PRIMARY KEY(work_id, run_id, phase)
+);
+INSERT INTO workflow_native_runs
+    (work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref,observation_id,verification_state)
+    SELECT work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref,observation_id,verification_state
+    FROM workflow_native_runs_v53;
+DROP TABLE workflow_native_runs_v53;
+CREATE INDEX workflow_native_runs_work ON workflow_native_runs(work_id, run_id);
+CREATE TRIGGER workflow_native_runs_guard_insert BEFORE INSERT ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER workflow_native_runs_guard_update BEFORE UPDATE ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER workflow_native_runs_guard_delete BEFORE DELETE ON workflow_native_runs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_native_runs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER workflow_native_runs_status_registry_insert
+BEFORE INSERT ON workflow_native_runs FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM workflow_native_run_statuses WHERE phase=NEW.phase AND status=NEW.status)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow native run phase and status are not a declared pair');
+END;
+CREATE TRIGGER workflow_native_runs_status_registry_update
+BEFORE UPDATE OF phase,status ON workflow_native_runs FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM workflow_native_run_statuses WHERE phase=NEW.phase AND status=NEW.status)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow native run phase and status are not a declared pair');
+END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

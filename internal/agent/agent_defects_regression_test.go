@@ -59,8 +59,9 @@ func TestRegressionDefect1_RelationEnvelopeShapeIsFromToKind(t *testing.T) {
 	from, fromOK := first["from"].(string)
 	to, toOK := first["to"].(string)
 	kind, kindOK := first["kind"].(string)
-	if !fromOK || !toOK || !kindOK {
-		t.Fatalf("edges[0] missing from/to/kind: got %#v", first)
+	relationID, relationIDOK := first["relation_id"].(string)
+	if !fromOK || !toOK || !kindOK || !relationIDOK || relationID == "" {
+		t.Fatalf("edges[0] missing from/to/kind/relation_id: got %#v", first)
 	}
 	// direction=incoming for blocks kind: the stored row is
 	// (work_id_from=work-prereq, work_id_to=work-blocked). The envelope

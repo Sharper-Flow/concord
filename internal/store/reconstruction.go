@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strconv"
 	"time"
 )
 
@@ -315,7 +316,7 @@ func populateReconstructionSnapshot(ctx context.Context, s *Store, snapshot *Rec
 }
 
 func reconstructionRelations(ctx context.Context, db *sql.DB, workID string) ([]RelationEdge, error) {
-	rows, err := db.QueryContext(ctx, `SELECT kind,work_id_from,work_id_to FROM relations WHERE work_id_from = ? OR work_id_to = ? ORDER BY id`, workID, workID)
+	rows, err := db.QueryContext(ctx, `SELECT id,kind,work_id_from,work_id_to FROM relations WHERE work_id_from = ? OR work_id_to = ? ORDER BY id`, workID, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "reconstruct_subject", "cannot read reconstructed work relations", true,
 			"retry once the temporary database is available", err)
@@ -324,10 +325,12 @@ func reconstructionRelations(ctx context.Context, db *sql.DB, workID string) ([]
 	var relations []RelationEdge
 	for rows.Next() {
 		var relation RelationEdge
-		if err := rows.Scan(&relation.Kind, &relation.Source, &relation.Target); err != nil {
+		var relationID int64
+		if err := rows.Scan(&relationID, &relation.Kind, &relation.Source, &relation.Target); err != nil {
 			return nil, wrapFailure(KindUnavailable, "reconstruct_subject", "cannot decode reconstructed work relations", true,
 				"retry once the temporary database is available", err)
 		}
+		relation.RelationID = strconv.FormatInt(relationID, 10)
 		relations = append(relations, relation)
 	}
 	if err := rows.Err(); err != nil {

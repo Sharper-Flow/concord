@@ -503,20 +503,27 @@ func TestDispatchRelationLinkAndUnlinkResolveEndpointVersionsAndRelationID(t *te
 	if err != nil || linked.Outcome != OutcomeOK {
 		t.Fatalf("link=%+v err=%v", linked, err)
 	}
-	var relationID int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT id FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='blocks'`).Scan(&relationID); err != nil {
-		t.Fatal(err)
+	read, err := s.QueryQ8(ctx, store.Q8Request{Work: "work-1", RelationKinds: []string{"blocks"}, Direction: "outgoing"})
+	if err != nil || len(read.Edges) != 1 {
+		t.Fatalf("q8 read=%+v err=%v", read, err)
+	}
+	relationID := read.Edges[0].RelationID
+	if relationID == "" {
+		t.Fatalf("q8 relation ID is empty: %+v", read.Edges[0])
 	}
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
 		t.Fatal("link did not version both endpoints")
 	}
-	unlink := InvokeRequest{Tool: "concord_work_relate", Operation: "unlink", Input: json.RawMessage(`{"relation_id":"` + strconv.FormatInt(relationID, 10) + `","expected_versions":[{"work_id":"work-1","version":3},{"work_id":"work-2","version":3}],"reason":"dispatcher unlink","idempotency_key":"relation-unlink-1"}`)}
+	unlink := InvokeRequest{Tool: "concord_work_relate", Operation: "unlink", Input: json.RawMessage(`{"relation_id":"` + relationID + `","expected_versions":[{"work_id":"work-1","version":3},{"work_id":"work-2","version":3}],"reason":"dispatcher unlink","idempotency_key":"relation-unlink-1"}`)}
 	unlinked, err := Dispatch(ctx, s, service, unlink, env)
 	if err != nil || unlinked.Outcome != OutcomeOK {
 		t.Fatalf("unlink=%+v err=%v", unlinked, err)
 	}
-	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE id=`+strconv.FormatInt(relationID, 10)); count != 0 {
+	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE id=`+relationID); count != 0 {
 		t.Fatalf("relation-ID unlink left %d rows", count)
+	}
+	if workVersion(t, s, "work-1") != 4 || workVersion(t, s, "work-2") != 4 {
+		t.Fatal("unlink did not version both endpoints")
 	}
 }
 

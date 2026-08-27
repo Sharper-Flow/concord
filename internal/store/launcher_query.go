@@ -7,6 +7,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"strings"
 )
 
@@ -270,20 +271,22 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	// blocked_by edge is a display inverse of a stored blocks edge, not a stored
 	// relation. It carries the inverse label the relation vocabulary declares for
 	// blocks, so it cannot be mistaken for the stored depends_on kind.
-	erows, err := tx.QueryContext(ctx, `SELECT r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE r.kind IN ('parent','includes','blocks','supersedes','implements') AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_from AND pp.product_id=?) AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_to AND pp.product_id=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 201`, req.Product, req.Product)
+	erows, err := tx.QueryContext(ctx, `SELECT r.id,r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE r.kind IN ('parent','includes','blocks','supersedes','implements') AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_from AND pp.product_id=?) AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_to AND pp.product_id=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 201`, req.Product, req.Product)
 	if err != nil {
 		return out, err
 	}
 	for erows.Next() {
 		var e RelationEdge
-		if err := erows.Scan(&e.Kind, &e.Source, &e.Target); err != nil {
+		var relationID int64
+		if err := erows.Scan(&relationID, &e.Kind, &e.Source, &e.Target); err != nil {
 			erows.Close()
 			return out, err
 		}
 		e.Depth = 1
+		e.RelationID = strconv.FormatInt(relationID, 10)
 		out.Edges = append(out.Edges, e)
 		if e.Kind == "blocks" {
-			out.Edges = append(out.Edges, RelationEdge{Kind: "blocked_by", Source: e.Target, Target: e.Source, Depth: 1})
+			out.Edges = append(out.Edges, RelationEdge{Kind: "blocked_by", Source: e.Target, Target: e.Source, Depth: 1, RelationID: e.RelationID})
 		}
 	}
 	if err := erows.Close(); err != nil {
@@ -445,16 +448,18 @@ func (s *Store) QueryLauncherWork(ctx context.Context, req LauncherWorkRequest) 
 		return out, err
 	}
 	// The work detail relation read is bounded and stays in this transaction.
-	rrows, err := tx.QueryContext(ctx, `SELECT r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE (r.work_id_from=? OR r.work_id_to=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 100`, req.Work, req.Work)
+	rrows, err := tx.QueryContext(ctx, `SELECT r.id,r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE (r.work_id_from=? OR r.work_id_to=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 100`, req.Work, req.Work)
 	if err != nil {
 		return out, err
 	}
 	for rrows.Next() {
 		var e RelationEdge
-		if err := rrows.Scan(&e.Kind, &e.Source, &e.Target); err != nil {
+		var relationID int64
+		if err := rrows.Scan(&relationID, &e.Kind, &e.Source, &e.Target); err != nil {
 			rrows.Close()
 			return out, err
 		}
+		e.RelationID = strconv.FormatInt(relationID, 10)
 		out.Edges = append(out.Edges, e)
 	}
 	if err := rrows.Err(); err != nil {

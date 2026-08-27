@@ -105,7 +105,7 @@ func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
 	}
 	foundInverse := false
 	for _, edge := range result.Edges {
-		if edge.Kind == "blocked_by" && edge.Source == "blocked" && edge.Target == "blocker" {
+		if edge.Kind == "blocked_by" && edge.Source == "blocked" && edge.Target == "blocker" && edge.RelationID != "" {
 			foundInverse = true
 		}
 	}

@@ -2367,7 +2367,8 @@
               "from",
               "to",
               "kind",
-              "depth"
+              "depth",
+              "relation_id"
             ],
             "properties": {
               "from": {
@@ -2384,6 +2385,9 @@
                 "minimum": 1,
                 "maximum": 3,
                 "description": "Hops from the requested work item. An edge at depth 1 is stored. An edge at a greater depth is derived by same-kind closure, which only a transitive kind admits."
+              },
+              "relation_id": {
+                "$ref": "#/$defs/id"
               }
             }
           }

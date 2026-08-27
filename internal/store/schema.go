@@ -2999,6 +2999,36 @@ BEGIN
 END;
 		`,
 	},
+	{
+		Version: 54,
+		Name:    "rigor_class_vocabulary",
+		SQL: `
+CREATE TRIGGER workflow_contracts_rigor_class_insert
+BEFORE INSERT ON workflow_contracts FOR EACH ROW
+WHEN NEW.rigor_class NOT IN (
+    'prototype_internal', 'prototype_trusted', 'prototype_public', 'prototype_safety_critical',
+    'production_internal', 'production_trusted', 'production_public', 'production_safety_critical',
+    'critical_internal', 'critical_trusted', 'critical_public', 'critical_safety_critical'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow contract rigor class is not a declared maturity-audience composition');
+END;
+CREATE TRIGGER workflow_contracts_rigor_class_update
+BEFORE UPDATE OF rigor_class ON workflow_contracts FOR EACH ROW
+WHEN NEW.rigor_class NOT IN (
+    'prototype_internal', 'prototype_trusted', 'prototype_public', 'prototype_safety_critical',
+    'production_internal', 'production_trusted', 'production_public', 'production_safety_critical',
+    'critical_internal', 'critical_trusted', 'critical_public', 'critical_safety_critical'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow contract rigor class is not a declared maturity-audience composition');
+END;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE workflow_contracts SET rigor_class=rigor_class;
+DELETE FROM fold_guard;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

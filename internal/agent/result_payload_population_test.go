@@ -41,7 +41,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			SpecMandate:         []string{"spec-1"},
 			LawModifies:         []string{"spec-1"},
 			LawRevisions:        []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex(64)}},
-			RigorClass:          "product_changing",
+			RigorClass:          "prototype_internal",
 			ChangesProductTruth: true,
 			ArchitectureBinding: &store.WorkflowArchitectureBinding{
 				DomainRegistryContentHash: "sha256:" + repeatHex(64),

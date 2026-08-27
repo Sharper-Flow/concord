@@ -3,9 +3,66 @@ package store
 import (
 	"context"
 	"errors"
+	"regexp"
+	"sort"
 	"testing"
 	"time"
 )
+
+func TestVerificationStateChecksMatchTypedVocabulary(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir()+"/concord.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	want := []string{
+		string(VerificationUnverified),
+		string(VerificationVerified),
+		string(VerificationDivergedExpected),
+		string(VerificationDivergedUnexpected),
+		string(VerificationUnverifiable),
+	}
+	sort.Strings(want)
+	for _, table := range []string{"external_observations", "workflow_native_runs"} {
+		var ddl string
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&ddl); err != nil {
+			t.Fatalf("read %s DDL: %v", table, err)
+		}
+		got := verificationStateCheckValues(t, ddl)
+		sort.Strings(got)
+		if gotString, wantString := joinStrings(got), joinStrings(want); gotString != wantString {
+			t.Errorf("%s verification_state CHECK values = %q, want %q", table, gotString, wantString)
+		}
+	}
+}
+
+func verificationStateCheckValues(t *testing.T, ddl string) []string {
+	t.Helper()
+	check := regexp.MustCompile(`(?s)verification_state\s+TEXT.*?CHECK\s*\(\s*verification_state\s+IN\s*\(([^)]*)\)\)`)
+	match := check.FindStringSubmatch(ddl)
+	if len(match) != 2 {
+		t.Fatalf("verification_state CHECK not found in DDL: %s", ddl)
+	}
+	values := regexp.MustCompile(`'([^']*)'`).FindAllStringSubmatch(match[1], -1)
+	got := make([]string, 0, len(values))
+	for _, value := range values {
+		got = append(got, value[1])
+	}
+	return got
+}
+
+func joinStrings(values []string) string {
+	result := ""
+	for i, value := range values {
+		if i > 0 {
+			result += ","
+		}
+		result += value
+	}
+	return result
+}
 
 // CD-0040 D11 verification participation, end to end: a native-run record
 // embeds the shared component, a verification event answering its observation

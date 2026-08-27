@@ -1041,6 +1041,46 @@ func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
 	}
 }
 
+func TestMigration53UpgradesValidNativeRunVerificationState(t *testing.T) {
+	ctx := context.Background()
+	db := openV49(t, "native-run-v52-valid.db")
+	seedV49NativeRun(t, db, string(VerificationVerified))
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("valid pre-migration row failed upgrade: %v", err)
+	}
+	if version, err := SchemaVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
+		t.Fatalf("upgraded schema version=%d err=%v, want %d", version, err, CurrentSchemaVersion())
+	}
+}
+
+func TestMigration53RejectsInvalidNativeRunVerificationState(t *testing.T) {
+	ctx := context.Background()
+	db := openV49(t, "native-run-v52-invalid.db")
+	seedV49NativeRun(t, db, "definitely_bogus")
+
+	if err := Migrate(ctx, db); err == nil {
+		t.Fatal("migration preserved an invalid native-run verification state")
+	}
+}
+
+func seedV49NativeRun(t *testing.T, db *sql.DB, verificationState string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('native-run-v52-work','task','Native run','needed',1,1,'now','now',NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref,observation_id,verification_state) VALUES('native-run-v52-work','run','health','healthy','event','client','actor','native://run','sha256:`+strings.Repeat("a", 64)+`','evidence://run','sha256:`+strings.Repeat("b", 64)+`','2026-08-25T00:00:00Z','2026-08-25T00:00:00Z','trusted_client_report','{}','policy','policy','xobs:v52',?)`, verificationState); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

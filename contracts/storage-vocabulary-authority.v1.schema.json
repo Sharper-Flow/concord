@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/storage-vocabulary-authority.v1.schema.json",
+  "title": "Concord storage vocabulary authority manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "summary", "entries"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "summary": {"type": "string", "minLength": 2, "maxLength": 1024},
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "column", "authority"],
+      "properties": {
+        "table": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9_]*$"},
+        "column": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9_]*$"},
+        "authority": {"enum": ["check", "fk", "registry_trigger", "contract", "go_registry", "open"]},
+        "validator": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^scripts/[a-z0-9-]+\\.py$"},
+        "symbol": {"type": "string", "minLength": 1, "maxLength": 256},
+        "rationale": {"type": "string", "minLength": 20, "maxLength": 1024}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"authority": {"const": "open"}}},
+          "then": {"required": ["rationale"]}
+        },
+        {
+          "if": {"properties": {"authority": {"const": "contract"}}},
+          "then": {"required": ["validator"]}
+        },
+        {
+          "if": {"properties": {"authority": {"const": "go_registry"}}},
+          "then": {"required": ["symbol"]}
+        }
+      ]
+    }
+  }
+}

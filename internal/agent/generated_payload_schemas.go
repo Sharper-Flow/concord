@@ -6243,7 +6243,20 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "rigor_class": {
-          "maxLength": 64,
+          "enum": [
+            "prototype_internal",
+            "prototype_trusted",
+            "prototype_public",
+            "prototype_safety_critical",
+            "production_internal",
+            "production_trusted",
+            "production_public",
+            "production_safety_critical",
+            "critical_internal",
+            "critical_trusted",
+            "critical_public",
+            "critical_safety_critical"
+          ],
           "type": "string"
         },
         "route_conventions": {

@@ -1064,6 +1064,104 @@ func TestMigration53RejectsInvalidNativeRunVerificationState(t *testing.T) {
 	}
 }
 
+func TestWorkflowContractRigorClassVocabulary(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	db := s.DatabaseForTesting()
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	actorRef := seedRigorClassPrerequisites(t, db)
+	if _, err := insertRigorClassContract(ctx, db, actorRef, "prototype/internal"); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
+		t.Fatalf("invalid rigor class error=%v", err)
+	}
+	if _, err := insertRigorClassContract(ctx, db, actorRef, "prototype_internal"); err != nil {
+		t.Fatalf("valid rigor class rejected: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE workflow_contracts SET rigor_class='prototype/internal' WHERE work_id='rigor-class-work'`); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
+		t.Fatalf("invalid rigor class update error=%v", err)
+	}
+}
+
+func TestMigration54UpgradesValidRigorClass(t *testing.T) {
+	ctx := context.Background()
+	db := openV53(t, "rigor-class-v53-valid.db")
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	actorRef := seedRigorClassPrerequisites(t, db)
+	if _, err := insertRigorClassContract(ctx, db, actorRef, "production_public"); err != nil {
+		t.Fatalf("seed valid rigor class: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("valid rigor class failed upgrade: %v", err)
+	}
+}
+
+func TestMigration54RejectsInvalidRigorClass(t *testing.T) {
+	ctx := context.Background()
+	db := openV53(t, "rigor-class-v53-invalid.db")
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	actorRef := seedRigorClassPrerequisites(t, db)
+	if _, err := insertRigorClassContract(ctx, db, actorRef, "prototype/internal"); err != nil {
+		t.Fatalf("seed invalid rigor class: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
+		t.Fatalf("invalid rigor class migration error=%v", err)
+	}
+	if version, err := SchemaVersion(ctx, db); err != nil || version != 53 {
+		t.Fatalf("failed migration advanced schema version=%d err=%v", version, err)
+	}
+}
+
+func openV53(t *testing.T, name string) *sql.DB {
+	t.Helper()
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(filepath.Join(t.TempDir(), name)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:53] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
+}
+
+func seedRigorClassPrerequisites(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	ctx := context.Background()
+	actorRef := DeriveWorkflowActorRef("principal:rigor", "client:rigor", "agent:rigor", "session:rigor")
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal:rigor','client:rigor','agent:rigor','session:rigor','operator','now')`, actorRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('rigor-class-work','task','Rigor class','needed',1,1,'now','now',NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	return actorRef
+}
+
+func insertRigorClassContract(ctx context.Context, db *sql.DB, actorRef, rigorClass string) (sql.Result, error) {
+	return db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
+}
+
 func seedV49NativeRun(t *testing.T, db *sql.DB, verificationState string) {
 	t.Helper()
 	ctx := context.Background()

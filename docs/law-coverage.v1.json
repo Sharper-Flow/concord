@@ -1399,6 +1399,10 @@
         {
           "kind": "go_test",
           "value": "internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable"
         }
       ],
       "id": "PM6",

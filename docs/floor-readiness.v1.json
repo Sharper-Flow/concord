@@ -256,6 +256,10 @@
         {
           "kind": "validator",
           "value": "scripts/check-knowledge-index.py"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable"
         }
       ]
     },
@@ -664,7 +668,7 @@
       "id": "fc7-blackbox-acceptance",
       "condition": "fc7",
       "title": "A packaged black-box acceptance path exercises the shipped product end to end",
-      "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport — bootstrap, grant, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility — importing no internal Go packages.",
+      "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport \u2014 bootstrap, grant, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility \u2014 importing no internal Go packages.",
       "state": "satisfied",
       "evidence": [
         {

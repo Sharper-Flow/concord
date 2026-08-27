@@ -202,6 +202,17 @@ func seedReconstructionEndpoints(ctx context.Context, tx *sql.Tx, subject Subjec
 					return err
 				}
 			}
+		case subject.Type == SubjectProduct && current.Kind == "product.knowledge_home_designated":
+			if projectID := id("project_id"); projectID != "" {
+				if err := insertScratchProject(ctx, tx, projectID); err != nil {
+					return err
+				}
+			}
+			if locatorID := id("locator_id"); locatorID != "" {
+				if err := insertScratchLocator(ctx, tx, locatorID); err != nil {
+					return err
+				}
+			}
 		case subject.Type == SubjectWorkItem && (current.Kind == "work_project.added" || current.Kind == "work_project.removed" || current.Kind == "work_project.role_changed"):
 			if projectID := id("project_id"); projectID != "" {
 				if err := insertScratchProject(ctx, tx, projectID); err != nil {
@@ -229,6 +240,15 @@ func insertScratchProject(ctx context.Context, tx *sql.Tx, id string) error {
 	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO projects (id,display_name,version,created_at,updated_at) VALUES (?, ?, 1, 'reconstruction', 'reconstruction')`, id, "reconstructed project "+id)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "reconstruct_subject", "cannot prepare a scoped Project endpoint", true,
+			"retry once the temporary database is available", err)
+	}
+	return nil
+}
+
+func insertScratchLocator(ctx context.Context, tx *sql.Tx, id string) error {
+	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO project_locators (locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES (?, '', 'canonical_path', ?, ?, 'reconstruction', 'reconstruction')`, id, "reconstruction://"+id, "reconstruction://"+id)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "reconstruct_subject", "cannot prepare a scoped Project locator endpoint", true,
 			"retry once the temporary database is available", err)
 	}
 	return nil

@@ -206,6 +206,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"product_project.added":                   registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductProjectAdded, nil),
 	"product_project.removed":                 registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductProjectRemoved, nil),
 	"product_project.role_changed":            registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductProjectRoleChanged, nil),
+	"product.knowledge_home_designated":       registerEventKind[knowledgeHomePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeHomeDesignated, nil),
+	"product.knowledge_home_cleared":          registerEventKind[knowledgeHomePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeHomeCleared, nil),
 	"work_project.added":                      registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRemoved, nil),
 	"work_project.role_changed":               registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRoleChanged, nil),
@@ -609,30 +611,6 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	if err != nil {
 		return rollback(err)
 	}
-	// Product knowledge homes are Git-derived authority and are not replayed
-	// from the domain event log. Snapshot them while their Project/locator FKs
-	// are rebuilt, then restore the exact rows after replay.
-	type knowledgeHomeSnapshot struct{ productID, projectID, locatorID string }
-	var knowledgeHomes []knowledgeHomeSnapshot
-	homeRows, err := tx.QueryContext(ctx, `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`)
-	if err != nil {
-		return rollback(wrapFailure(KindUnavailable, "rebuild_from_log", "cannot snapshot Product knowledge homes", true, "retry once the knowledge projection is readable", err))
-	}
-	for homeRows.Next() {
-		var home knowledgeHomeSnapshot
-		if err := homeRows.Scan(&home.productID, &home.projectID, &home.locatorID); err != nil {
-			homeRows.Close()
-			return rollback(err)
-		}
-		knowledgeHomes = append(knowledgeHomes, home)
-	}
-	if err := homeRows.Err(); err != nil {
-		homeRows.Close()
-		return rollback(err)
-	}
-	if err := homeRows.Close(); err != nil {
-		return rollback(err)
-	}
 	// Version-window and chain failures are rejected before the first
 	// projection DELETE. Fold/decode failures remain transactionally atomic, and
 	// are attributed by the shared fold path below.
@@ -682,11 +660,6 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
 		return rollback(err)
-	}
-	for _, home := range knowledgeHomes {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, home.productID, home.projectID, home.locatorID); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log", "cannot restore Product knowledge home", true, "retry once the database is writable", err))
-		}
 	}
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return rollback(err)

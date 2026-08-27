@@ -355,7 +355,7 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	if err := exec.Command("git", "-C", repo, "commit", "--quiet", "-m", "orphan note").Run(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','project-1','canonical_path',?,?,'now','now'); DELETE FROM fold_guard; INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','locator-1')`, repo, repo); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','project-1','canonical_path',?,?,'now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','locator-1'); DELETE FROM fold_guard`, repo, repo); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(s)

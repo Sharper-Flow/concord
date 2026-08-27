@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,28 @@ import (
 	"path/filepath"
 	"testing"
 )
+
+func seedEventDerivedLocator(t *testing.T, s *Store, projectID, locatorID, path string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.CreateProductWithProject(ctx, ProductCreation{
+		ProductID: "anchor-product-" + projectID, DisplayName: "Anchor Product",
+		StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: projectID, ProjectDisplayName: "Anchor Project", Role: "primary",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	normalized, err := NormalizeProjectLocator(LocatorCanonicalPath, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(ctx, projectID, ProjectLocator{
+		ID: locatorID, ProjectID: projectID, Kind: LocatorCanonicalPath,
+		Value: path, NormalizedValue: normalized,
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type manifestFixture struct {
 	ID        string
@@ -112,6 +135,13 @@ func authorizeKnowledgeLocator(t *testing.T, s *Store, home KnowledgeHome) {
 		}
 	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
+		t.Fatal(err)
+	}
+	anchorProductID := "anchor-product-" + home.HomeProjectID
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, anchorProductID, anchorProductID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?,?,'secondary')`, anchorProductID, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?, ?, 'canonical_path', ?, ?, 'now', 'now')`, home.HomeLocatorID, home.HomeProjectID, home.RepoPath, home.RepoPath); err != nil {

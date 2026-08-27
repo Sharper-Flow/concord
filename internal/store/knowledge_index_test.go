@@ -272,11 +272,11 @@ func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
 	commitKnowledgeRepo(t, repo, "orphan")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj", HomeLocatorID: "loc", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, home)
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
 	seedKnowledgeWork(t, s, "work-orphan", "Orphan")
-	authorizeKnowledgeLocator(t, s, home)
 	result, err := s.QueryQ10(context.Background(), Q10Request{Work: "work-orphan", Home: home})
 	if err != nil || result.Status != "not_compacted" || result.Authority != "authoritative" {
 		t.Fatalf("Q10 orphan = %#v, err %v", result, err)
@@ -397,6 +397,7 @@ func TestKnowledgeSchemaHasNoNoteBodyAndRebuildFromLogPreservesIndex(t *testing.
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("linked", "2026-08-07T00:00:00Z"))
 	commit := commitKnowledgeRepo(t, repo, "linked")
 	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+	seedEventDerivedLocator(t, s, home.HomeProjectID, home.HomeLocatorID, repo)
 	seedKnowledgeWork(t, s, "linked", "Linked")
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "complete-linked", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "linked", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"from":"needed","to":"completed","reason":"fixture","expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "linked"): 2}}); err != nil {
 		t.Fatal(err)

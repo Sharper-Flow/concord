@@ -139,6 +139,15 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 	if _, err := db.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('w','lesson','T','2026-08-10T00:00:00Z','published','[]','completed',0,'S','p','l','docs/lessons/t.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`','invalid')`); err == nil {
 		t.Fatal("invalid scope mode passed CHECK")
 	}
+	// The migration 52 pair binding makes the anchor a precondition for a
+	// successful knowledge write, so seed the referenced Project locator in
+	// the same guarded window.
+	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('p','P',1,'t','t')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('l','p','canonical_path','/test/l','/test/l','t','t')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','lesson','indexed','test','`+strings.Repeat("a", 40)+`')`); err != nil {
 		t.Fatal(err)
 	}

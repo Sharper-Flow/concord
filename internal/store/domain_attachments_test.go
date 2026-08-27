@@ -122,6 +122,8 @@ func TestProductReconstructionExcludesDomainAndResourceProjectionEvents(t *testi
 func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
+	homeProject, homeLocator := "domain-home-"+productID, "domain-locator-"+productID
+	seedEventDerivedLocator(t, s, homeProject, homeLocator, t.TempDir())
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
@@ -130,8 +132,16 @@ func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	homeProject, homeLocator := "domain-home-"+productID, "domain-locator-"+productID
 	hash := "sha256:" + repeatA64()
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?,?,1,'t','t')`, homeProject, homeProject); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?, 'canonical_path', ?, ?, 't', 't')`, homeLocator, homeProject, "/test/"+homeLocator, "/test/"+homeLocator); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?,?,'secondary')`, productID, homeProject); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tx.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'commit')`, productID, homeProject, homeLocator, "test-"+productID, domainID, hash); err != nil {
 		t.Fatal(err)
 	}

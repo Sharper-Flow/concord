@@ -621,6 +621,15 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 			return rollback(attributeFailure(err, event, prepared.stage))
 		}
 	}
+	// The migration 52 locator guard must not fire while the replay clears and
+	// restores the very rows Git-derived knowledge references. Capture its DDL,
+	// drop it, and re-create it after replay once the referenced locators are
+	// back — then prove no knowledge row points at a locator the log did not
+	// restore.
+	knowledgeLocatorGuardDDL, err := dropTriggerReturningDDL(ctx, tx, knowledgeLocatorDeleteGuardName)
+	if err != nil {
+		return rollback(err)
+	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
 	for _, table := range []string{
@@ -660,6 +669,21 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
 		return rollback(err)
+	}
+	orphans, err := countOrphanedKnowledgeHomePairs(ctx, tx)
+	if err != nil {
+		return rollback(err)
+	}
+	if orphans > 0 {
+		return rollback(newFailure(KindProjectionConflict, "rebuild_from_log",
+			fmt.Sprintf("%d Git-derived knowledge rows reference a Project locator the event log does not restore", orphans), false,
+			"re-add the locator event or rescan the knowledge home before rebuilding"))
+	}
+	if knowledgeLocatorGuardDDL != "" {
+		if _, err := tx.ExecContext(ctx, knowledgeLocatorGuardDDL); err != nil {
+			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log", "cannot restore the knowledge locator guard", true,
+				"retry once the database is writable", err))
+		}
 	}
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return rollback(err)

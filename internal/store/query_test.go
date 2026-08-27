@@ -298,6 +298,19 @@ func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocato
 			t.Errorf("remove fold guard: %v", err)
 		}
 	}()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 't', 't')`, homeProject, homeProject); err != nil {
+		t.Fatal(err)
+	}
+	anchorProductID := "anchor-product-" + homeProject
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 't', 't')`, anchorProductID, anchorProductID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?,?,'secondary')`, anchorProductID, homeProject); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?, ?, 'canonical_path', ?, ?, 't', 't')`, homeLocator, homeProject, "/test/"+homeLocator, "/test/"+homeLocator); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "lesson", id, "2026-08-07T00:00:00Z", "published", "[]", "completed", 1, "summary", homeProject, homeLocator, path, commit, hash); err != nil {
 		t.Fatal(err)
 	}

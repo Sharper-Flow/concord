@@ -2697,6 +2697,253 @@ BEGIN
 END;
 		`,
 	},
+	{
+		Version: 52,
+		Name:    "home_pair_identity_binding",
+		SQL: `
+-- The eleven Git-derived knowledge tables and product_knowledge_homes key
+-- their rows on a (home_project_id, home_locator_id) pair that has no foreign
+-- key to Project identity: every existing constraint on those columns points
+-- inside the law/domain cluster, so an unanchored pair was storable (issue
+-- #539). A composite foreign key cannot be added without rebuilding every
+-- table: migrations run inside one transaction where PRAGMA foreign_keys is a
+-- no-op, and the rebuilt set includes non-leaf parents (law_subjects,
+-- archived_work) whose referencing children hold immediate keys, so the
+-- cascade reaches roughly twenty hand-copied definitions where one missed
+-- CHECK silently weakens an existing constraint. The house pattern for
+-- binding an existing table is a trigger (migrations 20, 49, 50, 51), so the
+-- pair is bound here: child-side triggers refuse a row whose pair names no
+-- project_locators row, and a parent-side trigger refuses removing a locator
+-- that Git-derived knowledge still references. Locators are stable identity
+-- (PM6 section 7); attribute updates keep the pair valid without removal.
+CREATE UNIQUE INDEX project_locators_project_locator
+    ON project_locators(project_id, locator_id);
+CREATE TRIGGER archived_work_home_pair_bound_insert
+BEFORE INSERT ON archived_work FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work home pair does not reference a Project locator');
+END;
+CREATE TRIGGER archived_work_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON archived_work FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_index_watermark_home_pair_bound_insert
+BEFORE INSERT ON knowledge_index_watermark FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_index_watermark home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_index_watermark_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON knowledge_index_watermark FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_index_watermark home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_kind_coverage_home_pair_bound_insert
+BEFORE INSERT ON knowledge_kind_coverage FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_kind_coverage_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON knowledge_kind_coverage FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_subjects_home_pair_bound_insert
+BEFORE INSERT ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_subjects_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_relations_home_pair_bound_insert
+BEFORE INSERT ON law_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_relations home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_relations_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_relations home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domains_home_pair_bound_insert
+BEFORE INSERT ON domains FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domains home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domains_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON domains FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domains home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domain_registries_home_pair_bound_insert
+BEFORE INSERT ON domain_registries FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domain_registries home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domain_registries_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON domain_registries FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domain_registries home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domain_architecture_relations_home_pair_bound_insert
+BEFORE INSERT ON domain_architecture_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domain_architecture_relations home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domain_architecture_relations_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON domain_architecture_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domain_architecture_relations home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domain_relation_governing_laws_home_pair_bound_insert
+BEFORE INSERT ON domain_relation_governing_laws FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domain_relation_governing_laws home pair does not reference a Project locator');
+END;
+CREATE TRIGGER domain_relation_governing_laws_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON domain_relation_governing_laws FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'domain_relation_governing_laws home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_domain_homes_home_pair_bound_insert
+BEFORE INSERT ON law_domain_homes FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_domain_homes home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_domain_homes_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_domain_homes FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_domain_homes home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_domain_applicability_home_pair_bound_insert
+BEFORE INSERT ON law_domain_applicability FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_domain_applicability home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_domain_applicability_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_domain_applicability FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_domain_applicability home pair does not reference a Project locator');
+END;
+CREATE TRIGGER product_knowledge_homes_pair_bound_insert
+BEFORE INSERT ON product_knowledge_homes FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.project_id AND pl.locator_id = NEW.locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'product_knowledge_homes pair does not reference a Project locator');
+END;
+CREATE TRIGGER product_knowledge_homes_pair_bound_update
+BEFORE UPDATE OF project_id, locator_id ON product_knowledge_homes FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.project_id AND pl.locator_id = NEW.locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'product_knowledge_homes pair does not reference a Project locator');
+END;
+CREATE TRIGGER project_locators_referenced_by_knowledge_no_delete
+BEFORE DELETE ON project_locators FOR EACH ROW
+WHEN     EXISTS (SELECT 1 FROM archived_work k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM knowledge_index_watermark k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM knowledge_kind_coverage k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_subjects k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_relations k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domains k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_registries k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_architecture_relations k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_relation_governing_laws k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_domain_homes k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_domain_applicability k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'Project locator is referenced by Git-derived knowledge');
+END;
+
+
+-- Prove the stored corpus already conforms: a no-op update of the bound
+-- columns fires the new triggers on every existing row, so migration refuses
+-- rather than admitting an unanchored pair the binding then protects.
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE archived_work SET home_project_id=home_project_id;
+UPDATE knowledge_index_watermark SET home_project_id=home_project_id;
+UPDATE knowledge_kind_coverage SET home_project_id=home_project_id;
+UPDATE law_subjects SET home_project_id=home_project_id;
+UPDATE law_relations SET home_project_id=home_project_id;
+UPDATE domains SET home_project_id=home_project_id;
+UPDATE domain_registries SET home_project_id=home_project_id;
+UPDATE domain_architecture_relations SET home_project_id=home_project_id;
+UPDATE domain_relation_governing_laws SET home_project_id=home_project_id;
+UPDATE law_domain_homes SET home_project_id=home_project_id;
+UPDATE law_domain_applicability SET home_project_id=home_project_id;
+UPDATE product_knowledge_homes SET project_id=project_id;
+DELETE FROM fold_guard;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

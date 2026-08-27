@@ -224,6 +224,7 @@ func terminalizeResearchOwner(t *testing.T, s *Store, id string) {
 
 func linkArchivedResearchOwner(t *testing.T, s *Store, id string) {
 	t.Helper()
+	anchorHomePair(t, s, "home", "locator")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?, 'work_note', ?, '2026-08-07T00:00:00Z', 'completed', '[]', 'completed', 1, 'durable summary', 'home', 'locator', 'notes/`+id+`.md', 'commit', 'hash'); DELETE FROM fold_guard`, id, id); err != nil {
 		t.Fatal(err)
 	}
@@ -441,6 +442,7 @@ func compactionFixture(t *testing.T, required bool) (*Store, KnowledgeHome, Rese
 	commit := commitKnowledgeRepo(t, repo, "owner proof")
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
+	seedEventDerivedLocator(t, s, "home", "owner-repo", repo)
 	pack := createSimplePack(t, s, "compaction-fixture", "owner")
 	if required {
 		if _, err := BindResearchConsumer(context.Background(), s, BindResearchConsumerRequest{Identity: researchIdentity("compaction-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true}}); err != nil {

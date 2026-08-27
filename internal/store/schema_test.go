@@ -1122,6 +1122,106 @@ func TestMigration54RejectsInvalidRigorClass(t *testing.T) {
 	}
 }
 
+func TestMigration55AllowsDeclaredApprovalConsequences(t *testing.T) {
+	ctx := context.Background()
+	db := openV54(t, "approval-consequence-v54-valid.db")
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migration 55 failed: %v", err)
+	}
+	for _, consequence := range []string{"research", "claim"} {
+		grantRef := seedApprovalChallengeGrant(t, db, consequence)
+		if err := insertApprovalChallenge(ctx, db, grantRef, consequence, strings.Repeat(consequence[:1], 64)); err != nil {
+			t.Fatalf("insert %s consequence: %v", consequence, err)
+		}
+	}
+	grantRef := seedApprovalChallengeGrant(t, db, "bogus")
+	if err := insertApprovalChallenge(ctx, db, grantRef, "bogus", strings.Repeat("b", 64)); err == nil {
+		t.Fatal("bogus approval consequence was accepted")
+	}
+}
+
+func TestMigration55UpgradesValidApprovalConsequences(t *testing.T) {
+	ctx := context.Background()
+	db := openV54(t, "approval-consequence-v54-upgrade.db")
+	grantRef := seedApprovalChallengeGrant(t, db, "intent")
+	if err := insertApprovalChallenge(ctx, db, grantRef, "intent", strings.Repeat("i", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("valid approval consequence failed upgrade: %v", err)
+	}
+	var consequence string
+	if err := db.QueryRowContext(ctx, `SELECT consequence FROM agent_approval_challenges WHERE grant_ref=?`, grantRef).Scan(&consequence); err != nil {
+		t.Fatal(err)
+	}
+	if consequence != "intent" {
+		t.Fatalf("upgraded consequence=%q, want intent", consequence)
+	}
+}
+
+func TestMigration55RejectsUndeclaredApprovalConsequence(t *testing.T) {
+	ctx := context.Background()
+	db := openV54(t, "approval-consequence-v54-invalid.db")
+	grantRef := seedApprovalChallengeGrant(t, db, "invalid")
+	if _, err := db.ExecContext(ctx, `PRAGMA ignore_check_constraints=ON`); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertApprovalChallenge(ctx, db, grantRef, "undeclared", strings.Repeat("u", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `PRAGMA ignore_check_constraints=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err == nil {
+		t.Fatal("migration accepted an undeclared approval consequence")
+	}
+	if version, err := SchemaVersion(ctx, db); err != nil || version != 54 {
+		t.Fatalf("failed migration advanced schema version=%d err=%v", version, err)
+	}
+}
+
+func openV54(t *testing.T, name string) *sql.DB {
+	t.Helper()
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(filepath.Join(t.TempDir(), name)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:54] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
+}
+
+func seedApprovalChallengeGrant(t *testing.T, db *sql.DB, suffix string) string {
+	t.Helper()
+	ctx := context.Background()
+	clientRef := "approval-client-" + suffix
+	grantRef := strings.Repeat(suffix[:1], 64)
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES(?,?,?,?,?,?,?)`, clientRef, "active", "human", `[]`, `[]`, `[]`, "2026-08-27T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_grants(grant_ref,grant_hash,principal_ref,client_ref,session_ref,agent_ref,directory,worktree,client_key_id,manifest_digest,capabilities_json,product_scope_json,project_scope_json,issued_at,expires_at,max_uses,used_count,scope_version,scope_snapshot_json,candidate_products_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, grantRef, []byte(strings.Repeat(suffix[:1], 32)), "human", clientRef, "session-"+suffix, "agent-"+suffix, "/repo", "/repo/worktree", "key", "sha256:"+strings.Repeat("0", 64), `[]`, `[]`, `[]`, "2026-08-27T00:00:00Z", "2026-08-28T00:00:00Z", 1, 0, "v1", `{}`, `[]`); err != nil {
+		t.Fatal(err)
+	}
+	return grantRef
+}
+
+func insertApprovalChallenge(ctx context.Context, db *sql.DB, grantRef, consequence, challengeRef string) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO agent_approval_challenges(challenge_ref,grant_ref,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, challengeRef, grantRef, "operation", `{}`, `{}`, consequence, "host", "2026-08-27T00:00:00Z", "2026-08-28T00:00:00Z", "active", nil)
+	return err
+}
+
 func openV53(t *testing.T, name string) *sql.DB {
 	t.Helper()
 	ctx := context.Background()

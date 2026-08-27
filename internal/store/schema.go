@@ -3029,6 +3029,72 @@ UPDATE workflow_contracts SET rigor_class=rigor_class;
 DELETE FROM fold_guard;
 		`,
 	},
+	{
+		Version: 55,
+		Name:    "approval_consequence_surface_closure",
+		SQL: `
+DROP INDEX agent_approvals_lookup;
+DROP INDEX agent_approval_challenges_grant;
+ALTER TABLE agent_approvals RENAME TO agent_approvals_v55;
+ALTER TABLE agent_approval_challenges RENAME TO agent_approval_challenges_v55;
+CREATE TABLE agent_approvals (
+    approval_ref TEXT PRIMARY KEY,
+    operation_digest TEXT NOT NULL,
+    scope_json TEXT NOT NULL CHECK(json_valid(scope_json) AND json_type(scope_json)='object'),
+    version_json TEXT NOT NULL CHECK(json_valid(version_json) AND json_type(version_json)='object'),
+    consequence TEXT NOT NULL CHECK(consequence IN ('read','intent','lifecycle','workflow_action','scope','relation','supersession','publication','recovery','research','claim')),
+    human_principal_ref TEXT NOT NULL,
+    client_ref TEXT NOT NULL REFERENCES agent_clients(client_ref) ON DELETE RESTRICT,
+    session_ref TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    max_uses INTEGER NOT NULL CHECK(max_uses > 0 AND max_uses <= 100),
+    used_count INTEGER NOT NULL DEFAULT 0 CHECK(used_count >= 0 AND used_count <= max_uses),
+    revoked_at TEXT,
+    protected_evidence_ref TEXT NOT NULL,
+    protected_evidence_digest TEXT NOT NULL,
+    CHECK(length(approval_ref) = 64),
+    CHECK(length(operation_digest) > 0 AND length(operation_digest) <= 128),
+    CHECK(length(human_principal_ref) > 0 AND length(human_principal_ref) <= 128),
+    CHECK(length(session_ref) > 0 AND length(session_ref) <= 128),
+    CHECK(length(protected_evidence_ref) > 0 AND length(protected_evidence_ref) <= 256),
+    CHECK(length(protected_evidence_digest) > 0 AND length(protected_evidence_digest) <= 128),
+    CHECK(expires_at > issued_at)
+);
+INSERT INTO agent_approvals
+    (approval_ref,operation_digest,scope_json,version_json,consequence,human_principal_ref,client_ref,session_ref,issued_at,expires_at,max_uses,used_count,revoked_at,protected_evidence_ref,protected_evidence_digest)
+    SELECT approval_ref,operation_digest,scope_json,version_json,consequence,human_principal_ref,client_ref,session_ref,issued_at,expires_at,max_uses,used_count,revoked_at,protected_evidence_ref,protected_evidence_digest
+    FROM agent_approvals_v55;
+DROP TABLE agent_approvals_v55;
+CREATE TABLE agent_approval_challenges (
+    challenge_ref TEXT PRIMARY KEY,
+    grant_ref TEXT NOT NULL REFERENCES agent_grants(grant_ref) ON DELETE RESTRICT,
+    operation_digest TEXT NOT NULL,
+    scope_json TEXT NOT NULL CHECK(json_valid(scope_json) AND json_type(scope_json)='object'),
+    version_json TEXT NOT NULL CHECK(json_valid(version_json) AND json_type(version_json)='object'),
+    consequence TEXT NOT NULL CHECK(consequence IN ('read','intent','lifecycle','workflow_action','scope','relation','supersession','publication','recovery','research','claim')),
+    host_assertion_digest TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','consumed','revoked')),
+    consumed_at TEXT,
+    max_uses INTEGER NOT NULL DEFAULT 1 CHECK(max_uses > 0 AND max_uses <= 100),
+    used_count INTEGER NOT NULL DEFAULT 0 CHECK(used_count >= 0 AND used_count <= max_uses),
+    CHECK(length(challenge_ref) = 64),
+    CHECK(length(operation_digest) > 0 AND length(operation_digest) <= 128),
+    CHECK(length(host_assertion_digest) > 0 AND length(host_assertion_digest) <= 128),
+    CHECK(expires_at > issued_at),
+    CHECK((status='active' AND consumed_at IS NULL) OR (status IN ('consumed','revoked')))
+);
+INSERT INTO agent_approval_challenges
+    (challenge_ref,grant_ref,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at,max_uses,used_count)
+    SELECT challenge_ref,grant_ref,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at,max_uses,used_count
+    FROM agent_approval_challenges_v55;
+DROP TABLE agent_approval_challenges_v55;
+CREATE INDEX agent_approvals_lookup ON agent_approvals(client_ref, session_ref, operation_digest);
+CREATE INDEX agent_approval_challenges_grant ON agent_approval_challenges(grant_ref, status);
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

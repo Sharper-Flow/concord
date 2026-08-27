@@ -1180,6 +1180,125 @@ func TestMigration55RejectsUndeclaredApprovalConsequence(t *testing.T) {
 	}
 }
 
+func TestArchivedWorkKindVocabulary(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	db := s.DatabaseForTesting()
+	seedArchivedWorkKindHome(t, db)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
+
+	for _, kind := range []string{"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"} {
+		if err := insertArchivedWorkKind(ctx, db, "archived-"+kind, kind); err != nil {
+			t.Fatalf("declared kind %s rejected: %v", kind, err)
+		}
+	}
+	if err := insertArchivedWorkKind(ctx, db, "archived-bogus", "bogus"); err == nil || !strings.Contains(err.Error(), "archived work type is not a declared knowledge kind") {
+		t.Fatalf("undeclared kind insert error = %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE archived_work SET type='bogus' WHERE id='archived-work_note'`); err == nil || !strings.Contains(err.Error(), "archived work type is not a declared knowledge kind") {
+		t.Fatalf("undeclared kind update error = %v", err)
+	}
+}
+
+func TestMigration56UpgradesValidArchivedWorkKind(t *testing.T) {
+	ctx := context.Background()
+	db := openV55(t, "archived-work-kind-v55-valid.db")
+	seedArchivedWorkKindHome(t, db)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertArchivedWorkKind(ctx, db, "pre-56-valid", "research"); err != nil {
+		t.Fatalf("seed valid archived work kind: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("valid archived work kind failed upgrade: %v", err)
+	}
+	if version, err := SchemaVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
+		t.Fatalf("upgraded schema version=%d err=%v, want %d", version, err, CurrentSchemaVersion())
+	}
+}
+
+func TestMigration56RejectsUndeclaredArchivedWorkKind(t *testing.T) {
+	ctx := context.Background()
+	db := openV55(t, "archived-work-kind-v55-invalid.db")
+	seedArchivedWorkKindHome(t, db)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertArchivedWorkKind(ctx, db, "pre-56-invalid", "bogus"); err != nil {
+		t.Fatalf("seed undeclared archived work kind: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err == nil || !strings.Contains(err.Error(), "archived work type is not a declared knowledge kind") {
+		t.Fatalf("undeclared archived work kind migration error = %v", err)
+	}
+	if version, err := SchemaVersion(ctx, db); err != nil || version != 55 {
+		t.Fatalf("failed migration advanced schema version=%d err=%v, want 55", version, err)
+	}
+}
+
+func openV55(t *testing.T, name string) *sql.DB {
+	t.Helper()
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(filepath.Join(t.TempDir(), name)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:55] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
+}
+
+func seedArchivedWorkKindHome(t *testing.T, db *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	statements := []string{
+		`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('archived-kind-project','Archived kind project',1,'now','now')`,
+		`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('archived-kind-product','Archived kind product','prototype','operator_only',1,'now','now')`,
+		`INSERT INTO product_projects(product_id,project_id,role) VALUES('archived-kind-product','archived-kind-project','secondary')`,
+		`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('archived-kind-locator','archived-kind-project','canonical_path','/test/archived-kind','/test/archived-kind','now','now')`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertArchivedWorkKind(ctx context.Context, db *sql.DB, id, kind string) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Archived work", "2026-08-27T00:00:00Z", "completed", "[]", "completed", 0, "summary", "archived-kind-project", "archived-kind-locator", "docs/work/archived.md", strings.Repeat("a", 40), "sha256:"+strings.Repeat("b", 64))
+	return err
+}
+
 func openV54(t *testing.T, name string) *sql.DB {
 	t.Helper()
 	ctx := context.Background()

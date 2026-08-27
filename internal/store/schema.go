@@ -3095,6 +3095,32 @@ CREATE INDEX agent_approvals_lookup ON agent_approvals(client_ref, session_ref, 
 CREATE INDEX agent_approval_challenges_grant ON agent_approval_challenges(grant_ref, status);
 		`,
 	},
+	{
+		Version: 56,
+		Name:    "archived_work_kind_vocabulary",
+		SQL: `
+CREATE TRIGGER archived_work_kind_insert
+BEFORE INSERT ON archived_work FOR EACH ROW
+WHEN NEW.type NOT IN (
+    'work_note', 'constitution', 'decision', 'spec', 'lesson', 'reference', 'research'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'archived work type is not a declared knowledge kind');
+END;
+CREATE TRIGGER archived_work_kind_update
+BEFORE UPDATE OF type ON archived_work FOR EACH ROW
+WHEN NEW.type NOT IN (
+    'work_note', 'constitution', 'decision', 'spec', 'lesson', 'reference', 'research'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'archived work type is not a declared knowledge kind');
+END;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE archived_work SET type=type;
+DELETE FROM fold_guard;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

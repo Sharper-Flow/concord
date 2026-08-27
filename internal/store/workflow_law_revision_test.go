@@ -498,6 +498,7 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 	s := openTemp(t)
 	workID := "law-pinned-rebuild"
 	seedWork(t, s, workID)
+	seedEventDerivedLocator(t, s, "p", "l", t.TempDir())
 	insertAcceptedLaw(t, s, "spec:one", "sha256:"+strings.Repeat("a", 64))
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/law-pinned")
 	events := []Event{
@@ -572,6 +573,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 
 func insertLawRevisionFixture(t *testing.T, s *Store, workID, lawID, hash string) {
 	t.Helper()
+	anchorHomePair(t, s, "p", "l")
 	specMandate := "[\"" + lawID + "\"]"
 	actorRef := "actor:" + strings.Repeat("a", 64)
 	db := s.DatabaseForTesting()
@@ -594,6 +596,7 @@ func insertLawRevisionFixture(t *testing.T, s *Store, workID, lawID, hash string
 
 func insertAcceptedLaw(t *testing.T, s *Store, lawID, hash string) {
 	t.Helper()
+	anchorHomePair(t, s, "p", "l")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','accepted','docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
 		t.Fatal(err)
 	}
@@ -601,6 +604,7 @@ func insertAcceptedLaw(t *testing.T, s *Store, lawID, hash string) {
 
 func insertSupersededLaw(t *testing.T, s *Store, lawID, hash string) {
 	t.Helper()
+	anchorHomePair(t, s, "p", "l")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','superseded','docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
 		t.Fatal(err)
 	}

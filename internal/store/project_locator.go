@@ -469,6 +469,17 @@ func foldProjectLocatorRemoved(ctx context.Context, tx *sql.Tx, event Event) err
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot read Product knowledge homes", true, "retry once the database is readable", err)
 	}
+	// Git-derived knowledge (archived notes, law records) keys its rows on the
+	// Project/locator pair, and locators are stable identity (PM6 section 7):
+	// removing one strands every historical reference.
+	referenced, err := locatorReferencedByKnowledge(ctx, tx, p.ProjectID, p.LocatorID)
+	if err != nil {
+		return err
+	}
+	if referenced {
+		return newFailure(KindProjectionConflict, "fold_event", "Project locator is referenced by Git-derived knowledge", false,
+			"update the locator attributes instead of removing it, or rescan the knowledge home after its records move")
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM project_locators WHERE locator_id=? AND project_id=?`, p.LocatorID, p.ProjectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove Project locator", true, "retry once the database is writable", err)

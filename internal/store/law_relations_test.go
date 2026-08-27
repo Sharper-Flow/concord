@@ -135,6 +135,7 @@ func TestRebuildKnowledgeIndexProjectsAndRollsBackLawRelations(t *testing.T) {
 
 func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T) {
 	s := openTemp(t)
+	anchorHomePair(t, s, "p", "l")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','conflicts_with','b','commit'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +160,7 @@ func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T
 func TestLawConflictQueriesFailClosedOnOverflow(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
+	anchorHomePair(t, s, "p", "l")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}

@@ -223,17 +223,13 @@ func TestQ10MissingCurrentLocatorIsUnavailableAndProofCanDegrade(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('missing-locator','work_note','Missing locator','2026-08-10T00:00:00Z','completed','[]','completed',1,'summary',?,?, 'docs/work/missing.md','deadbeef','sha256:`+strings.Repeat("a", 64)+`','explicit'); DELETE FROM fold_guard`, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM project_locators WHERE locator_id=?; DELETE FROM fold_guard`, home.HomeLocatorID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "missing-locator"}); err == nil {
-		t.Fatal("missing current locator was accepted")
+	if err := s.RemoveProjectLocator(ctx, home.HomeProjectID, home.HomeLocatorID, 1); err == nil {
+		t.Fatal("a Project locator referenced by knowledge was removed")
 	} else {
-		assertFailureKind(t, err, KindKnowledgeUnavailable)
+		assertFailureKind(t, err, KindProjectionConflict)
 	}
-	// Restore locator evidence, then prove a missing historical Git object is
-	// degraded rather than reclassified as caller invalid_filter.
-	authorizeKnowledgeLocator(t, s, home)
+	// The locator remains valid after the refused removal, so a missing
+	// historical Git object still degrades rather than becoming invalid_filter.
 	result, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "missing-locator", AllowDegraded: true})
 	if err != nil || result.Authority != "degraded" || result.Status != "missing" {
 		t.Fatalf("degraded historical proof=%#v err=%v", result, err)

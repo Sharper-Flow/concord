@@ -2664,7 +2664,7 @@ END;
 -- Prove the stored corpus already conforms. A no-op update fires the new
 -- triggers on every existing row, so migration refuses rather than admitting a
 -- row the read surface cannot return.
-INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
 UPDATE products SET display_name=display_name;
 UPDATE projects SET display_name=display_name;
 DELETE FROM fold_guard;

@@ -111,10 +111,11 @@ A later record may revisit worker evidence. This one does not.
 (`internal/store/schema.go:710`). D2 removes that parent, so the challenge needs
 a new anchor.
 
-A challenge binds instead to `client_ref`, `session_ref`, `agent_ref`, and
-`worktree`, the identity tuple the envelope carries on every call. This is the
-same tuple the grant row stored, read from its source rather than from a copy.
-The uniqueness and consumption semantics of a challenge do not change.
+A challenge binds instead to `client_ref`, `session_ref`, `agent_ref`,
+`worktree`, and `directory`, the identity tuple the envelope carries on every
+call. This is the same tuple the grant row stored, read from its source rather
+than from a copy. The uniqueness and consumption semantics of a challenge do not
+change.
 
 ### D6. Blocked-session Product scope moves to the session record
 
@@ -123,11 +124,37 @@ session, and line 121 reads `product_scope_json` from the most recent grant for
 a session. The grant table is serving here as a session-to-Product-scope memo
 for an operator read, which is not authority at all.
 
-Resolved Product scope is recorded on the session identity record, where it is
-session state. The launcher read is unchanged in output.
+Resolved Product scope is recorded beside the identity tuple D5 places on
+`agent_approval_challenges`. The launcher read is unchanged in output.
 
 This is the one place where D2 is not purely subtractive, and it is named here
 so that it is not discovered during implementation.
+
+*(Amended 2026-08-28, issue #465 — this decision first named a session identity
+record as the new home. No such record exists. Concord has no session table, no
+session projection, and no session event type; `session_ref` is an opaque string
+carried on grant and approval rows. The correction was found while writing the
+migration, before any code was written.)*
+
+*Building the named record would have cost more than a table. Nothing creates a
+session row today, because the `grant` verb was its creation moment and D2
+removes that verb. The only remaining insertion point is lazily on first
+authorization, which makes every authorized read a potential write. CD-0079
+rejected an alternative for that reason, and the objection transposes without
+modification.*
+
+*Resolving Product scope when the launcher reads was also rejected.
+`internal/store/blocked_sessions.go` would have to call the project resolver
+that `cmd/concord` installs onto `agent.Service`, which inverts the dependency
+direction between the store and the layer above it.*
+
+*The challenge row carries the value instead. `blocked_sessions` then reads one
+table with one query, where today it joins `agent_grants` and re-reads
+`product_scope_json` once per session. The accepted cost is that Product scope
+is captured when the challenge is created rather than when the launcher reads.
+A challenge is short-lived and single-use, and the value only filters a display
+list, so a stale value can misplace a row in a view and can never affect
+authority.*
 
 ### D7. The three revocation methods are removed
 

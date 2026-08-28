@@ -191,4 +191,150 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
         value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["query_id"]["pattern"] = "^(PM1"
         self.assertTrue(any("not a valid regular expression" in f for f in self.findings(value)))
 
+class AdapterHostPinTests(unittest.TestCase):
+    """The pin replaced a hand-written mirror of the host surface.
+
+    The mirror could only be wrong in the direction nothing checked, so these
+    tests hold the two properties that keep the replacement honest: the pin
+    names a reviewed set of declarations, and the diagnostics it allows are a
+    budget rather than an exemption.
+    """
+
+    def setUp(self):
+        self.pin = json.loads((ROOT / "docs/adapter-host-pin.v1.json").read_text())
+        self.schema = json.loads((ROOT / "contracts/adapter-host-pin.schema.json").read_text())
+        # Tamper cases run against a synthetic pin, not the shipped one. A test
+        # that mutates the real manifest's allowances asserts the repository
+        # still carries that debt, and would fail when the debt is paid off.
+        self.fixture = {
+            "schema_version": "1.0",
+            "sources": ["adapter/opencode"],
+            "packages": [
+                {"name": "@example/host", "version": "1.0.0", "declares": "the host tool surface"},
+                {"name": "runtime-types", "version": "2.0.0", "declares": "the ambient runtime globals"},
+            ],
+            "typescript": "5.9.3",
+            "compiler_options": {
+                "target": "es2022", "module": "esnext", "moduleResolution": "bundler",
+                "lib": ["es2022"], "types": ["runtime-types"], "strict": True, "noEmit": True,
+                "skipLibCheck": True, "resolveJsonModule": True, "forceConsistentCasingInFileNames": True,
+            },
+            "allowances": [{"file": "example.ts", "code": "TS2322", "count": 1, "state": "outstanding", "issue": 1, "reason": "a recorded divergence"}],
+        }
+
+    def findings(self, mutate=None, pin=None):
+        value = copy.deepcopy(self.fixture if pin is None else pin)
+        if mutate:
+            mutate(value)
+        found = []
+        lane_checker.validate_host_pin(value, self.schema, found)
+        return found
+
+    def test_shipped_pin_satisfies_its_contract(self):
+        self.assertEqual(self.findings(pin=self.pin), [])
+
+    def test_fixture_is_valid_so_tamper_cases_isolate_one_defect(self):
+        self.assertEqual(self.findings(), [])
+
+    def test_ambient_type_package_that_is_not_pinned_is_rejected(self):
+        def mutate(value):
+            value["compiler_options"]["types"].append("node")
+        self.assertTrue(any("names no pinned package" in f for f in self.findings(mutate)))
+
+    def test_outstanding_allowance_without_an_issue_is_rejected(self):
+        def mutate(value):
+            del value["allowances"][0]["issue"]
+        self.assertTrue(any("carries no tracking issue" in f for f in self.findings(mutate)))
+
+    def test_settled_allowance_carrying_an_issue_is_rejected(self):
+        def mutate(value):
+            value["allowances"][0]["state"] = "out_of_scope"
+        self.assertTrue(any("must not carry an issue" in f for f in self.findings(mutate)))
+
+    def test_version_range_is_rejected(self):
+        def mutate(value):
+            value["packages"][0]["version"] = "^1.18.23"
+        self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
+
+    def test_non_strict_typecheck_is_rejected(self):
+        # A non-strict run against real declarations proves less than the
+        # mirror it replaced, so the contract pins strict rather than defaulting it.
+        def mutate(value):
+            value["compiler_options"]["strict"] = False
+        self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
+
+    def test_allowance_states_match_the_contract_vocabulary(self):
+        declared = set(self.schema["properties"]["allowances"]["items"]["properties"]["state"]["enum"])
+        self.assertEqual(declared, {"outstanding", "unmeasured", "out_of_scope"})
+        for allowance in self.pin["allowances"]:
+            self.assertIn(allowance["state"], declared)
+
+    def test_every_shipped_outstanding_allowance_names_a_tracking_issue(self):
+        for allowance in self.pin["allowances"]:
+            if allowance["state"] == "outstanding":
+                self.assertIsInstance(allowance.get("issue"), int)
+
+    def test_pinned_bun_types_match_the_bun_the_workflow_installs(self):
+        # The ambient runtime surface the typecheck asserts and the runtime CI
+        # actually runs are two claims about one thing. Pinning them separately
+        # is how they would come apart without anything noticing.
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        installed = re.search(r"bun-version:\s*(\S+)", workflow)
+        self.assertIsNotNone(installed, "ci.yml declares no bun-version")
+        pinned = [package["version"] for package in self.pin["packages"] if package["name"] == "bun-types"]
+        self.assertEqual(pinned, [installed.group(1)])
+
+
+class AdapterHostDiagnosticTests(unittest.TestCase):
+    OUTPUT = "src/concord.ts(244,124): error TS2322: Type 'x' is not assignable to type 'y'.\n  Type 'a' is not assignable to type 'b'.\n"
+
+    def reconcile(self, output, allowances, exit_code=0):
+        found = []
+        lane_checker.reconcile_diagnostics(output, allowances, found, exit_code)
+        return found
+
+    def allowance(self, **overrides):
+        base = {"file": "concord.ts", "code": "TS2322", "count": 1, "state": "outstanding", "issue": 560, "reason": "recorded divergence"}
+        base.update(overrides)
+        return base
+
+    def test_recorded_divergence_at_its_recorded_size_passes(self):
+        self.assertEqual(self.reconcile(self.OUTPUT, [self.allowance()]), [])
+
+    def test_continuation_lines_are_not_counted_as_diagnostics(self):
+        # tsc indents the explanation under the diagnostic. Counting those lines
+        # would inflate every allowance by however much detail tsc chose to print.
+        self.assertEqual(self.reconcile(self.OUTPUT, [self.allowance(count=2)]), ["allowance drift: concord.ts emits 1 TS2322 diagnostic(s), the manifest records 2"])
+
+    def test_unrecorded_diagnostic_is_a_finding(self):
+        found = self.reconcile(self.OUTPUT, [])
+        self.assertTrue(any("does not satisfy the pinned host declarations" in f for f in found), found)
+
+    def test_spent_allowance_is_a_finding(self):
+        found = self.reconcile("", [self.allowance()])
+        self.assertTrue(any("stale allowance" in f for f in found), found)
+
+    def test_allowance_matches_by_file_and_code_not_position(self):
+        moved = self.OUTPUT.replace("(244,124)", "(999,1)")
+        self.assertEqual(self.reconcile(moved, [self.allowance()]), [])
+
+    def test_allowance_does_not_cover_a_different_code_in_the_same_file(self):
+        other = "src/concord.ts(12,1): error TS2345: Argument of type 'x'.\n"
+        found = self.reconcile(self.OUTPUT + other, [self.allowance()])
+        self.assertTrue(any("TS2345" in f for f in found), found)
+
+    def test_positionless_diagnostic_is_a_finding(self):
+        # tsc reports "no inputs were found" without a source position. Silently
+        # skipping it would let the check pass over a typecheck of nothing.
+        found = self.reconcile("error TS18003: No inputs were found in config file.\n", [], 1)
+        self.assertTrue(any("no source position" in f for f in found), found)
+
+    def test_nonzero_exit_without_any_diagnostic_is_a_finding(self):
+        found = self.reconcile("bun: command failed\n", [], 1)
+        self.assertTrue(any("without reporting a diagnostic" in f for f in found), found)
+
+    def test_clean_run_reports_nothing(self):
+        self.assertEqual(self.reconcile("", [], 0), [])
+
+
 if __name__ == "__main__": unittest.main()

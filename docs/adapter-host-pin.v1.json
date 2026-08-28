@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "sources": [
+    "adapter/opencode"
+  ],
+  "packages": [
+    {
+      "name": "@opencode-ai/plugin",
+      "version": "1.18.23",
+      "declares": "ToolContext, tool(), tool.schema, and ToolResult - the host surface concord.ts, packet.ts, and lane_dispatch.ts import."
+    },
+    {
+      "name": "bun-types",
+      "version": "1.4.0",
+      "declares": "bun:test, the Bun global, Buffer, process, crypto, AbortController, and Array.fromAsync. Matches the Bun version .github/workflows/ci.yml installs."
+    }
+  ],
+  "typescript": "5.9.3",
+  "compiler_options": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": [
+      "es2022"
+    ],
+    "types": [
+      "bun-types"
+    ],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "allowances": [
+    {
+      "file": "concord.ts",
+      "code": "TS2322",
+      "count": 1,
+      "state": "outstanding",
+      "issue": 560,
+      "reason": "work_transition is the only export typed Promise<unknown>; the host declares execute as Promise<ToolResult>, where ToolResult is a string or an object carrying output. All ten exports return the core response object, so all ten diverge; the other nine typecheck only because invokeConcordOperation is typed Promise<any>. Whether the adapter or the declaration is wrong needs a runtime probe against a host, which is why this is one recorded divergence rather than a cast."
+    }
+  ]
+}

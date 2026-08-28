@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -50,23 +48,7 @@ func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []Capabil
 		t.Fatal(err)
 	}
 
-	service := NewService(s)
-	service.Now = fixedTime
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1"}, nil
-	}
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: capabilities, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "research-surface-nonce-1")
-	grantReq.Assertion.RequestedCapabilities = capabilities
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", capabilities, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant, "session-1"
 }
 

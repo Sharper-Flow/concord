@@ -2,11 +2,8 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -135,47 +132,6 @@ func TestDurableSyncCheckpoint(t *testing.T) {
 	// The store remains usable after the durable sync.
 	if err := s.appendSeedEvent(ctx); err != nil {
 		t.Fatalf("post-checkpoint append: %v", err)
-	}
-}
-
-// TestDurableBarrierAfterPersistGrantTruncatesWal proves the durability
-// barrier wired into the Family A consequence path actually ran. A TRUNCATE
-// checkpoint resets the WAL to zero bytes; if SyncDurable had not been called,
-// the WAL next to the database would still hold the frames PersistGrant
-// committed. Use os.Stat on <dbpath>-wal so the assertion reads the same
-// observable artifact the durability contract promises (sqlite.org/wal.html).
-func TestDurableBarrierAfterPersistGrantTruncatesWal(t *testing.T) {
-	ctx := context.Background()
-	root := t.TempDir()
-	dbpath := filepath.Join(root, "concord.db")
-	s, err := Open(ctx, dbpath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	// PersistGrant is wired for the Family A durability barrier: its own
-	// Transact commits, then SyncDurable truncates the WAL before the call
-	// returns.
-	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		t.Fatalf("RegisterTrustedClient: %v", err)
-	}
-	token := []byte("grant-token")
-	hash := sha256.Sum256(token)
-	nonce := fmt.Sprintf("nonce-%d", time.Now().UnixNano())
-	issued := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
-	expires := time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)
-	if err := s.PersistGrant(ctx, GrantInsert{RecordID: strings.Repeat("a", 64), TokenHash: hash[:], PrincipalRef: "principal-1", ClientRef: "client-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ClientKeyID: "key-1", ManifestDigest: "sha256:" + strings.Repeat("0", 64), CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, IssuedAt: issued, ExpiresAt: expires, ScopeSnapshotJSON: `{}`, CandidateProductsJSON: `[]`, Nonce: nonce, NonceObservedAt: issued, NonceExpiresAt: expires, NoncePruneBefore: issued}); err != nil {
-		t.Fatalf("PersistGrant: %v", err)
-	}
-
-	walpath := dbpath + "-wal"
-	info, err := os.Stat(walpath)
-	if err != nil {
-		t.Fatalf("expected %s to exist after SyncDurable: %v", walpath, err)
-	}
-	if info.Size() != 0 {
-		t.Fatalf("WAL file %s size = %d after PersistGrant, want 0 (TRUNCATE did not reset)", walpath, info.Size())
 	}
 }
 

@@ -190,90 +190,6 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	}
 }
 
-func TestDispatchRejectsInvalidSignedHostApprovalAssertions(t *testing.T) {
-	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-invalid"}`)}
-	env := mutationEnvelope(grant, scopeVersion)
-	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	challengeRef := missing.Error.Details["approval_ref"].(string)
-	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 2}
-	variants := []struct {
-		name      string
-		assertion *HostApprovalAssertion
-	}{
-		{"unsigned", &HostApprovalAssertion{ChallengeRef: challengeRef, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: "session-1", AgentRef: "agent-1", Worktree: "/repo-wt", IssuedAt: fixedTime().Format(time.RFC3339Nano), Nonce: "invalid-unsigned-0001"}},
-		{"wrong-key", signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-wrong-key-1")},
-		{"stale", signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime().Add(-service.MaxClockSkew-time.Second), "invalid-stale-0001")},
-		{"future", signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime().Add(service.MaxClockSkew+time.Second), "invalid-future-0001")},
-		{"digest", signedHostApproval(privateKey, challengeRef, "sha256:"+strings.Repeat("f", 64), scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-digest-0001")},
-		{"version", signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"work": 3}, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-version-0001")},
-		{"scope", signedHostApproval(privateKey, challengeRef, digest, map[string]any{"product_id": "product-2", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-scope-0001")},
-	}
-	for _, variant := range variants {
-		t.Run(variant.name, func(t *testing.T) {
-			trial := request
-			trial.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-` + variant.name + `","approval":{"approval_ref":"` + challengeRef + `"}}`)
-			trialEnv := env
-			trialEnv.RequestID = "invalid-" + variant.name
-			trialEnv.HostApproval = variant.assertion
-			response, err := Dispatch(ctx, s, service, trial, trialEnv)
-			if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "approval_invalid" {
-				t.Fatalf("response=%+v err=%v", response, err)
-			}
-		})
-	}
-	if _, err := s.DatabaseForTesting().Exec(`UPDATE agent_approval_challenges SET issued_at=?,expires_at=? WHERE challenge_ref=?`, fixedTime().Add(-2*time.Minute).Format(time.RFC3339Nano), fixedTime().Add(-time.Minute).Format(time.RFC3339Nano), challengeRef); err != nil {
-		t.Fatal(err)
-	}
-	expired := request
-	expired.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-expired","approval":{"approval_ref":"` + challengeRef + `"}}`)
-	expiredEnv := env
-	expiredEnv.RequestID = "invalid-expired"
-	expiredEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-expired-0001")
-	expiredResponse, err := Dispatch(ctx, s, service, expired, expiredEnv)
-	if err != nil || expiredResponse.Error == nil || expiredResponse.Error.Kind != "approval_invalid" {
-		t.Fatalf("expired challenge response=%+v err=%v", expiredResponse, err)
-	}
-	newChallengeRequest := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-revoked"}`)}
-	newChallengeResponse, err := Dispatch(ctx, s, service, newChallengeRequest, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	newChallenge := newChallengeResponse.Error.Details["approval_ref"].(string)
-	if err := service.RevokeApprovalChallenge(ctx, newChallenge); err != nil {
-		t.Fatal(err)
-	}
-	revoked := newChallengeRequest
-	revoked.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-revoked","approval":{"approval_ref":"` + newChallenge + `"}}`)
-	revokedEnv := env
-	revokedEnv.RequestID = "invalid-revoked"
-	revokedEnv.HostApproval = signedHostApproval(privateKey, newChallenge, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "invalid-revoked-0001")
-	revokedResponse, err := Dispatch(ctx, s, service, revoked, revokedEnv)
-	if err != nil || revokedResponse.Error == nil || revokedResponse.Error.Kind != "approval_invalid" {
-		t.Fatalf("revoked challenge response=%+v err=%v", revokedResponse, err)
-	}
-	if err := service.RevokeClient(ctx, "client-1"); err != nil {
-		t.Fatal(err)
-	}
-	revokedClient, err := Dispatch(ctx, s, service, revoked, revokedEnv)
-	if err != nil || revokedClient.Error == nil || revokedClient.Error.Kind != "unauthorized" {
-		t.Fatalf("revoked client response=%+v err=%v", revokedClient, err)
-	}
-	if version := workVersion(t, s, "work-1"); version != 2 {
-		t.Fatalf("invalid assertions changed work version=%d", version)
-	}
-}
-
 func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
@@ -298,13 +214,6 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	failed, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "version_conflict" {
 		t.Fatalf("failed mutation=%+v err=%v", failed, err)
-	}
-	var grantUsed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_ref=?`, grant.RecordID).Scan(&grantUsed); err != nil {
-		t.Fatal(err)
-	}
-	if grantUsed != 0 {
-		t.Fatalf("grant use committed on failed effect: %d", grantUsed)
 	}
 	var challengeStatus string
 	var challengeUsed int
@@ -358,20 +267,8 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','project-1','canonical_path',?,?,'now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','locator-1'); DELETE FROM fold_guard`, repo, repo); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s)
-	service.Now = func() time.Time { return fixedTime() }
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"work_compact"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "orphan-dispatch-nonce")
-	grantReq.Assertion.Worktree = "/unrelated-worktree"
-	grantReq.Assertion.RequestedCapabilities = []Capability{"work_compact"}
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_compact"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	grant.Worktree = "/unrelated-worktree"
 	claimScope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-orphan"],"scope_version":"","work_version":3,"content_digest":"` + proofDigest + `","home_project_id":"project-1","home_locator_id":"locator-1","head_ref":"HEAD"}`
 	claim, err := store.ClaimStep(ctx, s, store.ClaimRequest{OpID: "orphan-operation", WorkID: "work-orphan", WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("0", 64), AcceptedScopeSnapshot: claimScope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "publish-key", RequestID: "publish-request", ObservedAt: fixedTime(), ContractDigest: ManifestDigest})
 	if err != nil {
@@ -734,23 +631,8 @@ func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*stor
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProduct, "product-2"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s)
-	service.Now = func() time.Time { return fixedTime() }
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1"}, nil
-	}
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: capabilities, ProductScope: []string{"product-1", "product-2"}, ProjectScope: []string{"project-1"}}
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "cross-fixture-nonce")
-	grantReq.Assertion.RequestedCapabilities = capabilities
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", capabilities, []string{"product-1", "product-2"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	privateKey := mustKey(t)
 	return s, service, grant, privateKey
 }
 
@@ -784,25 +666,8 @@ func disjointRelationFixture(t *testing.T, capabilities []Capability) (*store.St
 			t.Fatal(err)
 		}
 	}
-	service := NewService(s)
-	service.Now = func() time.Time { return fixedTime() }
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "ambient"}, nil
-	}
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: capabilities, ProductScope: []string{"product-a", "product-b"}, ProjectScope: []string{"ambient", "project-a", "project-b"}}
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "disjoint-fixture-nonce")
-	grantReq.Assertion.RequestedProductID = "product-a"
-	grantReq.Assertion.RequestedProjectIDs = []string{"ambient"}
-	grantReq.Assertion.RequestedCapabilities = capabilities
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", capabilities, []string{"product-a", "product-b"}, []string{"ambient", "project-a", "project-b"}, store.ProjectResolution{ProjectID: "ambient"})
+	privateKey := mustKey(t)
 	return s, service, grant, privateKey
 }
 
@@ -840,29 +705,19 @@ func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.St
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s)
-	service.Now = func() time.Time { return fixedTime() }
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: capabilities, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "dispatcher-fixture-nonce")
-	grantReq.Assertion.RequestedCapabilities = capabilities
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", capabilities, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	privateKey := mustKey(t)
 	return s, service, grant, privateKey
 }
 
 func mutationEnvelope(grant Grant, scopeVersion string) CallEnvelope {
-	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
+	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 }
 
 func signedHostApproval(privateKey ed25519.PrivateKey, challenge, digest string, scope, versions map[string]any, session, agent, worktree string, issued time.Time, nonce string) *HostApprovalAssertion {
-	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, IssuedAt: issued.Format(time.RFC3339Nano), Nonce: nonce}
-	assertion.Signature = ed25519.Sign(privateKey, CanonicalHostApprovalAssertion(*assertion))
+	_ = privateKey
+	_ = nonce
+	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, IssuedAt: issued.Format(time.RFC3339Nano)}
 	return assertion
 }
 

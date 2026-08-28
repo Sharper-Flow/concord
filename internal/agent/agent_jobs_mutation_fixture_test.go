@@ -3,10 +3,8 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -36,45 +34,10 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 	if err := pm1fixture.Seed(context.Background(), s, corpus); err != nil {
 		t.Fatalf("pm1fixture.Seed: %v", err)
 	}
-	ctx := context.Background()
-	service := NewService(s)
-	service.Now = fixedTime
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{
-		ClientRef: "client-mutation",
-		KeyID:     "key-mutation",
-		PublicKey: publicKey,
-		Policy: TrustedClientPolicy{
-			PrincipalRef: "human-operator",
-			Capabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative"},
-			ProductScope: []string{"prod-alpha", "prod-beta"},
-			ProjectScope: []string{"proj-web", "proj-api", "proj-shared"},
-		},
-	}); err != nil {
-		t.Fatalf("RegisterTrustedClient: %v", err)
-	}
-	assertion := SignedAssertion{
-		ClientRef:             "client-mutation",
-		SessionRef:            "session-mutation",
-		AgentRef:              "agent-engineer",
-		Directory:             "/repo",
-		Worktree:              "/repo-wt",
-		RequestedProductID:    "prod-alpha",
-		RequestedProjectIDs:   []string{"proj-web", "proj-api", "proj-shared"},
-		RequestedCapabilities: []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative"},
-		IssuedAt:              fixedTime(),
-		Nonce:                 "agent-jobs-mutation-nonce",
-		ManifestDigest:        ManifestDigest,
-	}
-	assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(assertion))
-	grantReq := GrantRequest{
-		Assertion: assertion,
-		ExpiresAt: fixedTime().Add(time.Hour),
-	}
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatalf("IssueGrant: %v", err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-mutation", "human-operator", []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
+	grant.SessionRef = "session-mutation"
+	grant.AgentRef = "agent-engineer"
+	privateKey := mustKey(t)
 	return s, service, grant, privateKey, corpus
 }
 

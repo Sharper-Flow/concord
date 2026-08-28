@@ -42,6 +42,9 @@ func agentJobsCompactionFixture(t *testing.T) (*store.Store, *Service, Grant, ed
 	if home.RepoPath != knowledge.Home.RepoPath {
 		t.Fatalf("resolved home %q is not the seeded knowledge home %q", home.RepoPath, knowledge.Home.RepoPath)
 	}
+	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "proj-api"}, nil
+	}
 	return s, service, grant, privateKey, home
 }
 
@@ -115,7 +118,7 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 func mintPublicationChallenge(t *testing.T, s *store.Store, service *Service, grant Grant, env CallEnvelope, digest string, scope, versions map[string]any) string {
 	t.Helper()
 	ctx := context.Background()
-	inv := Invocation{GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
+	inv := Invocation{ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: env.SelectedProductID}
 	var ref string
 	err := s.Transact(ctx, func(tx *store.Transaction) error {
 		var err error

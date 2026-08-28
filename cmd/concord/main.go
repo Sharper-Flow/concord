@@ -100,11 +100,10 @@ func formatRequiredFields(fields []commandField) string {
 // other aliases are accepted.
 // Operator setup commands predate a standalone JSON schema, so their field
 // lists are kept beside the command boundary and exercised by the README
-// bootstrap test. Agent grant/invoke fields remain owned by their generated
+// bootstrap test. Agent invoke fields remain owned by their generated
 // transport contracts.
 var commandSpecs = []commandSpec{
-	{Canonical: "grant", RequiredFields: requiredFields(nestedField("assertion", "client_ref", "session_ref", "agent_ref", "directory", "worktree", "requested_capabilities", "issued_at", "nonce", "manifest_digest", "signature"), field("expires_at"), field("max_uses")), Optional: "assertion.requested_product_id, assertion.requested_project_ids", Enums: "requested_capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research"},
-	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "grant_token", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
+	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_relate.restore_superseded | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "evidence[] (obligation; detail 1-512 chars) — required and non-empty when evidence_origin is reported (CD-0056)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands; reported evidence must discharge every obligation the dispatching lane declares"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
@@ -279,8 +278,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	switch command {
 	case "invoke":
 		return runInvoke(raw, s, service, out, errOut)
-	case "grant":
-		return runGrant(raw, service, out, errOut)
 	case "worker-dispatch", "worker-complete", "worker-fail":
 		return runWorkerCommand(command, raw, s, service, clock, out, errOut)
 	default:
@@ -598,41 +595,6 @@ func decodeObject(data []byte, value any) error {
 		return fmt.Errorf("trailing JSON")
 	}
 	return nil
-}
-
-func runGrant(raw []byte, service *agent.Service, out, errOut io.Writer) int {
-	var request struct {
-		Assertion agent.SignedAssertion `json:"assertion"`
-		ExpiresAt string                `json:"expires_at"`
-		MaxUses   int                   `json:"max_uses"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	expires, err := time.Parse(time.RFC3339Nano, request.ExpiresAt)
-	if err != nil {
-		writeDiagnostic(errOut, "expires_at must be RFC3339")
-		return 1
-	}
-	grant, err := service.IssueGrant(context.Background(), agent.GrantRequest{Assertion: request.Assertion, ExpiresAt: expires, MaxUses: request.MaxUses})
-	if err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	response := struct {
-		GrantRef       string   `json:"grant_ref"`
-		GrantToken     string   `json:"grant_token"`
-		PrincipalRef   string   `json:"principal_ref"`
-		ClientRef      string   `json:"client_ref"`
-		SessionRef     string   `json:"session_ref"`
-		AgentRef       string   `json:"agent_ref"`
-		ManifestDigest string   `json:"manifest_digest"`
-		ProductIDs     []string `json:"product_ids"`
-		ProjectIDs     []string `json:"project_ids"`
-		ScopeVersion   string   `json:"scope_version"`
-	}{grant.RecordID, grant.Token, grant.PrincipalRef, grant.ClientRef, grant.SessionRef, grant.AgentRef, grant.ManifestDigest, grant.ProductScope, grant.ProjectScope, grant.ScopeVersion}
-	return writeJSON(out, response, errOut)
 }
 
 func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut io.Writer) int {

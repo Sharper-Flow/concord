@@ -144,8 +144,8 @@ func TestRequestedBudgetSecondsJoinsTheCanonicalDigest(t *testing.T) {
 	// CD-0038 D1: changing the requested budget changes the canonical request.
 	// The digest is over the raw input, so the field participates structurally;
 	// this pins that property before anything learns to strip it.
-	one := mutationDigest("concord_work_transition", "workflow_action", CallEnvelope{GrantToken: "grant", ClientRef: "client", SessionRef: "session", AgentRef: "agent"}, json.RawMessage(`{"work_id":"w","expected_version":1,"action_id":"a","idempotency_key":"k","requested_budget_seconds":30}`))
-	two := mutationDigest("concord_work_transition", "workflow_action", CallEnvelope{GrantToken: "grant", ClientRef: "client", SessionRef: "session", AgentRef: "agent"}, json.RawMessage(`{"work_id":"w","expected_version":1,"action_id":"a","idempotency_key":"k","requested_budget_seconds":20}`))
+	one := mutationDigest("concord_work_transition", "workflow_action", CallEnvelope{ClientRef: "client", SessionRef: "session", AgentRef: "agent"}, json.RawMessage(`{"work_id":"w","expected_version":1,"action_id":"a","idempotency_key":"k","requested_budget_seconds":30}`))
+	two := mutationDigest("concord_work_transition", "workflow_action", CallEnvelope{ClientRef: "client", SessionRef: "session", AgentRef: "agent"}, json.RawMessage(`{"work_id":"w","expected_version":1,"action_id":"a","idempotency_key":"k","requested_budget_seconds":20}`))
 	if one == two {
 		t.Fatal("different budgets produced the same canonical digest")
 	}

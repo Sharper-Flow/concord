@@ -136,18 +136,6 @@ func snakeCase(name string) string {
 	return out.String()
 }
 
-// TestWorkerEvidenceCapabilityIsNotGrantRequestable proves the capability is
-// client-policy authority only. A grant assertion that requests it must be
-// refused, so no bearer token an agent holds can ever carry it.
-func TestWorkerEvidenceCapabilityIsNotGrantRequestable(t *testing.T) {
-	if validSignedRequests(SignedAssertion{RequestedCapabilities: []Capability{CapabilityWorkerEvidence}}) {
-		t.Fatal("grant assertion accepted a requested worker_evidence capability")
-	}
-	if !validTrustedPolicy(TrustedClientPolicy{PrincipalRef: "operator-1", Capabilities: []Capability{CapabilityWorkerEvidence}}) {
-		t.Fatal("client policy refused the worker_evidence capability")
-	}
-}
-
 // TestWorkerEvidenceBindingMismatchOnPacketDigest pins CD-0067 D6 at the
 // agent layer: the binding carries PacketDigest for dispatch, and an
 // assertion that quotes a different value must refuse before the signature

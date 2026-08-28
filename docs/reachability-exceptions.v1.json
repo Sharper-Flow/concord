@@ -117,24 +117,6 @@
         "internal/agent.InvokeWithRegistry"
       ],
       "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam exists so the workflow corpus boundary runner can drive a scenario registry through the real byte-oriented boundary instead of reaching past it. Issue #450 removed the divergence it was filed for by routing runInvoke through Invoke; the injection point is the deliberate remainder, not an unreached surface."
-    },
-    {
-      "id": "unbuilt-revocation-surface",
-      "state": "outstanding",
-      "functions": [
-        "internal/agent.Service.RevokeApproval",
-        "internal/agent.Service.RevokeApprovalChallenge",
-        "internal/agent.Service.RevokeGrant"
-      ],
-      "issue": 465
-    },
-    {
-      "id": "stringer-redaction-control",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/agent.Grant.String"
-      ],
-      "reason": "Grant satisfies fmt.Stringer so no %v, %s, or log call on a whole Grant can leak the bearer token. deadcode cannot see interface satisfaction, and the control is deliberately uncalled: its value is that it holds for a call nobody has written yet. TestGrantBootstrapAndInvocationBinding asserts the redaction."
     }
   ]
 }

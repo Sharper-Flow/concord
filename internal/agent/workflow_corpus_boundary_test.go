@@ -68,15 +68,12 @@ func TestWorkflowCorpusWF37UsesAgentAvailabilityBeforePayloadOrAuth(t *testing.T
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
 		t.Fatalf("WF37 response outcome=%s error=%+v", response.Outcome, response.Error)
 	}
-	var used, started int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
-		t.Fatal(err)
-	}
+	var started int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
 		t.Fatal(err)
 	}
-	if used != 0 || started != 0 {
-		t.Fatalf("WF37 availability failure reached mutation authority: grant_used=%d action_started=%d", used, started)
+	if started != 0 {
+		t.Fatalf("WF37 availability failure reached mutation authority: action_started=%d", started)
 	}
 }
 

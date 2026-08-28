@@ -13,9 +13,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// trunkFirewallFixture returns a service whose resolver reports the given
-// worktree topology, plus a signing key for grant requests.
-func trunkFirewallFixture(t *testing.T, mainWorktree bool) (*Service, ed25519.PrivateKey) {
+func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -36,51 +34,41 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) (*Service, ed25519.Pr
 	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree}, nil
 	}
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
+	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
 	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_define", "work_transition", "cross_scope"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
 		t.Fatal(err)
 	}
-	return service, privateKey
-}
-
-func signedTrunkGrant(privateKey ed25519.PrivateKey, nonce string, capabilities []Capability) GrantRequest {
-	req := grantRequest(privateKey, nonce)
-	req.Assertion.RequestedCapabilities = capabilities
-	req.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(req.Assertion))
-	return req
+	return service
 }
 
 // CD-0008 D1: the main checkout is read-only. Every mutating capability,
 // including mutation enablers like cross_scope, is refused there.
-func TestIssueGrantRefusesMutationOnMainWorktree(t *testing.T) {
-	mutating := [][]Capability{
-		{"work_define"},
-		{"product_read", "work_transition"},
-		{"cross_scope"},
-	}
-	for _, capabilities := range mutating {
-		service, privateKey := trunkFirewallFixture(t, true)
-		req := signedTrunkGrant(privateKey, "trunk-firewall-"+strings.Join(capabilityStrings(capabilities), "-"), capabilities)
-		_, err := service.IssueGrant(context.Background(), req)
+func TestAuthorizeRefusesMutationOnMainWorktree(t *testing.T) {
+	mutating := []Capability{"work_define", "work_transition", "cross_scope"}
+	for _, capability := range mutating {
+		service := trunkFirewallFixture(t, true)
+		_, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"})
 		if err == nil || !strings.Contains(err.Error(), "linked worktree") {
-			t.Fatalf("capabilities=%v expected main-worktree refusal, got err=%v", capabilities, err)
+			t.Fatalf("capability=%v expected main-worktree refusal, got err=%v", capability, err)
 		}
 	}
 }
 
-func TestIssueGrantAllowsReadsOnMainWorktreeAndMutationOnLinked(t *testing.T) {
-	service, privateKey := trunkFirewallFixture(t, true)
-	grant, err := service.IssueGrant(context.Background(), signedTrunkGrant(privateKey, "trunk-read-only-nonce-0001", []Capability{"product_read"}))
+func TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked(t *testing.T) {
+	service := trunkFirewallFixture(t, true)
+	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"}
+	authority, err := service.Authorize(context.Background(), invocation)
 	if err != nil {
-		t.Fatalf("read-only grant on main worktree should pass, got %v", err)
+		t.Fatalf("read-only authority on main worktree should pass, got %v", err)
 	}
-	if len(grant.Capabilities) != 1 || grant.Capabilities[0] != Capability("product_read") {
-		t.Fatalf("grant capabilities=%v", grant.Capabilities)
+	if !containsCapability(authority.Capabilities, "product_read") {
+		t.Fatalf("authority capabilities=%v", authority.Capabilities)
 	}
 
-	linked, linkedKey := trunkFirewallFixture(t, false)
-	if _, err := linked.IssueGrant(context.Background(), signedTrunkGrant(linkedKey, "linked-mutation-nonce-00001", []Capability{"work_define"})); err != nil {
-		t.Fatalf("mutating grant on linked worktree should pass, got %v", err)
+	linked := trunkFirewallFixture(t, false)
+	invocation.RequiredCapability = "work_define"
+	if _, err := linked.Authorize(context.Background(), invocation); err != nil {
+		t.Fatalf("mutating authority on linked worktree should pass, got %v", err)
 	}
 }

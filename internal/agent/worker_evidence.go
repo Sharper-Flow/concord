@@ -67,8 +67,8 @@ type WorkerEvidenceAssertion struct {
 }
 
 // CanonicalWorkerEvidenceAssertion is the byte format a trusted client signs
-// for a worker-evidence write. Like CanonicalAssertion it is deliberately not
-// JSON: the prefix is `worker-evidence-v1\0`, followed by fixed, named fields
+// for a worker-evidence write. The format is deliberately not JSON: the prefix
+// is `worker-evidence-v1\0`, followed by fixed, named fields
 // encoded as `name=<UTF-8 byte length>:<UTF-8 value>|`. Field order is part of
 // the contract and matches the adapter mirror; the shared vector at
 // adapter/opencode/worker-evidence-vector.json pins both implementations to one
@@ -206,7 +206,7 @@ func (s *Service) ValidateWorkerEvidenceAssertionTx(ctx context.Context, tx *sto
 	if err != nil || issued.Before(s.now().Add(-s.skew())) || issued.After(s.now().Add(s.skew())) {
 		return "", errors.New("worker evidence assertion timestamp invalid")
 	}
-	client, key, err := store.TrustedClientForGrantTx(ctx, tx, assertion.ClientRef)
+	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, assertion.ClientRef)
 	if err != nil {
 		return "", errors.New("trusted client unavailable")
 	}

@@ -33,12 +33,12 @@ const (
 	OriginAdapter Origin = "adapter"
 )
 
-type Authority string
+type AuthorityLevel string
 
 const (
-	AuthorityAuthoritative Authority = "authoritative"
-	AuthorityDegraded      Authority = "degraded"
-	AuthorityUnreachable   Authority = "unreachable"
+	AuthorityAuthoritative AuthorityLevel = "authoritative"
+	AuthorityDegraded      AuthorityLevel = "degraded"
+	AuthorityUnreachable   AuthorityLevel = "unreachable"
 )
 
 type EffectState string
@@ -240,7 +240,7 @@ type Envelope struct {
 	QueryID                string            `json:"query_id,omitempty"`
 	Outcome                Outcome           `json:"outcome"`
 	ResolvedScope          *Scope            `json:"resolved_scope"`
-	Authority              Authority         `json:"authority"`
+	Authority              AuthorityLevel    `json:"authority"`
 	Freshness              *Freshness        `json:"freshness"`
 	SourceVersionWatermark []Watermark       `json:"source_version_watermark"`
 	OrderingKeys           []string          `json:"ordering_keys"`

@@ -65,7 +65,7 @@ func domainRead(t *testing.T, s *store.Store, service *Service, env CallEnvelope
 // says which projected registry commit the answer covers.
 func assertAuthoritativeCoverage(t *testing.T, response Envelope, operation string) store.DomainRegistryView {
 	t.Helper()
-	if response.Authority != Authority("authoritative") {
+	if response.Authority != AuthorityLevel("authoritative") {
 		t.Fatalf("concord_domain.%s authority=%q, want %q", operation, response.Authority, "authoritative")
 	}
 	var payload struct {
@@ -186,7 +186,7 @@ func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	if len(*payload.Relations) != 0 {
 		t.Fatalf("single-Domain Product reported %d architecture relations: %#v", len(*payload.Relations), *payload.Relations)
 	}
-	if response.Authority != Authority("authoritative") {
+	if response.Authority != AuthorityLevel("authoritative") {
 		t.Fatalf("empty relation set was not reported as authoritative: authority=%q", response.Authority)
 	}
 	if response.Error != nil {

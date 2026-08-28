@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -12,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -1105,45 +1102,9 @@ func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, pm1fixtur
 		t.Fatalf("pm1fixture.Seed: %v", err)
 	}
 
-	ctx := context.Background()
-	service := NewService(s)
-	service.Now = fixedTime
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{
-		ClientRef: "client-1",
-		KeyID:     "key-1",
-		PublicKey: publicKey,
-		Policy: TrustedClientPolicy{
-			PrincipalRef: "human-operator",
-			Capabilities: []Capability{"product_read"},
-			ProductScope: []string{"prod-alpha", "prod-beta"},
-			ProjectScope: []string{"proj-web", "proj-api", "proj-shared"},
-		},
-	}); err != nil {
-		t.Fatalf("RegisterTrustedClient: %v", err)
-	}
-	assertion := SignedAssertion{
-		ClientRef:             "client-1",
-		SessionRef:            "session-agent-jobs",
-		AgentRef:              "agent-engineer",
-		Directory:             "/repo",
-		Worktree:              "/repo-wt",
-		RequestedProductID:    "prod-alpha",
-		RequestedProjectIDs:   []string{"proj-web", "proj-api", "proj-shared"},
-		RequestedCapabilities: []Capability{"product_read"},
-		IssuedAt:              fixedTime(),
-		Nonce:                 "agent-jobs-nonce-16c",
-		ManifestDigest:        ManifestDigest,
-	}
-	assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(assertion))
-	grantReq := GrantRequest{
-		Assertion: assertion,
-		ExpiresAt: fixedTime().Add(time.Hour),
-	}
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatalf("IssueGrant: %v", err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-operator", []Capability{"product_read"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
+	grant.SessionRef = "session-agent-jobs"
+	grant.AgentRef = "agent-engineer"
 	return s, service, grant, corpus
 }
 
@@ -1151,7 +1112,6 @@ func agentJobsEnvelope(grant Grant, ambientProject, selectedProduct string) Call
 	return CallEnvelope{
 		SchemaVersion:     "1.0",
 		RequestID:         "agent-jobs-request",
-		GrantToken:        grant.Token,
 		ClientRef:         grant.ClientRef,
 		PrincipalRef:      grant.PrincipalRef,
 		SessionRef:        grant.SessionRef,
@@ -1504,6 +1464,9 @@ func bindAJ1AmbiguousProduct(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _ := agentJobsPM1Fixture(t)
 	ambient, _ := sc.InitialState["ambient_project"].(string)
+	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "proj-shared"}, nil
+	}
 
 	// Resolve from proj-shared — should trigger ambiguous_scope.
 	env := agentJobsEnvelope(grant, ambient, "")

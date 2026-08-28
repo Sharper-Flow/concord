@@ -71,6 +71,14 @@ func (s *Store) ScopeVersion(ctx context.Context, projectID string) (string, []s
 	return scopeVersion(ctx, s.db, projectID)
 }
 
+func ScopeVersionTx(ctx context.Context, transaction *Transaction, projectID string) (string, []string, error) {
+	tx, err := transactionSQL(transaction, "scope_version")
+	if err != nil {
+		return "", nil, err
+	}
+	return scopeVersion(ctx, tx, projectID)
+}
+
 func scopeVersion(ctx context.Context, q queryer, projectID string) (string, []string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT product_id,role FROM product_projects WHERE project_id=? ORDER BY product_id,role`, projectID)
 	if err != nil {

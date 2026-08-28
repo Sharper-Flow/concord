@@ -20,7 +20,6 @@ import (
 type CallEnvelope struct {
 	SchemaVersion       string                 `json:"schema_version"`
 	RequestID           string                 `json:"request_id"`
-	GrantToken          string                 `json:"grant_token"`
 	ClientRef           string                 `json:"client_ref"`
 	PrincipalRef        string                 `json:"principal_ref"`
 	SessionRef          string                 `json:"session_ref"`
@@ -71,8 +70,8 @@ func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
 	if err := dec.Decode(&trailing); err != io.EOF {
 		return request, CallEnvelope{}, errors.New("call envelope contains trailing JSON")
 	}
-	if env.SchemaVersion == "" || env.RequestID == "" || env.GrantToken == "" || env.ManifestDigest == "" {
-		return request, CallEnvelope{}, errors.New("call envelope is missing schema_version, request_id, grant_token, or manifest_digest")
+	if env.SchemaVersion == "" || env.RequestID == "" || env.ManifestDigest == "" {
+		return request, CallEnvelope{}, errors.New("call envelope is missing schema_version, request_id, or manifest_digest")
 	}
 	return request, env, nil
 }
@@ -251,7 +250,7 @@ type runtime struct {
 	Envelope        CallEnvelope
 	Tool, Operation string
 	Budget          budgetInput
-	Reader          Grant
+	Reader          Authority
 }
 
 // Dispatch validates the generated input schema, revalidates TS5 authority,
@@ -327,7 +326,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
-	inv := Invocation{GrantToken: env.GrantToken, ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID, ProjectID: env.AmbientProjectID}
+	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID}
 	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		identity, identityExtractErr := extractMutationWorkIdentity(request.Input)
 		if identityExtractErr != nil {
@@ -342,7 +341,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		}
 		identityInv := inv
 		identityInv.ProductID, identityInv.ProjectID = "", ""
-		identityGrant, identityErr := authority.ValidateInvocation(ctx, identityInv)
+		identityGrant, identityErr := authority.Authorize(ctx, identityInv)
 		if identityErr != nil {
 			return coreError(base, "unauthorized", identityErr.Error(), "contact_operator", false), nil
 		}
@@ -357,18 +356,12 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if env.ScopeVersion == "" {
 		return coreError(base, "stale_context", "scope_version is required for every invocation", "refresh_context", false), nil
 	}
-	grant, err := authority.ValidateInvocation(ctx, inv)
+	grant, err := authority.Authorize(ctx, inv)
 	if err != nil {
 		return coreError(base, "unauthorized", err.Error(), "contact_operator", false), nil
 	}
-	if authority.ProjectResolver != nil {
-		resolved, resolveErr := authority.ProjectResolver(ctx, env.Directory, env.Worktree)
-		if resolveErr != nil {
-			return failureEnvelope(base, resolveErr), nil
-		}
-		if resolved.ProjectID != env.AmbientProjectID {
-			return coreError(base, "stale_context", "ambient Project no longer matches the signed worktree", "refresh_context", false), nil
-		}
+	if resolvedProject, ok := grant.ScopeSnapshot["project_id"].(string); ok && resolvedProject != env.AmbientProjectID {
+		return coreError(base, "stale_context", "ambient Project no longer matches the signed worktree", "refresh_context", false), nil
 	}
 	if err := validateRuntimeScope(ctx, s, env, grant, op.Kind); err != nil {
 		var stale *runtimeFailure
@@ -467,7 +460,7 @@ func (r runtime) boundedPreview(limit int) int {
 	return limit
 }
 
-func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Grant, request InvokeRequest) error {
+func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, request InvokeRequest) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(request.Input, &fields); err != nil {
 		return err
@@ -634,7 +627,7 @@ func shapeInvokeFailure(response Envelope, dispatchErr error, request InvokeRequ
 	return NewCoreError(base, TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, Message: dispatchErr.Error()})
 }
 
-func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Grant, kind OperationKind) error {
+func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind OperationKind) error {
 	if env.AmbientProjectID == "" {
 		return newRuntimeFailure("unknown_scope", "ambient Project is required", "resolve_ambiguity", false)
 	}
@@ -1505,7 +1498,7 @@ func watermarkString(response Envelope) string {
 
 func applyMeta(base Envelope, meta store.ResultMeta, scope *Scope) Envelope {
 	base.QueryID = meta.QueryID
-	base.Authority = Authority(meta.Authority)
+	base.Authority = AuthorityLevel(meta.Authority)
 	base.ResolvedScope = scope
 	base.Freshness = &Freshness{ObservedAt: parseTime(meta.Freshness.ObservedAt), Age: meta.Freshness.Age, Stale: meta.Freshness.Stale}
 	base.OrderingKeys = meta.OrderingKeys

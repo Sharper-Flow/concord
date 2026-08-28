@@ -129,13 +129,6 @@ func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing
 			t.Fatalf("malformed workflow request response=%+v err=%v", response, dispatchErr)
 		}
 	}
-	var used int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
-		t.Fatal(err)
-	}
-	if used != 0 {
-		t.Fatalf("malformed workflow requests consumed grant authorization: %d", used)
-	}
 }
 
 func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
@@ -350,8 +343,8 @@ func TestConfirmPremiseQuestionFailuresAreAuthorityNoOps(t *testing.T) {
 		{name: "stop-routed-away", mutate: func(input map[string]any) { input["selected_choice"] = "stop" }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			s, service, grant, _, env, confirm, _, _, _, _ := prepareIssue31Confirm(t)
-			before := workflowIssue31AuthoritySnapshot(t, s, grant)
+			s, service, _, _, env, confirm, _, _, _, _ := prepareIssue31Confirm(t)
+			before := workflowIssue31AuthoritySnapshot(t, s)
 			var input map[string]any
 			if err := json.Unmarshal(confirm, &input); err != nil {
 				t.Fatal(err)
@@ -366,7 +359,7 @@ func TestConfirmPremiseQuestionFailuresAreAuthorityNoOps(t *testing.T) {
 			if response.Outcome == OutcomeOK {
 				t.Fatalf("negative selection unexpectedly succeeded: %+v", response)
 			}
-			after := workflowIssue31AuthoritySnapshot(t, s, grant)
+			after := workflowIssue31AuthoritySnapshot(t, s)
 			if !reflect.DeepEqual(before, after) {
 				t.Fatalf("negative selection changed authority before=%+v after=%+v", before, after)
 			}
@@ -376,7 +369,6 @@ func TestConfirmPremiseQuestionFailuresAreAuthorityNoOps(t *testing.T) {
 
 type workflowIssue31AuthorityState struct {
 	Version        int64
-	GrantUsed      int
 	Events         int
 	Actors         int
 	Challenges     int
@@ -388,13 +380,10 @@ type workflowIssue31AuthorityState struct {
 	ApprovalState  string
 }
 
-func workflowIssue31AuthoritySnapshot(t *testing.T, s *store.Store, grant Grant) workflowIssue31AuthorityState {
+func workflowIssue31AuthoritySnapshot(t *testing.T, s *store.Store) workflowIssue31AuthorityState {
 	t.Helper()
 	state := workflowIssue31AuthorityState{Projections: map[string]int{}}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&state.Version); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&state.GrantUsed); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1'`).Scan(&state.Events); err != nil {
@@ -511,12 +500,8 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Grant, ed25519
 
 func issue31EvaluatorGrant(t *testing.T, service *Service, privateKey ed25519.PrivateKey) Grant {
 	t.Helper()
-	request := grantRequest(privateKey, "issue31-evaluator-grant")
-	request.Assertion.AgentRef = "agent-evaluator"
-	request.Assertion.SessionRef = "session-evaluator"
-	request.Assertion.RequestedCapabilities = []Capability{"work_transition"}
-	request.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(request.Assertion))
-	grant, err := service.IssueGrant(context.Background(), request)
+	_ = privateKey
+	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-evaluator", AgentRef: "agent-evaluator", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

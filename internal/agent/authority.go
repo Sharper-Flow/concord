@@ -289,7 +289,6 @@ func expiryPassed(stored string, now time.Time) (time.Time, bool) {
 	return parsed, !parsed.After(now)
 }
 
-func sha256Bytes(value []byte) []byte { sum := sha256.Sum256(value); return sum[:] }
 func capabilityStrings(values []Capability) []string {
 	out := make([]string, len(values))
 	for i, v := range values {
@@ -303,14 +302,6 @@ func capabilityValues(values []string) []Capability {
 		out[i] = Capability(value)
 	}
 	return out
-}
-func subset(requested, allowed []string) bool {
-	for _, value := range requested {
-		if !contains(allowed, value) {
-			return false
-		}
-	}
-	return true
 }
 func normalizeStrings(values []string) []string {
 	out := append([]string(nil), values...)

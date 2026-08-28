@@ -2,7 +2,7 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestCLIEndToEndCreatesScopeGrantsAndInvokesRead"
+      "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
     },
     {
       "kind": "validator",

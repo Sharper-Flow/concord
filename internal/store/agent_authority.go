@@ -202,19 +202,6 @@ func trustedClientWithKey(ctx context.Context, q queryer, clientRef string) (Tru
 	return client, key, nil
 }
 
-func ReadTrustedClientKeyTx(ctx context.Context, transaction *Transaction, clientRef, principalRef string) (TrustedClientKeyRecord, error) {
-	var key TrustedClientKeyRecord
-	tx, err := transactionSQL(transaction, "agent_client_key")
-	if err != nil {
-		return key, err
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT k.key_id,k.public_key,k.status FROM agent_clients c JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=? AND c.principal_ref=? AND c.status='active'`, clientRef, principalRef).Scan(&key.KeyID, &key.PublicKey, &key.Status); err != nil {
-		return key, newFailure(KindProjectionNotFound, "agent_client_key", "trusted client key unavailable", false, "reread the active trusted client")
-	}
-	key.ClientRef = clientRef
-	return key, nil
-}
-
 func ReadApprovalChallengeTx(ctx context.Context, transaction *Transaction, ref string, identity ChallengeIdentity) (ApprovalChallengeRecord, error) {
 	var c ApprovalChallengeRecord
 	tx, err := transactionSQL(transaction, "agent_challenge_read")

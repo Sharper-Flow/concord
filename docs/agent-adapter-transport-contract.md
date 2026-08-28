@@ -326,11 +326,11 @@ context, operation-bound approval, same-key retries, and native-system ownership
 The transport is exercised below scenario grain, so every criterion carries a
 typed exemption in the record naming the test that proves the guarantee.
 
-- Criterion 1 is proved by `TestGrantJSONSignatureRoundTripAndFailuresAtCommandBoundary`
-  (`cmd/concord/main_test.go`) and `TestGrantBootstrapAndInvocationBinding`
-  (`internal/agent/authority_test.go`).
-- Criterion 2 is proved by `TestInvokeNeverEchoesGrantToken`
-  (`cmd/concord/main_test.go`) and `TestGrantRefusalsCarryTheUnauthorizedKind`
+- Criterion 1 is proved by `TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands`
+  (`cmd/concord/main_test.go`) and `TestCLIEndToEndRegistersClientAndInvokesRead`
+  (`cmd/concord/main_test.go`).
+- Criterion 2 is proved by `TestInvokeRejectsUnknownFieldWithoutEcho`
+  (`cmd/concord/main_test.go`) and `TestAuthorityRefusalsCarryTheUnauthorizedKind`
   (`internal/agent/authority_refusal_kind_test.go`).
 - Criterion 3 is proved by `TestDecodeInvokeRequestRejectsInvalidTrailingJSON`
   (`internal/agent/runtime_test.go`) and the adapter contract tests

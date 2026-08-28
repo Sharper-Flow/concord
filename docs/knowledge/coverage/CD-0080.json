@@ -1,5 +1,30 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuthorityRefusalsCarryTheUnauthorizedKind"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestInvalidSelectedProductFailsAsContextNotAuthorization"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowActionPartitionsUnderDerivedPrincipal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowActionRefusesForgedEnvelopePrincipal"
+    }
+  ],
   "id": "CD-0080",
-  "issue": 465,
-  "state": "outstanding"
+  "state": "satisfied"
 }

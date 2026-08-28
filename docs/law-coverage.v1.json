@@ -128,7 +128,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/agent.TestIssueGrantRefusesMutationOnMainWorktree"
+          "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
         }
       ],
       "id": "CD-0008",
@@ -611,7 +611,7 @@
         },
         {
           "kind": "go_test",
-          "value": "internal/agent.TestWorkerEvidenceCapabilityIsNotGrantRequestable"
+          "value": "internal/agent.TestWorkerEvidenceCapabilityIsNotRequestable"
         }
       ],
       "id": "CD-0044",
@@ -703,7 +703,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestDurableBarrierAfterPersistGrantTruncatesWal"
+          "value": "internal/store.TestDurableBarrierAfterRegisterTrustedClientTruncatesWal"
         },
         {
           "kind": "go_test",
@@ -905,7 +905,7 @@
         },
         {
           "kind": "go_test",
-          "value": "internal/agent.TestWorkerDispatchCapabilityIsStructurallyNonGrantable"
+          "value": "internal/agent.TestWorkerDispatchCapabilityIsStructurallyNonAuthorizable"
         },
         {
           "kind": "go_test",
@@ -1118,7 +1118,7 @@
         },
         {
           "kind": "go_test",
-          "value": "internal/agent.TestIssueGrantRefusesMutationOnMainWorktree"
+          "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
         },
         {
           "kind": "go_test",
@@ -1283,9 +1283,34 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestAuthorityRefusalsCarryTheUnauthorizedKind"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestInvalidSelectedProductFailsAsContextNotAuthorization"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkflowActionPartitionsUnderDerivedPrincipal"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorkflowActionRefusesForgedEnvelopePrincipal"
+        }
+      ],
       "id": "CD-0080",
-      "issue": 465,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [
@@ -1540,7 +1565,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+          "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
         },
         {
           "kind": "go_test",
@@ -1558,7 +1583,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "cmd/concord.TestCLIEndToEndCreatesScopeGrantsAndInvokesRead"
+          "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
         },
         {
           "kind": "validator",
@@ -1586,7 +1611,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+          "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
         },
         {
           "kind": "go_test",

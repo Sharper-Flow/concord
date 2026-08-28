@@ -2,7 +2,7 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/agent.TestIssueGrantRefusesMutationOnMainWorktree"
+      "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
     }
   ],
   "id": "CD-0008",

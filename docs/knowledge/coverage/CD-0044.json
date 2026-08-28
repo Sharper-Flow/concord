@@ -6,7 +6,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkerEvidenceCapabilityIsNotGrantRequestable"
+      "value": "internal/agent.TestWorkerEvidenceCapabilityIsNotRequestable"
     }
   ],
   "id": "CD-0044",

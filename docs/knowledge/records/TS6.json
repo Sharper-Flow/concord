@@ -2,11 +2,11 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "Grant validation is a transport-layer property below scenario grain. The guarantee is proved by TestGrantJSONSignatureRoundTripAndFailuresAtCommandBoundary (cmd/concord/main_test.go) and TestGrantBootstrapAndInvocationBinding (internal/agent/authority_test.go)."
+      "exemption": "Client registration is a transport-layer property below scenario grain. The guarantee is proved by TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands (cmd/concord/main_test.go) and TestCLIEndToEndRegistersClientAndInvokesRead (cmd/concord/main_test.go)."
     },
     {
       "criterion": 2,
-      "exemption": "Secret non-exposure is a transport invariant. The guarantee is proved by TestInvokeNeverEchoesGrantToken (cmd/concord/main_test.go) and TestGrantRefusalsCarryTheUnauthorizedKind (internal/agent/authority_refusal_kind_test.go)."
+      "exemption": "Secret non-exposure is a transport invariant. CD-0080 removes the grant token, so the remaining secret is the registered client key. The guarantee is proved by TestInvokeRejectsUnknownFieldWithoutEcho (cmd/concord/main_test.go) and TestAuthorityRefusalsCarryTheUnauthorizedKind (internal/agent/authority_refusal_kind_test.go)."
     },
     {
       "criterion": 3,
@@ -41,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4b19b0494e96c5f1443bda0621e7ff8694c970574b23ac1f846be61649bfe5af",
+  "sha256": "sha256:4eb1c1d38656571d72db2ef7ad57d6eb30ccab1d3a67338c825e3377fb2570c4",
   "status": "accepted",
   "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
   "tags": [

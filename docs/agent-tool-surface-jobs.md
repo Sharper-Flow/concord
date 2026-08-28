@@ -318,6 +318,32 @@ fixture-independent `effects.version_increment` assertion that entry added is wh
 carries the law, and it is unaffected. `TestAgentJobsCorpus` and the
 product-memory corpus pass unchanged.
 
+**2026-08-28, issue #463 — `AJ6-compact-terminal-work` asserts the emitted note
+satisfies the durable tier.**
+
+CD-0069 D4 requires this scenario to assert that the terminal compaction path
+emits a note the durable-tier budget accepts. The amendment adds three
+assertions:
+
+```json
+{ "target": "effects", "path": "durable_tier.markdown_only", "op": "eq", "value": true },
+{ "target": "effects", "path": "durable_tier.note_extension", "op": "eq", "value": ".md" },
+{ "target": "effects", "path": "durable_tier.budget_passed", "op": "eq", "value": true }
+```
+
+They cover a regression the existing assertions cannot see. A producer that
+started serializing state again would still publish, still verify, still record
+its locator, and still replay safely, so `publication_order`,
+`canonical_notes.count`, and the locator assertions would all hold while the note
+became a state dump. Neither the note schema nor the byte bound can express the
+difference, which is why CD-0069 puts it in the corpus.
+
+The binding reads the note the publication committed and evaluates it through
+`store.CheckDurableTier`, the same rule the producer applies before writing. A
+second copy of the rule in the corpus would agree with the producer only until
+one of them changed. No job definition, instruction, invariant, or other scenario
+changed, and the corpus remains 23 scenarios.
+
 ## Acceptance criteria
 
 - Given ambient Product context with needed, blocked, and terminal work

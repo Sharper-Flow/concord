@@ -106,6 +106,9 @@ func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, conte
 			return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved content digest does not match note bytes", false, "recompute the content digest over the exact approved bytes")
 		}
 	}
+	if err := CheckDurableTier(content); err != nil {
+		return CommittedNote{}, err
+	}
 	date := nowFromClock(nil).Format("2006-01-02")
 	if len(note.CompletedAt) >= 10 {
 		date = note.CompletedAt[:10]

@@ -122,6 +122,11 @@ def fenced_json_blocks(text: str) -> list[str]:
             continue
         if current is not None:
             current.append(line)
+    # An unterminated fence still carries everything after it. Ignoring the
+    # trailing block would let a note escape the bound by omitting one line, and
+    # would put this layer out of step with the producer-side parse.
+    if current is not None:
+        blocks.append("\n".join(current))
     return blocks
 
 

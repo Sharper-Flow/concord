@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/adapter-host-pin.schema.json",
+  "title": "Concord adapter host pin",
+  "description": "Closed contract for the host declarations the adapter typechecks against. The adapter previously carried a hand-written mirror of the host surface, which could only drift in one direction: upstream could remove or change a declaration and the adapter would keep compiling against a fiction, because nothing compared the mirror to its source. This manifest replaces the mirror with the real published declarations at an exact version, so the typecheck reads what the host actually declares. Allowances work the way the cognitive-complexity budget's do - each records the error count observed when it was granted, and the check fails when the real count no longer matches, in either direction. An allowance is permission for a known divergence to exist at a recorded size, not permission to diverge.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sources",
+    "packages",
+    "typescript",
+    "compiler_options",
+    "allowances"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "sources": {
+      "description": "Directories whose TypeScript is typechecked against the pinned packages. The whole adapter is checked, tests included, because a test that constructs a host type is asserting the same contract the runtime does.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "packages": {
+      "description": "The published packages installed into the staged workspace, at exact versions. An exact version is what makes the typecheck reproducible: a host upgrade surfaces as a reviewable manifest diff rather than a CI failure nobody can date. A range cannot do this, which is what the replaced mirror recorded.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "version",
+          "declares"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "version": {
+            "description": "Exact version. Ranges are rejected: the point of the pin is that one specific set of declarations was reviewed.",
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "declares": {
+            "description": "What this package supplies to the typecheck, in terms a reviewer can check against the adapter's imports.",
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 512
+          }
+        }
+      }
+    },
+    "typescript": {
+      "description": "Exact compiler version. Pinned for the same reason the packages are: a compiler upgrade changes what the check can see.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "compiler_options": {
+      "description": "The compiler options the staged typecheck runs under. They live here rather than in a checked-in tsconfig because the typecheck only ever runs in the staged workspace, and two copies of a configuration are one more than can stay in agreement.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "module",
+        "moduleResolution",
+        "lib",
+        "types",
+        "strict",
+        "noEmit",
+        "skipLibCheck",
+        "resolveJsonModule",
+        "forceConsistentCasingInFileNames"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "module": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "moduleResolution": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "lib": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "types": {
+          "description": "Ambient type packages. Every entry must name a pinned package, so the check cannot silently depend on a global type surface nobody pinned.",
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "strict": {
+          "description": "Never false. A non-strict typecheck against real declarations proves less than the mirror it replaced.",
+          "type": "boolean",
+          "const": true
+        },
+        "noEmit": {
+          "type": "boolean",
+          "const": true
+        },
+        "skipLibCheck": {
+          "type": "boolean"
+        },
+        "resolveJsonModule": {
+          "type": "boolean"
+        },
+        "forceConsistentCasingInFileNames": {
+          "type": "boolean"
+        }
+      }
+    },
+    "allowances": {
+      "description": "Known divergences between the adapter and the pinned declarations. Each is a diagnostic the typecheck is expected to emit; anything else fails the check.",
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "code",
+          "count",
+          "state",
+          "reason"
+        ],
+        "properties": {
+          "file": {
+            "description": "Source file name within a checked directory. Line and column are deliberately excluded: the identity being declared is the divergence, not where it currently sits.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+\\.ts$",
+            "minLength": 4,
+            "maxLength": 128
+          },
+          "code": {
+            "description": "TypeScript diagnostic code, as emitted.",
+            "type": "string",
+            "pattern": "^TS[0-9]{4,5}$"
+          },
+          "count": {
+            "description": "Diagnostics with this file and code observed when the allowance was granted or last revised. The check requires an exact match, so a divergence that spreads fails as a regression and one that shrinks fails as a stale allowance.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "state": {
+            "description": "outstanding: the divergence should be resolved and an issue tracks it. out_of_scope: an accepted decision keeps it, and it is declared rather than excused. unmeasured: nobody has established whether the adapter or the declaration is wrong.",
+            "type": "string",
+            "enum": [
+              "outstanding",
+              "unmeasured",
+              "out_of_scope"
+            ]
+          },
+          "issue": {
+            "description": "Public issue tracking an outstanding allowance. Required when outstanding; forbidden otherwise.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "description": "What diverges and why it is allowed, in terms a reviewer can check against the code and the pinned declaration. A reason that only restates the diagnostic is not a reason.",
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          }
+        }
+      }
+    }
+  }
+}

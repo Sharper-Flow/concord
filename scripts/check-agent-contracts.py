@@ -28,6 +28,129 @@ sys.modules[_installer_spec.name] = _installer
 _installer_spec.loader.exec_module(_installer)
 ADAPTER_FILES = _installer.ADAPTER_FILES
 
+HOST_PIN = ROOT / "docs/adapter-host-pin.v1.json"
+HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
+DIAGNOSTIC = re.compile(r"^(?P<path>[^(\n]+)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+):")
+
+
+def load_host_pin(findings: list[str]) -> dict | None:
+    """Return the validated host pin, or None with findings appended."""
+    try:
+        pin = json.loads(HOST_PIN.read_text(encoding="utf-8"))
+        schema = json.loads(HOST_PIN_SCHEMA.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        findings.append(f"adapter host pin unreadable: {exc}")
+        return None
+    return validate_host_pin(pin, schema, findings)
+
+
+def validate_host_pin(pin: object, schema: dict, findings: list[str]) -> dict | None:
+    """Validate the pin against its contract and its own cross-field rules.
+
+    The schema carries the shape. What it cannot carry is agreement between two
+    of its own fields: a `types` entry names an ambient package the compiler
+    loads globally, and one that is not in `packages` would resolve from
+    whatever the staged install happened to pull in transitively. That is the
+    unpinned surface this manifest exists to remove, so it is rejected here.
+    """
+    try:
+        schema_validate(pin, schema, schema)
+    except ValueError as exc:
+        findings.append(f"adapter host pin does not satisfy its contract: {exc}")
+        return None
+    if not isinstance(pin, dict):
+        findings.append("adapter host pin is not an object")
+        return None
+
+    pinned = {package["name"] for package in pin["packages"]}
+    for name in pin["compiler_options"]["types"]:
+        if name not in pinned:
+            findings.append(f"adapter host pin: types entry '{name}' names no pinned package")
+    for allowance in pin["allowances"]:
+        outstanding = allowance["state"] == "outstanding"
+        if outstanding and "issue" not in allowance:
+            findings.append(f"adapter host pin: outstanding allowance {allowance['file']} {allowance['code']} carries no tracking issue")
+        if not outstanding and "issue" in allowance:
+            findings.append(f"adapter host pin: {allowance['state']} allowance {allowance['file']} {allowance['code']} must not carry an issue")
+    return None if findings else pin
+
+
+def stage_host_workspace(bun: str, pin: dict, workspace: Path) -> str | None:
+    """Install the pinned declarations and stage the sources beside them.
+
+    Returns an error string when the install cannot be completed. The sources
+    are copied rather than typechecked in place because the published packages
+    must resolve from a directory that is not the repository: installing them
+    into the working tree would put an unversioned node_modules inside the
+    adapter, and pointing the compiler at the repository from outside it
+    resolves neither the packages nor the adapter's JSON imports.
+    """
+    source = workspace / "src"
+    source.mkdir(parents=True)
+    for directory in pin["sources"]:
+        origin = ROOT / directory
+        if not origin.is_dir():
+            return f"pinned source directory is missing: {directory}"
+        for path in sorted(origin.glob("*.ts")) + sorted(origin.glob("*.json")):
+            shutil.copy2(path, source / path.name)
+
+    (workspace / "package.json").write_text(json.dumps({"name": "concord-adapter-host-typecheck", "private": True}), encoding="utf-8")
+    (workspace / "tsconfig.json").write_text(json.dumps({"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]}), encoding="utf-8")
+
+    # --exact refuses bun's default caret range. A range would reintroduce the
+    # drift this manifest removes: the reviewed declarations and the installed
+    # ones would coincide only until the next publish.
+    specifiers = [f"{package['name']}@{package['version']}" for package in pin["packages"]]
+    try:
+        installed = subprocess.run([bun, "add", "--exact", *specifiers], cwd=workspace, capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"host declarations could not be installed: {exc}"
+    if installed.returncode:
+        return f"host declarations could not be installed: {(installed.stderr or installed.stdout).strip()[:600]}"
+    return None
+
+
+def reconcile_diagnostics(output: str, allowances: list[dict], findings: list[str], exit_code: int = 0) -> None:
+    """Subtract the recorded divergences and report whatever is left.
+
+    An allowance is matched by file and diagnostic code rather than by position,
+    so an unrelated edit above it does not invalidate it. The count must match
+    exactly in both directions: a divergence that spread is a regression, and
+    one that shrank means the manifest overstates what the adapter owes.
+
+    A diagnostic the parser does not recognise is a finding rather than a
+    silence. The compiler reports some failures without a source position at
+    all - no inputs matched, a `types` entry it could not resolve - and those
+    are precisely the failures that would otherwise leave the check reporting
+    success over a typecheck that examined nothing.
+    """
+    observed: dict[tuple[str, str], int] = {}
+    unattributed = 0
+    for line in output.splitlines():
+        matched = DIAGNOSTIC.match(line)
+        if matched:
+            key = (Path(matched.group("path")).name, matched.group("code"))
+            observed[key] = observed.get(key, 0) + 1
+        elif re.search(r"\berror TS\d+:", line):
+            unattributed += 1
+            findings.append(f"typecheck reported a diagnostic with no source position: {line.strip()[:200]}")
+
+    if exit_code and not observed and not unattributed:
+        findings.append(f"typecheck exited {exit_code} without reporting a diagnostic: {output.strip()[:400] or 'no output'}")
+
+    for allowance in allowances:
+        key = (allowance["file"], allowance["code"])
+        actual = observed.pop(key, 0)
+        if actual == allowance["count"]:
+            continue
+        if actual == 0:
+            findings.append(f"stale allowance: {key[0]} no longer emits {key[1]}; the allowance is spent and should be deleted")
+        else:
+            findings.append(f"allowance drift: {key[0]} emits {actual} {key[1]} diagnostic(s), the manifest records {allowance['count']}")
+
+    for (name, code), count in sorted(observed.items()):
+        findings.append(f"adapter does not satisfy the pinned host declarations: {name} emits {count} unrecorded {code} diagnostic(s)")
+
 def _check_closed_schema(path: Path, required: set[str]) -> list[str]:
     findings: list[str] = []
     try:
@@ -744,19 +867,44 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
                 print(f"adapter test suite missing: {sorted(expected_suites - present_suites)}", file=sys.stderr); return 1
             adapter_tests = subprocess.run([bun, "test", "adapter/opencode"], cwd=ROOT)
             if adapter_tests.returncode: return adapter_tests.returncode
-            # Typecheck the adapter against the vendored host surface in
-            # adapter/opencode/vendor.d.ts. The dev-only tsconfig and ambient
-            # declarations live inside adapter/opencode; neither ships
-            # (install.ADAPTER_FILES is the source of truth for the archive).
-            # Run after the test suite so behavioural failures surface first.
-            typecheck = subprocess.run([bun, "x", "typescript@5.9.3", "-p", "adapter/opencode"], cwd=ROOT)
-            if typecheck.returncode:
-                print("adapter typecheck failed; see tsc output", file=sys.stderr); return typecheck.returncode
+            # Typecheck the adapter against the host's published declarations,
+            # installed at the exact versions docs/adapter-host-pin.v1.json
+            # pins. The adapter previously carried a hand-written mirror of that
+            # surface, which could only be wrong in the direction nothing
+            # checked: upstream removes or narrows a declaration, the mirror
+            # keeps declaring it, and the adapter compiles against a host
+            # surface that does not exist. Run after the test suite so
+            # behavioural failures surface first.
+            summary = "Bun syntax/build/typecheck"
+            pin_findings: list[str] = []
+            pin = load_host_pin(pin_findings)
+            if pin is None:
+                for finding in pin_findings: print(finding, file=sys.stderr)
+                return 1
+            workspace = Path(out) / "host-typecheck"
+            staging_error = stage_host_workspace(bun, pin, workspace)
+            if staging_error:
+                # Installing the declarations needs the package registry. On a
+                # contributor laptop that is a tolerable answer, for the same
+                # reason a missing Bun is; in CI it is not, and the variable
+                # that makes a missing toolchain fail closed makes an
+                # unreachable registry fail closed too.
+                if os.environ.get("CONCORD_REQUIRE_BUN") == "1":
+                    print(staging_error, file=sys.stderr); return 1
+                print(f"adapter host typecheck skipped: {staging_error}")
+                summary = "Bun syntax/build; host typecheck NOT run"
+            else:
+                typecheck = subprocess.run([bun, "x", f"typescript@{pin['typescript']}", "-p", "tsconfig.json"], cwd=workspace, capture_output=True, text=True)
+                reconcile_diagnostics(typecheck.stdout + typecheck.stderr, pin["allowances"], pin_findings, typecheck.returncode)
+                if pin_findings:
+                    print(typecheck.stdout.strip(), file=sys.stderr)
+                    for finding in pin_findings: print(finding, file=sys.stderr)
+                    return 1
             source = (ROOT / "adapter/opencode/concord.ts").read_text(encoding="utf-8")
             exports = re.findall(r"export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(", source)
             if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_initiative", "work_transition", "work_relate", "work_compact"]:
                 print(f"adapter export drift: {exports}", file=sys.stderr); return 1
-        print("agent contract check passed (Bun syntax/build/typecheck)")
+        print(f"agent contract check passed ({summary})")
     else:
         for path in (ROOT / "adapter/opencode/generated-contracts.ts", ROOT / "adapter/opencode/generated-contract-tests.ts"):
             text = path.read_text(encoding="utf-8")

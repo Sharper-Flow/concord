@@ -178,7 +178,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+          "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
         },
         {
           "kind": "go_test",
@@ -441,7 +441,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/agent.TestGrantBootstrapAndInvocationBinding"
+          "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
         }
       ]
     },

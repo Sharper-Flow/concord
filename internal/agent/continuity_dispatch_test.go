@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"testing"
 )
@@ -19,12 +18,8 @@ func TestContinuityDispatchReadsAPinnedContract(t *testing.T) {
 	ctx := context.Background()
 	s, service, execKey, _ := verdictScopeFixture(t)
 
-	request := grantRequest(execKey, "continuity-pinned-nonce-01")
-	request.Assertion.SessionRef = "session-exec-aaaa"
-	request.Assertion.AgentRef = "agent-exec"
-	request.Assertion.ClientRef = "client-session-exec-aaaa"
-	request.Assertion.Signature = ed25519.Sign(execKey, CanonicalAssertion(request.Assertion))
-	grant, err := service.IssueGrant(ctx, request)
+	_ = execKey
+	grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

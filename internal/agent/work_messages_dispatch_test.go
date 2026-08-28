@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"testing"
 
@@ -15,7 +13,7 @@ import (
 // survival (continuity pointer), withdraw visibility, bounded fan-out, and
 // the no-authority property.
 
-func messagesFixture(t *testing.T) (*store.Store, *Service, Grant) {
+func messagesFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -45,19 +43,7 @@ func messagesFixture(t *testing.T) (*store.Store, *Service, Grant) {
 			t.Fatal(err)
 		}
 	}
-	service := NewService(s)
-	service.Now = fixedTime
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_relate", "work_transition"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	req := grantRequest(privateKey, "messages-dispatch-nonce")
-	req.Assertion.RequestedCapabilities = []Capability{"product_read", "work_relate", "work_transition"}
-	req.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(req.Assertion))
-	grant, err := service.IssueGrant(ctx, req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"product_read", "work_relate", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant
 }
 

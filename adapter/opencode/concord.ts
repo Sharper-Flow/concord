@@ -1,13 +1,11 @@
-import { sign as signBytes } from "node:crypto"
 import { tool, type ToolContext } from "@opencode-ai/plugin"
-import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { contractOperations, canonicalAssertion, manifestDigest, payloadSchemas } from "./generated-contracts"
+import { clientRef } from "./credentials"
+import { contractOperations, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { errorEnvelopeForLane } from "./dispatch"
 
 const MAX_STDERR = 8192
-const GRANT_TTL_MS = 50 * 60 * 1000
 
 export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }> }
 
@@ -25,14 +23,10 @@ const defaultRunner: ChildRunner = {
   },
 }
 
-let credentials: CredentialStore = new SecretToolCredentialStore()
 let runner: ChildRunner = defaultRunner
-const grants = new Map<string, { token: string; ref: string; clientRef: string; principalRef: string; sessionRef: string; agentRef: string; manifestDigest: string; productIDs: string[]; projectIDs: string[]; scopeVersion: string; expiresAt: number }>()
 
-export function configureConcordAdapter(overrides: { credentials?: CredentialStore; runner?: ChildRunner } = {}) {
-  if (overrides.credentials) credentials = overrides.credentials
+export function configureConcordAdapter(overrides: { runner?: ChildRunner } = {}) {
   if (overrides.runner) runner = overrides.runner
-  grants.clear()
 }
 
 function zodSchema(schema: any, root: Record<string, any>): any {
@@ -131,38 +125,30 @@ function validateCoreResponse(response: any, toolName: string, operation: string
 }
 
 
-export function canonicalHostApproval(assertion: Record<string, any>) {
-  const names = ["challenge_ref", "request_digest", "scope", "versions", "session_ref", "agent_ref", "worktree", "issued_at", "nonce"]
-  const body = names.map((key) => { const value = assertion[key]; const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value); const bytes = new TextEncoder().encode(text); return `${key}=${bytes.length}:${text}|` }).join("")
-  return new TextEncoder().encode(`host-approval-v1\0${body}`)
-}
-function cacheKey(context: ToolContext, capability: string) { return `${context.sessionID}|${context.agent}|${context.worktree}|${manifestDigest}|${selectedProductID()}|${capability}` }
 function selectedProductID() {
   const value = process.env.CONCORD_SELECTED_PRODUCT_ID ?? ""
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/.test(value) ? value : ""
 }
 
-async function grantFor(context: ToolContext, capability: string): Promise<any> {
-	const key = cacheKey(context, capability)
-  const current = grants.get(key)
-  if (current && current.expiresAt > Date.now() && current.clientRef === clientRef()) return current as any
-  let privateKey
-  try { privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef())) } catch (error) { throw new AdapterFailure("transport_failure", "grant_bootstrap_failed", String(error)) }
-  const issuedAt = new Date().toISOString()
-  const assertionFields = { client_ref: clientRef(), session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, requested_product_id: selectedProductID(), requested_project_ids: [] as string[], requested_capabilities: [capability], issued_at: issuedAt, nonce: randomNonce(), manifest_digest: manifestDigest }
-  const assertion = { ...assertionFields, signature: b64(signBytes(null, Buffer.from(canonicalAssertion(assertionFields)), privateKey)) }
+type AmbientContext = { projectID: string; productIDs: string[]; scopeVersion: string }
+
+async function resolveAmbientContext(context: ToolContext): Promise<AmbientContext> {
   let result
-  try { result = await runner.run([process.env.CONCORD_BIN ?? "concord", "grant"], JSON.stringify({ assertion, expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), max_uses: 0 }), context.abort) } catch (error) { throw runnerFailure(error, context.abort.aborted) }
-  if (result.exitCode !== 0) throw new AdapterFailure("transport_failure", "grant_bootstrap_failed", "grant bootstrap failed")
+  try {
+    result = await runner.run([process.env.CONCORD_BIN ?? "concord", "project-resolve"], JSON.stringify({ directory: context.directory, worktree: context.worktree }), context.abort)
+  } catch (error) {
+    throw runnerFailure(error, context.abort.aborted)
+  }
+  if (result.exitCode !== 0) throw new AdapterFailure("transport_failure", "io_failure", result.stderr.slice(0, MAX_STDERR))
   let response
   try { response = singleJSON(result.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_core_response", String(error)) }
-  if (response.manifest_digest !== manifestDigest) throw new AdapterFailure("transport_failure", "manifest_mismatch", "core manifest digest does not match adapter")
-  const value = { token: response.grant_token, ref: response.grant_ref, clientRef: response.client_ref, principalRef: response.principal_ref, sessionRef: response.session_ref, agentRef: response.agent_ref, manifestDigest: response.manifest_digest, productIDs: response.product_ids ?? [], projectIDs: response.project_ids ?? [], scopeVersion: response.scope_version, expiresAt: Date.now() + GRANT_TTL_MS }
-  grants.set(key, value)
-  return value as any
+  if (typeof response.project_id !== "string" || response.project_id.length === 0 || typeof response.scope_version !== "string" || response.scope_version.length === 0 || !Array.isArray(response.product_ids) || !response.product_ids.every((value: unknown) => typeof value === "string")) {
+    throw new AdapterFailure("malformed_response", "malformed_core_response", "project-resolve response failed the context contract")
+  }
+  return { projectID: response.project_id, productIDs: response.product_ids, scopeVersion: response.scope_version }
 }
 
-// invokeConcordOperation is the single `concord grant` + `concord invoke`
+// invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
 // contract check, and the approval_required resubmission.
@@ -174,9 +160,10 @@ export async function invokeConcordOperation(toolName: string, args: any, contex
       return adapterError(toolName, operation, requestID, "invalid_input", "missing_question_selection", "confirm_premise requires the closed confirm choice and a decision context digest", "none", "reread_entities")
     }
   }
-  let grant: any
-  try { grant = await grantFor(context, (contractOperations.find((op: any) => op.tool === toolName && op.id.endsWith(`.${operation}`)) as any)?.capability ?? "product_read") } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "grant_bootstrap_failed") }
-  const envelope: any = { schema_version: "1.0", request_id: requestID, grant_token: grant.token, client_ref: grant.clientRef, principal_ref: grant.principalRef, session_ref: grant.sessionRef, agent_ref: grant.agentRef, directory: context.directory, worktree: context.worktree, ambient_project_id: grant.projectIDs.length === 1 ? grant.projectIDs[0] : "", selected_product_id: grant.productIDs.length === 1 ? grant.productIDs[0] : "", scope_version: grant.scopeVersion, manifest_digest: grant.manifestDigest }
+  let ambient: AmbientContext
+  try { ambient = await resolveAmbientContext(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
+  const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
+  const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: manifestDigest }
   const run = async (input: any) => runner.run([process.env.CONCORD_BIN ?? "concord", "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   let result: any
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
@@ -220,11 +207,7 @@ export async function invokeConcordOperation(toolName: string, args: any, contex
     // Built-in question supplies semantic choice; ToolContext.ask authorizes
     // only this exact core-issued challenge.
     try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [], always: [], metadata: askMetadata }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
-    let privateKey
-    try { privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef())) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "grant_bootstrap_failed") }
-    const assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: grant.sessionRef, agent_ref: grant.agentRef, worktree: context.worktree, issued_at: new Date().toISOString(), nonce: randomNonce() }
-    const signed = { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalHostApproval(assertion)), privateKey)) }
-    envelope.host_approval_assertion = signed
+    envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: context.worktree, issued_at: new Date().toISOString() }
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
     if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")
     try { result = await run(approvedInput) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible") }

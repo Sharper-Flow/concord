@@ -24,9 +24,7 @@ func TestReadableScopeSnapshotDecodes(t *testing.T) {
 	}
 }
 
-// The fail-open shape: a corrupt snapshot previously decoded to nil, and
-// scopeWithinGrant reads nil as satisfying every containment lookup, so the
-// re-authorization on a replay path silently passed.
+// A corrupt snapshot must not produce an unconstrained authority scope.
 func TestCorruptScopeSnapshotReportsError(t *testing.T) {
 	scope, err := authorizedScopeFromSnapshot(`{"work_id":`)
 	if err == nil {
@@ -37,10 +35,9 @@ func TestCorruptScopeSnapshotReportsError(t *testing.T) {
 	}
 }
 
-// Guards the property that makes the discarded error dangerous, so a future
-// change to scopeWithinGrant cannot quietly remove the reason this matters.
+// An absent scope has no containment keys and therefore imposes no constraint.
 func TestNilScopeSatisfiesEveryLookup(t *testing.T) {
-	if !scopeWithinGrant(nil, Grant{}) {
-		t.Skip("scopeWithinGrant no longer treats a nil scope as unconstrained; the fail-open shape this guards is gone")
+	if !scopeWithinAuthority(nil, Authority{}) {
+		t.Fatal("nil scope must satisfy an empty authority")
 	}
 }

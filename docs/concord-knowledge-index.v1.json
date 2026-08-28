@@ -2549,7 +2549,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:493a075dad5438f7a9e7c777f524c2db3e6073ff142f45ed856cc6aca5fa2df8",
+      "sha256": "sha256:b39cf77d1363062a85615204ca9c227472e44deef99829b42ae7805af683789b",
       "status": "accepted",
       "summary": "Authorization becomes the registered client policy intersected with git-derived scope resolved from the invoke envelope on every call. The grant token, the agent_grants table, expiry, and use counts are removed, and host approval keeps its scope, challenge, and consequence bindings without a signature. Worker evidence signing under CD-0067 D6 is out of scope and keeps the client key registry and the nonce table. Approval challenges re-anchor to the session identity tuple, blocked-session Product scope moves to the session record, and the three unbuilt revocation methods are removed. This declines the core-issued opaque session handle CD-0071 D4 anticipated.",
       "tags": [
@@ -3313,11 +3313,11 @@
       "criterion_bindings": [
         {
           "criterion": 1,
-          "exemption": "Grant validation is a transport-layer property below scenario grain. The guarantee is proved by TestGrantJSONSignatureRoundTripAndFailuresAtCommandBoundary (cmd/concord/main_test.go) and TestGrantBootstrapAndInvocationBinding (internal/agent/authority_test.go)."
+          "exemption": "Client registration is a transport-layer property below scenario grain. The guarantee is proved by TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands (cmd/concord/main_test.go) and TestCLIEndToEndRegistersClientAndInvokesRead (cmd/concord/main_test.go)."
         },
         {
           "criterion": 2,
-          "exemption": "Secret non-exposure is a transport invariant. The guarantee is proved by TestInvokeNeverEchoesGrantToken (cmd/concord/main_test.go) and TestGrantRefusalsCarryTheUnauthorizedKind (internal/agent/authority_refusal_kind_test.go)."
+          "exemption": "Secret non-exposure is a transport invariant. CD-0080 removes the grant token, so the remaining secret is the registered client key. The guarantee is proved by TestInvokeRejectsUnknownFieldWithoutEcho (cmd/concord/main_test.go) and TestAuthorityRefusalsCarryTheUnauthorizedKind (internal/agent/authority_refusal_kind_test.go)."
         },
         {
           "criterion": 3,
@@ -3352,7 +3352,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4b19b0494e96c5f1443bda0621e7ff8694c970574b23ac1f846be61649bfe5af",
+      "sha256": "sha256:4eb1c1d38656571d72db2ef7ad57d6eb30ccab1d3a67338c825e3377fb2570c4",
       "status": "accepted",
       "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
       "tags": [

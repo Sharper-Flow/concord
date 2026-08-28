@@ -10,7 +10,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func seedAgentOverlapFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, CallEnvelope, []byte) {
+func seedAgentOverlapFixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope, []byte) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})

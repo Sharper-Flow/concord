@@ -6,7 +6,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestIssueGrantRefusesMutationOnMainWorktree"
+      "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
     },
     {
       "kind": "go_test",

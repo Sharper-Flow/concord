@@ -25,7 +25,7 @@ import (
 // rebuilding the index, leaving the projection deterministically behind the git
 // head. The returned id is the record the index cannot yet see; it is empty when
 // the index is current.
-func agentJobsKnowledgeFixture(t *testing.T, lagging bool) (*store.Store, *Service, Grant, store.KnowledgeHome, string) {
+func agentJobsKnowledgeFixture(t *testing.T, lagging bool) (*store.Store, *Service, Authority, store.KnowledgeHome, string) {
 	t.Helper()
 	s, service, grant, corpus := agentJobsPM1Fixture(t)
 	knowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
@@ -53,7 +53,7 @@ var knowledgeItemFields = map[string]bool{
 
 // knowledgeSearchObservation drives concord_knowledge.search and reshapes the
 // page into the ids/locators projection the AJ7 assertions read.
-func knowledgeSearchObservation(t *testing.T, s *store.Store, service *Service, grant Grant, input string) (jobObservation, Envelope, map[string]any) {
+func knowledgeSearchObservation(t *testing.T, s *store.Store, service *Service, grant Authority, input string) (jobObservation, Envelope, map[string]any) {
 	t.Helper()
 	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
 	resp := dispatchRead(t, s, service, InvokeRequest{

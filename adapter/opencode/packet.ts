@@ -42,7 +42,7 @@ export interface AgentLanePacketRequest {
 }
 
 // ConcordInvoke is the adapter transport signature. It defaults to
-// invokeConcordOperation, the single `concord grant` + `concord invoke` path in
+// invokeConcordOperation, the single context-resolution and invoke path in
 // concord.ts; the seam exists so a caller can supply a scripted transport, the
 // way dispatch.ts takes a DispatchRunner.
 export type ConcordInvoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, context: ToolContext) => Promise<unknown>

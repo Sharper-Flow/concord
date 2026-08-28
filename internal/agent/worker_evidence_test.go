@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -136,15 +137,24 @@ func snakeCase(name string) string {
 	return out.String()
 }
 
-// TestWorkerEvidenceCapabilityIsNotGrantRequestable proves the capability is
-// client-policy authority only. A grant assertion that requests it must be
-// refused, so no bearer token an agent holds can ever carry it.
-func TestWorkerEvidenceCapabilityIsNotGrantRequestable(t *testing.T) {
-	if validSignedRequests(SignedAssertion{RequestedCapabilities: []Capability{CapabilityWorkerEvidence}}) {
-		t.Fatal("grant assertion accepted a requested worker_evidence capability")
+func TestWorkerEvidenceCapabilityIsNotRequestable(t *testing.T) {
+	ctx := context.Background()
+	_, service, authority, _ := mutationDispatchFixture(t, []Capability{"product_read"})
+	invocation := Invocation{
+		ClientRef: authority.ClientRef, PrincipalRef: authority.PrincipalRef, SessionRef: authority.SessionRef,
+		AgentRef: authority.AgentRef, Directory: authority.Directory, Worktree: authority.Worktree,
+		ManifestDigest: authority.ManifestDigest, RequiredCapability: CapabilityWorkerEvidence, ProjectID: "project-1",
 	}
-	if !validTrustedPolicy(TrustedClientPolicy{PrincipalRef: "operator-1", Capabilities: []Capability{CapabilityWorkerEvidence}}) {
-		t.Fatal("client policy refused the worker_evidence capability")
+	if _, err := service.Authorize(ctx, invocation); err == nil {
+		t.Fatal("worker_evidence obtained without a client policy entry")
+	}
+	if err := service.RegisterTrustedClient(ctx, testClientRegistration("worker-evidence-client", "worker-evidence-principal", []Capability{CapabilityWorkerEvidence}, []string{"product-1"}, []string{"project-1"})); err != nil {
+		t.Fatal(err)
+	}
+	invocation.ClientRef = "worker-evidence-client"
+	invocation.PrincipalRef = "worker-evidence-principal"
+	if _, err := service.Authorize(ctx, invocation); err != nil {
+		t.Fatalf("worker_evidence client policy was refused: %v", err)
 	}
 }
 

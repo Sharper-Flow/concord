@@ -27,7 +27,7 @@ const (
 // mandates and pins one law, and returns the fixture with that law still
 // accepted. Callers that want the stale condition call
 // supersedeObservationBoundaryLaw afterwards.
-func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Grant, string) {
+func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant := claimsFixture(t)
@@ -173,7 +173,7 @@ func externalVerificationInput(idempotencyKey, observationID string) map[string]
 	}
 }
 
-func dispatchObservation(t *testing.T, s *store.Store, service *Service, grant Grant, scopeVersion string, input map[string]any) Envelope {
+func dispatchObservation(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion string, input map[string]any) Envelope {
 	t.Helper()
 	raw, _ := json.Marshal(input)
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: raw}, mutationEnvelope(grant, scopeVersion))

@@ -30,7 +30,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkerDispatchCapabilityIsStructurallyNonGrantable"
+      "value": "internal/agent.TestWorkerDispatchCapabilityIsStructurallyNonAuthorizable"
     },
     {
       "kind": "go_test",

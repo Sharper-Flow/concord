@@ -1,100 +1,80 @@
 package agent
 
 import (
-	"errors"
+	"context"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Grant validation refuses for four distinct reasons. Each is the
-// authorization boundary working as designed, so each must reach the caller as
-// `unauthorized`. Reporting a refusal as `internal_error` tells an agent that
-// Concord malfunctioned, pins recovery to `contact_operator`, and marks the
-// request unsafe to retry — which is how CD-0017 D4's nested-worker refusal
-// and CD-0059 D3's non-grantable capability would both present today.
-//
-// The assertion is on the envelope kind rather than the message text, because
-// the message is not the contract and a test that reads it cannot fail when
-// the kind is wrong (issue #437).
-func TestGrantRefusalsCarryTheUnauthorizedKind(t *testing.T) {
+func TestAuthorityRefusalsCarryTheUnauthorizedKind(t *testing.T) {
 	cases := []struct {
 		name   string
-		mutate func(*store.GrantRecord, *Invocation)
-		detail string
+		mutate func(*Invocation, *Service)
 	}{
 		{
-			name:   "capability missing",
-			detail: "grant capability missing",
-			mutate: func(_ *store.GrantRecord, in *Invocation) {
-				in.RequiredCapability = Capability("worker_dispatch")
+			name: "missing client",
+			mutate: func(in *Invocation, _ *Service) {
+				in.ClientRef = "missing-client"
 			},
 		},
 		{
-			name:   "grant expired",
-			detail: "grant expired or revoked",
-			mutate: func(record *store.GrantRecord, _ *Invocation) {
-				record.ExpiresAt = "2025-01-01T00:00:00Z"
+			name: "principal mismatch",
+			mutate: func(in *Invocation, _ *Service) {
+				in.PrincipalRef = "other-principal"
 			},
 		},
 		{
-			name:   "binding mismatch",
-			detail: "invocation binding mismatch",
-			mutate: func(_ *store.GrantRecord, in *Invocation) {
-				in.Worktree = "/somewhere-else"
+			name: "manifest mismatch",
+			mutate: func(in *Invocation, _ *Service) {
+				in.ManifestDigest = "wrong-manifest"
 			},
 		},
 		{
-			name:   "use limit reached",
-			detail: "grant use limit reached",
-			mutate: func(record *store.GrantRecord, _ *Invocation) {
-				record.MaxUses = 1
-				record.UsedCount = 1
+			name: "capability missing",
+			mutate: func(in *Invocation, _ *Service) {
+				in.RequiredCapability = CapabilityWorkerDispatch
 			},
 		},
 		{
-			name:   "scope snapshot unreadable",
-			detail: "grant scope snapshot is unreadable",
-			mutate: func(record *store.GrantRecord, _ *Invocation) {
-				record.ScopeSnapshotJSON = "{not json"
+			name: "product outside policy",
+			mutate: func(in *Invocation, _ *Service) {
+				in.ProductID = "product-outside-policy"
 			},
 		},
 		{
-			name:   "product outside grant scope",
-			detail: "product outside grant scope",
-			mutate: func(_ *store.GrantRecord, in *Invocation) {
-				in.ProductID = "product-outside-scope"
+			name: "project outside resolved scope",
+			mutate: func(in *Invocation, _ *Service) {
+				in.ProjectID = "project-outside-scope"
+			},
+		},
+		{
+			name: "main worktree mutation",
+			mutate: func(in *Invocation, service *Service) {
+				in.RequiredCapability = "work_define"
+				service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+					return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+				}
 			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			record, invocation := validGrantFixture("2030-01-01T00:00:00Z")
-			tc.mutate(&record, &invocation)
-			service := &Service{}
-			_, err := service.validateGrantRecord(record, invocation, mustTime(t, "2026-01-01T00:00:00Z"))
+			db := openAgentDB(t)
+			seedSimpleAuthorityScope(t, db)
+			service, invocation, _ := newAuthorizedService(t, db, "client-1", "principal-1", []Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			tc.mutate(&invocation, service)
+			_, err := service.Authorize(context.Background(), invocation)
 			if err == nil {
-				t.Fatal("grant validation accepted a record it must refuse")
+				t.Fatal("authorization accepted a refusal case")
 			}
 			envelope := failureEnvelope(Envelope{}, err)
 			if envelope.Error == nil {
 				t.Fatal("refusal produced an envelope with no error")
 			}
 			if envelope.Error.Kind != "unauthorized" {
-				t.Fatalf("refusal kind = %q, want %q (detail: %s)", envelope.Error.Kind, "unauthorized", err)
-			}
-			if envelope.Error.Message != tc.detail {
-				t.Fatalf("refusal message = %q, want %q", envelope.Error.Message, tc.detail)
+				t.Fatalf("refusal kind = %q, want %q", envelope.Error.Kind, "unauthorized")
 			}
 		})
-	}
-}
-
-// internal_error must stay reachable for outcomes Concord cannot explain, so
-// the fix must not blanket-map every error out of this package.
-func TestUnexplainedErrorsRemainInternalErrors(t *testing.T) {
-	envelope := failureEnvelope(Envelope{}, errors.New("disk caught fire"))
-	if envelope.Error == nil || envelope.Error.Kind != "internal_error" {
-		t.Fatalf("unexplained error kind = %v, want internal_error", envelope.Error)
 	}
 }

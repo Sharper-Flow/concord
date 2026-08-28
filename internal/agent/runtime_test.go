@@ -3,8 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -144,7 +142,7 @@ func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 
 func assertProductPortfolioEnvelopeMeta(t *testing.T, response Envelope, result store.ProductRowResult) {
 	t.Helper()
-	if response.QueryID != result.QueryID || response.ManifestDigest != ManifestDigest || response.Authority != Authority(result.Authority) || response.Outcome != OutcomeOK {
+	if response.QueryID != result.QueryID || response.ManifestDigest != ManifestDigest || response.Authority != AuthorityLevel(result.Authority) || response.Outcome != OutcomeOK {
 		t.Fatalf("envelope identity/meta drifted: response=%#v result=%#v", response, result)
 	}
 	expectedFreshness := &Freshness{ObservedAt: parseTime(result.Freshness.ObservedAt), Age: result.Freshness.Age, Stale: result.Freshness.Stale}
@@ -220,22 +218,13 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s)
-	service.Now = func() time.Time { return fixedTime() }
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	grant, err := service.IssueGrant(ctx, grantRequest(privateKey, "dispatch-nonce-0001"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_product_view", Operation: "resolve", Input: json.RawMessage(`{"project_id":"project-1"}`)}
-	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "request-1", GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
+	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "request-1", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +235,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 }
 
 func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
-	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","grant_token":"grant-1"},"tool":"concord_product_view","operation":"resolve","input":{}}`
+	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","unexpected_field":"value"},"tool":"concord_product_view","operation":"resolve","input":{}}`
 	for _, suffix := range []string{" {}", " garbage"} {
 		if _, _, err := DecodeInvokeRequest([]byte(valid + suffix)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
 			t.Fatalf("suffix %q error = %v, want trailing JSON rejection", suffix, err)
@@ -269,25 +258,13 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(s)
-	service.Now = func() time.Time { return fixedTime() }
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"work_define"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "capture-nonce-0001")
-	grantReq.Assertion.RequestedCapabilities = []Capability{"work_define"}
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Need","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)}
-	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", GrantToken: grant.Token, ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
+	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)
@@ -421,7 +398,7 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Input: json.RawMessage(`{"knowledge_id":"knowledge-b"}`)}
-	err = validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Grant{ProductScope: []string{"product-a", "product-b"}}, request)
+	err = validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a", "product-b"}}, request)
 	var failure *runtimeFailure
 	if !errors.As(err, &failure) || failure.kind != "unauthorized" {
 		t.Fatalf("knowledge outside selected Product accepted: %v", err)
@@ -432,7 +409,7 @@ func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
 	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	request := InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"knowledge_id":"home-knowledge"}`)}
-	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Grant{ProductScope: []string{"product-a"}}, request); err != nil {
+	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a"}}, request); err != nil {
 		t.Fatalf("Q10 runtime pre-scope validation rejected home record: %v", err)
 	}
 	response := runtimeResolveNote(t, s, "product-a", request.Input)

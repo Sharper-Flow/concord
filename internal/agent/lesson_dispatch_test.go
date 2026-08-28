@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -20,7 +19,7 @@ import (
 // replays without a second commit. A reflection is the same operation with a
 // reflection tag.
 
-func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, string) {
+func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -63,19 +62,8 @@ func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519
 		t.Fatal(err)
 	}
 
-	service := NewService(s)
-	service.Now = fixedTime
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"work_compact"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "lesson-dispatch-nonce")
-	grantReq.Assertion.RequestedCapabilities = []Capability{"work_compact"}
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_compact"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	privateKey := mustKey(t)
 	return s, service, grant, privateKey, repo
 }
 

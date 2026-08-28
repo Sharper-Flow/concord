@@ -12,7 +12,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func seedAgentWorkflow(t *testing.T, s *store.Store, grant Grant) int64 {
+func seedAgentWorkflow(t *testing.T, s *store.Store, grant Authority) int64 {
 	t.Helper()
 	ctx := context.Background()
 	seedCurrentWorkflowDomainFixture(t, s)
@@ -57,26 +57,17 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	if err != nil || refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_transition" {
 		t.Fatalf("unknown workflow action response=%+v err=%v", refused, err)
 	}
-	var used, completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
-		t.Fatal(err)
-	}
+	var completed int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
-	if used != 0 || completed != 0 {
-		t.Fatalf("malformed/unknown request reached authority: grant_used=%d completed=%d", used, completed)
+	if completed != 0 {
+		t.Fatalf("malformed/unknown request reached authority: completed=%d", completed)
 	}
 	duplicate := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","action_id":"unknown-action","idempotency_key":"wf-duplicate"}`)}
 	duplicateResponse, err := Dispatch(context.Background(), s, service, duplicate, env)
 	if err != nil || duplicateResponse.Outcome != OutcomeError || duplicateResponse.Error == nil || duplicateResponse.Error.Kind != "invalid_input" {
 		t.Fatalf("duplicate JSON response=%+v err=%v", duplicateResponse, err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
-		t.Fatal(err)
-	}
-	if used != 0 {
-		t.Fatalf("duplicate JSON reached grant authorization: used=%d", used)
 	}
 
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"wf-record-proposal"}`)}
@@ -138,13 +129,6 @@ func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *test
 	if dispatchErr != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("malformed workflow request response=%+v err=%v", response, dispatchErr)
 	}
-	var used int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
-		t.Fatal(err)
-	}
-	if used != 0 {
-		t.Fatalf("availability check consumed grant: used=%d", used)
-	}
 }
 
 func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *testing.T) {
@@ -175,7 +159,6 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			opID := seedCurrentWorkflowActionReplay(t, s, env, input, vector.resultKind)
 			beforeEvents := countWorkflowEvents(t, s)
 			beforeVersion := workflowReplayWorkVersion(t, s)
-			beforeGrantUses := workflowReplayGrantUses(t, s, grant)
 			beforeChallenges := countWorkflowApprovalChallenges(t, s)
 
 			data, marshalErr := json.Marshal(struct {
@@ -221,9 +204,6 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			}
 			if got := workflowReplayWorkVersion(t, s); got != beforeVersion {
 				t.Fatalf("replay changed work version from %d to %d", beforeVersion, got)
-			}
-			if got := workflowReplayGrantUses(t, s, grant); got != beforeGrantUses {
-				t.Fatalf("replay consumed grant: before=%d after=%d", beforeGrantUses, got)
 			}
 			if got := countWorkflowApprovalChallenges(t, s); got != beforeChallenges {
 				t.Fatalf("replay changed approval challenges from %d to %d", beforeChallenges, got)
@@ -347,15 +327,6 @@ func countWorkflowApprovalChallenges(t *testing.T, s *store.Store) int {
 		t.Fatal(err)
 	}
 	return count
-}
-
-func workflowReplayGrantUses(t *testing.T, s *store.Store, grant Grant) int {
-	t.Helper()
-	var used int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_grants WHERE grant_hash=?`, sha256Bytes([]byte(grant.Token))).Scan(&used); err != nil {
-		t.Fatal(err)
-	}
-	return used
 }
 
 func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {

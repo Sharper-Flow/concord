@@ -38,7 +38,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 
 	service := NewService(s)
 	service.Now = fixedTime
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil
 	}
 
@@ -123,12 +123,9 @@ func seedVerdictEvent(t *testing.T, db *sql.DB, execActorRef string) {
 func scopeReadFor(t *testing.T, s *store.Store, service *Service, privateKey ed25519.PrivateKey, nonce, session, agent, client string) Envelope {
 	t.Helper()
 	ctx := context.Background()
-	req := grantRequest(privateKey, nonce)
-	req.Assertion.SessionRef = session
-	req.Assertion.AgentRef = agent
-	req.Assertion.ClientRef = client
-	req.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(req.Assertion))
-	grant, err := service.IssueGrant(ctx, req)
+	_ = privateKey
+	_ = nonce
+	grant, err := service.Authorize(ctx, Invocation{ClientRef: client, PrincipalRef: "human-1", SessionRef: session, AgentRef: agent, Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

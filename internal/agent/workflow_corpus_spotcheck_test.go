@@ -206,7 +206,7 @@ func TestWorkflowCorpusWF39DispatchesThroughAgentWorkflowAction(t *testing.T) {
 	}
 }
 
-func seedCorpusWorkflowWork(t *testing.T, s *store.Store, grant Grant, workID string, history []corpusEvent) {
+func seedCorpusWorkflowWork(t *testing.T, s *store.Store, grant Authority, workID string, history []corpusEvent) {
 	t.Helper()
 	definition := store.BuiltinWorkflowDefinitions()[0]
 	registered, err := store.BuiltinWorkflowRegistry().Register(definition)

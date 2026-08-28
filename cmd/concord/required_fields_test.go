@@ -6,15 +6,15 @@ import (
 )
 
 func TestValidateRequiredCommandFieldsRejectsMissingNestedField(t *testing.T) {
-	err := validateRequiredCommandFields("grant", []byte(`{"assertion":{},"expires_at":"2026-08-18T00:00:00Z","max_uses":1}`))
-	if err == nil || !strings.Contains(err.Error(), "assertion.client_ref") {
+	err := validateRequiredCommandFields("predecessor-import", []byte(`{"snapshot_path":"snapshot.json","projects":[],"select_change_ids":[],"product":{}}`))
+	if err == nil || !strings.Contains(err.Error(), "product.product_id") {
 		t.Fatalf("missing nested field error = %v", err)
 	}
 }
 
 func TestValidateRequiredCommandFieldsRejectsNonObjectParent(t *testing.T) {
-	err := validateRequiredCommandFields("grant", []byte(`{"assertion":"not-an-object","expires_at":"2026-08-18T00:00:00Z","max_uses":1}`))
-	if err == nil || !strings.Contains(err.Error(), "assertion must be an object") {
+	err := validateRequiredCommandFields("predecessor-import", []byte(`{"snapshot_path":"snapshot.json","projects":[],"select_change_ids":[],"product":"not-an-object"}`))
+	if err == nil || !strings.Contains(err.Error(), "product must be an object") {
 		t.Fatalf("non-object parent error = %v", err)
 	}
 }

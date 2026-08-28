@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -27,7 +25,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, string, string) {
+func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, string, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -61,23 +59,7 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, strin
 		t.Fatal(err)
 	}
 
-	service := NewService(s)
-	service.Now = fixedTime
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1"}, nil
-	}
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"work_transition"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
-		t.Fatal(err)
-	}
-	grantReq := grantRequest(privateKey, "worktree-dispatch-nonce-1")
-	grantReq.Assertion.RequestedCapabilities = []Capability{"work_transition"}
-	grantReq.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(grantReq.Assertion))
-	grant, err := service.IssueGrant(ctx, grantReq)
-	if err != nil {
-		t.Fatal(err)
-	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant, repoRoot, baseSHA
 }
 

@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -16,7 +14,7 @@ import (
 // holder-session-gone, and the no-authority property — holding a claim
 // bypasses nothing.
 
-func claimsFixture(t *testing.T) (*store.Store, *Service, Grant) {
+func claimsFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -40,27 +38,8 @@ func claimsFixture(t *testing.T) (*store.Store, *Service, Grant) {
 			t.Fatal(err)
 		}
 	}
-	service := NewService(s)
-	service.Now = fixedTime
-	_, service, grant, _ := claimsGrant(t, s, service)
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"product_read", "work_relate", "work_define", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant
-}
-
-func claimsGrant(t *testing.T, s *store.Store, service *Service) (*store.Store, *Service, Grant, ed25519.PrivateKey) {
-	t.Helper()
-	ctx := context.Background()
-	publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_relate", "work_define", "work_transition"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	req := grantRequest(privateKey, "claims-dispatch-nonce")
-	req.Assertion.RequestedCapabilities = []Capability{"product_read", "work_relate", "work_define", "work_transition"}
-	req.Assertion.Signature = ed25519.Sign(privateKey, CanonicalAssertion(req.Assertion))
-	grant, err := service.IssueGrant(ctx, req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s, service, grant, privateKey
 }
 
 func TestResourceClaimLifecycle(t *testing.T) {

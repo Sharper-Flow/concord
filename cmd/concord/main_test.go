@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/launcher"
@@ -85,15 +84,15 @@ func TestDatabaseOverrideRefusesRepositoryLocalPath(t *testing.T) {
 	}
 }
 
-func TestInvokeNeverEchoesGrantToken(t *testing.T) {
-	grantToken := strings.Repeat("a", 63) + "b"
-	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","grant_token":"` + grantToken + `","client_ref":"c","scope_version":"","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{}}`)
+func TestInvokeRejectsUnknownFieldWithoutEcho(t *testing.T) {
+	unknownValue := strings.Repeat("a", 63) + "b"
+	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","unexpected_field":"` + unknownValue + `","client_ref":"c","scope_version":"","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{}}`)
 	var out, errOut bytes.Buffer
-	if code := runInvoke(raw, nil, nil, &out, &errOut); code != 0 {
-		t.Fatalf("runInvoke exit=%d stderr=%q", code, errOut.String())
+	if code := runInvoke(raw, nil, nil, &out, &errOut); code == 0 {
+		t.Fatalf("runInvoke accepted unknown field: stderr=%q", errOut.String())
 	}
-	if strings.Contains(out.String(), grantToken) || strings.Contains(errOut.String(), grantToken) {
-		t.Fatal("grant token leaked through invoke output")
+	if strings.Contains(out.String(), unknownValue) || strings.Contains(errOut.String(), unknownValue) {
+		t.Fatal("unknown field value leaked through invoke output")
 	}
 }
 
@@ -200,7 +199,7 @@ func TestLauncherSessionHasNoDurableEffects(t *testing.T) {
 func launcherDurableCounts(t *testing.T, s *store.Store) map[string]int {
 	t.Helper()
 	counts := make(map[string]int)
-	for _, table := range []string{"domain_events", "agent_grants", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
+	for _, table := range []string{"domain_events", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
 		var count int
 		if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
 			t.Errorf("count %s: %v", table, err)
@@ -343,7 +342,6 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	}
 	for _, want := range []string{
 		"concord --help",
-		"concord grant < JSON stdin",
 		"concord client-register < JSON stdin",
 		"concord client register < JSON stdin",
 		"concord product-create < JSON stdin",
@@ -482,7 +480,7 @@ func TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands(t *testing.T) {
 		{"trailing whitespace", "{} \n\t", ""},
 		{"empty input", "", ""},
 	}
-	for _, command := range []string{"client-register", "grant"} {
+	for _, command := range []string{"client-register"} {
 		for _, testCase := range cases {
 			t.Run(command+"/"+testCase.name, func(t *testing.T) {
 				freshMigratedCLIDatabase(t)
@@ -506,7 +504,7 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 	t.Setenv(dbOverrideEnv, db)
 	validJSON := strings.NewReader(`{}`)
 	forms := [][]string{
-		{"grant"}, {"invoke"},
+		{"invoke"},
 		{"client-register"}, {"client", "register"},
 		{"client-policy-update"}, {"client", "policy-update"},
 		{"client-key-rotate"}, {"client", "key-rotate"},
@@ -740,52 +738,13 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 	return string(raw)
 }
 
-func TestGrantJSONSignatureRoundTripAndFailuresAtCommandBoundary(t *testing.T) {
-	repo, privateKey := seedCLIAuthority(t, "client-1", "product-1", "project-1")
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-	registerCLIClient(t, "client-1", publicKey, "product-1", "project-1")
-
-	assertion := cliAssertion(privateKey, repo, "nonce-command-boundary-0001")
-	valid := grantJSON(t, assertion)
-	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"grant"}, strings.NewReader(valid), &out, &errOut); code != 0 {
-		t.Fatalf("valid grant exit=%d stderr=%q", code, errOut.String())
-	}
-
-	tampered := assertion
-	signature, _ := base64.StdEncoding.DecodeString(tampered["signature"].(string))
-	signature[0] ^= 0xff
-	tampered["signature"] = base64.StdEncoding.EncodeToString(signature)
-	out.Reset()
-	errOut.Reset()
-	if code := runWithInput([]string{"grant"}, strings.NewReader(grantJSON(t, tampered)), &out, &errOut); code == 0 || strings.Contains(errOut.String(), "invalid assertion signature") || !strings.Contains(errOut.String(), "invalid client assertion signature") {
-		t.Fatalf("tampered grant did not fail at signature verification: code=%d stderr=%q", code, errOut.String())
-	}
-
-	out.Reset()
-	errOut.Reset()
-	if code := runWithInput([]string{"grant"}, strings.NewReader(valid), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "assertion nonce replayed") {
-		t.Fatalf("replayed grant did not fail closed: code=%d stderr=%q", code, errOut.String())
-	}
-}
-
-func TestAdapterShapedGrantRequestThroughRealCLI(t *testing.T) {
-	repo, privateKey := seedCLIAuthority(t, "client-1", "product-1", "project-1")
-	registerCLIClient(t, "client-1", privateKey.Public().(ed25519.PublicKey), "product-1", "project-1")
-	assertion := adapterShapedAssertion(privateKey, repo, "nonce-adapter-shaped-0001")
-	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"grant"}, strings.NewReader(grantJSON(t, assertion)), &out, &errOut); code != 0 {
-		t.Fatalf("adapter-shaped grant exit=%d stderr=%q", code, errOut.String())
-	}
-}
-
-func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
+func TestCLIEndToEndRegistersClientAndInvokesRead(t *testing.T) {
 	repo := t.TempDir()
 	if err := exec.Command("git", "init", "--quiet", repo).Run(); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))
-	publicKey, privateKey, err := ed25519.GenerateKey(cryptorand.Reader)
+	publicKey, _, err := ed25519.GenerateKey(cryptorand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -814,33 +773,19 @@ func TestCLIEndToEndCreatesScopeGrantsAndInvokesRead(t *testing.T) {
 	})
 	assertChangedRefVersion(t, locatorRaw, "project", "project-1", "2")
 
-	assertion := cliAssertion(privateKey, repo, "nonce-e2e-command-boundary-0001")
-	grantRaw := runCLIJSON(t, []string{"grant"}, map[string]any{"assertion": assertion, "expires_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano), "max_uses": 0})
-	var grant struct {
-		GrantRef       string   `json:"grant_ref"`
-		GrantToken     string   `json:"grant_token"`
-		PrincipalRef   string   `json:"principal_ref"`
-		ClientRef      string   `json:"client_ref"`
-		SessionRef     string   `json:"session_ref"`
-		AgentRef       string   `json:"agent_ref"`
-		ManifestDigest string   `json:"manifest_digest"`
-		ProductIDs     []string `json:"product_ids"`
-		ProjectIDs     []string `json:"project_ids"`
-		ScopeVersion   string   `json:"scope_version"`
+	resolvedRaw := runCLIJSON(t, []string{"project", "resolve"}, map[string]any{"directory": repo, "worktree": repo})
+	var resolved struct {
+		ScopeVersion string `json:"scope_version"`
 	}
-	if err := json.Unmarshal(grantRaw, &grant); err != nil {
+	if err := json.Unmarshal(resolvedRaw, &resolved); err != nil {
 		t.Fatal(err)
-	}
-	if grant.ManifestDigest != agent.ManifestDigest {
-		t.Fatalf("grant manifest_digest = %q, want %s", grant.ManifestDigest, agent.ManifestDigest)
 	}
 	invokeRaw := runCLIJSON(t, []string{"invoke"}, map[string]any{
 		"call_envelope": map[string]any{
-			"schema_version": "1.0", "request_id": "request-e2e", "grant_token": grant.GrantToken,
-			"client_ref": grant.ClientRef, "principal_ref": grant.PrincipalRef,
-			"session_ref": grant.SessionRef, "agent_ref": grant.AgentRef, "directory": repo, "worktree": repo,
-			"ambient_project_id": "project-1", "selected_product_id": "product-1", "scope_version": grant.ScopeVersion,
-			"manifest_digest": grant.ManifestDigest,
+			"schema_version": "1.0", "request_id": "request-e2e", "client_ref": "client-1", "principal_ref": "operator-1",
+			"session_ref": "session-1", "agent_ref": "agent-1", "directory": repo, "worktree": repo,
+			"ambient_project_id": "project-1", "selected_product_id": "product-1", "scope_version": resolved.ScopeVersion,
+			"manifest_digest": agent.ManifestDigest,
 		},
 		"tool": "concord_product_view", "operation": "resolve", "input": map[string]any{"project_id": "project-1"},
 	})
@@ -983,72 +928,6 @@ func runCLIJSON(t *testing.T, args []string, value any) []byte {
 		t.Fatalf("%s stdout must contain exactly one JSON line, got %q", strings.Join(args, " "), out.String())
 	}
 	return []byte(lines[0])
-}
-
-func seedCLIAuthority(t *testing.T, client, productID, projectID string) (string, ed25519.PrivateKey) {
-	t.Helper()
-	repo := t.TempDir()
-	if err := exec.Command("git", "init", "--quiet", repo).Run(); err != nil {
-		t.Fatal(err)
-	}
-	dbPath := freshMigratedCLIDatabase(t)
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	when := time.Now().UTC()
-	operation := store.Operation{Events: []store.Event{
-		{EventID: "product-created", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: []byte(`{"display_name":"Concord","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "project-created", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: []byte(`{"display_name":"Repository"}`)},
-		{EventID: "membership-added", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: when, PayloadVersion: 1, Payload: []byte(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, productID): 0, store.VersionRef(store.SubjectProject, projectID): 0}}
-	if err := store.ApplyOperation(context.Background(), s, operation); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddProjectLocator(context.Background(), projectID, store.ProjectLocator{ID: "repo-locator", Kind: store.LocatorCanonicalPath, Value: repo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	_, privateKey, err := ed25519.GenerateKey(cryptorand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return repo, privateKey
-}
-
-func cliAssertion(privateKey ed25519.PrivateKey, repo, nonce string) map[string]any {
-	a := agent.SignedAssertion{ClientRef: "client-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProductID: "product-1", RequestedProjectIDs: []string{"project-1"}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, ManifestDigest: agent.ManifestDigest}
-	a.Signature = ed25519.Sign(privateKey, agent.CanonicalAssertion(a))
-	return map[string]any{
-		"client_ref": a.ClientRef, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,
-		"directory": a.Directory, "worktree": a.Worktree, "requested_product_id": a.RequestedProductID, "requested_project_ids": a.RequestedProjectIDs,
-		"requested_capabilities": []string{"product_read"}, "issued_at": a.IssuedAt.Format(time.RFC3339Nano), "nonce": a.Nonce,
-		"manifest_digest": a.ManifestDigest,
-		"signature":       base64.StdEncoding.EncodeToString(a.Signature),
-	}
-}
-
-func adapterShapedAssertion(privateKey ed25519.PrivateKey, repo, nonce string) map[string]any {
-	a := agent.SignedAssertion{ClientRef: "client-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: repo, Worktree: repo, RequestedProjectIDs: []string{}, RequestedCapabilities: []agent.Capability{"product_read"}, IssuedAt: time.Now().UTC(), Nonce: nonce, ManifestDigest: agent.ManifestDigest}
-	a.Signature = ed25519.Sign(privateKey, agent.CanonicalAssertion(a))
-	return map[string]any{
-		"client_ref": a.ClientRef, "session_ref": a.SessionRef, "agent_ref": a.AgentRef,
-		"directory": a.Directory, "worktree": a.Worktree, "requested_product_id": "", "requested_project_ids": []string{},
-		"requested_capabilities": []string{"product_read"}, "issued_at": a.IssuedAt.Format(time.RFC3339Nano), "nonce": a.Nonce,
-		"manifest_digest": a.ManifestDigest,
-		"signature":       base64.StdEncoding.EncodeToString(a.Signature),
-	}
-}
-
-func grantJSON(t *testing.T, assertion map[string]any) string {
-	t.Helper()
-	raw, err := json.Marshal(map[string]any{"assertion": assertion, "expires_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano), "max_uses": 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(raw)
 }
 
 // predecessorSyntheticFixture is a deliberately fictional two-project snapshot.

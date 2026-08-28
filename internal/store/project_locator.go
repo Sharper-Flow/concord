@@ -71,6 +71,14 @@ func (s *Store) ScopeVersion(ctx context.Context, projectID string) (string, []s
 	return scopeVersion(ctx, s.db, projectID)
 }
 
+func ScopeVersionTx(ctx context.Context, transaction *Transaction, projectID string) (string, []string, error) {
+	tx, err := transactionSQL(transaction, "scope_version")
+	if err != nil {
+		return "", nil, err
+	}
+	return scopeVersion(ctx, tx, projectID)
+}
+
 func scopeVersion(ctx context.Context, q queryer, projectID string) (string, []string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT product_id,role FROM product_projects WHERE project_id=? ORDER BY product_id,role`, projectID)
 	if err != nil {
@@ -254,6 +262,17 @@ func (s *Store) ResolveProject(ctx context.Context, directory, worktree string) 
 
 func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktree string, runner GitRunner) (ProjectResolution, error) {
 	return resolveProjectWithRunner(ctx, s.db, directory, worktree, runner)
+}
+
+// ResolveProjectTx resolves inside a caller-owned transaction. The store pools
+// one connection, so a resolution that reaches for s.db while a transaction
+// holds that connection never returns.
+func ResolveProjectTx(ctx context.Context, transaction *Transaction, directory, worktree string) (ProjectResolution, error) {
+	tx, err := transactionSQL(transaction, "project_resolve")
+	if err != nil {
+		return ProjectResolution{}, err
+	}
+	return resolveProjectWithRunner(ctx, tx, directory, worktree, ExecGitRunner{})
 }
 
 func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktree string, runner GitRunner) (ProjectResolution, error) {

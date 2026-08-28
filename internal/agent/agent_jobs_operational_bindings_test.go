@@ -182,7 +182,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 // approval challenge through a signed host approval when the action requires
 // operator authority. It returns the final envelope and the work version the
 // action produced.
-func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Grant, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string) (Envelope, int64) {
+func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string) (Envelope, int64) {
 	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "idempotency_key": key}
 	if fields != nil {

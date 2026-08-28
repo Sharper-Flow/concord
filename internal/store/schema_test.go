@@ -491,7 +491,10 @@ func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testin
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"agent_clients", "agent_client_keys", "agent_nonce_replay", "agent_grants", "agent_approval_challenges", "agent_approvals", "idempotency_records"} {
+	// agent_grants is absent from this list because migration 57 drops it
+	// (CD-0080 D2). Migration 9 still creates it; the table this sequence
+	// must arrive at is the one head declares.
+	for _, table := range []string{"agent_clients", "agent_client_keys", "agent_nonce_replay", "agent_approval_challenges", "agent_approvals", "idempotency_records"} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -1129,13 +1132,13 @@ func TestMigration55AllowsDeclaredApprovalConsequences(t *testing.T) {
 		t.Fatalf("migration 55 failed: %v", err)
 	}
 	for _, consequence := range []string{"research", "claim"} {
-		grantRef := seedApprovalChallengeGrant(t, db, consequence)
-		if err := insertApprovalChallenge(ctx, db, grantRef, consequence, strings.Repeat(consequence[:1], 64)); err != nil {
+		clientRef := seedApprovalChallengeClient(t, db, consequence)
+		if err := insertApprovalChallengeAtHead(ctx, db, clientRef, consequence, strings.Repeat(consequence[:1], 64)); err != nil {
 			t.Fatalf("insert %s consequence: %v", consequence, err)
 		}
 	}
-	grantRef := seedApprovalChallengeGrant(t, db, "bogus")
-	if err := insertApprovalChallenge(ctx, db, grantRef, "bogus", strings.Repeat("b", 64)); err == nil {
+	clientRef := seedApprovalChallengeClient(t, db, "bogus")
+	if err := insertApprovalChallengeAtHead(ctx, db, clientRef, "bogus", strings.Repeat("b", 64)); err == nil {
 		t.Fatal("bogus approval consequence was accepted")
 	}
 }
@@ -1150,13 +1153,20 @@ func TestMigration55UpgradesValidApprovalConsequences(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("valid approval consequence failed upgrade: %v", err)
 	}
-	var consequence string
-	if err := db.QueryRowContext(ctx, `SELECT consequence FROM agent_approval_challenges WHERE grant_ref=?`, grantRef).Scan(&consequence); err != nil {
+	// Migration 57 copies the challenge through a join on agent_grants and
+	// then drops that table, so the upgraded row is addressed by its own
+	// reference and carries the identity tuple the grant used to hold.
+	var consequence, clientRef, sessionRef, worktree string
+	if err := db.QueryRowContext(ctx, `SELECT consequence,client_ref,session_ref,worktree FROM agent_approval_challenges WHERE challenge_ref=?`, strings.Repeat("i", 64)).Scan(&consequence, &clientRef, &sessionRef, &worktree); err != nil {
 		t.Fatal(err)
 	}
 	if consequence != "intent" {
 		t.Fatalf("upgraded consequence=%q, want intent", consequence)
 	}
+	if clientRef != "approval-client-intent" || sessionRef != "session-intent" || worktree != "/repo/worktree" {
+		t.Fatalf("identity tuple not carried across migration 57: client=%q session=%q worktree=%q", clientRef, sessionRef, worktree)
+	}
+	_ = grantRef
 }
 
 func TestMigration55RejectsUndeclaredApprovalConsequence(t *testing.T) {
@@ -1334,6 +1344,23 @@ func seedApprovalChallengeGrant(t *testing.T, db *sql.DB, suffix string) string 
 		t.Fatal(err)
 	}
 	return grantRef
+}
+
+// seedApprovalChallengeClient registers only the client a head-shape challenge
+// needs. Migration 57 removed agent_grants, so a challenge no longer has a
+// grant parent to seed.
+func seedApprovalChallengeClient(t *testing.T, db *sql.DB, suffix string) string {
+	t.Helper()
+	clientRef := "approval-client-" + suffix
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES(?,?,?,?,?,?,?)`, clientRef, "active", "human", `[]`, `[]`, `[]`, "2026-08-27T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	return clientRef
+}
+
+func insertApprovalChallengeAtHead(ctx context.Context, db *sql.DB, clientRef, consequence, challengeRef string) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO agent_approval_challenges(challenge_ref,client_ref,principal_ref,session_ref,agent_ref,directory,worktree,product_scope_json,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at,max_uses,used_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, challengeRef, clientRef, "human", "session-"+consequence, "agent-"+consequence, "/repo", "/repo/worktree", `[]`, "operation", `{}`, `{}`, consequence, "host", "2026-08-27T00:00:00Z", "2026-08-28T00:00:00Z", "active", nil, 1, 0)
+	return err
 }
 
 func insertApprovalChallenge(ctx context.Context, db *sql.DB, grantRef, consequence, challengeRef string) error {

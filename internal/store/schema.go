@@ -3121,6 +3121,55 @@ UPDATE archived_work SET type=type;
 DELETE FROM fold_guard;
 		`,
 	},
+	{
+		Version: 57,
+		Name:    "capability_scoping_replaces_the_grant_token",
+		SQL: `
+DROP INDEX agent_approval_challenges_grant;
+ALTER TABLE agent_approval_challenges RENAME TO agent_approval_challenges_v57;
+CREATE TABLE agent_approval_challenges (
+    challenge_ref TEXT PRIMARY KEY,
+    client_ref TEXT NOT NULL REFERENCES agent_clients(client_ref) ON DELETE RESTRICT,
+    principal_ref TEXT NOT NULL,
+    session_ref TEXT NOT NULL,
+    agent_ref TEXT NOT NULL,
+    directory TEXT NOT NULL,
+    worktree TEXT NOT NULL,
+    product_scope_json TEXT NOT NULL CHECK(json_valid(product_scope_json) AND json_type(product_scope_json)='array'),
+    operation_digest TEXT NOT NULL,
+    scope_json TEXT NOT NULL CHECK(json_valid(scope_json) AND json_type(scope_json)='object'),
+    version_json TEXT NOT NULL CHECK(json_valid(version_json) AND json_type(version_json)='object'),
+    consequence TEXT NOT NULL CHECK(consequence IN ('read','intent','lifecycle','workflow_action','scope','relation','supersession','publication','recovery','research','claim')),
+    host_assertion_digest TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','consumed','revoked')),
+    consumed_at TEXT,
+    max_uses INTEGER NOT NULL DEFAULT 1 CHECK(max_uses > 0 AND max_uses <= 100),
+    used_count INTEGER NOT NULL DEFAULT 0 CHECK(used_count >= 0 AND used_count <= max_uses),
+    CHECK(length(challenge_ref) = 64),
+    CHECK(length(principal_ref) > 0 AND length(principal_ref) <= 128),
+    CHECK(length(session_ref) > 0 AND length(session_ref) <= 128),
+    CHECK(length(agent_ref) > 0 AND length(agent_ref) <= 128),
+    CHECK(length(directory) > 0 AND length(directory) <= 4096),
+    CHECK(length(worktree) > 0 AND length(worktree) <= 4096),
+    CHECK(length(operation_digest) > 0 AND length(operation_digest) <= 128),
+    CHECK(length(host_assertion_digest) > 0 AND length(host_assertion_digest) <= 128),
+    CHECK(expires_at > issued_at),
+    CHECK((status='active' AND consumed_at IS NULL) OR (status IN ('consumed','revoked')))
+);
+INSERT INTO agent_approval_challenges
+    (challenge_ref,client_ref,principal_ref,session_ref,agent_ref,directory,worktree,product_scope_json,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at,max_uses,used_count)
+    SELECT c.challenge_ref,g.client_ref,g.principal_ref,g.session_ref,g.agent_ref,g.directory,g.worktree,g.product_scope_json,c.operation_digest,c.scope_json,c.version_json,c.consequence,c.host_assertion_digest,c.issued_at,c.expires_at,c.status,c.consumed_at,c.max_uses,c.used_count
+    FROM agent_approval_challenges_v57 c
+    JOIN agent_grants g ON g.grant_ref = c.grant_ref;
+DROP TABLE agent_approval_challenges_v57;
+CREATE INDEX agent_approval_challenges_session ON agent_approval_challenges(client_ref, session_ref, status);
+CREATE INDEX agent_approval_challenges_active ON agent_approval_challenges(status, issued_at);
+DROP INDEX agent_grants_lookup;
+DROP TABLE agent_grants;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

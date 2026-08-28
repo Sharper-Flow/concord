@@ -1087,7 +1087,7 @@ func isValidDeferral(s string) bool {
 // PM1 dispatch fixture (modelled on mutationDispatchFixture)
 // ---------------------------------------------------------------------------
 
-func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, pm1fixture.Corpus) {
+func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Authority, pm1fixture.Corpus) {
 	t.Helper()
 	corpus, err := pm1fixture.Load()
 	if err != nil {
@@ -1108,7 +1108,7 @@ func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, pm1fixtur
 	return s, service, grant, corpus
 }
 
-func agentJobsEnvelope(grant Grant, ambientProject, selectedProduct string) CallEnvelope {
+func agentJobsEnvelope(grant Authority, ambientProject, selectedProduct string) CallEnvelope {
 	return CallEnvelope{
 		SchemaVersion:     "1.0",
 		RequestID:         "agent-jobs-request",

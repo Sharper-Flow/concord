@@ -14,7 +14,7 @@ import (
 // holder-session-gone, and the no-authority property — holding a claim
 // bypasses nothing.
 
-func claimsFixture(t *testing.T) (*store.Store, *Service, Grant) {
+func claimsFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())

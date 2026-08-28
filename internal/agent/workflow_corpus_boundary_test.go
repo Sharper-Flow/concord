@@ -77,7 +77,7 @@ func TestWorkflowCorpusWF37UsesAgentAvailabilityBeforePayloadOrAuth(t *testing.T
 	}
 }
 
-func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, grant Grant, privateKey ed25519.PrivateKey, env CallEnvelope) (CallEnvelope, int64) {
+func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope) (CallEnvelope, int64) {
 	t.Helper()
 	for index, action := range []string{"record_proposal", "record_discovery", "record_design"} {
 		input := map[string]any{"work_id": "work-1", "expected_version": int64(4 + index), "action_id": action, "fields": []any{}, "idempotency_key": "boundary-" + action}

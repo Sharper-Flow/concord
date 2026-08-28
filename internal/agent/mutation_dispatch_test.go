@@ -651,7 +651,7 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	}
 }
 
-func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, ed25519.PrivateKey) {
+func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -678,7 +678,7 @@ func crossProductDispatchFixture(t *testing.T, capabilities []Capability) (*stor
 	return s, service, grant, privateKey
 }
 
-func disjointRelationFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, ed25519.PrivateKey) {
+func disjointRelationFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -713,7 +713,7 @@ func disjointRelationFixture(t *testing.T, capabilities []Capability) (*store.St
 	return s, service, grant, privateKey
 }
 
-func disjointEnvelope(grant Grant, scopeVersion string) CallEnvelope {
+func disjointEnvelope(grant Authority, scopeVersion string) CallEnvelope {
 	env := mutationEnvelope(grant, scopeVersion)
 	env.AmbientProjectID = "ambient"
 	env.SelectedProductID = "product-a"
@@ -729,7 +729,7 @@ func countRows(t *testing.T, db *sql.DB, query string) int {
 	return count
 }
 
-func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, ed25519.PrivateKey) {
+func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -752,7 +752,7 @@ func mutationDispatchFixture(t *testing.T, capabilities []Capability) (*store.St
 	return s, service, grant, privateKey
 }
 
-func mutationEnvelope(grant Grant, scopeVersion string) CallEnvelope {
+func mutationEnvelope(grant Authority, scopeVersion string) CallEnvelope {
 	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 }
 

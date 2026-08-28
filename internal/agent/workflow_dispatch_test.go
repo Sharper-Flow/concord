@@ -12,7 +12,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func seedAgentWorkflow(t *testing.T, s *store.Store, grant Grant) int64 {
+func seedAgentWorkflow(t *testing.T, s *store.Store, grant Authority) int64 {
 	t.Helper()
 	ctx := context.Background()
 	seedCurrentWorkflowDomainFixture(t, s)

@@ -338,9 +338,9 @@ type compactReconcileInput struct {
 	Evidence                 []EvidenceRef  `json:"evidence"`
 }
 
-type mutationEffect func(context.Context, *store.Transaction, Grant) (json.RawMessage, []string, []ChangedRef, error)
+type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error)
 
-func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, bool, error) {
+func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, bool, error) {
 	key := idempotencyKey(raw)
 	if key == "" {
 		return Envelope{}, false, nil
@@ -546,7 +546,7 @@ func scopeFromMap(scope map[string]any) *Scope {
 	return result
 }
 
-func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant Grant) error {
+func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant Authority) error {
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return err
@@ -572,7 +572,7 @@ func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant 
 	}, nil)
 }
 
-func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant Grant, authorize func() error) error {
+func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant Authority, authorize func() error) error {
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return err
@@ -685,7 +685,7 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
+func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	if r.Store == nil {
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
 	}
@@ -876,7 +876,7 @@ func workKindMutationRefusal(kind string, allowed bool, fallback string) (string
 	return fallback, true
 }
 
-func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Grant, op ContractOperation) (Envelope, error) {
+func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
 	}
@@ -952,7 +952,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		scope["project_ids"] = in.ProjectIDs
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			priority := in.Priority
 			urgency := in.Urgency
 			if urgency == "" {
@@ -1008,7 +1008,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 		}
 		intents = []NextIntent{{Tool: "concord_work_transition", Operation: "lifecycle", ReasonCode: "continue_work", RequiredFields: []string{"work_id", "expected_version"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
 			if existingErr != nil {
 				return nil, nil, nil, existingErr
@@ -1056,7 +1056,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		workID := "initiative-" + digest[7:31]
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_initiative"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			if products, err := deriveInitiativeProductsTx(ctx, tx, in.ProjectIDs); err != nil {
 				return nil, nil, nil, err
 			} else if len(products) != 1 {
@@ -1108,7 +1108,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if in.Required != nil {
 			required = *in.Required
 		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			event, err := store.InitiativeEntryEvent(digest+":entry", kind, in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID, Position: in.Position, Required: required}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
@@ -1128,7 +1128,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["initiative"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
 		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "inspect_removed_initiative_entry"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			event, err := store.InitiativeEntryEvent(digest+":entry", "initiative_entry.removed", in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
@@ -1148,7 +1148,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["initiative"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.InitiativeWorkID}
 		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "refresh_initiative_context"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			event, err := store.InitiativeNarrativeEvent(digest+":narrative", in.InitiativeWorkID, in.Narrative, in.Reason, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
 			if err != nil {
 				return nil, nil, nil, err
@@ -1185,7 +1185,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"from": "", "to": in.Target, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 			from, err := currentLifecycle(ctx, tx, in.WorkID)
 			if err != nil {
@@ -1209,7 +1209,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		scope["work_ids"] = []string{in.OwnerWorkID}
 		intents = []NextIntent{{Tool: "concord_work_define", Operation: "research_finding_record", ReasonCode: "record_findings", RequiredFields: []string{"pack_id", "expected_version"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			pack, err := store.CreateResearchPackWithinTx(ctx, tx, store.CreateResearchPackRequest{OwnerWorkID: in.OwnerWorkID, Revision: storeResearchRevision(in.Revision), Freshness: store.ResearchFreshness(in.Freshness)})
 			if err != nil {
 				return nil, nil, nil, err
@@ -1222,7 +1222,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
 				return nil, nil, nil, err
 			}
@@ -1234,7 +1234,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			freshness := in.Finding.Freshness
 			if freshness == "" {
 				freshness = "current"
@@ -1259,7 +1259,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
 			if err != nil {
 				return nil, nil, nil, err
@@ -1272,7 +1272,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err
 		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
 				return nil, nil, nil, err
 			}
@@ -1302,7 +1302,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			return failureEnvelope(base, homeErr), nil
 		}
 		intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_published_lesson"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			scopes := store.KnowledgeRecordScopes{Mode: "home"}
 			if in.Scopes != nil {
 				scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, TagIDs: in.Scopes.TagIDs}
@@ -1325,7 +1325,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason, "holder_agent": grant.AgentRef, "holder_session": grant.SessionRef})
 			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 				return nil, nil, nil, err
@@ -1341,7 +1341,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey})
 			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 				return nil, nil, nil, err
@@ -1366,7 +1366,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			scope["work_ids"] = []string{in.WorkID, in.RecipientWorkID}
 		}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			// Broadcast resolves the recipient set now, inside the caller's
 			// transaction, so the fan-out sees a consistent Product snapshot.
 			recipients := []string{in.RecipientWorkID}
@@ -1412,7 +1412,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID})
 			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":withdraw", Kind: "work.message_withdrawn", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 				return nil, nil, nil, err
@@ -1436,7 +1436,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 				return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 			}
 			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "external_observations", QueryID: "CD-0040.R1", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
-			effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 				if in.External.Kind == "capture" {
 					// The reviewed policy references are derived from the
 					// subject kind before validation, which requires the
@@ -1483,7 +1483,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 			}
 		} else {
 			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
-			effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+			effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 				observationID := in.ObservationID
 				if observationID == "" {
 					sum := sha256.Sum256([]byte(digest))
@@ -1513,7 +1513,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		// CD-0068 D6: the observation is read back through the Domain surface
 		// it was recorded against, not through a dedicated read.
 		intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_visible", RequiredFields: []string{"domain_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			sum := sha256.Sum256([]byte(digest))
 			observationID := "dob:" + hex.EncodeToString(sum[:8])
 			payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "product_id": product, "domain_id": in.DomainID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
@@ -1540,7 +1540,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		}
 		scope["product_id"] = product
 		intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_dismissed", RequiredFields: []string{"domain_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"observation_id": in.ObservationID, "product_id": product, "domain_id": in.DomainID})
 			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation_dismissed", Kind: "domain.observation_dismissed", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
 				return nil, nil, nil, err
@@ -1556,7 +1556,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			opID := digest + ":worktree-claim:" + in.ProjectID
 			if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
 				OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
@@ -1577,7 +1577,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["work"] = in.ExpectedVersion
 		scope["work_ids"] = []string{in.WorkID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
 				WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 				PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
@@ -1604,7 +1604,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		scope["work_ids"] = []string{in.WorkID}
 		scope["project_ids"] = membershipIDs(in.Memberships)
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_membership_scope", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"memberships": in.Memberships, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 			if err != nil {
@@ -1632,7 +1632,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		scope["to_work_id"] = in.ToWorkID
 		scope["product_id"] = r.Envelope.SelectedProductID
 		intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			consumedApprovalRef, _ := scope["approval_ref"].(string)
 			result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, ApprovalRef: consumedApprovalRef, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()})
 			if err != nil {
@@ -1656,7 +1656,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["to"] = in.ToExpectedVersion
 		scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
 		intents = []NextIntent{{Tool: "concord_work_relate", Operation: "unlink", ReasonCode: "remove_relation"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"from": in.FromWorkID, "to": in.ToWorkID, "kind": in.Kind, "reason": in.Reason, "expected_version": in.FromExpectedVersion, "resulting_version": in.FromExpectedVersion + 1, "to_expected_version": in.ToExpectedVersion, "to_resulting_version": in.ToExpectedVersion + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":link", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: in.FromWorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.FromWorkID): in.FromExpectedVersion, store.VersionRef(store.SubjectWorkItem, in.ToWorkID): in.ToExpectedVersion}})
 			if err != nil {
@@ -1703,7 +1703,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["successor"] = in.SuccessorExpected
 		scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
 		intents = []NextIntent{{Tool: "concord_work_relate", Operation: "restore_superseded", ReasonCode: "restore_or_replace_successor"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"successor": in.SuccessorID, "superseded": in.PredecessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":supersede", Kind: "work.superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
 			if err != nil {
@@ -1724,7 +1724,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Gr
 		versions["successor"] = in.SuccessorExpected
 		scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
 		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "inspect_restored_work"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 			payload, _ := json.Marshal(map[string]any{"superseded": in.PredecessorID, "replacement_successor": in.ReplacementSuccessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
 			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":restore", Kind: "work.reopened_from_superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
 			if err != nil {
@@ -2420,7 +2420,7 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	return false
 }
 
-func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Grant, check ApprovalCheck) (store.WorkflowActor, string, error) {
+func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
 		return operator, "", fmt.Errorf("signed host approval assertion is required")
@@ -2484,7 +2484,7 @@ func storeIdempotencyConflict(operation, key string) error {
 }
 
 func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEndpoints []string, intents []NextIntent) mutationEffect {
-	return func(ctx context.Context, tx *store.Transaction, grant Grant) (json.RawMessage, []string, []ChangedRef, error) {
+	return func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		relationID, err := strconv.ParseInt(in.RelationID, 10, 64)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("invalid relation ID")

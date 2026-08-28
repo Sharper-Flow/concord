@@ -179,8 +179,6 @@ type Authority struct {
 	ScopeSnapshot     map[string]any
 }
 
-type Grant = Authority
-
 type Invocation struct {
 	ClientRef, PrincipalRef, SessionRef, AgentRef, Directory, Worktree, ManifestDigest string
 	HostAssertionDigest                                                                string

@@ -454,7 +454,7 @@ func countWorkflowActorRowsIssue31(t *testing.T, s *store.Store) int {
 	return count
 }
 
-func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, CallEnvelope, json.RawMessage, string, string, map[string]any, map[string]any) {
+func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, CallEnvelope, json.RawMessage, string, string, map[string]any, map[string]any) {
 	t.Helper()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
@@ -498,7 +498,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Grant, ed25519
 	return s, service, grant, privateKey, env, confirm, challengeRef, digest, scope, versions
 }
 
-func issue31EvaluatorGrant(t *testing.T, service *Service, privateKey ed25519.PrivateKey) Grant {
+func issue31EvaluatorGrant(t *testing.T, service *Service, privateKey ed25519.PrivateKey) Authority {
 	t.Helper()
 	_ = privateKey
 	grant, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-evaluator", AgentRef: "agent-evaluator", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1"})

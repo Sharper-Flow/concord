@@ -19,7 +19,7 @@ import (
 // replays without a second commit. A reflection is the same operation with a
 // reflection tag.
 
-func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, string) {
+func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())

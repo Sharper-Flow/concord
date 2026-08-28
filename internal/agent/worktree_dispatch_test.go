@@ -25,7 +25,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Grant, string, string) {
+func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, string, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())

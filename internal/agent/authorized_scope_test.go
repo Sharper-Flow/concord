@@ -37,7 +37,7 @@ func TestCorruptScopeSnapshotReportsError(t *testing.T) {
 
 // An absent scope has no containment keys and therefore imposes no constraint.
 func TestNilScopeSatisfiesEveryLookup(t *testing.T) {
-	if !scopeWithinAuthority(nil, Grant{}) {
+	if !scopeWithinAuthority(nil, Authority{}) {
 		t.Fatal("nil scope must satisfy an empty authority")
 	}
 }

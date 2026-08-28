@@ -13,7 +13,7 @@ import (
 // survival (continuity pointer), withdraw visibility, bounded fan-out, and
 // the no-authority property.
 
-func messagesFixture(t *testing.T) (*store.Store, *Service, Grant) {
+func messagesFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())

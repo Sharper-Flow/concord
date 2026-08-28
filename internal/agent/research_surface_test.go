@@ -14,11 +14,11 @@ import (
 // it at a workflow boundary. The engine binds the consumer and proves
 // freshness fail-closed; a stale required revision refuses the action.
 
-func researchSurfaceFixture(t *testing.T) (*store.Store, *Service, Grant, string) {
+func researchSurfaceFixture(t *testing.T) (*store.Store, *Service, Authority, string) {
 	return researchSurfaceFixtureWithCapabilities(t, []Capability{"product_read", "work_define", "work_transition", "research"})
 }
 
-func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []Capability) (*store.Store, *Service, Grant, string) {
+func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []Capability) (*store.Store, *Service, Authority, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())

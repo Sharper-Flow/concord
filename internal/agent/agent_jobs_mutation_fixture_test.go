@@ -20,7 +20,7 @@ import (
 // work_relate, and work_initiative. work_compact is deliberately excluded
 // because the AJ3/AJ4/AJ5 mutation corpus exercises only the mutation
 // families covered by these bindings.
-func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, pm1fixture.Corpus) {
+func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, pm1fixture.Corpus) {
 	t.Helper()
 	corpus, err := pm1fixture.Load()
 	if err != nil {
@@ -46,7 +46,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Grant, e
 // dispatch mutations through the same envelope the production runtime
 // builds (mutation requests without a scope_version are refused with
 // stale_context).
-func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Grant, ambientProject, selectedProduct string) CallEnvelope {
+func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Authority, ambientProject, selectedProduct string) CallEnvelope {
 	t.Helper()
 	env := agentJobsEnvelope(grant, ambientProject, selectedProduct)
 	env.ScopeVersion = scopeVersionForProject(t, s, ambientProject)

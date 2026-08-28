@@ -28,7 +28,7 @@ import (
 // Compaction resolves its home from the work item's product rather than from a
 // fixture hint, so the binding publishes into the home production actually
 // resolves and asserts against it.
-func agentJobsCompactionFixture(t *testing.T) (*store.Store, *Service, Grant, ed25519.PrivateKey, store.KnowledgeHome) {
+func agentJobsCompactionFixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, store.KnowledgeHome) {
 	t.Helper()
 	s, service, grant, privateKey, corpus := agentJobsMutationPM1Fixture(t)
 	knowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
@@ -75,7 +75,7 @@ func archivedWorkCount(t *testing.T, s *store.Store, workID string) int {
 // publishCancelledNote drives concord_work_compact.publish for work-cancelled
 // through the approval round-trip the operation requires. The returned envelope
 // is the approved dispatch.
-func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Grant, privateKey ed25519.PrivateKey, home store.KnowledgeHome) Envelope {
+func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) Envelope {
 	t.Helper()
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-api", "prod-alpha")
 	env.HostAssertionDigest = "sha256:host-compaction-resolution"
@@ -115,7 +115,7 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 // mintPublicationChallenge creates the operator approval challenge that a
 // publication requires, binding it to the exact operation digest, scope, and
 // expected versions the dispatch will present.
-func mintPublicationChallenge(t *testing.T, s *store.Store, service *Service, grant Grant, env CallEnvelope, digest string, scope, versions map[string]any) string {
+func mintPublicationChallenge(t *testing.T, s *store.Store, service *Service, grant Authority, env CallEnvelope, digest string, scope, versions map[string]any) string {
 	t.Helper()
 	ctx := context.Background()
 	inv := Invocation{ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: env.SelectedProductID}

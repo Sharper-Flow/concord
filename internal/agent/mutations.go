@@ -598,11 +598,15 @@ func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant 
 	}, authorize)
 }
 
-func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope) error {
-	return preflightWorkflowActionRequestWithRegistry(ctx, s, raw, env, store.BuiltinWorkflowRegistry())
+func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority) error {
+	return preflightWorkflowActionRequestWithRegistry(ctx, s, raw, env, actor, store.BuiltinWorkflowRegistry())
 }
 
-func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, registry store.DefinitionRegistry) error {
+// preflightWorkflowActionRequestWithRegistry takes the authorized actor
+// separately from the envelope. CD-0080 D1 derives principal_ref from the
+// registered client, so the envelope carries no principal to build an actor
+// tuple from and none to partition idempotency by.
+func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority, registry store.DefinitionRegistry) error {
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
@@ -615,7 +619,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	// version. The digest comparison remains strict; no authorization callback
 	// or mutation is reached until the normal replay path validates the grant.
 	key := in.IdempotencyKey
-	prior, found, err := s.LookupMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: env.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: key})
+	prior, found, err := s.LookupMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: key})
 	if err != nil {
 		return err
 	}
@@ -635,7 +639,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		SelectedChoice:        in.SelectedChoice,
 		DecisionContextDigest: in.DecisionContextDigest,
 		Payload:               payload,
-		Actor:                 store.WorkflowActor{PrincipalRef: env.PrincipalRef, ClientRef: env.ClientRef, AgentRef: env.AgentRef, SessionRef: env.SessionRef, ActorClass: store.ActorAgent},
+		Actor:                 store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
 	})
 }
 

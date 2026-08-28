@@ -290,8 +290,17 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if len(strictAction.Fields) != 0 && bytes.Equal(bytes.TrimSpace(strictAction.Fields), []byte(`{}`)) {
 			return coreError(base, "invalid_input", "workflow action fields cannot be empty", "reread_entities", false), nil
 		}
-		if s == nil {
+		if s == nil || authority == nil {
 			return coreError(base, "unreachable", "workflow authority is not available", "contact_operator", true), nil
+		}
+		// The workflow actor tuple and the idempotency partition both key on
+		// principal_ref, which CD-0080 D1 derives rather than accepts. Identity
+		// authorization therefore precedes the preflight; Product and Project
+		// scope stay out of it, because scope is validated after the budget.
+		actorInv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability}
+		actor, actorErr := authority.Authorize(ctx, actorInv)
+		if actorErr != nil {
+			return coreError(base, "unauthorized", actorErr.Error(), "contact_operator", false), nil
 		}
 		available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
 		if availabilityErr != nil {
@@ -300,7 +309,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if !available {
 			return coreError(base, "invalid_transition", "workflow action registry is unavailable", "reread_entities", false), nil
 		}
-		if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, registry); err != nil {
+		if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, actor, registry); err != nil {
 			return failureEnvelope(base, err), nil
 		}
 	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {

@@ -295,6 +295,29 @@ This amendment adds one scenario, bringing the corpus to 23. It does not add a n
 job or a tenth tool. Operator approval for the current manifest change is recorded in
 [issue #195](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5346330133).
 
+**2026-08-28, issue #169 — PM1 seeds membership through the contract path.**
+
+The 2026-08-17 entry left one question open: whether the complete-set-replacement
+rule governs fixture seeding, or whether per-event `work_project.added` stays
+legitimate for a fixture. The rule governs every writer.
+[`agent-mutation-tool-contract.md`](./agent-mutation-tool-contract.md) §2.3 now
+states it. A fixture is not exempt, because the divergence it creates is not
+cosmetic: it puts a work item at a version no agent call can reach, so a scenario
+reading that version exercises arithmetic the product never performs.
+
+PM1 now emits one `work.memberships_replaced` per work item, carrying the whole
+declared membership set with its roles. Seeding costs one version for any Project
+count, which is what `concord_work_define.capture` costs. `work-cross` is
+version 3, not 4: one `work.created`, one `work.memberships_replaced`, and one
+transition.
+
+No scenario expectation changed. The AJ4 corpus integers the 2026-08-17 entry
+corrected all name single-Project work items, whose cost was already one version,
+and no corpus binds an absolute version to `work-cross`. The
+fixture-independent `effects.version_increment` assertion that entry added is what
+carries the law, and it is unaffected. `TestAgentJobsCorpus` and the
+product-memory corpus pass unchanged.
+
 ## Acceptance criteria
 
 - Given ambient Product context with needed, blocked, and terminal work

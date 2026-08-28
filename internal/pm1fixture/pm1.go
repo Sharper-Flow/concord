@@ -233,10 +233,20 @@ func Seed(ctx context.Context, s *store.Store, c Corpus) error {
 			to = *created.To
 		}
 		workEvents := []store.Event{fixtureEvent("create-"+w.ID, "work.created", store.SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
-		for i, p := range w.Projects {
-			role := p.Role
-			workEvents = append(workEvents, fixtureEvent(fmt.Sprintf("membership-%s-%d", w.ID, i), "work_project.added", store.SubjectWorkItem, w.ID, "operator", w.CreatedAt, map[string]any{"work_id": w.ID, "project_id": p.ID, "role": role, "reason": "fixture adapter", "expected_version": int64(i + 1), "resulting_version": int64(i + 2)}))
-			versions[w.ID]++
+		// Membership is written the way the capture path writes it: one
+		// work.memberships_replaced carrying the whole set, not one
+		// work_project.added per Project. Both are legal, and they consume a
+		// different number of aggregate versions - N against 1 - so a fixture
+		// using the second shape puts every multi-Project work item at a
+		// version no real capture could produce, and any scenario reading that
+		// version exercises arithmetic the production path never performs.
+		if len(w.Projects) > 0 {
+			memberships := make([]map[string]any, len(w.Projects))
+			for i, p := range w.Projects {
+				memberships[i] = map[string]any{"project_id": p.ID, "role": p.Role}
+			}
+			workEvents = append(workEvents, fixtureEvent("membership-"+w.ID, "work.memberships_replaced", store.SubjectWorkItem, w.ID, "operator", w.CreatedAt, map[string]any{"memberships": memberships, "expected_version": int64(1), "resulting_version": int64(2)}))
+			versions[w.ID] = 2
 		}
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: workEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, w.ID): 0}}); err != nil {
 			return fmt.Errorf("pm1fixture: create %s: %w", w.ID, err)

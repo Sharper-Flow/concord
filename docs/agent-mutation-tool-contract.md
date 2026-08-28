@@ -121,6 +121,13 @@ remove, supersede, or restore a typed work relation.
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
+The rule binds every writer of work membership, not only the agent surface. A
+writer that seeds membership through per-Project events charges one version per
+Project, where replacement charges one for the whole set. Such a writer places
+its work items at versions no agent call can produce, so a test fixture reading
+one exercises arithmetic the product never performs. Test fixtures write
+`work.memberships_replaced` for that reason.
+
 Relation operations remain singular because each edge has its own graph oracle and
 version conflict. `depends_on` is an inverse read; callers create canonical `blocks`.
 

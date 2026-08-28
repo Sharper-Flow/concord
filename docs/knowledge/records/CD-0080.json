@@ -1,0 +1,31 @@
+{
+  "date": "2026-08-28T00:00:00Z",
+  "evidence": [
+    "internal/agent/authority.go",
+    "internal/agent/worker_evidence.go",
+    "internal/store/schema.go",
+    "internal/store/blocked_sessions.go",
+    "docs/reachability-exceptions.v1.json"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0080",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0080-capability-scoping-replaces-the-grant-token.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:493a075dad5438f7a9e7c777f524c2db3e6073ff142f45ed856cc6aca5fa2df8",
+  "status": "accepted",
+  "summary": "Authorization becomes the registered client policy intersected with git-derived scope resolved from the invoke envelope on every call. The grant token, the agent_grants table, expiry, and use counts are removed, and host approval keeps its scope, challenge, and consequence bindings without a signature. Worker evidence signing under CD-0067 D6 is out of scope and keeps the client key registry and the nonce table. Approval challenges re-anchor to the session identity tuple, blocked-session Product scope moves to the session record, and the three unbuilt revocation methods are removed. This declines the core-issued opaque session handle CD-0071 D4 anticipated.",
+  "tags": [
+    "authority",
+    "grants",
+    "capability-scoping",
+    "boundary"
+  ],
+  "title": "Capability scoping replaces the grant token"
+}

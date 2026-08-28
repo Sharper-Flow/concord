@@ -28,7 +28,7 @@ type Service struct {
 	// ProjectResolver is installed by the CLI boundary. Keeping it injectable
 	// gives tests a deterministic git runner while ensuring routine model input
 	// cannot supply a Project or Product authority.
-	ProjectResolver func(context.Context, string, string) (store.ProjectResolution, error)
+	ProjectResolver func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error)
 	// publicationObserver, when set, is called with each publication phase as
 	// that phase completes, and may return an error to interrupt the sequence.
 	// It is an unexported white-box surface for conformance tests that must
@@ -230,7 +230,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if json.Unmarshal([]byte(client.CapabilitiesJSON), &policyCaps) != nil || json.Unmarshal([]byte(client.ProductScopeJSON), &policyProducts) != nil || json.Unmarshal([]byte(client.ProjectScopeJSON), &policyProjects) != nil {
 		return Authority{}, authorityRefusal("invalid client authority policy")
 	}
-	resolved, err := s.ProjectResolver(ctx, in.Directory, in.Worktree)
+	resolved, err := s.ProjectResolver(ctx, tx, in.Directory, in.Worktree)
 	if err != nil {
 		return Authority{}, err
 	}

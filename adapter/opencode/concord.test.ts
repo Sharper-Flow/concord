@@ -1,8 +1,6 @@
 import { test, expect, mock } from "bun:test"
-import { canonicalAssertion, contractOperations, manifestDigest } from "./generated-contracts"
+import { contractOperations, manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope } from "./generated-contract-tests"
-import approvalVector from "./approval-vector.json"
-import grantAssertionVector from "./grant-assertion-vector.json"
 
 function schemaBuilder() {
   return {
@@ -34,59 +32,26 @@ test("transport and approval boundaries stay fail-closed", () => {
   expect(source).toContain("operation_conflict")
   expect(credentialSource).toContain("secret-tool")
   expect(source).not.toContain("console.log")
-  expect(source).not.toContain("grant_token: \"")
 })
 
-test("grant bootstrap sends typed assertion arrays and preserves the canonical vector", async () => {
-  let grantRequest: any
-  let calls = 0
-  const result: any = await runProduct({ async run(_argv: string[], input: string) {
-    calls++
-    if (calls === 1) {
-      grantRequest = JSON.parse(input)
-      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
-    }
-    return { exitCode: 1, stdout: "", stderr: "invoke not needed" }
-  } })
-  expect(result.outcome).toBe("error")
-  expect(Array.isArray(grantRequest.assertion.requested_project_ids)).toBe(true)
-  expect(grantRequest.assertion.requested_project_ids).toEqual([])
-  expect(Array.isArray(grantRequest.assertion.requested_capabilities)).toBe(true)
-  expect(grantRequest.assertion.requested_capabilities).toEqual(["product_read"])
-  const canonicalFields = { ...grantAssertionVector, canonical_base64: undefined }
-  expect(Buffer.from(canonicalAssertion(canonicalFields as any)).toString("base64")).toBe(grantAssertionVector.canonical_base64)
-})
-
-test("launcher Product identity is validated and bound during grant bootstrap", async () => {
+test("project context is resolved before invoke", async () => {
   const previous = process.env.CONCORD_SELECTED_PRODUCT_ID
   process.env.CONCORD_SELECTED_PRODUCT_ID = "product-launcher-51"
-  let request: any
+  const requests: any[] = []
   try {
     await runProduct({ async run(_argv: string[], input: string) {
-      if (!request) request = JSON.parse(input)
-      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+      requests.push(JSON.parse(input))
+      return requests.length === 1
+        ? { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+        : { exitCode: 1, stdout: "", stderr: "invoke not needed" }
     } })
   } finally {
     if (previous === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previous
   }
-  expect(request.assertion.requested_product_id).toBe("product-launcher-51")
-})
-
-test("invalid launcher Product identity is not granted", async () => {
-  const previous = process.env.CONCORD_SELECTED_PRODUCT_ID
-  process.env.CONCORD_SELECTED_PRODUCT_ID = "../other-product"
-  let request: any
-  try {
-    await runProduct({ async run(_argv: string[], input: string) {
-      if (!request) request = JSON.parse(input)
-      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
-    } })
-  } finally {
-    if (previous === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
-    else process.env.CONCORD_SELECTED_PRODUCT_ID = previous
-  }
-  expect(request.assertion.requested_product_id).toBe("")
+  expect(requests[0]).toEqual({ directory: "/worktree", worktree: "/worktree" })
+  expect(requests[1].call_envelope.ambient_project_id).toBe("project-1")
+  expect(requests[1].call_envelope.selected_product_id).toBe("product-launcher-51")
 })
 
 test("single core response rejects invalid trailing content", async () => {
@@ -94,7 +59,7 @@ test("single core response rejects invalid trailing content", async () => {
     let calls = 0
     const result: any = await runProduct({ async run() {
       calls++
-      if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+      if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       return { exitCode: 0, stdout: `{"schema_version":"1.0"}${suffix}`, stderr: "" }
     } })
     assertAdapterEnvelope(result)
@@ -103,42 +68,33 @@ test("single core response rejects invalid trailing content", async () => {
   }
 })
 
-const grantResponse = () => ({ manifest_digest: manifestDigest, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", scope_version: "1" })
+const contextResponse = () => ({ project_id: "project-1", product_ids: ["product-1"], scope_version: "1" })
 const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController()): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: controller.signal, ask })
 const assertAdapterEnvelope = (value: any) => {
   expect(validateGeneratedEnvelope(value), JSON.stringify(value)).toBe(true)
   expect(value.origin).toBe("adapter")
   expect(value.outcome).toBe("error")
 }
-const runProduct = (runner: any, options: { credentials?: any; ask?: () => Promise<void>; controller?: AbortController } = {}) => {
-  adapter.configureConcordAdapter({ credentials: options.credentials ?? { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+const runProduct = (runner: any, options: { ask?: () => Promise<void>; controller?: AbortController } = {}) => {
+  adapter.configureConcordAdapter({ runner })
   return adapter.product_view.execute({ operation: "resolve", input: { product_id: "product-1" } }, contextFor(options.ask, options.controller))
 }
-const runnerWithGrant = (invoke: any) => {
+const runnerWithContext = (invoke: any) => {
   let calls = 0
-  return { calls: () => calls, async run(argv: string[], input: string, signal: AbortSignal) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }; const response = typeof invoke === "function" ? invoke(argv, input, signal, calls) : invoke; return response && typeof response === "object" && "stdout" in response ? response : { exitCode: 0, stdout: JSON.stringify(response), stderr: "" } } }
+  return { calls: () => calls, async run(argv: string[], input: string, signal: AbortSignal) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; const response = typeof invoke === "function" ? invoke(argv, input, signal, calls) : invoke; return response && typeof response === "object" && "stdout" in response ? response : { exitCode: 0, stdout: JSON.stringify(response), stderr: "" } } }
 }
 
-test("all grant and transport failures produce valid adapter envelopes", async () => {
+test("all context and transport failures produce valid adapter envelopes", async () => {
   const cases: Array<[string, any, any, string, string]> = [
-    ["credential failure", { async getPrivateKey() { throw new Error("secret-tool unavailable") } }, undefined, "transport_failure", "grant_bootstrap_failed"],
-    ["grant bootstrap failure", undefined, { exitCode: 1, stdout: "", stderr: "grant failed" }, "transport_failure", "grant_bootstrap_failed"],
+    ["context resolution failure", undefined, { exitCode: 1, stdout: "", stderr: "context resolution failed" }, "transport_failure", "io_failure"],
     ["missing binary", undefined, { code: "ENOENT" }, "transport_failure", "missing_binary"],
     ["spawn failure", undefined, new Error("spawn failed"), "transport_failure", "spawn_failure"],
   ]
-  for (const [, credentials, grantFailure, kind, reason] of cases) {
-    const runner = { async run() { if (grantFailure instanceof Error) throw grantFailure; if (grantFailure?.code) throw grantFailure; return grantFailure } }
-    const result: any = await runProduct(runner, { credentials })
+  for (const [, , contextFailure, kind, reason] of cases) {
+    const runner = { async run() { if (contextFailure instanceof Error) throw contextFailure; if (contextFailure?.code) throw contextFailure; return contextFailure } }
+    const result: any = await runProduct(runner)
     assertAdapterEnvelope(result)
     expect(result.error.kind).toBe(kind)
-    expect(result.error.adapter_reason).toBe(reason)
-    expect(result.error.effect_state).toBe("none")
-    expect(result.error.recovery_action.kind).toBe("contact_operator")
-  }
-  for (const [reason, response] of [["manifest_mismatch", { ...grantResponse(), manifest_digest: "sha256:wrong" }]] as const) {
-    const result: any = await runProduct({ async run() { return { exitCode: 0, stdout: JSON.stringify(response), stderr: "" } } })
-    assertAdapterEnvelope(result)
-    expect(result.error.kind).toBe("transport_failure")
     expect(result.error.adapter_reason).toBe(reason)
     expect(result.error.effect_state).toBe("none")
     expect(result.error.recovery_action.kind).toBe("contact_operator")
@@ -146,13 +102,13 @@ test("all grant and transport failures produce valid adapter envelopes", async (
 })
 
 test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", async () => {
-  const io: any = await runProduct(runnerWithGrant({ exitCode: 1, stdout: "", stderr: "broken pipe" }))
+  const io: any = await runProduct(runnerWithContext({ exitCode: 1, stdout: "", stderr: "broken pipe" }))
   assertAdapterEnvelope(io)
   expect(io.error.kind).toBe("operation_conflict")
   expect(io.error.effect_state).toBe("possible")
 
   for (const stdout of ["not-json", "{}\n{}", "{} {}"] as const) {
-    const malformed: any = await runProduct(runnerWithGrant({ exitCode: 0, stdout, stderr: "" }))
+    const malformed: any = await runProduct(runnerWithContext({ exitCode: 0, stdout, stderr: "" }))
     assertAdapterEnvelope(malformed)
     expect(malformed.error.kind).toBe("malformed_response")
     expect(malformed.error.effect_state).toBe("possible")
@@ -180,7 +136,7 @@ const approvalSuccess = () => ({
   result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
 })
 const runTransition = (runner: any, ask?: () => Promise<void>) => {
-  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+  adapter.configureConcordAdapter({ runner })
   return adapter.work_transition.execute({ operation: "lifecycle", input: { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" } }, contextFor(ask))
 }
 
@@ -195,7 +151,7 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
     next_valid_intents: [],
   })
   expect(validateGeneratedEnvelope(success)).toBe(true)
-  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner: runnerWithGrant(success) })
+  adapter.configureConcordAdapter({ runner: runnerWithContext(success) })
   const resolved: any = await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 2,
@@ -225,7 +181,7 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
     },
   })
   expect(validateGeneratedEnvelope(refusal)).toBe(true)
-  const blocked: any = await runTransition(runnerWithGrant(refusal))
+  const blocked: any = await runTransition(runnerWithContext(refusal))
   expect(blocked.error.kind).toBe("domain_overlap")
 
   const staleLaw = coreEnvelope("concord_work_transition", "lifecycle", "error", {
@@ -240,7 +196,7 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
     },
   })
   expect(validateGeneratedEnvelope(staleLaw)).toBe(true)
-  const stale: any = await runTransition(runnerWithGrant(staleLaw))
+  const stale: any = await runTransition(runnerWithContext(staleLaw))
   expect(stale.error.kind).toBe("stale_law_revision")
 })
 
@@ -267,11 +223,11 @@ test("overlap approval asks with exact direction and resolution consequence", as
   let calls = 0
   const runner = { async run() {
     calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
   } }
   let askMetadata: any
-  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+  adapter.configureConcordAdapter({ runner })
   const result: any = await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 3,
@@ -305,7 +261,7 @@ test("generated and adapter validators reject unknown top-level fields for every
     const unknown = { ...original, unknown_top_level: true }
     expect(validateGeneratedEnvelope(original), `${name} baseline`).toBe(true)
     expect(validateGeneratedEnvelope(unknown), `${name} unknown`).toBe(false)
-    adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner: runnerWithGrant(unknown) })
+    adapter.configureConcordAdapter({ runner: runnerWithContext(unknown) })
     const result: any = await tool.execute(args, contextFor())
     assertAdapterEnvelope(result)
     expect(result.error.kind).toBe("malformed_response")
@@ -314,26 +270,26 @@ test("generated and adapter validators reject unknown top-level fields for every
 })
 
 test("approval rejection and possible-effect conflict are valid adapter envelopes", async () => {
-  const rejected: any = await runTransition(runnerWithGrant({ exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }), async () => { throw new Error("rejected") })
+  const rejected: any = await runTransition(runnerWithContext({ exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }), async () => { throw new Error("rejected") })
   assertAdapterEnvelope(rejected)
   expect(rejected.error.kind).toBe("cancelled")
   expect(rejected.error.effect_state).toBe("none")
 
   let calls = 0
-  const conflicted: any = await runTransition({ async run(argv: string[]) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }; if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }; return { exitCode: 0, stdout: "not-json", stderr: "" } } })
+  const conflicted: any = await runTransition({ async run(argv: string[]) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }; return { exitCode: 0, stdout: "not-json", stderr: "" } } })
   assertAdapterEnvelope(conflicted)
   expect(conflicted.error.kind).toBe("operation_conflict")
   expect(conflicted.error.adapter_reason).toBe("unknown_effect")
   expect(conflicted.error.effect_state).toBe("possible")
 })
 
-test("approval challenge is resubmitted once with the same idempotency key and signed binding", async () => {
+test("approval challenge is resubmitted once with the same idempotency key and unsigned binding", async () => {
   const requests: any[] = []
   let calls = 0
   const runner = { async run(_argv: string[], input: string) {
     calls++
     if (calls > 1) requests.push(JSON.parse(input))
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
     return { exitCode: 0, stdout: JSON.stringify(approvalSuccess()), stderr: "" }
   } }
@@ -349,7 +305,8 @@ test("approval challenge is resubmitted once with the same idempotency key and s
   expect(requests[1].input.approval.approval_ref).toBe("challenge-1")
   expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product:product-1", "project:project-1", "work:work-1"])
   expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["work:2"])
-  expect(typeof requests[1].call_envelope.host_approval_assertion.signature).toBe("string")
+  expect(requests[1].call_envelope.host_approval_assertion.signature).toBeUndefined()
+  expect(requests[1].call_envelope.host_approval_assertion.nonce).toBeUndefined()
 })
 
 test("workflow premise approval asks with exact checkpoint metadata and no human identity", async () => {
@@ -365,11 +322,11 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   const runner = { async run(_argv: string[], input: string) {
     calls++
     if (calls > 1) requests.push(JSON.parse(input))
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
   } }
   let askMetadata: any
-  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
+  adapter.configureConcordAdapter({ runner })
   const result: any = await adapter.work_transition.execute({ operation: "workflow_action", input: { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" } }, contextFor(async (request: any) => { askMetadata = request.metadata }))
   expect(result.outcome).toBe("ok")
   expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
@@ -378,60 +335,16 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   expect(requests[1].call_envelope.host_approval_assertion.operator_session_ref).toBeUndefined()
 })
 
-test("fake seams exercise grant bootstrap and malformed-response handling", async () => {
+test("fake seams exercise context resolution and malformed-response handling", async () => {
   const calls: string[][] = []
-  const grant = grantResponse()
   adapter.configureConcordAdapter({
-    credentials: { async getPrivateKey() { return new Uint8Array(32) } },
-    runner: { async run(argv: string[], _input: string, _signal: AbortSignal) { calls.push(argv); return calls.length === 1 ? { exitCode: 0, stdout: JSON.stringify(grant), stderr: "" } : { exitCode: 0, stdout: "not-json", stderr: "diagnostic" } } },
+    runner: { async run(argv: string[], _input: string, _signal: AbortSignal) { calls.push(argv); return calls.length === 1 ? { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" } : { exitCode: 0, stdout: "not-json", stderr: "diagnostic" } } },
   })
   const context: any = { sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} }
   const result: any = await adapter.product_view.execute({ operation: "resolve", input: {} }, context)
-  expect(calls).toEqual([["concord", "grant"], ["concord", "invoke"]])
+  expect(calls).toEqual([["concord", "project-resolve"], ["concord", "invoke"]])
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("malformed_response")
   expect(result.error.adapter_reason).toBe("malformed_core_response")
   expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
-})
-
-test("grant cache remains bound to the requested capability", async () => {
-  let calls = 0
-  const requestedCapabilities: string[] = []
-  const runner = { async run(_argv: string[], input: string) {
-    calls++
-    const request = JSON.parse(input)
-    if (calls === 1 || calls === 3) {
-      requestedCapabilities.push(request.assertion.requested_capabilities[0])
-      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
-    }
-    const response = calls === 2
-      ? coreEnvelope("concord_product_view", "resolve", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } })
-      : coreEnvelope("concord_work_transition", "lifecycle", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } })
-    return { exitCode: 0, stdout: JSON.stringify(response), stderr: "" }
-  } }
-  adapter.configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32) } }, runner })
-  await adapter.product_view.execute({ operation: "resolve", input: { product_id: "product-1" } }, contextFor())
-  await adapter.work_transition.execute({ operation: "lifecycle", input: { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" } }, contextFor())
-  expect(requestedCapabilities).toEqual(["product_read", "work_transition"])
-  expect(calls).toBe(4)
-})
-
-test("canonical host approval vector matches core encoding", () => {
-  const { canonical_base64: expected, ...assertion } = approvalVector
-  expect(Buffer.from(adapter.canonicalHostApproval(assertion)).toString("base64")).toBe(expected)
-})
-
-test("grant bootstrap advertises the generated manifest identity", async () => {
-  let assertion: any
-  let calls = 0
-  const runner = { async run(_argv: string[], input: string) {
-    calls++
-    if (calls === 1) {
-      assertion = JSON.parse(input).assertion
-      return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" }
-    }
-    return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", stage: "prototype", projects: [], candidates: [] } })), stderr: "" }
-  } }
-  await runProduct(runner)
-  expect(assertion.manifest_digest).toBe(manifestDigest)
 })

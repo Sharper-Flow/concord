@@ -31,7 +31,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 	}
 	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree}, nil
 	}
 	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)

@@ -34,7 +34,7 @@ const WORKFLOW_STEP = "implement"
 // builder be proved against a response the core never emits.
 const RESTART_UNAVAILABLE_REASON = "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call"
 
-const grantResponse = () => ({ manifest_digest: manifestDigest, grant_token: "secret", grant_ref: "grant-1", client_ref: "opencode", principal_ref: "principal-1", session_ref: "session-1", agent_ref: "agent-1", scope_version: "1" })
+const contextResponse = () => ({ project_id: "project-1", product_ids: ["product-1"], scope_version: "1" })
 
 const contextFor = (): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} })
 
@@ -251,13 +251,12 @@ test("a pinned contract without typed outcome fields is a typed transport failur
 
 test("the default transport is the adapter transport, and its refusals stay typed", async () => {
   // The builder is wired to the shipped transport by accepting the adapter's
-  // invokeConcordOperation through its injected seam. The grant runner returns
-  // a typed envelope that subsequent invoke calls cannot match, so the second
+  // invokeConcordOperation through its injected seam. The context runner returns
+  // a typed context that the invoke call cannot match, so the second
   // call lands on the opencode stub and the response is malformed; the test
   // only proves the wired transport was used, not what it returned.
   adapter.configureConcordAdapter({
-    credentials: { async getPrivateKey() { return new Uint8Array(32) } },
-    runner: { async run() { return { exitCode: 0, stdout: JSON.stringify(grantResponse()), stderr: "" } } } as any,
+    runner: { async run() { return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" } } } as any,
   })
   const built = await buildAgentLanePacket({ workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" }, { context: contextFor(), invoke: adapter.invokeConcordOperation as any })
   expect(built.packet).toBeUndefined()

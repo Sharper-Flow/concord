@@ -264,6 +264,17 @@ func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktre
 	return resolveProjectWithRunner(ctx, s.db, directory, worktree, runner)
 }
 
+// ResolveProjectTx resolves inside a caller-owned transaction. The store pools
+// one connection, so a resolution that reaches for s.db while a transaction
+// holds that connection never returns.
+func ResolveProjectTx(ctx context.Context, transaction *Transaction, directory, worktree string) (ProjectResolution, error) {
+	tx, err := transactionSQL(transaction, "project_resolve")
+	if err != nil {
+		return ProjectResolution{}, err
+	}
+	return resolveProjectWithRunner(ctx, tx, directory, worktree, ExecGitRunner{})
+}
+
 func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktree string, runner GitRunner) (ProjectResolution, error) {
 	if runner == nil {
 		return ProjectResolution{}, newFailure(KindInvalidOperation, "resolve_project", "git runner is nil", false, "provide a git runner")

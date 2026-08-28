@@ -1,10 +1,9 @@
 import { createPrivateKey } from "node:crypto"
 
 // Credential access for the adapter's Ed25519 client identity. It lives apart
-// from the tool adapter because two independent surfaces need it: grant and
-// host-approval assertions in concord.ts, and worker-evidence assertions in
-// dispatch.ts. Keeping it dependency-free means the lane dispatcher does not
-// pull the plugin runtime in to sign an assertion.
+// from the tool adapter because worker-evidence assertions use it in dispatch.ts.
+// Keeping it dependency-free means the lane dispatcher does not pull the plugin
+// runtime in to sign an assertion.
 
 export interface CredentialStore { getPrivateKey(clientRef: string): Promise<Uint8Array> }
 

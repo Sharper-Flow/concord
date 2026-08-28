@@ -33,24 +33,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ADAPTER_SRC = REPO_ROOT / "adapter" / "opencode"
 MANIFEST_DIGEST_FILE = REPO_ROOT / "contracts" / "agent-tool-surface.digest"
 ASSERTS_OUTPUT: list[str] = []
-
-
-def _rfc3339_nano(dt: time.struct_time) -> str:
-    """Format a UTC time struct as RFC3339Nano matching Go's time.RFC3339Nano.
-
-    Go's format drops the fractional seconds entirely when nanos = 0 and
-    trims trailing zeros otherwise; Python's strftime has no zero-nanos mode,
-    so the canonical byte format the core signs needs this hand-rolled helper.
-    """
-    base = time.strftime('%Y-%m-%dT%H:%M:%S', dt)
-    return base + 'Z'
 
 
 def _preferred_temp_root() -> str:
@@ -83,11 +71,8 @@ def _preferred_temp_root() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Pure-Python Ed25519 (signing only). The ``grant`` verb requires a signed
-# client assertion. The harness is black-box so it cannot import the Go
-# signing helpers; this is a focused signing-only port of the public-domain
-# reference (Brian Warner / D. J. Bernstein; RFC 8032) that produces the
-# same wire format the core verifies. See ed25519 spec section 5.1.6.
+# Pure-Python Ed25519 public-key derivation. The harness registers a client
+# key without importing the Go key helpers.
 # ---------------------------------------------------------------------------
 
 _P = 2**255 - 19
@@ -177,18 +162,6 @@ def _publickey(seed: bytes) -> bytes:
     return _encodepoint(A)
 
 
-def _sign(message: bytes, seed: bytes, public_key: bytes) -> bytes:
-    h = hashlib.sha512(seed).digest()
-    a = _clamp_scalar(h[:32])
-    nonce = hashlib.sha512(h[32:] + message).digest()
-    r = int.from_bytes(nonce, 'little') % _L
-    R = _point_mul(r, _B)
-    R_bytes = _encodepoint(R)
-    h_ram = hashlib.sha512(R_bytes + public_key + message).digest()
-    s_scalar = (r + int.from_bytes(h_ram, 'little') * a) % _L
-    return R_bytes + s_scalar.to_bytes(32, 'little')
-
-
 # ---------------------------------------------------------------------------
 # Concord CLI driver. Each invocation is its own subprocess so the restart /
 # reopen property (CD-0017 D4, stored-event survival) is exercised end-to-end.
@@ -233,7 +206,7 @@ def _isolated_env(work: Path) -> dict:
     """Build an isolated env: XDG homes pinned to the work directory.
 
     The harness runs every CLI invocation in its own subprocess with a fresh
-    env block so that operator setup, grants, and invokes each go through
+     env block so that operator setup and invokes each go through
     process startup, library init, and SQLite open — the restart/reopen
     property CD-0017 D4 names is exercised by construction.
     """
@@ -289,12 +262,12 @@ def _b64(data: bytes) -> str:
 
 
 def _git_init(work: Path) -> Path:
-    """Build a git repository and return the linked-worktree path used in grant assertions.
+    """Build a git repository and return the linked-worktree path used in invocations.
 
     CD-0008 D1 forbids mutation authority on the main checkout; the binary
-    refuses ``grant`` with non-``product_read`` capabilities when the resolved
+    refuses mutating invocations with non-``product_read`` capabilities when the resolved
     directory is the repository's primary worktree. The harness creates a
-    linked worktree under <work>/git-worktree, so the grant sees a non-main
+    linked worktree under <work>/git-worktree, so the invocation sees a non-main
     worktree and the mutation capabilities (work_define, work_transition) clear
     the firewall.
     """
@@ -361,9 +334,9 @@ def step_a_version(binary: Path, env: dict) -> None:
         raise HarnessError(f"version stamp mismatch: {completed.stdout!r}")
 
 
-def step_b_bootstrap(binary: Path, env: dict, repo: Path, seed: bytes, public_key: bytes) -> dict:
-    """#187 grant/bootstrap: register the client, create the Products, and exercise the membership verbs."""
-    # client register — the only verb that accepts capabilities + scope at issuance
+def step_b_bootstrap(binary: Path, env: dict, repo: Path, public_key: bytes) -> dict:
+    """#187 bootstrap: register the client, create the Products, and exercise membership verbs."""
+    # client register — the verb that sets the client policy used by authorization
     register = _run(binary, ['client', 'register'], {
         'client_ref': 'harness-client',
         'key_id': 'harness-key-1',
@@ -422,7 +395,7 @@ def step_b_bootstrap(binary: Path, env: dict, repo: Path, seed: bytes, public_ke
         'reason': 'blackbox-harness exercises product project-add',
     }, env)
     final_secondary_product_version = _changed_ref_version(add, 'product', 'harness-product-secondary')
-    # locator-add so the grant's directory resolves to harness-project-1
+    # locator-add so the invocation directory resolves to harness-project-1
     locator_add = _run(binary, ['project', 'locator-add'], {
         'project_id': 'harness-project-1',
         'locator_id': 'harness-repo',
@@ -447,105 +420,32 @@ def _changed_ref_version(response: dict, entity_kind: str, ref_id: str) -> int:
     raise HarnessError(f"missing changed_ref for {entity_kind}/{ref_id}: {json.dumps(response)[:300]}")
 
 
-def _build_assertion(
-    *,
-    repo: str,
-    product_id: str,
-    project_ids: list[str],
-    capabilities: list[str],
-    nonce: str,
-    issued_at: str,
-    manifest_digest: str,
-    seed: bytes,
-) -> dict:
-    """Build the signed grant assertion using the canonical byte format the core verifies.
-
-    The byte format is defined in internal/agent/authority.go (v1\\0, then
-    name=<utf8 byte length>:<utf8 value>| for each fixed field, in a fixed
-    order, with empty values preserved in place and lists normalized sorted
-    comma-joined). The harness ports the minimum needed to sign.
-    """
-    fields = [
-        ('client_ref', 'harness-client'),
-        ('session_ref', 'harness-session-1'),
-        ('agent_ref', 'harness-agent-1'),
-        ('directory', repo),
-        ('worktree', repo),
-        ('requested_product_id', product_id),
-        ('requested_project_ids', ','.join(sorted(project_ids))),
-        ('requested_capabilities', ','.join(sorted(capabilities))),
-        ('issued_at', issued_at),
-        ('nonce', nonce),
-        ('manifest_digest', manifest_digest),
-    ]
-    parts = ['v1\x00']
-    for name, value in fields:
-        encoded = value.encode('utf-8')
-        parts.append(f'{name}={len(encoded)}:')
-        parts.append(encoded)
-        parts.append('|')
-    canonical = b''.join(s.encode('utf-8') if isinstance(s, str) else s for s in parts)
-    public_key = _publickey(seed)
-    signature = _sign(canonical, seed, public_key)
-    return {
-        'client_ref': 'harness-client',
-        'session_ref': 'harness-session-1',
-        'agent_ref': 'harness-agent-1',
-        'directory': repo,
-        'worktree': repo,
-        'requested_product_id': product_id,
-        'requested_project_ids': sorted(project_ids),
-        'requested_capabilities': sorted(capabilities),
-        'issued_at': issued_at,
-        'nonce': nonce,
-        'manifest_digest': manifest_digest,
-        'signature': _b64(signature),
-    }
+def step_c_context(binary: Path, env: dict, repo: Path) -> dict:
+    """#187 context: resolve the Project and membership watermark for invokes."""
+    context = _run(binary, ['project-resolve'], {'directory': str(repo), 'worktree': str(repo)}, env)
+    for required_key in ('project_id', 'product_ids', 'scope_version'):
+        if not context.get(required_key):
+            raise HarnessError(f"context response missing {required_key}: {json.dumps(context)[:300]}")
+    if not isinstance(context['product_ids'], list):
+        raise HarnessError(f"context product_ids is not an array: {json.dumps(context)[:300]}")
+    return context
 
 
-def step_c_grant(binary: Path, env: dict, repo: Path, manifest_digest: str, seed: bytes) -> dict:
-    """#187 grant/bootstrap: the binary verifies the signed assertion and issues a token."""
-    issued_at = _rfc3339_nano(time.gmtime())
-    nonce = 'harness-nonce-' + hashlib.sha256(os.urandom(16)).hexdigest()[:16]
-    assertion = _build_assertion(
-        repo=str(repo),
-        product_id='harness-product',
-        project_ids=['harness-project-1'],
-        capabilities=['product_read', 'work_define', 'work_transition'],
-        nonce=nonce,
-        issued_at=issued_at,
-        manifest_digest=manifest_digest,
-        seed=seed,
-    )
-    grant = _run(binary, ['grant'], {
-        'assertion': assertion,
-        'expires_at': _rfc3339_nano(time.gmtime(time.time() + 3600)),
-        'max_uses': 0,
-    }, env)
-    for required_key in ('grant_ref', 'grant_token', 'principal_ref', 'client_ref', 'manifest_digest', 'scope_version'):
-        if not grant.get(required_key):
-            raise HarnessError(f"grant response missing {required_key}: {json.dumps(grant)[:300]}")
-    if grant['manifest_digest'] != manifest_digest:
-        raise HarnessError(f"grant manifest_digest={grant['manifest_digest']}, want {manifest_digest}")
-    return grant
-
-
-def step_d_read(binary: Path, env: dict, repo: Path, grant: dict, manifest_digest: str) -> None:
+def step_d_read(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str) -> None:
     """#187 at least one read: invoke concord_product_view.resolve and assert ok."""
     invoke = _run(binary, ['invoke'], {
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-read-1',
-            'grant_token': grant['grant_token'],
-            'client_ref': grant['client_ref'],
-            'principal_ref': grant['principal_ref'],
-            'session_ref': grant['session_ref'],
-            'agent_ref': grant['agent_ref'],
+            'client_ref': 'harness-client',
+            'principal_ref': '',
+            'session_ref': 'harness-session-1',
+            'agent_ref': 'harness-agent-1',
             'directory': str(repo),
             'worktree': str(repo),
-            'ambient_project_id': 'harness-project-1',
+            'ambient_project_id': context['project_id'],
             'selected_product_id': 'harness-product',
-            'scope_version': grant['scope_version'],
+            'scope_version': context['scope_version'],
             'manifest_digest': manifest_digest,
         },
         'tool': 'concord_product_view',
@@ -555,22 +455,21 @@ def step_d_read(binary: Path, env: dict, repo: Path, grant: dict, manifest_diges
     _assert_envelope_ok(invoke, 'concord_product_view.resolve')
 
 
-def step_e_mutation(binary: Path, env: dict, repo: Path, grant: dict, manifest_digest: str) -> str:
+def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str) -> str:
     """#187 authorized mutation: invoke concord_work_define.capture and capture the identity."""
     invoke = _run(binary, ['invoke'], {
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-mutation-1',
-            'grant_token': grant['grant_token'],
-            'client_ref': grant['client_ref'],
-            'principal_ref': grant['principal_ref'],
-            'session_ref': grant['session_ref'],
-            'agent_ref': grant['agent_ref'],
+            'client_ref': 'harness-client',
+            'principal_ref': '',
+            'session_ref': 'harness-session-1',
+            'agent_ref': 'harness-agent-1',
             'directory': str(repo),
             'worktree': str(repo),
-            'ambient_project_id': 'harness-project-1',
+            'ambient_project_id': context['project_id'],
             'selected_product_id': 'harness-product',
-            'scope_version': grant['scope_version'],
+            'scope_version': context['scope_version'],
             'manifest_digest': manifest_digest,
         },
         'tool': 'concord_work_define',
@@ -599,22 +498,21 @@ def step_e_mutation(binary: Path, env: dict, repo: Path, grant: dict, manifest_d
     return work_id
 
 
-def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, grant: dict, manifest_digest: str, work_id: str, work_version: int) -> None:
+def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str, work_id: str, work_version: int) -> None:
     """#187 workflow execution evidence: invoke concord_work_transition.workflow_action."""
     invoke = _run(binary, ['invoke'], {
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-workflow-1',
-            'grant_token': grant['grant_token'],
-            'client_ref': grant['client_ref'],
-            'principal_ref': grant['principal_ref'],
-            'session_ref': grant['session_ref'],
-            'agent_ref': grant['agent_ref'],
+            'client_ref': 'harness-client',
+            'principal_ref': '',
+            'session_ref': 'harness-session-1',
+            'agent_ref': 'harness-agent-1',
             'directory': str(repo),
             'worktree': str(repo),
-            'ambient_project_id': 'harness-project-1',
+            'ambient_project_id': context['project_id'],
             'selected_product_id': 'harness-product',
-            'scope_version': grant['scope_version'],
+            'scope_version': context['scope_version'],
             'manifest_digest': manifest_digest,
         },
         'tool': 'concord_work_transition',
@@ -638,22 +536,21 @@ def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, grant: dict, m
             raise HarnessError(f"workflow_action returned {outcome} without operation_ref.id: {json.dumps(invoke)[:300]}")
 
 
-def step_g_restart_reopen(binary: Path, env: dict, repo: Path, grant: dict, manifest_digest: str, work_id: str) -> None:
+def step_g_restart_reopen(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str, work_id: str) -> None:
     """#187 restart/reopen: a fresh process reads the persisted work item back."""
     invoke = _run(binary, ['invoke'], {
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-restart-1',
-            'grant_token': grant['grant_token'],
-            'client_ref': grant['client_ref'],
-            'principal_ref': grant['principal_ref'],
-            'session_ref': grant['session_ref'],
-            'agent_ref': grant['agent_ref'],
+            'client_ref': 'harness-client',
+            'principal_ref': '',
+            'session_ref': 'harness-session-1',
+            'agent_ref': 'harness-agent-1',
             'directory': str(repo),
             'worktree': str(repo),
-            'ambient_project_id': 'harness-project-1',
+            'ambient_project_id': context['project_id'],
             'selected_product_id': 'harness-product',
-            'scope_version': grant['scope_version'],
+            'scope_version': context['scope_version'],
             'manifest_digest': manifest_digest,
         },
         'tool': 'concord_work_browse',
@@ -673,7 +570,7 @@ def step_g_restart_reopen(binary: Path, env: dict, repo: Path, grant: dict, mani
         raise HarnessError(f"work_browse.list returned id={items[0].get('id')}, want {work_id}; full response: {json.dumps(invoke)}")
 
 
-def step_h_backup_restore(binary: Path, env: dict, work: Path, repo: Path, grant: dict, manifest_digest: str, work_id: str) -> None:
+def step_h_backup_restore(binary: Path, env: dict, work: Path, repo: Path, context: dict, manifest_digest: str, work_id: str) -> None:
     """#187 backup + restore: the snapshot survives process restart and the XDG-derived open path."""
     backup_dir = work / 'backup'
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -699,26 +596,23 @@ def step_h_backup_restore(binary: Path, env: dict, work: Path, repo: Path, grant
         raise HarnessError(f"restore snapshot_id={restore_resp.get('snapshot_id')} differs from backup")
     if not restore_dest.is_file():
         raise HarnessError(f"restore destination file missing: {restore_dest}")
-    # Fresh-process read in the restored home using the original grant: the
-    # grant row was part of the snapshot, so a token lookup against the
-    # restored DB resolves and the work item the harness captured is still
-    # queryable end-to-end.
+    # Fresh-process read in the restored home uses the same client policy and
+    # resolves the restored repository context before it queries the work item.
     restored_env = dict(env)
     restored_env['XDG_DATA_HOME'] = str(restored_home)
     invoke = _run(binary, ['invoke'], {
         'call_envelope': {
             'schema_version': '1.0',
             'request_id': 'harness-restored-read-1',
-            'grant_token': grant['grant_token'],
-            'client_ref': grant['client_ref'],
-            'principal_ref': grant['principal_ref'],
-            'session_ref': grant['session_ref'],
-            'agent_ref': grant['agent_ref'],
+            'client_ref': 'harness-client',
+            'principal_ref': '',
+            'session_ref': 'harness-session-1',
+            'agent_ref': 'harness-agent-1',
             'directory': str(repo),
             'worktree': str(repo),
-            'ambient_project_id': 'harness-project-1',
+            'ambient_project_id': context['project_id'],
             'selected_product_id': 'harness-product',
-            'scope_version': grant['scope_version'],
+            'scope_version': context['scope_version'],
             'manifest_digest': manifest_digest,
         },
         'tool': 'concord_work_browse',
@@ -894,7 +788,7 @@ def main() -> int:
         _stage_adapter(work)
         env = _isolated_env(work)
         # Create a git base + linked worktree; the harness uses the worktree
-        # path in every grant assertion so mutation capabilities clear CD-0008.
+        # path in every invocation so mutation capabilities clear CD-0008.
         repo = _git_init(work)
         # Generate a deterministic Ed25519 seed so nonce behaviour is the only
         # randomness exercised; reruns are reproducible except for the nonce.
@@ -903,45 +797,42 @@ def main() -> int:
         if public_key == b'\x00' * 32:
             raise HarnessError("public key derivation produced the neutral element")
 
-        bootstrap: dict | None = None
-        grant: dict | None = None
+        context: dict | None = None
         work_id: str | None = None
 
         def run_a():
             step_a_version(binary, env)
 
         def run_b():
-            nonlocal bootstrap
-            bootstrap = step_b_bootstrap(binary, env, repo, seed, public_key)
+            step_b_bootstrap(binary, env, repo, public_key)
 
         def run_c():
-            nonlocal grant
-            grant = step_c_grant(binary, env, repo, manifest_digest, seed)
+            nonlocal context
+            context = step_c_context(binary, env, repo)
 
         def run_d():
-            assert grant is not None
-            step_d_read(binary, env, repo, grant, manifest_digest)
+            assert context is not None
+            step_d_read(binary, env, repo, context, manifest_digest)
 
         def run_e():
             nonlocal work_id
-            assert grant is not None
-            work_id = step_e_mutation(binary, env, repo, grant, manifest_digest)
+            assert context is not None
+            work_id = step_e_mutation(binary, env, repo, context, manifest_digest)
 
         def run_f():
-            assert grant is not None
+            assert context is not None
             assert work_id is not None
-            assert bootstrap is not None
-            step_f_workflow_evidence(binary, env, repo, grant, manifest_digest, work_id, 4)
+            step_f_workflow_evidence(binary, env, repo, context, manifest_digest, work_id, 4)
 
         def run_g():
-            assert grant is not None
+            assert context is not None
             assert work_id is not None
-            step_g_restart_reopen(binary, env, repo, grant, manifest_digest, work_id)
+            step_g_restart_reopen(binary, env, repo, context, manifest_digest, work_id)
 
         def run_h():
-            assert grant is not None
+            assert context is not None
             assert work_id is not None
-            step_h_backup_restore(binary, env, work, repo, grant, manifest_digest, work_id)
+            step_h_backup_restore(binary, env, work, repo, context, manifest_digest, work_id)
 
         def run_i():
             step_i_upgrade(binary, env, work, repo, seed, public_key)
@@ -949,7 +840,7 @@ def main() -> int:
         steps = [
             ('01_version_stamp', run_a),
             ('02_bootstrap', run_b),
-            ('03_grant_signed_assertion', run_c),
+            ('03_context_resolution', run_c),
             ('04_read_invoke', run_d),
             ('05_mutation_capture', run_e),
             ('06_workflow_evidence', run_f),

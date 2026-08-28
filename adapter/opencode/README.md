@@ -8,11 +8,11 @@ Install `concord.ts` as a global OpenCode custom tool under
 `~/.config/opencode/tools/concord.ts` (or project-local `.opencode/tools/`). Keep
 the generated contract files beside it.
 
-Grant bootstrap requires the OS Secret Service and `secret-tool`, with the
+Worker evidence requires the OS Secret Service and `secret-tool`, with the
 registered Ed25519 private key stored under the Concord credential identity.
-The adapter never stores grants or keys in a workspace, arguments, logs, or
-tool output. Missing credentials, an incompatible core, malformed stdout, or a
-failed transport returns a typed failure and does not guess an effect.
+The adapter does not store keys in a workspace, arguments, logs, or tool output.
+Missing credentials, an incompatible core, malformed stdout, or a failed
+transport returns a typed failure and does not guess an effect.
 
 ## Operator bootstrap CLI
 
@@ -38,13 +38,13 @@ other aliases are accepted:
 | `worker-fail` | — |
 | `worktree-locate` | — |
 
-`grant` and `invoke` use only their single-word forms. A first installation
+`invoke` uses only its single-word form. A first installation
 normally registers the client, runs `product-create` (which atomically creates
 the Product, its first Project, and their membership), then runs
 `project-locator-add`. Each setup result includes `changed_refs` with the new
 Product/Project version, so the next command can use the returned version
-without maintaining a separate version counter. The adapter then performs the
-signed `grant` followed by `invoke`.
+without maintaining a separate version counter. The adapter resolves the
+current Project context, then performs `invoke`.
 
 Run `concord --help` for the complete required field lists and accepted enum
 values. Operator setup commands use these closed values:
@@ -53,7 +53,7 @@ values. Operator setup commands use these closed values:
 - `stage_audience_commitment`: `operator_only`, `limited`, `public`.
 - Membership `role`: `primary` or `secondary`.
 - Locator `kind`: `canonical_path` or `git_remote`.
-- Client and grant capabilities: `product_read`, `work_define`,
+- Client capabilities: `product_read`, `work_define`,
   `work_transition`, `work_relate`, `work_compact`, or `cross_scope`.
 
 ## Database and host resolution
@@ -67,10 +67,10 @@ The authority database is outside a Project repository:
   uses `~/.local/share/concord/concord.db`.
 - The database parent and file are created with restricted permissions.
 
-Grant host resolution is intentionally strict. The signed `directory` or
-`worktree` must identify a real Git repository, and that repository must match a
-registered Project locator. Register a `canonical_path` locator (or a matching
-`git_remote`) before the adapter requests its first grant.
+Project host resolution is intentionally strict. The `directory` and `worktree`
+must identify a real Git repository, and that repository must match a registered
+Project locator. Register a `canonical_path` locator (or a matching `git_remote`)
+before the adapter invokes a tool.
 
 ## Verbatim first installation
 
@@ -93,11 +93,11 @@ The three commands print one JSON result each. Use the `changed_refs` versions
 from the Product result when composing later setup mutations; the example's
 new Project version is `1`, so its locator mutation uses `expected_version: 1`.
 After installing the adapter, run an adapter tool from that repository. It
-retrieves the matching private seed, signs the grant assertion, and invokes the
-tool only after the core accepts the resolved locator and scope.
+resolves the matching locator and scope, then invokes the tool after core
+authorization.
 
 The `worker-*` verbs are internal orchestrator verbs. They use the same strict
-JSON-stdin boundary but are not grant-gated agent tools and do not expand TS8.
+JSON-stdin boundary but are not capability-gated agent tools and do not expand TS8.
 
 ## Typed worker lane dispatch
 

@@ -42,7 +42,7 @@ func agentJobsCompactionFixture(t *testing.T) (*store.Store, *Service, Grant, ed
 	if home.RepoPath != knowledge.Home.RepoPath {
 		t.Fatalf("resolved home %q is not the seeded knowledge home %q", home.RepoPath, knowledge.Home.RepoPath)
 	}
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "proj-api"}, nil
 	}
 	return s, service, grant, privateKey, home

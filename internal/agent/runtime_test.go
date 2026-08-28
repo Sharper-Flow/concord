@@ -235,7 +235,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 }
 
 func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
-	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","grant_token":"grant-1"},"tool":"concord_product_view","operation":"resolve","input":{}}`
+	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","unexpected_field":"value"},"tool":"concord_product_view","operation":"resolve","input":{}}`
 	for _, suffix := range []string{" {}", " garbage"} {
 		if _, _, err := DecodeInvokeRequest([]byte(valid + suffix)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
 			t.Fatalf("suffix %q error = %v, want trailing JSON rejection", suffix, err)

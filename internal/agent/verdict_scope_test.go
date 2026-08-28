@@ -38,7 +38,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 
 	service := NewService(s)
 	service.Now = fixedTime
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil
 	}
 

@@ -84,15 +84,15 @@ func TestDatabaseOverrideRefusesRepositoryLocalPath(t *testing.T) {
 	}
 }
 
-func TestInvokeRejectsDeprecatedTokenWithoutEcho(t *testing.T) {
-	deprecatedToken := strings.Repeat("a", 63) + "b"
-	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","grant_token":"` + deprecatedToken + `","client_ref":"c","scope_version":"","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{}}`)
+func TestInvokeRejectsUnknownFieldWithoutEcho(t *testing.T) {
+	unknownValue := strings.Repeat("a", 63) + "b"
+	raw := []byte(`{"call_envelope":{"schema_version":"1.0","request_id":"r","unexpected_field":"` + unknownValue + `","client_ref":"c","scope_version":"","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{}}`)
 	var out, errOut bytes.Buffer
 	if code := runInvoke(raw, nil, nil, &out, &errOut); code == 0 {
-		t.Fatalf("runInvoke accepted deprecated token: stderr=%q", errOut.String())
+		t.Fatalf("runInvoke accepted unknown field: stderr=%q", errOut.String())
 	}
-	if strings.Contains(out.String(), deprecatedToken) || strings.Contains(errOut.String(), deprecatedToken) {
-		t.Fatal("deprecated token leaked through invoke output")
+	if strings.Contains(out.String(), unknownValue) || strings.Contains(errOut.String(), unknownValue) {
+		t.Fatal("unknown field value leaked through invoke output")
 	}
 }
 

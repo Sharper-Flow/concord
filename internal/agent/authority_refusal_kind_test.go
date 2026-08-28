@@ -52,7 +52,7 @@ func TestAuthorityRefusalsCarryTheUnauthorizedKind(t *testing.T) {
 			name: "main worktree mutation",
 			mutate: func(in *Invocation, service *Service) {
 				in.RequiredCapability = "work_define"
-				service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+				service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 					return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
 				}
 			},

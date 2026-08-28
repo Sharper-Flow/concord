@@ -272,8 +272,11 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	s.Clock = clock
 	service := agent.NewService(s)
 	service.Now = clock
-	service.ProjectResolver = func(ctx context.Context, directory, worktree string) (store.ProjectResolution, error) {
-		return s.ResolveProject(ctx, directory, worktree)
+	service.ProjectResolver = func(ctx context.Context, tx *store.Transaction, directory, worktree string) (store.ProjectResolution, error) {
+		if tx == nil {
+			return s.ResolveProject(ctx, directory, worktree)
+		}
+		return store.ResolveProjectTx(ctx, tx, directory, worktree)
 	}
 	switch command {
 	case "invoke":

@@ -23,7 +23,7 @@ func newAuthorizedService(t *testing.T, db *store.Store, client, principal strin
 	ctx := context.Background()
 	service := NewService(db)
 	service.Now = fixedTime
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 		return resolution, nil
 	}
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration(client, principal, capabilities, products, projects)); err != nil {
@@ -49,7 +49,7 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 	if err := service.RegisterTrustedClient(context.Background(), testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
-	service.ProjectResolver = func(context.Context, string, string) (store.ProjectResolution, error) {
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil
 	}
 	ctx := context.Background()
@@ -150,7 +150,7 @@ func TestAuthorityMethodsGuardNilServiceAndStore(t *testing.T) {
 	if _, err := nilService.Authorize(ctx, Invocation{}); err == nil {
 		t.Fatal("nil service authorization did not fail")
 	}
-	service := &Service{ProjectResolver: func(context.Context, string, string) (store.ProjectResolution, error) {
+	service := &Service{ProjectResolver: func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
 		return store.ProjectResolution{ProjectID: "project-1"}, nil
 	}}
 	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "principal-1"}); err == nil {

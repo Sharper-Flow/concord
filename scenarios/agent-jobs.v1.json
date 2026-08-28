@@ -295,8 +295,11 @@
         "assertions": [
           { "target": "authority", "path": "git.commit_oid", "op": "nonempty" },
           { "target": "state", "path": "work.work-cancelled.canonical_note_locator", "op": "nonempty" },
-          { "target": "effects", "path": "publication_order", "op": "eq", "value": ["git_publish", "verify_commit", "record_locator"] },
-          { "target": "effects", "path": "canonical_notes.count", "op": "eq", "value": 1 }
+        { "target": "effects", "path": "publication_order", "op": "eq", "value": ["git_publish", "verify_commit", "record_locator"] },
+        { "target": "effects", "path": "canonical_notes.count", "op": "eq", "value": 1 },
+        { "target": "effects", "path": "durable_tier.markdown_only", "op": "eq", "value": true },
+        { "target": "effects", "path": "durable_tier.note_extension", "op": "eq", "value": ".md" },
+        { "target": "effects", "path": "durable_tier.budget_passed", "op": "eq", "value": true }
         ],
         "invariants": ["ordered_cross_authority", "retry_safe", "canonical_authority"]
       }

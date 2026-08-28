@@ -65,7 +65,7 @@ jobs:
       - name: Validate storage vocabulary authority
         run: python3 scripts/check-vocabulary-authority.py
       - name: Check vocabulary generators
-        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check
+        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check
       - name: Validate work-item and native-run vocabularies
         run: python3 scripts/check-work-kinds.py && python3 scripts/check-native-run-statuses.py
       - name: Validate archived-work knowledge-kind vocabulary

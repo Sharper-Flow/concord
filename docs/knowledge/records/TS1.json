@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:28e8baecd4febb18bfa87d49f28c003c167742edfd4574b06ff44775147d6743",
+  "sha256": "sha256:b880b72fbfdfe1b2b06262449168df12ee662e64052628aec7b7d72f246e60d1",
   "status": "accepted",
   "summary": "Defines eight canonical agent jobs AJ1-AJ8 and the 23-scenario acceptance corpus that measures them.",
   "tags": [

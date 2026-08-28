@@ -106,6 +106,20 @@ class DurableTierCheckerTests(unittest.TestCase):
         self.assertIn("distill", output)
         self.assertNotIn("small-ok.md", output)
 
+    def test_unterminated_json_fence_is_measured(self) -> None:
+        # Everything after an unterminated fence is inside it. Measuring only
+        # closed blocks would let a note carry an unbounded dump by omitting
+        # one line, and would put this layer out of step with the
+        # producer-side parse in internal/store/durable_tier.go.
+        root, tmp = build_repo(base_budget())
+        dump = "```json\n" + json.dumps({"state": ["x" * 40] * 4}) + "\n"
+        with tmp:
+            write_note(root, "docs/lessons/unterminated.md", PAGE + dump)
+            code, output = run_checker(root)
+        self.assertEqual(code, 1)
+        self.assertIn("unterminated.md", output)
+        self.assertIn("distill", output)
+
     def test_plain_fence_is_not_a_json_finding(self) -> None:
         root, tmp = build_repo(base_budget())
         with tmp:

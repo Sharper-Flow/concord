@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -177,8 +178,44 @@ func bindAJ6CompactTerminalWork(t *testing.T, sc jobScenario) jobObservation {
 		"publication_order":   publicationOrderObserved,
 		"canonical_notes":     map[string]any{"count": archivedWorkCount(t, s, "work-cancelled")},
 		"retry_safe_replayed": true,
+		"durable_tier":        durableTierEffects(t, home.RepoPath, locator),
 	}
 	return obs
+}
+
+// durableTierEffects reads the note the publication actually committed and
+// reports whether it satisfies the durable tier. CD-0069 D4 asks the corpus to
+// guard correct-shaped-but-wrong producer behaviour: a regression that starts
+// serializing state again would still publish, still verify, and still record
+// its locator, so no existing AJ6 assertion would move.
+//
+// The budget rule comes from store.CheckDurableTier rather than a second
+// implementation here, because a copy would agree with the producer only until
+// one of the two changed.
+func durableTierEffects(t *testing.T, repoPath, locator string) map[string]any {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(repoPath, filepath.FromSlash(locator)))
+	if err != nil {
+		t.Fatalf("published note is not readable at %s: %v", locator, err)
+	}
+	markdownOnly := true
+	root := filepath.Join(repoPath, filepath.FromSlash("docs/work"))
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && filepath.Ext(path) != ".md" {
+			markdownOnly = false
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("cannot walk the note root: %v", err)
+	}
+	return map[string]any{
+		"markdown_only":  markdownOnly,
+		"budget_passed":  store.CheckDurableTier(string(content)) == nil,
+		"note_extension": filepath.Ext(locator),
+	}
 }
 
 // bindAJ6PartialPublication proves a publication that writes to git and then

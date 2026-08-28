@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -132,6 +133,30 @@ func TestDurableSyncCheckpoint(t *testing.T) {
 	// The store remains usable after the durable sync.
 	if err := s.appendSeedEvent(ctx); err != nil {
 		t.Fatalf("post-checkpoint append: %v", err)
+	}
+}
+
+func TestDurableBarrierAfterRegisterTrustedClientTruncatesWal(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	dbpath := filepath.Join(root, "concord.db")
+	s, err := Open(ctx, dbpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("RegisterTrustedClient: %v", err)
+	}
+
+	walpath := dbpath + "-wal"
+	info, err := os.Stat(walpath)
+	if err != nil {
+		t.Fatalf("expected %s to exist after SyncDurable: %v", walpath, err)
+	}
+	if info.Size() != 0 {
+		t.Fatalf("WAL file %s size = %d after RegisterTrustedClient, want 0 (TRUNCATE did not reset)", walpath, info.Size())
 	}
 }
 

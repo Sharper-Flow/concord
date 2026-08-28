@@ -190,6 +190,48 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	}
 }
 
+func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
+	ctx := context.Background()
+	s, service, authority, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-invalid"}`)}
+	env := mutationEnvelope(authority, scopeVersion)
+	missing, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
+		t.Fatalf("missing approval response=%+v err=%v", missing, err)
+	}
+	challengeRef, ok := missing.Error.Details["approval_ref"].(string)
+	if !ok || len(challengeRef) != 64 {
+		t.Fatalf("approval challenge ref=%v", missing.Error.Details["approval_ref"])
+	}
+	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
+	versions := map[string]any{"work": 2}
+	variants := []struct {
+		name      string
+		assertion *HostApprovalAssertion
+	}{
+		{"scope", signedHostApproval(nil, challengeRef, digest, map[string]any{"product_id": "product-2", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "")},
+		{"digest", signedHostApproval(nil, challengeRef, "sha256:"+strings.Repeat("f", 64), scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "")},
+	}
+	for _, variant := range variants {
+		t.Run(variant.name, func(t *testing.T) {
+			trial := request
+			trial.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-` + variant.name + `","approval":{"approval_ref":"` + challengeRef + `"}}`)
+			trialEnv := env
+			trialEnv.RequestID = "invalid-" + variant.name
+			trialEnv.HostApproval = variant.assertion
+			response, dispatchErr := Dispatch(ctx, s, service, trial, trialEnv)
+			if dispatchErr != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "approval_invalid" {
+				t.Fatalf("response=%+v err=%v", response, dispatchErr)
+			}
+		})
+	}
+}
+
 func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})

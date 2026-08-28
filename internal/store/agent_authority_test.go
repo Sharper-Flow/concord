@@ -47,6 +47,14 @@ func TestRevokeTrustedClientRequiresExactlyOneActiveRow(t *testing.T) {
 	assertFailureKind("already revoked client", s.RevokeTrustedClient(ctx, "client-1", "2026-01-01T00:00:00Z"), KindProjectionNotFound)
 }
 
+func TestTransactionAuthorityRejectsNilTransaction(t *testing.T) {
+	_, _, err := TrustedClientWithKeyTx(context.Background(), nil, "client-1")
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
+		t.Fatalf("nil transaction error=%v, want %s", err, KindInvalidOperation)
+	}
+}
+
 // TestAuthorityTablesCarryNoIntegrityTrigger pins CD-0071 D3: the agent_*
 // tables carry no trigger, and none will be added on a tamper argument.
 //

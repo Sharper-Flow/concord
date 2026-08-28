@@ -1,7 +1,5 @@
-// CD-0059: agent-layer tests proving (a) a principal lacking the
-// worker_dispatch capability cannot invoke the registered action, and
-// (b) worker_dispatch is structurally non-grantable through the bearer
-// client policy, mirroring worker_evidence.
+// Agent-layer tests prove that a principal without worker_dispatch cannot
+// invoke the registered action and that the capability stays policy-bound.
 
 package agent
 
@@ -59,6 +57,37 @@ func TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability(t *testin
 	}
 	if !strings.Contains(err.Error(), "capability outside trusted client policy") {
 		t.Fatalf("refusal = %v, want client policy refusal", err)
+	}
+}
+
+func TestWorkerDispatchCapabilityIsStructurallyNonAuthorizable(t *testing.T) {
+	ctx := context.Background()
+	_, service, authority, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	registry := store.BuiltinWorkflowRegistry()
+	entry, ok := registry.Lookup("workflow.implementation", 1)
+	if !ok {
+		t.Fatal("workflow.implementation is not registered")
+	}
+	var required Capability
+	for _, action := range entry.Definition.ActionDefinitions {
+		if action.ID == "dispatch_worker" {
+			required = Capability(action.RequiredCapability)
+		}
+	}
+	if required != CapabilityWorkerDispatch {
+		t.Fatalf("dispatch_worker required capability = %q, want %q", required, CapabilityWorkerDispatch)
+	}
+	invocation := Invocation{
+		ClientRef: authority.ClientRef, PrincipalRef: authority.PrincipalRef, SessionRef: authority.SessionRef,
+		AgentRef: authority.AgentRef, Directory: authority.Directory, Worktree: authority.Worktree,
+		ManifestDigest: authority.ManifestDigest, RequiredCapability: required, ProjectID: "project-1",
+	}
+	_, err := service.Authorize(ctx, invocation)
+	if err == nil {
+		t.Fatal("worker_dispatch obtained from a policy without that capability")
+	}
+	if !strings.Contains(err.Error(), "capability outside trusted client policy") {
+		t.Fatalf("refusal = %v, want a client policy refusal", err)
 	}
 }
 

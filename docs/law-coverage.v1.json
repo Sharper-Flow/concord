@@ -118,9 +118,26 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestBuiltinWorkflowRegistryHoldsOneVersionPerFamily"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestProductChangingDefinitionsHaveApprovalRoute"
+        },
+        {
+          "kind": "scenario",
+          "value": "WF02-planning-requires-outcome"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-floor-readiness.py"
+        }
+      ],
       "id": "CD-0006",
-      "issue": 295,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [
@@ -1337,6 +1354,11 @@
       ],
       "id": "CD-0081",
       "state": "satisfied"
+    },
+    {
+      "id": "CD-0082",
+      "reason": "This decision removes future migration obligations and changes no runtime behavior.",
+      "state": "out_of_scope"
     },
     {
       "evidence": [

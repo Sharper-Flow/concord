@@ -9,10 +9,11 @@
 > repository. Citations below name public predecessor documents, never private
 > history or local state.
 
-[`priorities.md`](./priorities.md) §First-usable floor condition 6 gates migration
-on Concord replacing predecessor surfaces "without losing operational coverage."
-That is unassessable without a list of what the operational coverage *is*. This
-document is that list, and the coverage judgement against it.
+[`priorities.md`](./priorities.md) §First-usable floor condition 6 supports a
+replacement-readiness claim by checking that Concord covers predecessor surfaces
+"without losing operational coverage." It does not authorize migration. That
+coverage is unassessable without a list of what it *is*. This document is that
+list, and the coverage judgement against it.
 
 ## What this document is
 

@@ -202,7 +202,10 @@ def test_outstanding_issue_pointer_must_be_live() -> None:
                 pool = document["records"] if "records" in document else [document]
                 for record in pool:
                     if record.get("id") == "CD-0006":
+                        record["state"] = "outstanding"
                         record["issue"] = number
+                        record.pop("evidence", None)
+                        record.pop("reason", None)
                 target.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
             return subprocess.run(
                 [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],

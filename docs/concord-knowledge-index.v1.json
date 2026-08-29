@@ -3136,7 +3136,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ed1729753ad3cd35c818819d2b972da32ea27f3334845cb72efc92afef072fba",
+      "sha256": "sha256:7304914ce260ef63690ee307869b7d8ce2056d98026a681e46366aed592a2c1d",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -3384,7 +3384,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:35a2fff986c59dab3dea8bfa1de1a7a4ed93d7f8c536c357c1f89478dcb58960",
+      "sha256": "sha256:3dffa1ce2dbc5e73f40ffe5da7d32bb0bcd1ab0b9920f406467cdacfa4a405f6",
       "status": "accepted",
       "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
       "tags": [
@@ -3437,7 +3437,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4eb1c1d38656571d72db2ef7ad57d6eb30ccab1d3a67338c825e3377fb2570c4",
+      "sha256": "sha256:1c72ed5018e1fe2ae4e454b8c25e499447a92c4377f8c14be6cca8fc637c6deb",
       "status": "accepted",
       "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
       "tags": [
@@ -3489,7 +3489,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f6423e9a41ec7e2aee0bcc8dd98cae18b538060df08089ee25e344b09ebdfe79",
+      "sha256": "sha256:66e9a6606bb139254b9da584453a986fef6e66b7cd6f2fb89e896dc094a3465a",
       "status": "accepted",
       "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
       "tags": [
@@ -3537,7 +3537,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:0434da63fd9591bf4c424dfdf028c62ed73d4bd3321c27f91b6ec67665127f48",
+      "sha256": "sha256:f0155a079c7e590390926b99654e19b45e96610778f30ea0d7887723b82ccb85",
       "status": "accepted",
       "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
       "tags": [
@@ -3701,7 +3701,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:7d5c563de0284a0bbd970a669075e7dd8c15a2b3a9d78c7e8233fe2480bf2344",
+      "sha256": "sha256:d95f323f22cb5288ab1ec2473a15b15ec61c28c930d2f3bcfcef87b2a26ed7fa",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -3889,7 +3889,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:aaeef0d0c46b98d79f7c2a1332ff4c7b52a2d147554dae3b109a062a115b7c85",
+      "sha256": "sha256:cd29265c79d2cbfed772ec9cc265560c829e4bb6fdebd356e807f9ff7ac7893b",
       "status": "published",
       "summary": "Operational installation guide describing what the shipped installer does: prerequisites it checks, release artifacts, upgrade, and uninstall behavior. Descriptive, not prescriptive — the installer's behavior is proved by scripts/test-installer.py and the release pipeline, so under the procedure's prescription rule the document is reference material and asserts no contract an implementation could violate.",
       "tags": [
@@ -3960,7 +3960,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:a98a33921c466e54c26e10d0b735a1fa46223685cf76ffe7d8c6789fc8958945",
+      "sha256": "sha256:460d794ceabc73325478cbeea235594703b5867a62f80b9a7509a300137ce856",
       "status": "published",
       "summary": "Per-territory assessment of Concord's operational coverage against the predecessor, validated on every CI run.",
       "tags": [
@@ -3983,7 +3983,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:978fec0d599bd52e553c4bd9590e9d5f23f163aa4db2e2a2a2a62d242fd7efd1",
+      "sha256": "sha256:083bc744c9cb3961f775d40e22c7d79eb7d1d73b543ff367f5c6bd5b46f0f994",
       "status": "accepted",
       "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
       "tags": [
@@ -4262,7 +4262,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:dcf679a87e3a78ec314ddaa20df053238639ed09b8db59adc994baf8f0a6c95b",
+      "sha256": "sha256:04e2bf7ff2ab235a0b8cf199f6333b217f257897ca5fdc0c7444c379d83d1d2a",
       "status": "accepted",
       "summary": "Defines the machine-readable workflow engine implementation contract.",
       "tags": [

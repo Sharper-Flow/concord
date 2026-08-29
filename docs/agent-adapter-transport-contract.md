@@ -17,13 +17,13 @@ CD-0003's short-lived Go CLI decision, the accepted TS1 through TS5
 contracts, the capability-placement native-authority rule, and the official
 OpenCode custom-tool, plugin, permission, and MCP documentation reviewed
 2026-08-06. This record fixes the adapter as one thin TypeScript custom-tool
-module adapting the accepted tools to the short-lived CLI, with grant
+module adapting the accepted tools to the short-lived CLI, with client
 bootstrap, transport, and the host approval bridge.
 ## Contract
 
 The binding contract is sections 1 through 5: the one-module decision and its
-three host responsibilities, the process and transport rules including grant
-bootstrap and renewal, the registration and schema rules including the hidden
+three host responsibilities, the process and transport rules including client
+bootstrap, the registration and schema rules including the hidden
 TS5 envelope, the approval bridge with its `always: []` rule, and the adapter
 boundary of allowed and forbidden behaviors. Sections 6 through 11 record the
 plugin and MCP alternatives, evidence, implementation acceptance, and
@@ -40,7 +40,7 @@ The adapter has three host-specific responsibilities:
 
 1. register the accepted tool names, descriptions, and strict schemas once;
 2. inject OpenCode's trusted session, agent, directory, and worktree context into
-   TS5's hidden envelope and core-grant handshake; and
+   TS5's hidden envelope; and
 3. submit a host permission request through the current tool-context `ask` method
    when the core returns an exact approval challenge.
 
@@ -51,7 +51,7 @@ in the Go core.
 
 ## 2. Process and transport
 
-Routine call with a current grant:
+Routine call:
 
 ```text
 LLM → OpenCode custom tool → `concord.ts`
@@ -75,30 +75,21 @@ LLM → OpenCode custom tool → `concord.ts`
 No adapter-owned daemon, worker, database connection pool, HTTP server, IPC socket,
 or background reconciliation loop exists.
 
-### 2.1 Grant bootstrap and renewal
+### 2.1 Client registration and key storage
 
 Installation registers an OpenCode adapter public key with Concord and stores the
 private key in the operating system's credential store, outside workspaces,
-model-visible arguments, environment payloads, and Product artifacts. The adapter
-signs a fresh grant request containing client/version, session, agent, worktree,
-timestamp, and random nonce. Core verifies the registered key, bounded timestamp,
-and unused nonce before issuing a grant. Session/path fields without that signature
-have no authority.
+model-visible arguments, environment payloads, and Product artifacts.
 
-The module shares one in-memory grant cache across its exports, keyed by OpenCode
-session, agent, worktree, and generated manifest digest. On first call, session/agent change,
-expiry, revocation, or adapter reload:
+The adapter carries no bearer credential and runs no bootstrap handshake. Every
+domain call is one short-lived `concord invoke`. The core authorizes each call
+from the registered client policy and the repository the envelope names. It
+refuses a client or key that is not active. Session and path fields carry no
+authority of their own.
 
-1. retrieve the registered private key from OS credential storage and sign one fresh
-   bootstrap assertion;
-2. spawn short-lived `concord grant` with the assertion and documented host context;
-3. core verifies client signature/timestamp/nonce and returns an opaque TS5 grant;
-4. only then spawn `concord invoke` for the domain call.
-
-First/renewal calls therefore use two short-lived processes; routine calls use one.
-Bootstrap failure blocks the domain call. The cache is only an optimization: core
-validates each grant, and cache loss merely requires a new grant. The adapter never
-persists grants or secrets.
+The private key signs worker evidence only. The adapter builds that assertion
+after a run, so the signature never reaches the worker or any prompt surface.
+The adapter never persists secrets.
 
 This protects the model/tool-call boundary and rejects unregistered clients. Concord's
 local single-operator threat boundary still trusts the OS account, OpenCode process,
@@ -126,12 +117,13 @@ parsing required by OpenCode; it cannot maintain divergent semantic validation o
 invent defaults absent from the core contract.
 
 The TS5 envelope is not model-visible. The adapter derives OpenCode `agent`,
-`sessionID`, `messageID`, `directory`, and `worktree` from tool context, obtains a
-core grant, and sends them beside domain input. Core resolves stable Project/Product
+`sessionID`, `messageID`, `directory`, and `worktree` from tool context and sends
+them beside domain input. Core resolves stable Project/Product
 identity and rejects untrusted/stale assertions.
 
-Grant secrets stay in module memory and never enter model-visible arguments, logs,
-artifacts, or tool output. Correctness never depends on restoring adapter state.
+The registered client key stays in the OS credential store and never enters
+model-visible arguments, logs, artifacts, or tool output. Correctness never
+depends on restoring adapter state.
 
 ## 4. Approval bridge
 
@@ -153,8 +145,8 @@ Consequential mutation flow:
 5. Current `ask` returns `void` on approval and throws on rejection. It provides no
    typed user reply.
 6. On rejection, adapter returns denied; no core mutation occurs.
-7. On approval, adapter resubmits the identical request/challenge under its validated
-   grant, asserting only that the host request resolved.
+7. On approval, adapter resubmits the identical request/challenge, asserting only
+   that the host request resolved.
 8. Core revalidates digest/scope/versions, derives approval-authority attribution
    from the trusted-client policy and exact consumed challenge/approval record,
    creates and consumes TS5's durable approval record, then executes or returns
@@ -176,7 +168,6 @@ fails consequential mutations closed—never approval prose or `approved: true`.
 
 - register the generated current static tool set and strict schemas;
 - capture documented OpenCode execution context;
-- hold an ephemeral core grant in memory;
 - serialize one canonical request and parse one canonical response;
 - call `ask` for one exact core challenge;
 - propagate cancellation and caller budget;
@@ -204,7 +195,7 @@ retry returns a prior result, resumes a durable operation, or executes.
 
 Official OpenCode custom tools can invoke any language, receive session/agent/
 directory/worktree context, and export multiple tools from one file. One `concord.ts`
-module gives all eight exports a shared grant, version, transport, approval, and
+module gives all eight exports a shared version, transport, approval, and
 malformed-output closure.
 
 Plugin-registered and standalone tools use the same current tool-context bridge.
@@ -262,27 +253,25 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 Before release, prove:
 
 - all eight names/schemas match canonical registry and Go validators;
-- first call, session/agent change, expiry, revocation, and adapter reload bootstrap
-  before invocation or fail closed;
-- unsigned, stale-timestamp, replayed-nonce, wrong-client, and wrong-worktree grant
-  requests fail; registered key rotation/revocation takes effect;
+- wrong-client, inactive-client, and wrong-worktree invocations fail closed;
+  registered key rotation/revocation takes effect;
 - directory/worktree/session/agent reaches core scope correctly;
-- grant secrets never enter model args, logs, artifacts, or output;
+- the registered client key never enters model args, logs, artifacts, or output;
 - pinned `ask` shape, void/throw behavior, `messageID`, challenge approve/reject, and
   changed-input/version rejection;
 - `always: []` cannot bypass TS5 policy;
 - cancellation before/after commit reports authoritative outcome;
 - malformed stdout/stderr, missing binary, timeout, and crash never report success;
 - transport retry reuses idempotency key;
-- adapter reload leaves no canonical state and new grant recovers; and
-- measured routine and first-call spawn overhead stay within budget.
+- adapter reload leaves no canonical state and the next call recovers; and
+- measured spawn overhead stays within budget.
 
 ## 11. Falsifiers
 
 Reopen TS6 when:
 
 - pinned OpenCode cannot bind challenge safely through void-returning `ask`;
-- custom-tool context cannot establish TS5 grant without model plumbing;
+- custom-tool context cannot populate the TS5 envelope without model plumbing;
 - module lifecycle/crash risk exceeds plugin/other adapter in measured runs;
 - spawn overhead fires CD-0003 reversal;
 - a concrete second client requires portable transport; or
@@ -294,15 +283,14 @@ context, operation-bound approval, same-key retries, and native-system ownership
 
 ## Acceptance criteria
 
-- Given a grant request
-  When the core validates it
-  Then signature, bounded timestamp, and unused nonce are all verified, and
-  unsigned, stale, replayed, wrong-client, or wrong-worktree requests fail
-  closed.
+- Given a registered client and an invocation envelope
+  When the core authorizes the call
+  Then the client and its key must both be active, and an unknown client,
+  inactive key, or unresolvable worktree fails closed.
 
-- Given a grant and its envelope
+- Given a registered client key and its envelope
   When the model sends a tool call
-  Then grant secrets and the TS5 envelope never enter model-visible
+  Then the client key and the TS5 envelope never enter model-visible
   arguments, logs, artifacts, or output.
 
 - Given a CLI invocation that completes

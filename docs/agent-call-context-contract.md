@@ -41,8 +41,12 @@ The envelope contains:
 ```text
 schema_version
 request_id
-grant_token                 # opaque core-issued capability grant (bearer secret)
 client_ref
+principal_ref
+session_ref
+agent_ref
+directory                  # git host path; scope is re-derived from it on every call
+worktree
 ambient_project_id
 selected_product_id?       # absent while unresolved/ambiguous
 scope_version
@@ -118,22 +122,26 @@ which TS3/TS7 must report under PM1's authority contract.
 
 ## 4. Principal and authorization
 
-### 4.1 Principal source and grant proof
+### 4.1 Principal source and authorization
 
-`grant_token` is an opaque, unguessable, core-issued capability grant carried as a bearer
-secret. Its authoritative record binds the attributable human, agent, or delegated
-automation principal, trusted client, allowed Product/Project scope, capability classes,
-issue/expiry, and revocation state. The core resolves `principal_ref` from this grant
-and validates it on every invocation. Tool input cannot name or impersonate a
-principal, widen scope, or add capabilities. If the transport cannot provide a valid
-grant, the call is denied. The non-secret record reference for the same grant is
-returned by the `grant` verb as `grant_ref`; supplying it where the token belongs is
-refused distinguishably.
+Authorization is computed on every invocation. There is no bearer token. The
+core reads the trusted client record named by `client_ref` and refuses unless
+the client and its key are both active. The attributable human, agent, or
+delegated automation principal comes from that record. `principal_ref` in the
+envelope is optional corroboration: when present it must equal the client's
+principal, and a mismatch is refused.
 
-`client_ref` identifies the calling integration for audit and must match the grant
-binding; it is not independent authority. Grant secrets are
-never exposed to the model, logged, or persisted in Product artifacts. Model name,
-prompt text, or an agent-asserted role is never a grant.
+Capability classes and allowed Product/Project scope come from the registered
+client policy. The core resolves `directory` and `worktree` to a Project and
+reads the current scope version. It authorizes the intersection of that policy
+and the resolved scope. Tool input cannot name or impersonate a principal,
+widen scope, or add capabilities. `manifest_digest` must equal the core's
+generated manifest digest, so a stale or forged surface is refused.
+
+`client_ref` identifies the calling integration for audit and is not
+independent authority. The registered client key is never exposed to the model,
+logged, or persisted in Product artifacts. Model name, prompt text, or an
+agent-asserted role confers no authority.
 
 ### 4.2 Core-owned policy
 
@@ -159,8 +167,8 @@ The initial capability classes are deliberately small:
 | `cross_scope` | explicit mutation spanning outside selected ambient Product |
 
 These are policy capabilities, not roles, assignments, or new agent tools. A
-principal receives only the capabilities required by its trusted client/session
-grant. Product/Project restrictions are evaluated in addition to capability class.
+principal receives only the capabilities its trusted client policy declares.
+Product/Project restrictions are evaluated in addition to capability class.
 
 ## 5. Human approval evidence
 
@@ -230,7 +238,7 @@ and approval-bound consequence content.
 
 ### 7.2 Replay behavior
 
-- Same key + same canonical request digest: validate the current grant against the
+- Same key + same canonical request digest: re-authorize the caller against the
   original authorized scope, then return the original committed result or current
   durable-operation state; create no new effect. Later membership drift cannot make
   the retry miss its original record.
@@ -293,7 +301,7 @@ Reopen TS5 when:
 - the accepted primary client cannot inject an authenticated envelope without
   exposing routine plumbing to the model;
 - context resolution cannot remain correct across shared/cross-Product Projects;
-- Product-wide default grants prove too broad for least-privilege operation;
+- Product-wide default client scope proves too broad for least-privilege operation;
 - unchanged stale-read refresh causes a demonstrated authority error;
 - approval binding cannot survive the selected transport without trusting prose;
 - idempotency records become the dominant retained-state cost; or

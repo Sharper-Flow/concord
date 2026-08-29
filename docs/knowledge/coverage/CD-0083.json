@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
+    }
+  ],
+  "id": "CD-0083",
+  "state": "satisfied"
+}

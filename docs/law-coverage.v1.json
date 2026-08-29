@@ -22,6 +22,14 @@
         {
           "kind": "go_test",
           "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
         }
       ],
       "id": "C14",
@@ -1328,6 +1336,20 @@
         }
       ],
       "id": "CD-0081",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
+        }
+      ],
+      "id": "CD-0083",
       "state": "satisfied"
     },
     {

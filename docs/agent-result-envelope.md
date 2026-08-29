@@ -51,7 +51,7 @@ Every outcome carries:
 | Field | Contract |
 |---|---|
 | `schema_version` | Envelope schema version. |
-| `manifest_digest` | Exact generated current-manifest digest bound to this grant, session, invocation, and result. |
+| `manifest_digest` | Exact generated current-manifest digest bound to this client, session, invocation, and result. |
 | `adapter_contract_version` | Required only for `origin=adapter`: adapter envelope schema used to encode a pre-core transport/bootstrap failure; it never claims a core surface identity. |
 | `request_id` | This transport attempt; audit only, never idempotency. |
 | `origin` | `core` for a schema-valid core response; `adapter` only for fail-closed transport errors when no core envelope exists. |
@@ -226,7 +226,7 @@ run, and artifact. Ordinary external references are opaque stable locators. Cano
 git notes retain PM6 commit/content hashes because those prove durable knowledge.
 
 The envelope never embeds raw sub-agent transcripts, screenshots, logs, binary
-bytes, full git documents, credentials, grant secrets, or approval secrets. Agents
+bytes, full git documents, credentials, client keys, or approval secrets. Agents
 retrieve bounded evidence from its authority only when needed.
 
 ## 8. Pagination and output bounds

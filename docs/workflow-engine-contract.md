@@ -418,9 +418,9 @@ is deterministic core output derived from the consumed approval ref, consumed
 challenge ref, authenticated client, and canonical trusted-client policy digest;
 it is an approval-authority tuple, not a named-human identity. If its actor row
 is absent, `workflow.actor_recorded` is appended before the semantic and action
-events in the same transaction; an existing row must match exactly. Unsigned,
-replayed, mismatched, grant-only, skipped-question, or payload-selected
-identities cannot create or use an operator actor. Idempotent replay returns the
+events in the same transaction; an existing row must match exactly. Replayed,
+mismatched, skipped-question, or payload-selected identities cannot create or
+use an operator actor. Idempotent replay returns the
 stored result without asking again, consuming approval again, or recording the
 actor again.
 

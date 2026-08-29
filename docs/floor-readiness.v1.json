@@ -84,7 +84,7 @@
       "id": "fc1-operator-work-capture",
       "condition": "fc1",
       "title": "Operator can create work from an operator surface",
-      "requirement": "Per CD-0021 the operator plans by reaching work in the launcher and opening a session that authors it. An operator-side authoring surface is not required at the floor; work creation keeps one write authority through the grant-gated tool surface.",
+      "requirement": "Per CD-0021 the operator plans by reaching work in the launcher and opening a session that authors it. An operator-side authoring surface is not required at the floor; work creation keeps one write authority through the authorized tool surface.",
       "state": "satisfied",
       "evidence": [
         {
@@ -173,7 +173,7 @@
       "id": "fc2-call-authority",
       "condition": "fc2",
       "title": "Grants, capabilities, and operation-bound approvals are core-enforced",
-      "requirement": "Every invocation resolves a core-issued grant to a principal and capability set; consequential mutations require a durable approval bound to operation digest, scope, and expected versions. Caller prose and self-asserted booleans confer no authority.",
+      "requirement": "Every invocation resolves the registered client policy and git-derived scope to a principal and capability set; consequential mutations require a durable approval bound to operation digest, scope, and expected versions. Caller prose and self-asserted booleans confer no authority.",
       "state": "satisfied",
       "evidence": [
         {
@@ -668,7 +668,7 @@
       "id": "fc7-blackbox-acceptance",
       "condition": "fc7",
       "title": "A packaged black-box acceptance path exercises the shipped product end to end",
-      "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport \u2014 bootstrap, grant, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility \u2014 importing no internal Go packages.",
+      "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport \u2014 bootstrap, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility \u2014 importing no internal Go packages.",
       "state": "satisfied",
       "evidence": [
         {

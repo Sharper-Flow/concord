@@ -18,8 +18,8 @@ Published releases support Linux amd64 only.
 
 - A SQLite authority for Products, Projects, work, workflow state, evidence,
   knowledge, research, and relationships.
-- A typed agent tool surface with signed grants, strict envelopes, bounded JSON
-  input/output, and fail-closed validation.
+- A typed agent tool surface with per-call authorization, strict envelopes,
+  bounded JSON input/output, and fail-closed validation.
 - `concord launcher`, an interactive Bubble Tea terminal interface.
 - An OpenCode TypeScript adapter and generated, model-routed worker lanes.
 - Public machine-readable contracts, synthetic acceptance scenarios, and
@@ -71,7 +71,7 @@ one strict JSON object on stdin and one bounded JSON result on stdout.
 
 Before using adapter tools, register the client, Product, Project, and Project
 locator through the operator CLI. Concord deliberately does not invent those
-records, keys, or grants. The
+records or keys. The
 [OpenCode adapter guide](adapter/opencode/README.md) documents the exact
 bootstrap commands and closed command vocabulary.
 
@@ -111,7 +111,7 @@ CI runs commands natively rather than through `bin/oc-test` and adds
 | `cmd/concord/` | Go CLI boundary: launcher and strict JSON commands. |
 | `internal/store/` | SQLite authority, workflow engine, knowledge, research, and generated lane/routing registry. |
 | `internal/launcher/` | Framework-independent launcher model plus Bubble Tea and store adapters. |
-| `internal/agent/` | Grants, invoke dispatch, envelopes, payload validation, and generated tool contracts. |
+| `internal/agent/` | Authorization, invoke dispatch, envelopes, payload validation, and generated tool contracts. |
 | `contracts/` | Public schemas and manifests; inputs for generated contracts. |
 | `scenarios/` | Synthetic acceptance scenarios and fixtures. |
 | `adapter/opencode/` | OpenCode custom-tool adapter, generated lane agents, tests, and advisory evals. |

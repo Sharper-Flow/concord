@@ -121,7 +121,7 @@ class InstallerTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing command secret-tool", result.stderr)
-        self.assertIn("grant bootstrap fails closed", result.stderr)
+        self.assertIn("worker evidence signing fails closed", result.stderr)
         self.assertFalse((self.root / "data").exists())
 
     def test_install_is_idempotent(self) -> None:

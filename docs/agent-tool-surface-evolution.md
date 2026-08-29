@@ -28,7 +28,7 @@ the Go and TypeScript contracts, JSON schemas, fixtures, tests, and documentatio
 fragments. Generated outputs are checked for drift; hand-maintained copies are not
 authoritative.
 
-Every grant, invocation, session-boot packet, and result envelope binds the exact
+Every invocation, session-boot packet, and result envelope binds the exact
 manifest digest. A digest mismatch fails before a domain effect. There is no surface
 version, version range, envelope-version negotiation, down-conversion, alias, or
 fallback meaning. Schema, event, workflow, session, and release versions remain
@@ -109,7 +109,7 @@ fail-closed authority.
 
 ## Acceptance criteria
 
-- Given any grant, invocation, session-boot packet, or result envelope
+- Given any invocation, session-boot packet, or result envelope
   When the core checks identity
   Then it binds the exact manifest digest and a mismatch fails before any
   domain effect, with no fallback meaning.

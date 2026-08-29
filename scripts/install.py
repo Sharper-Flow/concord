@@ -466,16 +466,16 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
     if machine not in {"x86_64", "amd64"}:
         failures.append(f"architecture is {platform.machine()}; Linux amd64 is required")
     for command, consequence in (
-        ("git", "grant host resolution will not work without Git"),
+        ("git", "host resolution will not work without Git"),
         ("opencode", "the global Concord custom tool cannot be used without OpenCode"),
-        ("secret-tool", "grant bootstrap fails closed because Concord cannot read the signing key"),
-        ("gnome-keyring-daemon", "the Secret Service provider required by grant bootstrap is missing"),
+        ("secret-tool", "worker evidence signing fails closed because Concord cannot read the client signing key"),
+        ("gnome-keyring-daemon", "the Secret Service provider holding the client signing key is missing"),
     ):
         if command_status(command) is None:
             failures.append(f"missing command {command}; {consequence}")
     service_ok, service_reason = secret_service_status()
     if not service_ok:
-        failures.append(f"Secret Service unavailable: {service_reason}; grant bootstrap will not work")
+        failures.append(f"Secret Service unavailable: {service_reason}; worker evidence signing will not work")
     if str(paths.bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
         failures.append(
             f"{paths.bin_dir} is not on PATH; the adapter's default concord command will not resolve. "

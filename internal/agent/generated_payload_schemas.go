@@ -895,12 +895,35 @@ const GeneratedPayloadSchemaDocument = `{
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "environments": {
+                    "items": {
+                      "enum": [
+                        "development",
+                        "test",
+                        "preview",
+                        "staging",
+                        "production",
+                        "other"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 6,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "purpose": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
                   "resource_id": {
                     "$ref": "#/$defs/id"
                   }
                 },
                 "required": [
-                  "resource_id"
+                  "resource_id",
+                  "purpose",
+                  "environments"
                 ],
                 "type": "object"
               },

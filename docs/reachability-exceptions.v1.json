@@ -87,21 +87,6 @@
       "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and docs/floor-readiness.v1.json cites it as fc5 evidence, so the capability is required law rather than spare code. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the sole entry point, the other eight are its private helpers, and upcastEvent is reachable only through this cluster."
     },
     {
-      "id": "store-mutations-without-operator-surface",
-      "state": "outstanding",
-      "functions": [
-        "internal/agent.NewAdapterError",
-        "internal/store.AddManagedResourceConsumer",
-        "internal/store.CheckSchemaCompatibility",
-        "internal/store.CreateManagedResource",
-        "internal/store.ReplaceDomainProjectAttachments",
-        "internal/store.ReplaceDomainResourceAttachments",
-        "internal/store.SchemaVersion",
-        "internal/store.readAppliedMigrations"
-      ],
-      "issue": 489
-    },
-    {
       "id": "test-only-registry-assertions",
       "state": "out_of_scope",
       "functions": [

@@ -124,7 +124,7 @@ func TestOpenTempCopiesIsolatedLatestSchema(t *testing.T) {
 		t.Fatalf("store event counts = (%d, %d), want (1, 0)", firstEvents, secondEvents)
 	}
 
-	if got, err := SchemaVersion(ctx, second.DatabaseForTesting()); err != nil {
+	if got, err := readSchemaManifestVersion(ctx, second.DatabaseForTesting()); err != nil {
 		t.Fatalf("schema version: %v", err)
 	} else if got != CurrentSchemaVersion() {
 		t.Fatalf("second store schema version = %d, want %d", got, CurrentSchemaVersion())

@@ -112,6 +112,10 @@ var commandSpecs = []commandSpec{
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
 	{Canonical: "client-revoke", TwoWord: "client revoke", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "none"},
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
+	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
+	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
+	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments replaces the complete Domain-to-Project edge set; it does not append", Enums: "attachments[].role: primary | secondary"},
+	{Canonical: "domain-resource-attachments-replace", TwoWord: "domain resource-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments replaces the complete Domain-to-resource edge set; it does not append", Enums: "none"},
 	{Canonical: "project-create", TwoWord: "project create", RequiredFields: requiredFields(field("project_id"), field("display_name"), field("product_id"), field("role"), field("expected_product_version")), Optional: "reason", Enums: "role: primary | secondary"},
 	{Canonical: "product-project-add", TwoWord: "product project-add", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("role"), field("expected_version")), Optional: "reason", Enums: "role: primary | secondary"},
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
@@ -284,7 +288,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	case "worker-dispatch", "worker-complete", "worker-fail":
 		return runWorkerCommand(command, raw, s, service, clock, out, errOut)
 	default:
-		return runInternal(command, raw, service, s, out, errOut)
+		return runInternal(command, raw, service, s, clock, out, errOut)
 	}
 }
 
@@ -609,7 +613,7 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	return writeJSON(out, response, errOut)
 }
 
-func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, out, errOut io.Writer) int {
+func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
 	case "client-register":
@@ -756,6 +760,106 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
+	case "resource-create":
+		var request struct {
+			EventID                 string          `json:"event_id"`
+			ResourceID              string          `json:"resource_id"`
+			ProductID               string          `json:"product_id"`
+			DisplayName             string          `json:"display_name"`
+			Class                   string          `json:"class"`
+			Kind                    string          `json:"kind"`
+			Purpose                 string          `json:"purpose"`
+			StageMaturity           string          `json:"stage_maturity"`
+			StageAudienceCommitment string          `json:"stage_audience_commitment"`
+			Environments            []string        `json:"environments"`
+			LocatorAbsenceReason    string          `json:"locator_absence_reason"`
+			MetadataSchemaVersion   string          `json:"metadata_schema_version"`
+			Metadata                json.RawMessage `json:"metadata"`
+			OwnerPurpose            string          `json:"owner_purpose"`
+			OwnerEnvironments       []string        `json:"owner_environments"`
+			ExpectedProductVersion  int64           `json:"expected_product_version"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if _, err := store.CreateManagedResource(ctx, s, store.ManagedResourceCreateRequest{
+			EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
+			DisplayName: request.DisplayName, Class: request.Class, Kind: request.Kind, Purpose: request.Purpose,
+			StageMaturity: request.StageMaturity, StageAudienceCommitment: request.StageAudienceCommitment,
+			Environments: request.Environments, LocatorAbsenceReason: request.LocatorAbsenceReason,
+			MetadataSchemaVersion: request.MetadataSchemaVersion, Metadata: request.Metadata,
+			OwnerPurpose: request.OwnerPurpose, OwnerEnvironments: request.OwnerEnvironments,
+			ExpectedProductVersion: request.ExpectedProductVersion, Actor: "operator", OccurredAt: clock().UTC(),
+		}); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "resource-share":
+		var request struct {
+			EventID                 string   `json:"event_id"`
+			ResourceID              string   `json:"resource_id"`
+			ProductID               string   `json:"product_id"`
+			Purpose                 string   `json:"purpose"`
+			Environments            []string `json:"environments"`
+			ExpectedResourceVersion int64    `json:"expected_resource_version"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if err := store.AddManagedResourceConsumer(ctx, s, store.AddManagedResourceConsumerRequest{
+			EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
+			Purpose: request.Purpose, Environments: request.Environments, ExpectedResourceVersion: request.ExpectedResourceVersion,
+			Actor: "operator", OccurredAt: clock().UTC(),
+		}); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "domain-project-attachments-replace":
+		var request struct {
+			EventID         string                          `json:"event_id"`
+			ProductID       string                          `json:"product_id"`
+			DomainID        string                          `json:"domain_id"`
+			ExpectedVersion int64                           `json:"expected_version"`
+			Attachments     []store.DomainProjectAttachment `json:"attachments"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if err := store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{
+			EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
+			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
+			Actor: "operator", OccurredAt: clock().UTC(),
+		}); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "domain-resource-attachments-replace":
+		var request struct {
+			EventID         string                           `json:"event_id"`
+			ProductID       string                           `json:"product_id"`
+			DomainID        string                           `json:"domain_id"`
+			ExpectedVersion int64                            `json:"expected_version"`
+			Attachments     []store.DomainResourceAttachment `json:"attachments"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		if err := store.ReplaceDomainResourceAttachments(ctx, s, store.DomainResourceAttachmentsRequest{
+			EventID: request.EventID, ProductID: request.ProductID, DomainID: request.DomainID,
+			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
+			Actor: "operator", OccurredAt: clock().UTC(),
+		}); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
 	case "project-create":
 		var request struct {
 			ProjectID          string `json:"project_id"`

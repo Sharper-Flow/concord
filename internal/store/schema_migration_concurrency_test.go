@@ -119,7 +119,7 @@ func TestMigrateWaitsOutALockHeldPastOneBusyTimeout(t *testing.T) {
 		t.Fatal("migrate never returned within its lock budget")
 	}
 
-	version, err := SchemaVersion(ctx, migrateDB)
+	version, err := readSchemaManifestVersion(ctx, migrateDB)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -346,6 +346,14 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord client register < JSON stdin",
 		"concord product-create < JSON stdin",
 		"concord product create < JSON stdin",
+		"concord resource-create < JSON stdin",
+		"concord resource create < JSON stdin",
+		"concord resource-share < JSON stdin",
+		"concord resource share < JSON stdin",
+		"concord domain-project-attachments-replace < JSON stdin",
+		"concord domain project-attachments-replace < JSON stdin",
+		"concord domain-resource-attachments-replace < JSON stdin",
+		"concord domain resource-attachments-replace < JSON stdin",
 		"concord project-locator-add < JSON stdin",
 		"concord project locator-add < JSON stdin",
 		"concord invoke < JSON stdin",
@@ -354,6 +362,8 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"stage_maturity: prototype | alpha | beta | production | deprecated",
 		"stage_audience_commitment: operator_only | limited | public",
 		"kind: canonical_path | git_remote",
+		"attachments replaces the complete Domain-to-Project edge set; it does not append",
+		"attachments[].role: primary | secondary",
 		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -363,8 +373,148 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	if errOut.Len() != 0 {
 		t.Fatalf("help stderr = %q, want empty", errOut.String())
 	}
-	if out.Len() > 8192 {
+	if out.Len() > 12288 {
 		t.Fatalf("help output is unbounded: %d bytes", out.Len())
+	}
+}
+
+func TestResourceCreateCLIRecordsExpectedEvent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "resource-create-product", "resource-create-project")
+	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
+		"event_id": "resource-create-event", "resource_id": "resource-create-id", "product_id": "resource-create-product",
+		"display_name": "Queue", "class": "infrastructure", "kind": "queue", "purpose": "dispatches work",
+		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
+		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
+	})
+	assertCLIEvent(t, dbPath, "resource-create-event", "managed_resource.created")
+}
+
+func TestResourceShareCLIRecordsExpectedEvent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "resource-share-owner", "resource-share-owner-project")
+	seedCLIProduct(t, dbPath, "resource-share-consumer", "resource-share-consumer-project")
+	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
+		"event_id": "resource-share-create", "resource_id": "resource-share-id", "product_id": "resource-share-owner",
+		"display_name": "Database", "class": "infrastructure", "kind": "database", "purpose": "stores data",
+		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
+		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
+	})
+	runOperatorJSON(t, dbPath, []string{"resource-share"}, map[string]any{
+		"event_id": "resource-share-event", "resource_id": "resource-share-id", "product_id": "resource-share-consumer",
+		"purpose": "reads data", "environments": []string{"production"}, "expected_resource_version": 1,
+	})
+	assertCLIEvent(t, dbPath, "resource-share-event", "managed_resource.consumer_added")
+}
+
+func TestDomainProjectAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "domain-project-product", "domain-project-project")
+	seedCLIDomain(t, dbPath, "domain-project-product", "domain-project-id")
+	runOperatorJSON(t, dbPath, []string{"domain-project-attachments-replace"}, map[string]any{
+		"event_id": "domain-project-attachments-event", "product_id": "domain-project-product", "domain_id": "domain-project-id",
+		"expected_version": 0, "attachments": []map[string]string{{"project_id": "domain-project-project", "role": "primary"}},
+	})
+	assertCLIEvent(t, dbPath, "domain-project-attachments-event", "domain.project_attachments_replaced")
+}
+
+func TestDomainResourceAttachmentsReplaceCLIRecordsExpectedEvent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "domain-resource-product", "domain-resource-project")
+	runOperatorJSON(t, dbPath, []string{"resource-create"}, map[string]any{
+		"event_id": "domain-resource-create", "resource_id": "domain-resource-id", "product_id": "domain-resource-product",
+		"display_name": "Queue", "class": "infrastructure", "kind": "queue", "purpose": "dispatches work",
+		"stage_maturity": "production", "stage_audience_commitment": "limited", "environments": []string{"production"},
+		"metadata_schema_version": "1", "metadata": map[string]any{}, "expected_product_version": 2,
+	})
+	seedCLIDomain(t, dbPath, "domain-resource-product", "domain-resource-id")
+	runOperatorJSON(t, dbPath, []string{"domain-resource-attachments-replace"}, map[string]any{
+		"event_id": "domain-resource-attachments-event", "product_id": "domain-resource-product", "domain_id": "domain-resource-id",
+		"expected_version": 0, "attachments": []map[string]any{{"resource_id": "domain-resource-id", "purpose": "uses queue", "environments": []string{"production"}}},
+	})
+	assertCLIEvent(t, dbPath, "domain-resource-attachments-event", "domain.resource_attachments_replaced")
+}
+
+func runOperatorJSON(t *testing.T, dbPath string, args []string, payload map[string]any) {
+	t.Helper()
+	t.Setenv(dbOverrideEnv, dbPath)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runWithInput(args, bytes.NewReader(raw), &out, &errOut); code != 0 {
+		t.Fatalf("%s exit=%d stdout=%q stderr=%q", strings.Join(args, " "), code, out.String(), errOut.String())
+	}
+}
+
+func seedCLIProduct(t *testing.T, dbPath, productID, projectID string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.CreateProductWithProject(context.Background(), store.ProductCreation{
+		ProductID: productID, DisplayName: productID, StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: projectID, ProjectDisplayName: projectID, Role: "primary",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedCLIDomain(t *testing.T, dbPath, productID, domainID string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	tx, err := s.DatabaseForTesting().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	homeProject, homeLocator := "home-"+productID, "locator-"+productID
+	hash := "sha256:" + strings.Repeat("a", 64)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES(?,?,1,'now','now')`, []any{homeProject, homeProject}},
+		{`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?, 'canonical_path', ?, ?, 'now', 'now')`, []any{homeLocator, homeProject, "/test/" + homeLocator, "/test/" + homeLocator}},
+		{`INSERT INTO product_projects(product_id,project_id,role) VALUES(?,?, 'secondary')`, []any{productID, homeProject}},
+		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'commit')`, []any{productID, homeProject, homeLocator, "key-" + productID, domainID, hash}},
+		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{homeProject, homeLocator, productID, domainID, domainID, "test domain", nil, "current", hash, "commit"}},
+	} {
+		if _, err := tx.Exec(statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertCLIEvent(t *testing.T, dbPath, eventID, kind string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var gotKind, actor, occurredAt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT kind,actor,occurred_at FROM domain_events WHERE event_id=?`, eventID).Scan(&gotKind, &actor, &occurredAt); err != nil {
+		t.Fatal(err)
+	}
+	if gotKind != kind || actor != "operator" || occurredAt == "" {
+		t.Fatalf("event = kind:%q actor:%q occurred_at:%q, want %q/operator/non-empty", gotKind, actor, occurredAt, kind)
 	}
 }
 
@@ -514,6 +664,10 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-locator-remove"}, {"project", "locator-remove"},
 		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
+		{"resource-create"}, {"resource", "create"},
+		{"resource-share"}, {"resource", "share"},
+		{"domain-project-attachments-replace"}, {"domain", "project-attachments-replace"},
+		{"domain-resource-attachments-replace"}, {"domain", "resource-attachments-replace"},
 		{"project-create"}, {"project", "create"},
 		{"product-project-add"}, {"product", "project-add"},
 		{"predecessor-import"}, {"predecessor", "import"},

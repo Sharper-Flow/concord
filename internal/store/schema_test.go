@@ -10,6 +10,17 @@ import (
 	"testing"
 )
 
+func readSchemaManifestVersion(ctx context.Context, db *sql.DB) (int, error) {
+	var version sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
+		return 0, err
+	}
+	if !version.Valid {
+		return 0, nil
+	}
+	return int(version.Int64), nil
+}
+
 func TestOpenAppliesSchemaManifest(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
@@ -22,12 +33,12 @@ func TestOpenAppliesSchemaManifest(t *testing.T) {
 		t.Fatalf("applied migrations = %d, want %d", applied, len(migrations))
 	}
 
-	got, err := SchemaVersion(ctx, s.DatabaseForTesting())
+	got, err := readSchemaManifestVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
-		t.Fatalf("SchemaVersion() error = %v", err)
+		t.Fatalf("schema manifest query error = %v", err)
 	}
 	if want := migrations[len(migrations)-1].Version; got != want {
-		t.Errorf("SchemaVersion() = %d, want %d", got, want)
+		t.Errorf("schema manifest version = %d, want %d", got, want)
 	}
 }
 
@@ -559,16 +570,16 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 
-	before, err := SchemaVersion(ctx, s.DatabaseForTesting())
+	before, err := readSchemaManifestVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
-		t.Fatalf("SchemaVersion() error = %v", err)
+		t.Fatalf("schema manifest query error = %v", err)
 	}
 	if err := Migrate(ctx, s.DatabaseForTesting()); err != nil {
 		t.Fatalf("second Migrate() error = %v", err)
 	}
-	after, err := SchemaVersion(ctx, s.DatabaseForTesting())
+	after, err := readSchemaManifestVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
-		t.Fatalf("SchemaVersion() error = %v", err)
+		t.Fatalf("schema manifest query error = %v", err)
 	}
 	if before != after {
 		t.Errorf("schema version moved on re-migration: %d -> %d", before, after)
@@ -660,8 +671,8 @@ func TestMigrateLeavesPopulatedVersion3DatabaseUntouched(t *testing.T) {
 	}
 	check.SetMaxOpenConns(1)
 	defer func() { _ = check.Close() }()
-	if got, err := SchemaVersion(ctx, check); err != nil || got != 3 {
-		t.Fatalf("SchemaVersion() = %d, error = %v, want exactly 3", got, err)
+	if got, err := readSchemaManifestVersion(ctx, check); err != nil || got != 3 {
+		t.Fatalf("schema manifest version = %d, error = %v, want exactly 3", got, err)
 	}
 	var membershipTables int
 	if err := check.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('product_projects', 'work_projects')`).Scan(&membershipTables); err != nil {
@@ -692,12 +703,12 @@ func TestMigrateEmptyVersion3DatabaseToVersion4(t *testing.T) {
 		t.Fatalf("Open() empty v3 database error = %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	got, err := SchemaVersion(ctx, s.DatabaseForTesting())
+	got, err := readSchemaManifestVersion(ctx, s.DatabaseForTesting())
 	if err != nil {
-		t.Fatalf("SchemaVersion() error = %v", err)
+		t.Fatalf("schema manifest query error = %v", err)
 	}
 	if got != CurrentSchemaVersion() {
-		t.Fatalf("SchemaVersion() = %d, want %d", got, CurrentSchemaVersion())
+		t.Fatalf("schema manifest version = %d, want %d", got, CurrentSchemaVersion())
 	}
 }
 
@@ -803,12 +814,12 @@ func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 		t.Fatal("all concurrent Open calls failed")
 	}
 
-	got, err := SchemaVersion(ctx, verifier.DatabaseForTesting())
+	got, err := readSchemaManifestVersion(ctx, verifier.DatabaseForTesting())
 	if err != nil {
-		t.Fatalf("SchemaVersion() error = %v", err)
+		t.Fatalf("schema manifest query error = %v", err)
 	}
 	if want := migrations[len(migrations)-1].Version; got != want {
-		t.Errorf("SchemaVersion() = %d, want %d", got, want)
+		t.Errorf("schema manifest version = %d, want %d", got, want)
 	}
 
 	var applied int
@@ -818,12 +829,6 @@ func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 	if applied != len(migrations) {
 		t.Errorf("applied migrations = %d, want %d", applied, len(migrations))
 	}
-}
-
-func TestSchemaCompatibilityRejectsCallerOlderThanDatabase(t *testing.T) {
-	s := openTemp(t)
-	_, err := CheckSchemaCompatibility(context.Background(), s.DatabaseForTesting(), CurrentSchemaVersion()-1)
-	assertFailureKind(t, err, KindSchemaUnsupported)
 }
 
 // The manifest records a checksum per migration so an edited historical
@@ -1039,7 +1044,7 @@ func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("valid pre-migration rows failed upgrade: %v", err)
 	}
-	if version, err := SchemaVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
+	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
 		t.Fatalf("upgraded schema version=%d err=%v", version, err)
 	}
 }
@@ -1052,7 +1057,7 @@ func TestMigration53UpgradesValidNativeRunVerificationState(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("valid pre-migration row failed upgrade: %v", err)
 	}
-	if version, err := SchemaVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
+	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
 		t.Fatalf("upgraded schema version=%d err=%v, want %d", version, err, CurrentSchemaVersion())
 	}
 }
@@ -1120,7 +1125,7 @@ func TestMigration54RejectsInvalidRigorClass(t *testing.T) {
 	if err := Migrate(ctx, db); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
 		t.Fatalf("invalid rigor class migration error=%v", err)
 	}
-	if version, err := SchemaVersion(ctx, db); err != nil || version != 53 {
+	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != 53 {
 		t.Fatalf("failed migration advanced schema version=%d err=%v", version, err)
 	}
 }
@@ -1185,7 +1190,7 @@ func TestMigration55RejectsUndeclaredApprovalConsequence(t *testing.T) {
 	if err := Migrate(ctx, db); err == nil {
 		t.Fatal("migration accepted an undeclared approval consequence")
 	}
-	if version, err := SchemaVersion(ctx, db); err != nil || version != 54 {
+	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != 54 {
 		t.Fatalf("failed migration advanced schema version=%d err=%v", version, err)
 	}
 }
@@ -1233,7 +1238,7 @@ func TestMigration56UpgradesValidArchivedWorkKind(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("valid archived work kind failed upgrade: %v", err)
 	}
-	if version, err := SchemaVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
+	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
 		t.Fatalf("upgraded schema version=%d err=%v, want %d", version, err, CurrentSchemaVersion())
 	}
 }
@@ -1254,7 +1259,7 @@ func TestMigration56RejectsUndeclaredArchivedWorkKind(t *testing.T) {
 	if err := Migrate(ctx, db); err == nil || !strings.Contains(err.Error(), "archived work type is not a declared knowledge kind") {
 		t.Fatalf("undeclared archived work kind migration error = %v", err)
 	}
-	if version, err := SchemaVersion(ctx, db); err != nil || version != 55 {
+	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != 55 {
 		t.Fatalf("failed migration advanced schema version=%d err=%v, want 55", version, err)
 	}
 }

@@ -301,18 +301,6 @@ func NewCoreError(base Envelope, err TypedError) Envelope {
 	base.Error = &err
 	return base
 }
-func NewAdapterError(requestID, tool, operation, reason string, kind string) Envelope {
-	e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: requestID, Origin: OriginAdapter, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityUnreachable, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Outcome: OutcomeError}
-	for _, op := range ContractOperations {
-		if op.Tool == tool && op.Operation == operation {
-			e.QueryID = op.QueryID
-			break
-		}
-	}
-	e.Error = &TypedError{Kind: kind, RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, AdapterReason: reason}
-	return e
-}
-
 func (e Envelope) MarshalJSON() ([]byte, error) {
 	if err := e.Validate(); err != nil {
 		return nil, err

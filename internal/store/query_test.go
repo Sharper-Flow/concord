@@ -52,7 +52,7 @@ func seedQueryFixture(t *testing.T) *Store {
 
 func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
 	s := openTemp(t)
-	version, err := SchemaVersion(context.Background(), s.DatabaseForTesting())
+	version, err := readSchemaManifestVersion(context.Background(), s.DatabaseForTesting())
 	if err != nil {
 		t.Fatal(err)
 	}

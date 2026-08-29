@@ -205,33 +205,56 @@ def with_snapshot(mutate, env_extra: dict[str, str] | None = None):
         SNAPSHOT.write_text(original, encoding="utf-8")
 
 
-def outstanding_pointer() -> int:
-    for exception in load_manifest()["exceptions"]:
-        if exception.get("state") == "outstanding":
-            return exception["issue"]
-    raise AssertionError("manifest declares no outstanding exception to test")
+SYNTHETIC_OUTSTANDING_ISSUE = 999001
+
+
+def with_outstanding_exception(mutate, env_extra: dict[str, str] | None = None):
+    """Run the checker against one synthetic outstanding pointer.
+
+    These cases need an outstanding exception to exercise. Borrowing one from
+    the live manifest made them fail the moment the repository legitimately
+    held none, so the pointer is synthesized here instead.
+    """
+    original_manifest = MANIFEST.read_text(encoding="utf-8")
+    original_snapshot = SNAPSHOT.read_text(encoding="utf-8")
+    try:
+        manifest = json.loads(original_manifest)
+        manifest["exceptions"].append(
+            {
+                "id": "synthetic-outstanding",
+                "state": "outstanding",
+                "functions": ["internal/store.Backup"],
+                "issue": SYNTHETIC_OUTSTANDING_ISSUE,
+            }
+        )
+        MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        snapshot = json.loads(original_snapshot)
+        mutate(snapshot)
+        SNAPSHOT.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+        return run_cli(env_extra)
+    finally:
+        MANIFEST.write_text(original_manifest, encoding="utf-8")
+        SNAPSHOT.write_text(original_snapshot, encoding="utf-8")
 
 
 def test_outstanding_pointer_to_a_closed_issue_fails() -> None:
     """The #219 defect: a record kept citing a closed issue and stayed green (#451)."""
-    pointer = outstanding_pointer()
 
     def close_it(document: dict) -> None:
-        document["issues"][str(pointer)] = "closed"
+        document["issues"][str(SYNTHETIC_OUTSTANDING_ISSUE)] = "closed"
 
-    result = with_snapshot(close_it, {"CONCORD_SKIP_REACHABILITY_ANALYSIS": "1"})
+    result = with_outstanding_exception(close_it, {"CONCORD_SKIP_REACHABILITY_ANALYSIS": "1"})
     assert result.returncode == 1, result.stdout
-    assert f"outstanding issue {pointer} is closed" in result.stdout
+    assert f"outstanding issue {SYNTHETIC_OUTSTANDING_ISSUE} is closed" in result.stdout
 
 
 def test_outstanding_pointer_absent_from_snapshot_fails() -> None:
     """An unsnapshotted pointer is unchecked, so it must fail rather than pass."""
-    pointer = outstanding_pointer()
 
     def drop_it(document: dict) -> None:
-        document["issues"].pop(str(pointer), None)
+        document["issues"].pop(str(SYNTHETIC_OUTSTANDING_ISSUE), None)
 
-    result = with_snapshot(drop_it, {"CONCORD_SKIP_REACHABILITY_ANALYSIS": "1"})
+    result = with_outstanding_exception(drop_it, {"CONCORD_SKIP_REACHABILITY_ANALYSIS": "1"})
     assert result.returncode == 1, result.stdout
     assert "absent from the issue-state snapshot" in result.stdout
     assert "scripts/update-issue-state.py" in result.stdout

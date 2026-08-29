@@ -3187,72 +3187,10 @@ func (m migration) checksum() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// SchemaVersion reports the highest applied migration version, or zero when the
-// manifest is empty.
-func SchemaVersion(ctx context.Context, db *sql.DB) (int, error) {
-	var version sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
-		return 0, wrapFailure(KindUnavailable, "schema_version", "cannot read the schema manifest", true,
-			"confirm the database is initialized", err)
-	}
-	if !version.Valid {
-		return 0, nil
-	}
-	return int(version.Int64), nil
-}
-
-// SchemaCompatibility is the read-only projection-schema manifest status. The
-// migration manifest remains the authority; this API exposes its relationship
-// to the binary without adding per-table version columns.
-type SchemaCompatibility struct {
-	CurrentVersion int  `json:"current_version"`
-	AppliedVersion int  `json:"applied_version"`
-	Compatible     bool `json:"compatible"`
-	NeedsMigration bool `json:"needs_migration"`
-}
-
 // CurrentSchemaVersion returns the highest checksummed migration known to this
 // binary.
 func CurrentSchemaVersion() int {
 	return migrations[len(migrations)-1].Version
-}
-
-// CheckSchemaCompatibility verifies the complete recorded manifest and reports
-// whether this binary can operate on it. Newer or drifted manifests return the
-// existing typed fail-closed migration errors.
-func CheckSchemaCompatibility(ctx context.Context, db *sql.DB, supportedMax ...int) (SchemaCompatibility, error) {
-	current := CurrentSchemaVersion()
-	if len(supportedMax) > 0 {
-		current = supportedMax[0]
-	}
-	compatibility := SchemaCompatibility{CurrentVersion: current}
-	if db == nil {
-		return compatibility, newFailure(KindUnavailable, "schema_compatibility", "database is not open", false, "open a database before checking schema compatibility")
-	}
-	applied, err := readAppliedMigrations(ctx, db)
-	if err != nil {
-		return compatibility, err
-	}
-	if err := checkManifest(applied); err != nil {
-		return compatibility, err
-	}
-	if compatibility.CurrentVersion < CurrentSchemaVersion() {
-		for version := range applied {
-			if version > compatibility.CurrentVersion {
-				return compatibility, newFailure(KindSchemaUnsupported, "schema_compatibility",
-					fmt.Sprintf("the database records migration %d, which exceeds the caller-supported schema %d", version, compatibility.CurrentVersion), true,
-					"upgrade the binary before opening this database")
-			}
-		}
-	}
-	for version := range applied {
-		if version > compatibility.AppliedVersion {
-			compatibility.AppliedVersion = version
-		}
-	}
-	compatibility.NeedsMigration = compatibility.AppliedVersion < compatibility.CurrentVersion
-	compatibility.Compatible = compatibility.AppliedVersion <= compatibility.CurrentVersion
-	return compatibility, nil
 }
 
 // migrationLockBudget bounds how long a concurrent opener waits for another
@@ -3455,30 +3393,6 @@ func appliedMigrations(ctx context.Context, tx queryer) (map[int]string, error) 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest", true,
-			"confirm the database is readable", err)
-	}
-	return applied, nil
-}
-
-func readAppliedMigrations(ctx context.Context, db *sql.DB) (map[int]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT version, checksum FROM schema_migrations ORDER BY version`)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "schema_compatibility", "cannot read the schema manifest", true,
-			"confirm the database is initialized", err)
-	}
-	defer func() { _ = rows.Close() }()
-	applied := make(map[int]string)
-	for rows.Next() {
-		var version int
-		var checksum string
-		if err := rows.Scan(&version, &checksum); err != nil {
-			return nil, wrapFailure(KindUnavailable, "schema_compatibility", "cannot read a manifest row", true,
-				"confirm the database is readable", err)
-		}
-		applied[version] = checksum
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "schema_compatibility", "cannot read the schema manifest", true,
 			"confirm the database is readable", err)
 	}
 	return applied, nil

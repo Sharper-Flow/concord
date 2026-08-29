@@ -911,7 +911,7 @@ DELETE FROM fold_guard`); err != nil {
 	if err := db.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE event_id='v14-event'`).Scan(&eventPayload); err != nil || eventPayload != `{"work_kind":"task","title":"V14 work","priority":1}` {
 		t.Fatalf("preserved v14 event = %q, error=%v", eventPayload, err)
 	}
-	if got, err := SchemaVersion(ctx, db); err != nil || got != CurrentSchemaVersion() {
+	if got, err := readSchemaManifestVersion(ctx, db); err != nil || got != CurrentSchemaVersion() {
 		t.Fatalf("schema version = %d, error=%v, want %d", got, err, CurrentSchemaVersion())
 	}
 }

@@ -363,7 +363,7 @@ func TestRebuildFromLogLeavesGitKnowledgeTablesUntouched(t *testing.T) {
 		t.Fatal("ad-hoc archived_work write succeeded")
 	}
 	// The public rebuild assertion is covered once a proof-backed compaction row exists.
-	if version, err := SchemaVersion(ctx, s.DatabaseForTesting()); err != nil || version < 6 {
+	if version, err := readSchemaManifestVersion(ctx, s.DatabaseForTesting()); err != nil || version < 6 {
 		t.Fatalf("schema version = %d, err %v", version, err)
 	}
 }

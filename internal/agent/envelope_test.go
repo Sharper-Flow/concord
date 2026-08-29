@@ -32,7 +32,15 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 			return NewCoreError(e, TypedError{Kind: "unreachable", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
 		}},
 		{"adapter error", func() Envelope {
-			return NewAdapterError("req-6", "concord_product_view", "resolve", "malformed_core_response", "malformed_response")
+			e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "req-6", Origin: OriginAdapter, Tool: "concord_product_view", Operation: "resolve", ResolvedScope: nil, Authority: AuthorityUnreachable, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Outcome: OutcomeError}
+			for _, op := range ContractOperations {
+				if op.Tool == e.Tool && op.Operation == e.Operation {
+					e.QueryID = op.QueryID
+					break
+				}
+			}
+			e.Error = &TypedError{Kind: "malformed_response", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, AdapterReason: "malformed_core_response"}
+			return e
 		}},
 	}
 	for _, tt := range tests {

@@ -172,7 +172,7 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
-	beforeVersion, err := SchemaVersion(ctx, db)
+	beforeVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration on a database with in-flight work: %v", err)
 	}
-	afterVersion, err := SchemaVersion(ctx, db)
+	afterVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)
 	}

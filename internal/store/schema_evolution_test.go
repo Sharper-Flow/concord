@@ -369,17 +369,6 @@ func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
 	}
 }
 
-func TestSchemaManifestCompatibilityReportsCurrentVersion(t *testing.T) {
-	s := openTemp(t)
-	compatibility, err := CheckSchemaCompatibility(context.Background(), s.DatabaseForTesting())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if compatibility.CurrentVersion != len(migrations) || compatibility.AppliedVersion != len(migrations) || !compatibility.Compatible {
-		t.Fatalf("compatibility = %+v", compatibility)
-	}
-}
-
 func TestReconstructSubjectAtAcceptsOnlyAuditAndDiagnosis(t *testing.T) {
 	s := openTemp(t)
 	if err := ApplyOperation(context.Background(), s, Operation{

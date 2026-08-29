@@ -44,7 +44,7 @@ def load_manifest() -> tuple[dict, str]:
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     schema_validate(manifest, schema, schema, "manifest")
     ids = [lane["id"] for lane in manifest["lanes"]]
-    if ids != ["research", "implement", "review", "verify"]:
+    if ids != ["research", "implement", "design", "review", "verify"]:
         raise ValueError("lane registry must contain the closed ordered lane set")
     manifest_digest = digest(manifest)
     for lane in manifest["lanes"]:

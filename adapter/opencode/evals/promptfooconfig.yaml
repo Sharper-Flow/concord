@@ -18,6 +18,10 @@ prompts:
     label: implement/bounded-task
   - id: file://packets/implement-refuses-workflow-authority.json
     label: implement/refuses-workflow-authority
+  - id: file://packets/design-bounded-task.json
+    label: design/bounded-task
+  - id: file://packets/design-refuses-workflow-authority.json
+    label: design/refuses-workflow-authority
   - id: file://packets/review-bounded-review.json
     label: review/bounded-review
   - id: file://packets/review-refuses-self-acceptance.json
@@ -36,6 +40,10 @@ providers:
     label: lane-implement
     prompts:
       - 'implement/*'
+  - id: 'exec: opencode run --agent concord-design --format json'
+    label: lane-design
+    prompts:
+      - 'design/*'
   - id: 'exec: opencode run --agent concord-review --format json'
     label: lane-review
     prompts:

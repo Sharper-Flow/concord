@@ -28,6 +28,18 @@
       "lifecycle_states": ["dispatched", "completed", "failed"]
     },
     {
+      "id": "design",
+      "version": 1,
+      "purpose": "Implement visual UI and UX changes for one approved bounded task and report design evidence.",
+      "capability_class": "design",
+      "capabilities": ["read_repository", "edit_scoped_files", "run_targeted_checks", "report_evidence"],
+      "packet_schema_ref": "agent-lane-packet.v1",
+      "report_schema_ref": "agent-lane-report.v1",
+      "budgets": {"cost_usd_max": 4, "context_tokens_max": 48000, "time_seconds_max": 1800},
+      "evidence_obligations": ["files_touched", "verification_commands", "visual_artifacts", "unresolved_issues"],
+      "lifecycle_states": ["dispatched", "completed", "failed"]
+    },
+    {
       "id": "review",
       "version": 1,
       "purpose": "Review a bounded change against its contract and acceptance evidence.",

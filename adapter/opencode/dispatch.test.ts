@@ -243,7 +243,7 @@ test("generic host agents are not dispatchable and never spawn or record", async
 })
 
 test("the registered lane set is closed and every agent name is Concord-owned", () => {
-  expect(agentLanes.map((entry) => entry.id).sort()).toEqual(["implement", "research", "review", "verify"])
+  expect(agentLanes.map((entry) => entry.id).sort()).toEqual(["design", "implement", "research", "review", "verify"])
   for (const entry of agentLanes) expect(`concord-${entry.id}`).toMatch(/^concord-[a-z]+$/)
 })
 

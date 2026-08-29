@@ -234,6 +234,7 @@ func TestBuiltinLaneObligationsAreClosedAndLaneDigestsAreUnchanged(t *testing.T)
 	wantDigests := map[string]string{
 		"research":  "sha256:3969ceda54cc6be1532877e6d5b1dc5530c280ff77835f43286c4a0ad37e861b",
 		"implement": "sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc",
+		"design":    "sha256:50b73594e743bf14dc4ba2fdd8294bb7de64f695ea571a2fff572b5329c649a5",
 		"review":    "sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15",
 		"verify":    "sha256:7999bab09a266d4e5bcda060e0cc75786f7c0678acbde09df7f30dd19fd9eff2",
 	}
@@ -251,8 +252,8 @@ func TestBuiltinLaneObligationsAreClosedAndLaneDigestsAreUnchanged(t *testing.T)
 			t.Fatalf("lane %s digest = %s, want %s", definition.ID, definition.Digest, wantDigests[definition.ID])
 		}
 	}
-	if len(laneEvidenceObligationVocabulary) != 11 {
-		t.Fatalf("obligation vocabulary size = %d, want 11", len(laneEvidenceObligationVocabulary))
+	if len(laneEvidenceObligationVocabulary) != 12 {
+		t.Fatalf("obligation vocabulary size = %d, want 12", len(laneEvidenceObligationVocabulary))
 	}
 	invalid := definitions[0]
 	invalid.EvidenceObligations = []string{"not_an_obligation"}

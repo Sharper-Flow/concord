@@ -67,6 +67,7 @@ var laneEvidenceObligationVocabulary = []string{
 	"uncertainties",
 	"unresolved_issues",
 	"verification_commands",
+	"visual_artifacts",
 }
 
 var laneEvidenceObligationSet = func() map[string]struct{} {
@@ -154,7 +155,7 @@ func ValidateLaneDefinition(definition LaneDefinition) error {
 
 func validLaneID(value string) bool {
 	switch value {
-	case "research", "implement", "review", "verify":
+	case "research", "implement", "design", "review", "verify":
 		return true
 	default:
 		return false

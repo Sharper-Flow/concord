@@ -75,9 +75,13 @@ const assertAdapterEnvelope = (value: any) => {
   expect(value.origin).toBe("adapter")
   expect(value.outcome).toBe("error")
 }
-const runProduct = (runner: any, options: { ask?: () => Promise<void>; controller?: AbortController } = {}) => {
+// envelopeOf unwraps the host ToolResult into the Concord envelope it carries.
+// The adapter serializes the envelope into `output`, which is the value the
+// model receives, so these assertions read exactly that.
+const envelopeOf = (result: any): any => JSON.parse(result.output)
+const runProduct = async (runner: any, options: { ask?: () => Promise<void>; controller?: AbortController } = {}) => {
   adapter.configureConcordAdapter({ runner })
-  return adapter.product_view.execute({ operation: "resolve", input: { product_id: "product-1" } }, contextFor(options.ask, options.controller))
+  return envelopeOf(await adapter.product_view.execute({ operation: "resolve", input: { product_id: "product-1" } }, contextFor(options.ask, options.controller)))
 }
 const runnerWithContext = (invoke: any) => {
   let calls = 0
@@ -135,9 +139,9 @@ const approvalSuccess = () => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
   result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
 })
-const runTransition = (runner: any, ask?: () => Promise<void>) => {
+const runTransition = async (runner: any, ask?: () => Promise<void>) => {
   adapter.configureConcordAdapter({ runner })
-  return adapter.work_transition.execute({ operation: "lifecycle", input: { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" } }, contextFor(ask))
+  return envelopeOf(await adapter.work_transition.execute({ operation: "lifecycle", input: { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" } }, contextFor(ask)))
 }
 
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
@@ -152,13 +156,13 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
   })
   expect(validateGeneratedEnvelope(success)).toBe(true)
   adapter.configureConcordAdapter({ runner: runnerWithContext(success) })
-  const resolved: any = await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
+  const resolved: any = envelopeOf(await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 2,
     from_contract_version: 1, to_contract_version: 1,
     resolution_kind: "compatible_with", reason: "The approved contracts can proceed together.",
     idempotency_key: "resolve-overlap-1",
-  } }, contextFor())
+  } }, contextFor()))
   expect(resolved.outcome).toBe("ok")
 
   const refusal = coreEnvelope("concord_work_transition", "lifecycle", "error", {
@@ -228,13 +232,13 @@ test("overlap approval asks with exact direction and resolution consequence", as
   } }
   let askMetadata: any
   adapter.configureConcordAdapter({ runner })
-  const result: any = await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
+  const result: any = envelopeOf(await adapter.work_relate.execute({ operation: "resolve_overlap", input: {
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 3,
     from_contract_version: 1, to_contract_version: 1,
     resolution_kind: "depends_on", reason: "Work 2 must establish the shared law first.",
     idempotency_key: "resolve-overlap-approval-1",
-  } }, contextFor(async (request: any) => { askMetadata = request.metadata }))
+  } }, contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
   expect(askMetadata).toEqual({
     approval_ref: "overlap-challenge-1", operation_digest: digest,
@@ -262,7 +266,7 @@ test("generated and adapter validators reject unknown top-level fields for every
     expect(validateGeneratedEnvelope(original), `${name} baseline`).toBe(true)
     expect(validateGeneratedEnvelope(unknown), `${name} unknown`).toBe(false)
     adapter.configureConcordAdapter({ runner: runnerWithContext(unknown) })
-    const result: any = await tool.execute(args, contextFor())
+    const result: any = envelopeOf(await tool.execute(args, contextFor()))
     assertAdapterEnvelope(result)
     expect(result.error.kind).toBe("malformed_response")
     expect(result.error.adapter_reason).toBe("malformed_core_response")
@@ -327,7 +331,7 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   } }
   let askMetadata: any
   adapter.configureConcordAdapter({ runner })
-  const result: any = await adapter.work_transition.execute({ operation: "workflow_action", input: { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" } }, contextFor(async (request: any) => { askMetadata = request.metadata }))
+  const result: any = envelopeOf(await adapter.work_transition.execute({ operation: "workflow_action", input: { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" } }, contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
   expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
   expect(requests[1].call_envelope.host_approval_assertion.operator_principal_ref).toBeUndefined()
@@ -341,10 +345,42 @@ test("fake seams exercise context resolution and malformed-response handling", a
     runner: { async run(argv: string[], _input: string, _signal: AbortSignal) { calls.push(argv); return calls.length === 1 ? { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" } : { exitCode: 0, stdout: "not-json", stderr: "diagnostic" } } },
   })
   const context: any = { sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} }
-  const result: any = await adapter.product_view.execute({ operation: "resolve", input: {} }, context)
+  const result: any = envelopeOf(await adapter.product_view.execute({ operation: "resolve", input: {} }, context))
   expect(calls).toEqual([["concord", "project-resolve"], ["concord", "invoke"]])
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("malformed_response")
   expect(result.error.adapter_reason).toBe("malformed_core_response")
   expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+})
+
+// The host reads `output` as a string and splits it on newlines before the
+// model sees it. A tool that returns anything without a string `output` makes
+// the host throw, so every export is checked, not a representative sample.
+test("every tool export returns a host ToolResult carrying the envelope as a string output", async () => {
+  const exports: [string, any][] = [
+    ["product_view", adapter.product_view],
+    ["work_browse", adapter.work_browse],
+    ["work_trace", adapter.work_trace],
+    ["knowledge", adapter.knowledge],
+    ["work_define", adapter.work_define],
+    ["domain", adapter.domain],
+    ["work_initiative", adapter.work_initiative],
+    ["work_transition", adapter.work_transition],
+    ["work_relate", adapter.work_relate],
+    ["work_compact", adapter.work_compact],
+  ]
+  // Every tool the contract declares must appear here, so a new tool cannot be
+  // added without proving it returns a ToolResult.
+  const declaredTools = [...new Set(contractOperations.map((operation: any) => String(operation.id).split(".")[0]))].sort()
+  expect(exports.map(([name]) => `concord_${name}`).sort()).toEqual(declaredTools)
+  for (const [name, exported] of exports) {
+    adapter.configureConcordAdapter({ runner: { async run() { throw new Error("transport unavailable") } } })
+    const declared = contractOperations.find((operation: any) => String(operation.id).startsWith(`concord_${name}.`))
+    const result: any = await exported.execute({ operation: String((declared as any).id).split(".")[1], input: {} }, contextFor())
+    expect(typeof result.output, name).toBe("string")
+    expect(typeof result.metadata, name).toBe("object")
+    const envelope = envelopeOf(result)
+    expect(envelope.origin, name).toBe("adapter")
+    expect(envelope.tool, name).toBe(`concord_${name}`)
+  }
 })

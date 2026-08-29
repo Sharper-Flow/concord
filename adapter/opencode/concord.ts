@@ -1,4 +1,4 @@
-import { tool, type ToolContext } from "@opencode-ai/plugin"
+import { tool, type ToolContext, type ToolResult } from "@opencode-ai/plugin"
 import { clientRef } from "./credentials"
 import { contractOperations, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
@@ -152,7 +152,7 @@ async function resolveAmbientContext(context: ToolContext): Promise<AmbientConte
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
 // contract check, and the approval_required resubmission.
-export async function invokeConcordOperation(toolName: string, args: any, context: ToolContext): Promise<any> {
+export async function invokeConcordOperation(toolName: string, args: any, context: ToolContext): Promise<CoreResponse> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
   if (toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise") {
@@ -217,16 +217,34 @@ export async function invokeConcordOperation(toolName: string, args: any, contex
   return response;
 }
 
-export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_product_view", args, context) })
-export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_browse", args, context) })
-export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_trace", args, context) })
-export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_knowledge", args, context) })
-export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_define", args, context) })
-export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_domain", args, context) })
-export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_initiative", args, context) })
-export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: any, context: ToolContext) => executeWorkTransition(args, context) })
-export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_relate", args, context) })
-export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_compact", args, context) })
+// CoreResponse is the Concord result envelope the CLI writes to stdout. It is
+// the adapter's domain value and is deliberately distinct from the host's
+// ToolResult.
+export type CoreResponse = Record<string, unknown>
+
+// toolResult adapts a Concord envelope to the ToolResult the host declares.
+// The host reads `output` as a string and truncates it before the model sees
+// it, so the envelope travels as JSON text. The same object rides `metadata`
+// unchanged for hosts that read structured tool metadata.
+export async function toolResult(pending: Promise<unknown>): Promise<ToolResult> {
+  const response = await pending
+  const structured = response !== null && typeof response === "object" && !Array.isArray(response)
+  return {
+    output: JSON.stringify(response) ?? "null",
+    metadata: structured ? { ...(response as Record<string, unknown>) } : { value: response },
+  }
+}
+
+export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_product_view", args, context)) })
+export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_work_browse", args, context)) })
+export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_work_trace", args, context)) })
+export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_knowledge", args, context)) })
+export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_work_define", args, context)) })
+export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_domain", args, context)) })
+export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_work_initiative", args, context)) })
+export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(executeWorkTransition(args, context)) })
+export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_work_relate", args, context)) })
+export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: Record<string, unknown>, context: ToolContext) => toolResult(invokeConcordOperation("concord_work_compact", args, context)) })
 
 // laneDispatchRequest decides whether a work_transition invocation routes to
 // the lane dispatcher (CD-0067 D5) or falls through to the generic core

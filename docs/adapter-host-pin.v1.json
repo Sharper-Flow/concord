@@ -32,14 +32,5 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true
   },
-  "allowances": [
-    {
-      "file": "concord.ts",
-      "code": "TS2322",
-      "count": 1,
-      "state": "outstanding",
-      "issue": 560,
-      "reason": "work_transition is the only export typed Promise<unknown>; the host declares execute as Promise<ToolResult>, where ToolResult is a string or an object carrying output. All ten exports return the core response object, so all ten diverge; the other nine typecheck only because invokeConcordOperation is typed Promise<any>. Whether the adapter or the declaration is wrong needs a runtime probe against a host, which is why this is one recorded divergence rather than a cast."
-    }
-  ]
+  "allowances": []
 }

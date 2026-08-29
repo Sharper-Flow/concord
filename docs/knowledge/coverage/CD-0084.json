@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    }
+  ],
+  "id": "CD-0084",
+  "state": "satisfied"
+}

@@ -6250,22 +6250,45 @@
                 }
               }
             },
-            "resource_attachments": {
-              "type": "array",
-              "maxItems": 100,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "resource_id"
-                ],
-                "properties": {
-                  "resource_id": {
-                    "$ref": "#/$defs/id"
-                  }
+        "resource_attachments": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "resource_id",
+              "purpose",
+              "environments"
+            ],
+            "properties": {
+              "resource_id": {
+                "$ref": "#/$defs/id"
+              },
+              "purpose": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "environments": {
+                "type": "array",
+                "maxItems": 6,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "development",
+                    "test",
+                    "preview",
+                    "staging",
+                    "production",
+                    "other"
+                  ]
                 }
               }
-            },
+            }
+          }
+        },
             "project_set_version": {
               "type": "integer",
               "minimum": 0

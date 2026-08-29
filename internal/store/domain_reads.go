@@ -163,9 +163,9 @@ type DomainOverlapsResult struct {
 //
 // The payload types reuse a result type's element structs wherever the two
 // shapes are identical. DomainAttachmentView is the one place they are not:
-// DomainResourceAttachment is the attachment write request's element type and
-// carries the purpose and environments an attachment is recorded with, neither
-// of which the read surface declares.
+// DomainResourceAttachment is the attachment write request's element type, and
+// the read keeps its own element type carrying the same fields so either
+// surface can change without moving the other.
 
 type DomainListPayload struct {
 	Registry *DomainRegistryView `json:"registry"`
@@ -198,10 +198,14 @@ func NewDomainActiveWorkPayload(result DomainActiveWorkResult) DomainActiveWorkP
 }
 
 // DomainResourceAttachmentPayload is the read projection of a resource
-// attachment edge: the attached resource's identity, which is all the Domain
-// attachments surface declares.
+// attachment edge. CD-0041 D4 gives the Domain-to-resource relation bounded
+// purpose and environment metadata, so the read declares all three fields. It
+// stays a distinct type from the write element so the two surfaces can diverge
+// without one silently redefining the other.
 type DomainResourceAttachmentPayload struct {
-	ResourceID string `json:"resource_id"`
+	ResourceID   string   `json:"resource_id"`
+	Purpose      string   `json:"purpose"`
+	Environments []string `json:"environments"`
 }
 
 type DomainAttachmentViewPayload struct {
@@ -220,7 +224,7 @@ type DomainAttachmentsPayload struct {
 func NewDomainAttachmentsPayload(result DomainAttachmentsResult) DomainAttachmentsPayload {
 	resources := make([]DomainResourceAttachmentPayload, 0, len(result.Attachments.ResourceEdges))
 	for _, edge := range result.Attachments.ResourceEdges {
-		resources = append(resources, DomainResourceAttachmentPayload{ResourceID: edge.ResourceID})
+		resources = append(resources, DomainResourceAttachmentPayload{ResourceID: edge.ResourceID, Purpose: edge.Purpose, Environments: sliceOrEmpty(edge.Environments)})
 	}
 	return DomainAttachmentsPayload{
 		Registry: result.Registry,

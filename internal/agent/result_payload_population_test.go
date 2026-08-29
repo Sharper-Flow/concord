@@ -273,6 +273,13 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	if len(attachments.Attachments.ProjectEdges) == 0 || len(attachments.Attachments.ResourceEdges) == 0 {
 		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
 	}
+	// CD-0041 D4 gives the relation bounded purpose and environment metadata.
+	// A populated edge that carried neither would satisfy the length check
+	// above while proving nothing about the fields the read now declares.
+	resourceEdge := attachments.Attachments.ResourceEdges[0]
+	if resourceEdge.Purpose == "" || len(resourceEdge.Environments) == 0 {
+		t.Fatalf("resource attachment metadata is unexercised: %#v", resourceEdge)
+	}
 	if len(overlaps.Pairs) == 0 || len(overlaps.Pairs[0].SharedLawIDs) == 0 {
 		t.Fatalf("overlap shared law is unexercised: %#v", overlaps.Pairs)
 	}

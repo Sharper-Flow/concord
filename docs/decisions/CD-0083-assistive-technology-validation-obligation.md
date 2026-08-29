@@ -1,4 +1,4 @@
-# CD-0082: Assistive-technology validation is an obligation, not a deferral
+# CD-0083: Assistive-technology validation is an obligation, not a deferral
 
 - **Status:** Accepted
 - **Date:** 2026-08-29

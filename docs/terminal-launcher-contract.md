@@ -399,7 +399,7 @@ The launcher inherits C14 §4 wholesale and adds container-level rules.
 - `degraded`, `unreachable`, `stale`, and `approval_required` never depend on colour
   alone; each carries a stable textual symbol.
 - The spike proves color-independent textual semantics and keyboard reachability.
-  CD-0082 D1 closes the no-color half against named render anchors. CD-0082 D2
+  CD-0083 D1 closes the no-color half against named render anchors. CD-0083 D2
   keeps screen-reader validation open as an operator obligation.
 - Every screen shows, in fixed positions: the ambient Product, the authority
   watermark and data age, and the active-key hint line.
@@ -590,7 +590,7 @@ A prototype would need to satisfy at minimum:
 - No read is issued between two consecutive `r` presses with no navigation in between.
 - Two renders over unchanged state are byte-identical.
 - The representative S1 render has no horizontal-scroll requirement at 80 columns and
-  preserves reliance meaning with color-independent textual semantics. CD-0082 D2
+  preserves reliance meaning with color-independent textual semantics. CD-0083 D2
   owns screen-reader validation as an operator obligation with a stated trigger.
 - S1 at 100 Products and S2 at maximum relation depth stay within §9's latency bound.
 
@@ -668,7 +668,7 @@ This accepted contract should be reopened when:
   scope, which would reopen `design-constraints.md` §13 rather than this document;
 - the no-polling refresh model proves unusable in daily operation and a push notice
   mechanism is required; or
-- the chosen rendering dependency fails the CD-0082 D2 assistive-technology
+- the chosen rendering dependency fails the CD-0083 D2 assistive-technology
   validation, keyboard reachability, textual semantics, or latency clauses.
 
 ## 18. Evidence basis

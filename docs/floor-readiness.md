@@ -21,8 +21,8 @@ source section that cannot be resolved fails rather than passing vacuously.
 
 ## Why it is a manifest
 
-The floor is the gate on migration, and until this manifest existed nothing
-recorded distance from it. Prose could not: a checklist that asserts its own
+The floor is the gate for a replacement-readiness claim, and until this manifest
+existed nothing recorded distance from it. Prose could not: a checklist that asserts its own
 authority drifts silently, which is the failure
 [`feature-inventory.md`](./feature-inventory.md) avoids by declaring itself
 non-authorizing.
@@ -105,7 +105,7 @@ python3 scripts/check-floor-readiness.py
 
 It is an instrument, not a plan. It records state and does not sequence work,
 assign effort, set dates, or authorize implementation. Nothing about the
-manifest constitutes a replacement-readiness claim: a claim requires every
+manifest alone constitutes a replacement-readiness claim: a claim requires every
 condition satisfied, and satisfaction is judged against
 [`priorities.md`](./priorities.md), not against this file.
 

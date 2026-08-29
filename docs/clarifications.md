@@ -96,9 +96,9 @@ re-litigate them silently.
 
 ### R3. Factored lifecycle truth
 - **Direction:** Each workflow's designated durable orchestrator owns its single
-  authoritative lifecycle record. During Product-at-a-time migration, Advance owns
-  unmigrated Products and Concord owns migrated Products; one Product is never split
-  across both. No workflow/documentation surface duplicates or repairs lifecycle truth.
+  authoritative lifecycle record. Migration and correction use a local operation
+  authority when a concrete demand exists. No workflow/documentation surface
+  duplicates or repairs lifecycle truth.
 - **Why:** avoids competing sources of "what is actually happening" and keeps
   the architecture chaos-proof by design.
 - **Effect:** recorded in `workflows.md` §2.2 and `self-documentation.md` §1.3.
@@ -216,14 +216,13 @@ re-litigate them silently.
   **first-class registry entity** with its own identity that Products link to
   many-to-many? (`product-data-model.md` §9, `feature-inventory.md` §3.18)
 - **Why:** sharing is a stated requirement — one database, queue, observability
-  account, or runner pool can serve several Products. Two capabilities depend on
-  which shape wins: per-resource lifecycle stage (`product-data-model.md` §8.2)
-  and cross-Product replacement (`product-data-model.md` §10) both make a
-  consistent shared-resource identity necessary.
+  account, or runner pool can serve several Products. Per-resource lifecycle stage
+  (`product-data-model.md` §8.2) makes a consistent shared-resource identity
+  necessary.
 - **Decision:** [`managed-resource-inventory.md`](./managed-resource-inventory.md).
   Use a resource-first registry: one canonical resource identity, exactly one owning
   Product, zero or more consuming Products, explicit resource stage, authority/
-  namespace-scoped locators, typed work/replacement edges, and native execution
+  namespace-scoped locators, typed work links, and native execution
   authority. No copied `shared_with` records, credentials, live status, or automatic
   agent-surface expansion.
 
@@ -373,9 +372,8 @@ re-litigate them silently.
   #46, which fires on a specific product-scoping probe outcome and additionally
   requires a promotion-receiving contract. lgrep and vision have no analogue for
   either. episode also ingests predecessor wisdom and reflection state, so its
-  probe window is bounded by the accepted Product-at-a-time retirement in
-  [`priorities.md`](./priorities.md), while lgrep and vision are unaffected by
-  that retirement. Keeping one entry for all three meant #46 could not fire
+  probe window is bounded by issue #46's evidence, while lgrep and vision have no
+  such dependency. Keeping one entry for all three meant #46 could not fire
   without implying a direction change for the other two.
 - **Adjacent, already resolved:** agent context continuity is settled inside
   Concord's own authority by CD-0016 (C19). C20 is about durable decision
@@ -423,18 +421,18 @@ re-litigate them silently.
 - **Why:** "Advance V2" suggests succession; a non-goal says coexist indefinitely
   — slight tension worth resolving.
 - **Decision:** Concord is Advance's full successor. No partial slice is called
-  usable. After full readiness, migrate one Product at a time; migrated Products fix
-  forward in Concord, unmigrated Products remain in Advance, and Advance retires
-  after the final Product moves. See CD-0006 D1–D2.
+  usable or primary. Migration and correction are demand-driven operations with
+  local scope and safeguards. See CD-0006 D1–D2 as amended by CD-0082.
 
 ### C12. Realism vs aspiration ✅ Accepted 2026-08-06
-- **Question:** The scope is large (10+ docs, 19+ New capabilities). Is this a
+- **Question:** The scope is large (10+ docs, 18+ New capabilities). Is this a
   realistic incremental build by you + agents, or an aspirational north-star we
   document but build selectively?
 - **Why:** affects how much to commit to "build it all" vs "document the vision,
   build the highest-value slices."
-- **Decision:** incremental design/build/shadow evaluation is allowed, but only the
-  full accepted replacement system is called usable or becomes primary.
+- **Decision:** incremental design/build/evaluation is allowed, but only the full
+  accepted replacement system is called usable or becomes primary. Replacement
+  readiness is an evidence claim, not migration activity.
 
 ### C13. Operator boundary ✅ Accepted 2026-08-06
 - **Question:** When does the Jira/Linear-for-teams ambition activate? (Solo +
@@ -584,11 +582,12 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 
 ## Recommended answering order
 
-**PM1–PM10, TS1–TS9, C14, C15, CD-0006, CD-0007, and CD-0008 are accepted.** PM
+**PM1–PM10, TS1–TS9, C14, C15, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** PM
 decisions authorize the storage/core acceptance slice; CD-0005 consolidates the
 accepted agent surface; C14/C15 fix Product-row and resource ownership projections;
-CD-0006/CD-0007/CD-0008 fix root policy, public-migration boundaries, evidence
-binding, unreadable-record isolation, and execution mechanics. PM1 remains the shared
-query/read-tool corpus. No storage table or CLI command automatically earns a tool.
-Remaining open clarifications resolve through their own evidence gates; C5,
-C8–C10, and C20 remain deferred, and the replacement-relation home remains open.
+CD-0006/CD-0007/CD-0008/CD-0082 fix root policy, public authority boundaries,
+evidence binding, unreadable-record isolation, execution mechanics, and
+demand-driven migration/correction. PM1 remains the shared query/read-tool corpus.
+No storage table or CLI command automatically earns a tool. Remaining open
+clarifications resolve through their own evidence gates; C5 and C8–C10 remain
+deferred, while C20 remains owned by issue #46.

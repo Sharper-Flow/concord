@@ -123,10 +123,9 @@ clarification entries are split accordingly: lgrep and vision share
 owned by issue #46.
 
 The practical difference: episode consumes predecessor wisdom and reflection
-state, so its probe window is bounded by the accepted Product-at-a-time
-retirement in [`priorities.md`](./priorities.md). lgrep and vision index and host
-things that outlive that retirement, so no deadline applies to them. A measured
-need against one tool is not evidence about the others.
+state, so issue #46 owns its probe scope and evidence. lgrep and vision index and
+host general-purpose data. A measured need against one tool is not evidence about
+the others.
 
 ---
 

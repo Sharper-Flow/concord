@@ -10,7 +10,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3ef557857a32c790c337e868b0a39d92afd43624eed0d2e72fb1385eaa3f32ec",
+  "sha256": "sha256:45dbb7392ad92679ba2be155bdb023e9e06210075221f3b701ed0160751102f2",
   "status": "published",
   "summary": "Descriptive companion record of the Go-core architecture direction and the consolidated resilience invariants. Not accepted law: the header names priorities.md as canonical for its subject and records direction only, so under the procedure's recorded-acceptance rule it cannot take a law-bearing kind. The decisions it cites (CD-0002 and peers) carry the authority for the invariants it restates.",
   "tags": [

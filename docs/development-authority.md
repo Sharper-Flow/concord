@@ -13,17 +13,16 @@ development.
 Concord is a public Go project that cannot yet coordinate its own
 development. The binding input is CD-0010's accepted rule: the project stays
 GitHub-native until replacement readiness is proven. This record fixes the
-interim authority model — which surface owns each fact type — and the seven
+interim authority model — which surface owns each fact type — and the six
 rules that keep public evidence authoritative while Concord is developed
 outside itself.
 ## Contract
 
-The binding contract is the authority-by-fact-type table and the seven
+The binding contract is the authority-by-fact-type table and the six
 rules: issues plan work, pull requests and checks own review and merge
 evidence, branches and worktrees isolate implementation, accepted documents
-are Product law, the predecessor is reference-only, Concord does not
-self-host its development before replacement readiness, and migration
-happens only under the accepted Product-at-a-time fix-forward policy.
+are Product law, the predecessor is reference-only, and Concord does not
+self-host its development before replacement readiness.
 ## Authority by fact type
 
 | Fact or action | Authority | Evidence |
@@ -47,10 +46,8 @@ happens only under the accepted Product-at-a-time fix-forward policy.
 5. Advance is reference-only. Concord does not dual-write predecessor state and does
    not treat predecessor runtime state as a second authority.
 6. Concord does not self-host Concord development before replacement readiness. The
-   public GitHub model remains authoritative until the accepted replacement-ready
-   floor is proven.
-7. Migration happens later under the accepted Product-at-a-time fix-forward policy;
-   migration is not implied by an issue, branch, or partial implementation.
+    public GitHub model remains authoritative until the accepted replacement-ready
+    floor is proven.
 
 CD-0010 is the accepted pre-readiness rule. Any replacement of this model requires
 an accepted decision record and public review evidence.

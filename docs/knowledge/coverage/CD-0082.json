@@ -1,22 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestD7ConsequentialBoundariesRefuseUnresolvedOverlap"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestPM5MembershipTablesAreFoldOnlyAndProjectDeletionIsRestricted"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-json.py"
-    }
-  ],
   "id": "CD-0082",
-  "state": "satisfied"
+  "reason": "This decision removes future migration obligations and changes no runtime behavior.",
+  "state": "out_of_scope"
 }

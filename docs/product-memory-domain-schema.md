@@ -56,7 +56,7 @@ PM4/PM5/C15 semantics (now settled separately).
 | `relations` | typed edge structure with real foreign key (FK) endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
 | `labels` / tagging | typed many-to-many categorical extension | Q3/Q9 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8/Q10 links | provider-specific validation |
-| Managed-resource identity | first-class typed canonical identity need for infra/SaaS resources because stage/sharing/replacement attach | Q1 ownership and Product context | C15 selects resource-first identity, one owner plus consumers, typed locators/work/replacement edges; exact subtype/index DDL remains implementation design |
+| Managed-resource identity | first-class typed canonical identity need for infra/SaaS resources because stage and sharing attach | Q1 ownership and Product context | C15 selects resource-first identity, one owner plus consumers, typed locators and work links; exact subtype/index DDL remains implementation design |
 | `domain_events` | generic append-only authoritative log (`payload_version`, kind, subject, actor, time, payload) | Q7 and all rebuilds | PM4 supplies lifecycle/relation event semantics; migration/upcasting and event-subject representation remain implementation design |
 | active research context | CD-0009 retention-bounded direct SQLite tables for packs/revisions/findings/sources/consumers; never retained events or Git knowledge | active work context | delete only after proof-backed archive; PM8 still excludes blobs |
 | `artifacts` | other small structured/markdown content only | work context | PM8 excludes a v1 blob/evidence store |
@@ -190,7 +190,7 @@ Reopen PM3 if research or implementation evidence shows:
 3. the typed projection fold cannot remain deterministic/total across work kinds,
 4. a repeated accepted PM1 job requires a per-kind table,
 5. Components or owned members prove to be labels/opaque refs rather than
-   stateful/shareable/replacement-capable identities.
+    stateful/shareable identities.
 
 ## 9. Narrow CD supersession
 

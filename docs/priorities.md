@@ -39,8 +39,8 @@ If a proposed capability conflicts with this envelope, it does not belong in Con
 Concord is a clean rewrite of Advance (D2, 2026-08-05); see [`README.md`](./README.md).
 
 - **Architecture is derived from Concord's priorities.** Concord's shape comes from the six priorities below, not from copying Advance's commands, gates, or workflow steps.
-- **Advance capability coverage is a release floor.** Concord must be able to cover the same operational territory before replacing any Advance surface, but it does not have to mirror Advance's shape.
-- **Concord is Advance's full successor.** After full replacement readiness, migrate one Product at a time; all Projects in that Product move together, only selected active changes are imported, and migrated Products fix forward in Concord.
+- **Advance capability coverage is a release floor.** Concord must be able to cover the same operational territory before claiming replacement readiness, but it does not have to mirror Advance's shape.
+- **Concord is Advance's full successor.** No partial slice is usable or primary. Migration and correction are demand-driven operations with local scope and safeguards; no global migration sequence is required.
 - **Advance is a source of evidence, not a design mandate or a blocker.** Where Advance already produces reliable, agent-native state, Concord may consume it as evidence. Where Advance is unstable, that instability is **design input** (an anti-pattern to structurally prevent), not a gate Concord waits on.
 - **No command-for-command or seven-gate clone.** Concord may use a 7-gate implementation workflow where it fits, but workflow plurality is governed by Priority 6. The seven gates are not a universal requirement.
 - **Advance stabilization work is lesson evidence, not a prerequisite or a blueprint.** The public predecessor lessons document reachable issue-backed failure patterns; they are neither converted into Concord architecture decisions nor required to ship before Concord begins.
@@ -214,13 +214,11 @@ See [`workflows.md`](./workflows.md).
 
 Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine, anchored to a **Product-first terminal launcher**. It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
 
-Incremental design, build, replay, and evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Migration begins only after the full floor below is proven.
+Incremental design, build, replay, and evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Replacement readiness is an evidence claim, not migration activity.
 
 Distance from the floor is recorded in [`floor-readiness.md`](./floor-readiness.md) and its validated manifest, which decomposes each condition below into items whose state is checked in CI. That record is authorizing for *where Concord stands*; this section remains authorizing for *what the floor is*.
 
 The six numbered conditions below define the **usability floor — the bar Concord must clear for one operator and many agents to do real work on this machine**. Replacement readiness is a higher bar: it additionally requires the release, install, privacy, and Linux amd64 release-evidence bar owned by [`rollout-plan.md`](./rollout-plan.md) §3. Both bars are decomposed in the floor manifest, and the manifest's `source` for each condition names the document and section that bears it.
-
-Migration is demand-driven: a Product moves when a concrete workflow needs it, not on a prescribed sequence (CD-0082). The delivered importer moves one whole Product at a time, with deliberately selected active work and recorded provenance. Advance remains authority for Products not yet migrated, and each migrated Product fixes forward in Concord. No shadow operation, cutover checklist, migration record, or rollback mechanism is mandated; a concrete failure may justify a stronger mechanism through a later accepted decision.
 
 It becomes usable when:
 
@@ -235,9 +233,8 @@ It becomes usable when:
 
 ## Product-level decision tracker
 
-Twelve questions have resolved directions. A thirteenth is partially resolved:
-non-Domain replacement-relation homes remain open and must be answered by later
-owning decisions rather than silently decided by implication.
+The current questions have resolved directions. Future migration or correction
+operations need their own demand, local scope, and evidence.
 
 | Question | Why it matters | Current direction, if any |
 |---|---|---|
@@ -248,12 +245,12 @@ owning decisions rather than silently decided by implication.
 | **Product row fields** | Affects what the operator sees in the launcher. | **Resolved by C14 (2026-08-06):** identity, declared stage, reliance, typed action counts, and one deterministic focus item. See [`product-row-contract.md`](./product-row-contract.md). |
 | **External-system membership model** | Affects how azure jobs, crons, etc. attach to a Product. | Treat as opaque signals pulled into the dashboard, not as first-class Concord-owned state. See [`product-data-model.md`](./product-data-model.md). |
 | **Research trackable shape** | Affects Priority 6. | **Resolved by CD-0009:** independent research uses ordinary `kind=research` work; embedded research stays inside its owner; retention-bounded active packs are context/output, not another trackable. |
-| **Managed-resource inventory shape** | Affects the ownership model and storage. Sharing a resource across Products is a stated requirement; per-resource stage and cross-Product replacement both depend on the answer. | **Resolved by C15 (2026-08-06):** first-class resource registry, singular owner Product, consumer links, explicit stage, typed locators/work/replacement edges. See [`managed-resource-inventory.md`](./managed-resource-inventory.md). |
+| **Managed-resource inventory shape** | Affects the ownership model and storage. Sharing a resource across Products is a stated requirement; per-resource stage depends on the answer. | **Resolved by C15 (2026-08-06):** first-class resource registry, singular owner Product, consumer links, explicit stage, typed locators and work links. See [`managed-resource-inventory.md`](./managed-resource-inventory.md). |
 | **Stage-to-evidence mapping** | Affects Priority 3. Stage is inert until it resolves to a concrete evidence bar. | **Resolved by CD-0006 R2:** independent maturity and audience obligations, global proof floor, high-water-mark combination, and upward-only local policy. |
 | **Cross-workflow impact/freshness** | Prevents one workflow from acting after related work invalidates its assumptions. | **Resolved by CD-0006 R3 and amended by CD-0041:** declared edges, completion notices, bounded consequential-boundary checks, hard-edge-plus-breaking blocking, deterministic version fallback, and explicit version-pinned resolution for concurrent work whose affected Domains overlap. |
 | **Goal-to-outcome binding** | Affects Priority 3. *Intent fidelity* and *no silent drift* stay inert until a stated goal is checkable against what was actually delivered. | **Resolved by CD-0012 (2026-08-08):** three-part outcome contract (premise, required end-state, candidate set) approved at planning beside the CD-0006 D10 spec mandate; a weaker delivered end-state fails; mid-execution discoveries forward-link rather than substitute. See [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md). |
 | **Agent context continuity** | A lossy working-window boundary must not silently drop law, approvals, workflow position, or evidence. | **Resolved by CD-0016 (2026-08-11):** durable bounded checkpoints and monotonic boundaries; pinned state is re-derived on every call; summaries are advisory and typed restart is unimplemented pending issue #120. |
-| **Replacement relation home** | Affects Priority 1 and 2. | **Partially resolved by CD-0041:** Domain→Domain replacement has a typed, stateful owning relation. Product, Project, managed-resource, and workflow-type replacement remain with their owning models; no polymorphic weak-FK relation is implied. See [`product-data-model.md`](./product-data-model.md) §10. |
+| **Replacement relation home** | Affects Priority 1 and 2. | **Bounded by CD-0041 and PM4:** Domain `replaces` and work-item `supersedes` remain current. No generic Product, Project, resource, or workflow replacement home is implied. |
 
 ---
 

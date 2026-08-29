@@ -264,7 +264,7 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
 Capabilities with no complete Advance precedent. Built fresh on the accepted
 Concord core/domain model. The list
 is the inventory; the full model for each lives in the doc linked in its
-*Where detailed* column. Sections §3.1, §3.13a, and §3.18–§3.20 retain their full
+*Where detailed* column. Sections §3.1, §3.13a, §3.18–§3.21 retain their full
 descriptions because they are referenced from elsewhere in the docset.
 
 | # | Capability | One-line summary | Where detailed |
@@ -289,8 +289,9 @@ descriptions because they are referenced from elsewhere in the docset.
 | 3.16a | Outcome contract (goal bound to delivery) | Three-part premise / required end-state / candidate set, approved at planning and verified at completion; a weaker delivered end-state fails. | [`workflows.md`](./workflows.md) §2.1a; CD-0012 |
 | 3.17 | Lifecycle stage + proportional-rigor governance | Independent `maturity` + user-declared `audience_commitment` bands at Product/Domain/Project/resource; global evidence floor with upward-only local overrides. | [`product-data-model.md`](./product-data-model.md) §8; CD-0006 |
 | 3.18 | Managed-resource inventory with cross-Product linking | First-class declarative identity for shared infra/SaaS — underneath §3.3 (live status) and §3.9 (presented surface). | [`product-data-model.md`](./product-data-model.md) §9 |
-| 3.19 | Canonical Domain architecture | Stable Product-internal Domain identity, hierarchy, law ownership, and endpoint-specific `depends_on` / shared-contract / `replaces` relations. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D2–D4 |
-| 3.20 | Concurrent architecture-overlap control | Product-changing contracts declare Domain/law footprints; unresolved overlap blocks consequential authority until a version-pinned operator resolution exists. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D5–D7 |
+| 3.19 | Replacement relation | Typed directional stateful relation with endpoint-owned persistence; CD-0041 fixes Domain↔Domain and C15 fixes resource↔resource while other endpoint homes remain open. | [`product-data-model.md`](./product-data-model.md) §10 |
+| 3.20 | Canonical Domain architecture | Stable Product-internal Domain identity, hierarchy, law ownership, and endpoint-specific `depends_on` / shared-contract / replacement relations. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D2–D4 |
+| 3.21 | Concurrent architecture-overlap control | Product-changing contracts declare Domain/law footprints; unresolved overlap blocks consequential authority until a version-pinned operator resolution exists. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D5–D7 |
 
 ### 3.1 Product entity (first-class) + ownership data model
 - A durable `Product` type that **declaratively owns its members**: repositories,
@@ -331,18 +332,25 @@ descriptions because they are referenced from elsewhere in the docset.
   **declarative resource identity** layer underneath both — true whether or not
   any external system is reachable.
 - **Shape accepted by C15:** one canonical resource entity, singular owning Product,
-  zero-or-more consuming Products, explicit stage, and typed locator/work edges.
-  See [`managed-resource-inventory.md`](./managed-resource-inventory.md).
+  zero-or-more consuming Products, explicit stage, and typed locator/work/replacement
+  edges. See [`managed-resource-inventory.md`](./managed-resource-inventory.md).
 
-### 3.19 Canonical Domain architecture
-- A stable Product-internal Domain identity, hierarchy, law ownership, and
-  endpoint-specific `depends_on` / shared-contract / `replaces` relations.
-  See [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md).
-
-### 3.20 Concurrent architecture-overlap control
-- Product-changing contracts declare Domain/law footprints; unresolved overlap
-  blocks consequential authority until a version-pinned operator resolution exists.
-  See [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md).
+### 3.19 Replacement relation
+- A **typed, directional, stateful relation** recording that one thing replaces
+  another — product↔product, repo↔repo, resource↔resource,
+  workflow-type↔workflow-type — with a real coexistence period rather than an
+  instantaneous swap. States: `declared` → `building` → `coexisting` → `cutover`
+  → `retired`. Both query directions are first-class.
+- Carries two rules: `maturity: deprecated` must name a successor or explicitly
+  declare *retired, no successor*; a replacement cannot be declared cutover-ready
+  below the incumbent's maturity.
+- **Why new:** replacement is already load-bearing in at least six locations
+  across this document set and is maintained entirely as hand-written prose,
+  which decays silently. Advance's nearest precedent — `supersededBy` on change
+  close — is terminal-only, change-scoped, with no coexistence state and no
+  applicability to products, repos, or resources.
+- **Scope boundary:** records that a replacement exists and its state; does not
+  execute migrations. Full model in [`product-data-model.md`](./product-data-model.md) §10.
 
 ---
 
@@ -364,9 +372,9 @@ browsable specs + durable workflow docs (§3.12); (e) **workflow plurality +
 shape discipline** — purpose-built workflow types (§3.13), the
 capability-placement rubric (§3.14), and the value-statement invariant (§3.16);
 (f) **ownership semantics** — lifecycle stage governing proportional rigor
-(§3.17), and a shareable managed-resource inventory (§3.18); and (g)
-**Product-law architecture** — canonical Domains plus concurrent
-architecture-overlap control (§3.19–§3.20).
+(§3.17), a shareable managed-resource inventory (§3.18), and replacement as a
+first-class relation (§3.19); and (g) **Product-law architecture** — canonical
+Domains plus concurrent architecture-overlap control (§3.20–§3.21).
 The hard *constraints* governing how these outcomes are rebuilt (no-locks/no-repair,
 workflow-evolution, agent-buildable UI) live in
 [`design-constraints.md`](./design-constraints.md).

@@ -14,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:09685d73dc12e20288197d87f7088d560689fee04fccda124314c93b4e8e982f",
+  "sha256": "sha256:2fd25e586b3cec4c5320bea19e128a3b0dbca1332811bc037004f6e6a56f849b",
   "status": "published",
   "summary": "Describes the floor-readiness contract and the check that measures distance from the first-usable floor.",
   "tags": [

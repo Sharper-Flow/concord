@@ -14,7 +14,7 @@
   },
   "sha256": "sha256:d843c2ab1fa037963ce6b08d9efc440385b023d00b2eea88ba710c96430df66a",
   "status": "accepted",
-  "summary": "Defines the root Product, full-successor intent, and replacement-readiness boundary. CD-0082 amends its migration clauses without changing the remaining root-policy rules.",
+  "summary": "Defines the root Product and fix-forward policy.",
   "tags": [
     "product",
     "governance"

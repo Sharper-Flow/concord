@@ -9,9 +9,9 @@
 > governs it*, and *how that authority is recorded*.
 > **Primary navigation:** Durable Product knowledge is navigated by
 > **Product → Domain**, with current law and architecture-bound work together.
-> **Origin:** User direction, 2026-07-25. Lifecycle stage (§8) and shared resources
-> (§9) added by user direction, 2026-07-31; resource-first C15 shape accepted
-> 2026-08-06; Domain and Initiative shape
+> **Origin:** User direction, 2026-07-25. Lifecycle stage (§8), shared resources
+> (§9), and the replacement relation (§10) added by user direction, 2026-07-31;
+> resource-first C15 shape accepted 2026-08-06; Domain and Initiative shape
 > accepted by CD-0041 on 2026-08-18.
 
 ## TL;DR
@@ -24,9 +24,10 @@ members or call their APIs. The model makes both ownership and architecture
 legible to agents.
 
 Ownership alone is not enough to act safely. Each owned thing also declares a
-**lifecycle stage** (§8) and may be **shared with other Products** (§9). Those
-properties compose into the rules that decide how much rigor a piece of work must
-carry (§10).
+**lifecycle stage** (§8), may be **shared with other Products** (§9), and may
+stand in a **replacement relation** to something it succeeds (§10). Those three
+compose into the rules that decide how much rigor a piece of work must carry
+(§11).
 
 Product-changing work additionally binds to one home Domain, every affected
 Domain, exact governing law revisions, authorized law changes, and verification
@@ -158,12 +159,13 @@ Product {
 ManagedResource {
   id, class, kind, display_name, purpose, stage, environments,
   locators: [{ authority_kind, authority_id, namespace?, kind, value, role }],
+  replacement_relations,
 }
 ```
 
-`stage` is decided (§8). Product↔Project membership follows accepted PM5. Non-Project
-resource identity and attachments follow accepted C15. Domain replacement and
-work-item supersession keep their bounded owners in CD-0041 and PM4.
+`stage` is decided (§8). Product↔Project membership follows accepted PM5. How
+non-Project resources attach and resource replacement lives follows accepted C15;
+other entity replacement homes remain separate decisions (§10/§12).
 
 CD-0041 amends CD-0009's predecessor shape. Initiative is a derived Product view over
 canonical `work_items.kind = initiative`, PM5 scope, and the bounded
@@ -303,11 +305,11 @@ Two candidate shapes were evaluated. C15 selects the resource-first registry.
 
 | Shape | How it works | Cost |
 |---|---|---|
-| **Extend membership** | Keep Product-owns-members. Add a primary owner plus an optional `shared_with` list. | **Rejected:** copies can diverge in identity, stage, and ownership. |
-| **Resource-first registry** | Resources become first-class entities with their own identity and stage. Products link as one owner plus zero-or-more consumers. | **Selected:** canonical both-direction ownership, sharing, stage, and work links. |
+| **Extend membership** | Keep Product-owns-members. Add a primary owner plus an optional `shared_with` list. | **Rejected:** copies can diverge in identity, stage, ownership, and replacement. |
+| **Resource-first registry** | Resources become first-class entities with their own identity and stage. Products link as one owner plus zero-or-more consumers. | **Selected:** canonical both-direction ownership, sharing, stage, work links, and typed replacement. |
 
-Per-resource stage attaches once to canonical resource identity. Managed resources
-store explicit stage; they do not dynamically inherit
+Per-resource stage and cross-Product replacement attach once to canonical resource
+identity. Managed resources store explicit stage; they do not dynamically inherit
 from several linked Products. Exactly one Product owns; others consume. Native
 systems retain runtime authority.
 
@@ -316,29 +318,91 @@ cost or billing attribution is not part of this model.
 
 ---
 
-## 10. Bounded replacement relations
+## 10. Replacement relation
 
-> **Status:** Bounded existing mechanisms. CD-0041 owns Domain replacement and
-> PM4 owns work-item supersession.
+> **Status:** Partially accepted. C15 owns managed-resource replacement;
+> CD-0041 owns Domain replacement; other endpoint homes remain open.
 
-CD-0041 defines the Product-internal Domain `replaces` relation and its
-version-pinned overlap controls. PM4 defines work-item `supersedes`, including
-the atomic terminal transition. These relations have separate owners and
-semantics.
+Building a replacement for something is a normal event, and the fact that
+something *is* a replacement is load-bearing information. Domain and managed-
+resource replacement now have typed owners; other endpoint families remain
+prose until their owning decisions land (§10.4).
 
-The Product model does not define a generic replacement state machine or a
-Product, Project, resource, or workflow replacement home. C15 still defines
-canonical managed-resource identity, sharing, stage, locators, and work links.
-The released managed-resource and Domain-attachment operator surfaces remain in
-scope. Migration and correction are demand-driven operations under CD-0082.
+### 10.1 Shape
+
+A replacement is a **typed, directional relation between two things of the same
+kind** — product↔product, Domain↔Domain, Project↔Project, resource↔resource, or
+workflow-type↔workflow-type.
+It is not a boolean flag on either side, and not a sentence in a document.
+
+Both query directions are first-class, matching the legibility principle in §4:
+
+- *What replaces this?*
+- *What does this replace?*
+
+### 10.2 States
+
+A replacement is not an instant. It has a state:
+
+| State | Meaning |
+|---|---|
+| `declared` | A replacement is intended. Nothing is built. |
+| `building` | The successor exists but does not yet cover the incumbent's scope. |
+| `coexisting` | Both exist; scope/authority says which still governs each migration unit. |
+| `cutover` | The successor carries the migrated scope; correction is fix-forward. |
+| `retired` | The incumbent is decommissioned. |
+
+For Concord→Advance migration, full replacement readiness is proven before any
+Product moves. During migration, Advance governs unmigrated Products and Concord
+governs migrated Products. One Product is never split. Cutover is one-way/fix-forward;
+Advance retires after the final Product moves (CD-0006 D1–D2).
+
+### 10.3 Two rules
+
+1. **`maturity: deprecated` is not self-sufficient.** A deprecated thing must
+   either name its successor or explicitly declare *retired, no successor*.
+   Deprecation without a destination is a dead end an agent cannot act on — it
+   says "stop" without saying "go where".
+2. **Cutover maturity floor.** A replacement cannot be declared cutover-ready at
+   lower maturity than the incumbent it replaces. See §11.2.
+
+### 10.4 This already exists as prose
+
+Replacement relationships are already load-bearing across this document set and
+are maintained entirely by hand:
+
+| Location | Relation |
+|---|---|
+| [`priorities.md`](./priorities.md) § First-usable floor | Concord becomes usable only at full replacement readiness; migration then proceeds Product by Product. |
+| [`rollout-plan.md`](./rollout-plan.md) § Staged crossover | Selected active work migrates with each Product; migrated Products fix forward. |
+| [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public issue-linked lessons define predecessor mechanisms Concord must replace or make unnecessary later. |
+| [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public lessons inform replacement design without importing predecessor implementation identities. |
+| [`workflows.md`](./workflows.md) § Workflow types | Static-analysis workflow types "replace" the ad-hoc analysis skills. |
+| [`vertical-integration.md`](./vertical-integration.md) § Options | "Swallowing" — Concord absorbs and replaces the tools entirely. |
+| [`clarifications.md`](./clarifications.md) C11 | Accepted: Concord is Advance's full successor under CD-0006. |
+
+Prose supersession decays silently: the labels have to be re-verified by hand on
+every refresh, and a stale one is indistinguishable from a current one.
+
+CD-0041 assigns Domain replacement to a stateful, same-Product Domain relation.
+Product, Project, and workflow-type replacement still require their own typed
+homes; no polymorphic weak foreign key (FK) relation is implied.
+
+### 10.5 Scope boundary
+
+The relation records **that** a replacement exists and **what state it is in**.
+It does not execute migrations, move data, or perform cutovers. Migration tooling
+is a separate question and is not implied by this model.
+
+The nearest existing precedent is Advance's `supersededBy` field on change close:
+terminal-only, change-scoped, with no coexistence period and no applicability to
+products, repos, or resources.
 
 ---
 
-## 11. How stage and sharing compose
+## 11. How the three compose
 
-Stage (§8.5) and sharing (§9) compose into one cross-field rule: **effective
-rigor is the greatest across the touch set**. No field can lower the rigor owed
-to another touched resource or Product.
+Stage (§8.5), sharing (§9), and replacement (§10.3) compose into two cross-field rules. First, **effective rigor is the greatest across the touch set**: no field can lower the rigor owed to anything else. Second, **a replacement cannot be declared cutover-ready at lower maturity than the incumbent**. Each rule is binding, and together they make the three fields one model.
 
 ---
 
@@ -346,11 +410,15 @@ to another touched resource or Product.
 
 C1, C15, C16, and Domain authority are accepted by CD-0007, the managed-resource
 contract, CD-0006, and CD-0041 respectively. The remaining model-internal open
-question is:
+questions are:
 
 1. **Typing depth.** Are members typed further (e.g. infra sub-kinds:
    job/cron/service/db), or kept as opaque tagged records? **Lean:** light typing
    + tags — enough to be legible, not so much it ossifies.
+2. **Non-Domain replacement relation home.** C15 fixes a typed resource relation
+   table with real FKs, and CD-0041 fixes Domain replacement. Product, Project,
+   and workflow-type replacement homes remain their owning decisions; no
+   polymorphic weak-FK relation is implied.
 
 ---
 
@@ -362,7 +430,7 @@ question is:
 | `feature-inventory.md` §3.3 | Signal ingestion is the *live* layer; ownership is the *declarative* layer. Distinct. |
 | `feature-inventory.md` §3.17 | Lifecycle stage + proportional-rigor governance — §8 and §11 detail its model. |
 | `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
-| `decisions/CD-0041-architecture-bound-product-law.md` | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
+| `feature-inventory.md` §3.19 | Replacement relation — §10 details its states and rules. |
 | `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |

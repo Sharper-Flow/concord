@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bc3f5c04a3714c90289384aeae7fe4650f9c0247a428ee899ccaacd78697e813",
+  "sha256": "sha256:a5d067752687e35199751d5bc88f575ebfc90ac42e9c398fa16aa88cf1267812",
   "status": "accepted",
   "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
   "tags": [

@@ -140,9 +140,6 @@ models used by Jira, Bugzilla, Linear, Plane, and GitHub Issues.
 `implements` is a non-governing fulfillment link: it does not determine readiness,
 terminality, or hierarchy, so PM4 imposes no transitive-closure/cycle rule on it.
 
-PM4 supersession is a work-item relation only. It does not imply a generic
-Product, Project, resource, or other entity migration model.
-
 `relates_to` is excluded because no accepted PM1 job requires an untyped symmetric
 link. Add it only through a future demonstrated query need.
 
@@ -175,9 +172,10 @@ Reopening B requires an explicit operation that first removes/replaces the activ
 supersession relation and then transitions B to `needed` in the same transaction.
 Directly changing `superseded → needed` is invalid.
 
-This work-item operation is distinct from the managed-resource identity and
-attachment model in `product-data-model.md` §9. PM4 does not extend its
-supersession semantics to resources or other entity types.
+This work-item operation is distinct from managed-resource replacement in
+`product-data-model.md` §10, whose declared/building/coexisting/cutover/retired
+states model migration between repos, infrastructure, or services. PM4 does not
+collapse that resource lifecycle into work-item supersession.
 
 ### 5.3 External blockers
 

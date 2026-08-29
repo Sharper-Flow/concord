@@ -4,9 +4,8 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** C15; resource-first canonical identity with Product ownership/
 > consumption links.
-> **Amended by:** CD-0082 removes the unimplemented resource-replacement model.
 > **Binding inputs:** PM2 global authority, PM3 typed-core/extension rule, PM5 stable
-> identity/membership precedent, Product data model §§1–4, 8–9, and 11, native-authority
+> identity/membership precedent, Product data model §§1–4 and 8–11, native-authority
 > placement, and accepted TS1–TS9 evolution gates.
 > **Does not decide:** credentials/secrets, provider integrations/live polling,
 > billing/cost allocation, resource execution tools,
@@ -21,12 +20,12 @@ rule, PM5's stable-identity and membership precedent, the Product data model,
 the native-authority placement rule, and the accepted TS1 through TS9
 evolution gates. This record selects the resource-first registry: canonical
 `managed_resource` entities with one owning Product, typed consumer links,
-stable locators, and explicit stage.
+stable locators, explicit stage, and typed replacement.
 ## Contract
 
 The binding contract is sections 1 through 5: the resource-first decision,
-the canonical model covering resource fields, locators, Product links, and work
-links, the stage rule, the atomic operations and
+the canonical model covering resource fields, locators, Product links, work
+links, and replacement, the stage rule, the atomic operations and
 invariants, and the required bounded query directions. Sections 6 through 12
 record agent-surface placement, the Product-row boundary, the candidate
 comparison, evidence, implementation acceptance, rejected fields, and
@@ -38,13 +37,13 @@ one canonical stable identity. Products link to them many-to-many:
 
 - every resource has exactly one owning Product;
 - zero or more other Products may consume it;
-- resource stage, locators, and metadata attach once to the canonical resource—
-  not copies beneath each Product; and
+- resource stage, locators, metadata, and replacement state attach once to the
+  canonical resource—not copies beneath each Product; and
 - work may link directly to resources it touches.
 
 This selects the resource-first registry over Product-local `shared_with` lists.
-Consistent sharing, reverse ownership, per-resource stage, and work rigor cannot be
-structurally enforced when one external resource is copied into several
+Consistent sharing, reverse ownership, per-resource stage, work rigor, and replacement
+cannot be structurally enforced when one external resource is copied into several
 Product records.
 
 Resources remain declarative inventory. Native systems own provisioning, runtime
@@ -137,6 +136,26 @@ provider execution state. Every linked resource participates in the work's C16
 effective-rigor calculation once that mapping is accepted. If the resource's Products
 extend beyond work's derived PM5 scope, TS5 requires explicit cross-scope intent.
 
+### 2.5 Resource replacement
+
+`resource_replacements(successor_id, incumbent_id, state, version)` is a typed
+resource↔resource relation with real FKs and accepted states:
+
+```text
+declared | building | coexisting | cutover | retired
+```
+
+- endpoints must have the same resource `kind`;
+- no self-edge/cycle;
+- one incumbent has at most one active non-retired successor;
+- state transitions append events;
+- cutover successor maturity cannot be lower than incumbent maturity;
+- deprecated resource names successor or explicit retired/no-successor reason; and
+- relation records intent/state only; it never migrates or decommissions native data.
+
+This is a typed resource relation, not a polymorphic weak-FK table. Product/Project/
+workflow replacement homes remain their owning decisions.
+
 ## 3. Stage rule
 
 Every resource stores explicit stage. At creation, UI/core may propose the owner
@@ -163,8 +182,9 @@ authoritative input and forbids a consumer Product from lowering it.
   expected version; locator operations remain typed and append history.
 - **Link work:** create one work-resource edge after both endpoint/version/scope
   checks.
-- **Delete:** physical deletion blocked while Product/work references or retained
-  authoritative history require identity.
+- **Replace:** create/update one typed replacement relation with graph/stage checks.
+- **Delete:** physical deletion blocked while Product/work/replacement references or
+  retained authoritative history require identity. Retirement is not deletion.
 
 All accepted operations append `domain_events` and update typed projections in one
 transaction. No copied Product-resource rows, reconciliation jobs, or direct
@@ -178,7 +198,8 @@ Required bounded directions:
 2. Resource → owner + consumers with per-Product purpose/environment;
 3. Work → linked resources and their stage/ownership;
 4. Resource → linked active/terminal work;
-5. locator → unique/ambiguous/unknown resource resolution.
+5. Resource replacement → predecessor/successor and state; and
+6. locator → unique/ambiguous/unknown resource resolution.
 
 Results return canonical resource once, stable IDs/locators, singular owner, bounded
 consumers, stage/version, authority/freshness, and no live provider inference.
@@ -216,24 +237,25 @@ selection/drill-down.
 
 Optional live signals are separate observations referencing `resource_id`, with
 their own authority/watermark/age. They never overwrite ownership, stage, purpose,
-or environment. Unreachable provider status does not erase declarative membership.
+environment, or replacement. Unreachable provider status does not erase declarative
+membership.
 
 ## 8. Candidate comparison
 
 | Candidate | Decision |
 |---|---|
-| Product-local members + copied `shared_with` IDs | Rejected: identity/stage can diverge and reverse lookup lacks one authority. |
+| Product-local members + copied `shared_with` IDs | Rejected: identity/stage/replacement can diverge and reverse lookup lacks one authority. |
 | Product-local member + singular owner record elsewhere | Rejected: two representations and reconciliation requirement. |
-| Resource-first entity + owner/consumer links | **Selected:** one identity/stage authority and bounded both-direction queries. |
+| Resource-first entity + owner/consumer links | **Selected:** one identity/stage/replacement authority and bounded both-direction queries. |
 | Treat resources as Projects | Rejected: Projects are coordination/workspace identities with repository locators and PM5 semantics; SaaS/database/queue membership is different. |
-| Generic external-ref blob only | Rejected: cannot enforce owner cardinality, sharing, stage, or work links. |
+| Generic external-ref blob only | Rejected: cannot enforce owner cardinality, sharing, stage, replacement, or work links. |
 
 ## 9. Evidence basis
 
 - Concord already requires Product→member and member→Product legibility, shared
-  resources, and per-resource stage (`product-data-model.md`).
-- PM3 classifies managed-resource identity as first-class when sharing and stage
-  attach; PM5 provides stable-ID and typed-membership precedent without
+  resources, per-resource stage, and resource replacement (`product-data-model.md`).
+- PM3 classifies managed-resource identity as first-class when sharing/stage/
+  replacement attach; PM5 provides stable-ID and typed-membership precedent without
   enrolling resources as Projects.
 - Backstage models infrastructure as first-class Resource entities with required
   singular ultimate owner and directional ownership relations. It is comparison
@@ -253,6 +275,7 @@ Prove:
 - shared resource stage changes once and reads identically from every Product;
 - Product↔resource reverse queries agree and stay bounded;
 - work-resource scope/rigor inputs are complete without copied Product state;
+- replacement cycles/multi-successor/cutover-stage violations fail atomically;
 - owner transfer never changes stage or drops consumer purpose silently;
 - provider outage leaves declarative inventory authoritative;
 - 10× measured inventory queries meet PM1 P99 ≤100 ms target; and
@@ -264,7 +287,7 @@ Prove:
 - Credentials, secrets, private connection strings, tokens, provider payloads.
 - Live health/status mixed into inventory authority.
 - Cost/billing attribution, team assignments, on-call, service level agreement (SLA), or incident ownership.
-- Product-specific copies of stage or lifecycle.
+- Product-specific copies of stage/lifecycle/replacement.
 - Multiple owners, ownerless resources, inferred owner from consumer order.
 - Generic tags as identity or authorization.
 - Cascading Product/work deletion of resources.
@@ -282,11 +305,12 @@ Reopen C15 when:
 - coarse kind/environment registries churn on most additions;
 - explicit resource stage causes harmful duplication without preserving history;
 - work-resource links cannot support C16 rigor jobs without richer typed semantics;
+- resource replacement legitimately needs multiple active successors; or
 - the `concord_product_view.resources` candidate fails TS9 selection/context evidence.
 
 Any amendment preserves canonical resource identity, one ownership authority, typed
-sharing, explicit stage, real FK relations, native execution ownership, and no
-secret storage.
+sharing, explicit stage, real FK relations, native execution ownership, and no secret
+storage.
 
 ## Acceptance criteria
 

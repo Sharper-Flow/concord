@@ -16,6 +16,7 @@ import (
 )
 
 const MaxEnvelopeBytes = 65536
+const MaxResultEnvelopeBytes = 51200
 
 type Outcome string
 
@@ -310,8 +311,8 @@ func (e Envelope) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(b) > MaxEnvelopeBytes {
-		return nil, fmt.Errorf("agent envelope exceeds %d bytes", MaxEnvelopeBytes)
+	if len(b) > MaxResultEnvelopeBytes {
+		return nil, fmt.Errorf("agent envelope exceeds %d bytes", MaxResultEnvelopeBytes)
 	}
 	return b, nil
 }

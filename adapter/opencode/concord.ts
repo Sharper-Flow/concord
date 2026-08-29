@@ -1,11 +1,15 @@
-import { tool, type ToolContext } from "@opencode-ai/plugin"
+import { tool, type ToolContext, type ToolResult } from "@opencode-ai/plugin"
 import { clientRef } from "./credentials"
-import { contractOperations, manifestDigest, payloadSchemas } from "./generated-contracts"
+import { contractOperations, manifestDigest, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
-import { errorEnvelopeForLane } from "./dispatch"
+import { errorEnvelopeForLane, type AgentResultEnvelope } from "./dispatch"
 
 const MAX_STDERR = 8192
+
+type HostToolArgs = Record<string, unknown> & { operation: string; input: Record<string, unknown> }
+type CoreConcordEnvelope = Record<string, unknown>
+type HostConcordEnvelope = CoreConcordEnvelope | AgentResultEnvelope
 
 export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }> }
 
@@ -152,7 +156,7 @@ async function resolveAmbientContext(context: ToolContext): Promise<AmbientConte
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
 // contract check, and the approval_required resubmission.
-export async function invokeConcordOperation(toolName: string, args: any, context: ToolContext): Promise<any> {
+export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
   if (toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise") {
@@ -214,19 +218,35 @@ export async function invokeConcordOperation(toolName: string, args: any, contex
     try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation") }
     if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", "post-approval response failed the TS7 contract", "possible", "reconcile_operation")
   }
-  return response;
+  return response as CoreConcordEnvelope;
 }
 
-export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_product_view", args, context) })
-export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_browse", args, context) })
-export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_trace", args, context) })
-export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_knowledge", args, context) })
-export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_define", args, context) })
-export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_domain", args, context) })
-export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_initiative", args, context) })
-export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: any, context: ToolContext) => executeWorkTransition(args, context) })
-export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_relate", args, context) })
-export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: any, context: ToolContext) => invokeConcordOperation("concord_work_compact", args, context) })
+function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
+  let output = JSON.stringify(envelope)
+  if (Buffer.byteLength(output) > maxEnvelopeBytes) {
+    output = JSON.stringify(adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, "possible", "reconcile_operation"))
+  }
+  return { title: toolName, output, metadata: {} }
+}
+
+async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
+  return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, await invokeConcordOperation(toolName, args, context))
+}
+
+async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
+  return encodeHostResult("concord_work_transition", args.operation, `${context.sessionID}-${context.messageID}`, await executeWorkTransition(args, context))
+}
+
+export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", args, context) })
+export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", args, context) })
+export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", args, context) })
+export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", args, context) })
+export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", args, context) })
+export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", args, context) })
+export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", args, context) })
+export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTransition(args, context) })
+export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", args, context) })
+export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", args, context) })
 
 // laneDispatchRequest decides whether a work_transition invocation routes to
 // the lane dispatcher (CD-0067 D5) or falls through to the generic core
@@ -267,7 +287,7 @@ export function laneDispatchRequest(args: any): LaneDispatchInput | { error: str
 // falls through to the generic core transport. The dispatch path shares the
 // same transport seam as every other adapter tool, so a host-side caller
 // receives the same envelope shape on either branch.
-async function executeWorkTransition(args: any, context: ToolContext): Promise<unknown> {
+async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   if (args?.operation === "workflow_action") {
     const request = laneDispatchRequest(args)
     if (request && "error" in request) {

@@ -45,6 +45,118 @@
           ],
           "properties": {
             "tool": {
+              "const": "concord_domain"
+            },
+            "operation": {
+              "const": "list"
+            },
+            "query_id": {
+              "const": "C22.DomainList"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_domain"
+            },
+            "operation": {
+              "const": "detail"
+            },
+            "query_id": {
+              "const": "C22.DomainDetail"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_domain"
+            },
+            "operation": {
+              "const": "active_work"
+            },
+            "query_id": {
+              "const": "C22.DomainActiveWork"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_domain"
+            },
+            "operation": {
+              "const": "attachments"
+            },
+            "query_id": {
+              "const": "C22.DomainAttachments"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_domain"
+            },
+            "operation": {
+              "const": "overlaps"
+            },
+            "query_id": {
+              "const": "C22.DomainOverlaps"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation"
+          ],
+          "not": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "properties": {
+            "tool": {
+              "const": "concord_domain"
+            },
+            "operation": {
+              "enum": [
+                "observation_record",
+                "observation_dismiss"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
               "const": "concord_product_view"
             },
             "operation": {
@@ -456,6 +568,7 @@
             "concord_work_trace",
             "concord_knowledge",
             "concord_work_define",
+            "concord_domain",
             "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
@@ -478,6 +591,12 @@
             "messages",
             "search",
             "resolve_note",
+            "detail",
+            "active_work",
+            "attachments",
+            "overlaps",
+            "observation_record",
+            "observation_dismiss",
             "capture",
             "revise_intent",
             "lifecycle",
@@ -501,7 +620,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries)$"
+          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "outcome": {
           "enum": [
@@ -868,6 +987,7 @@
             "concord_work_trace",
             "concord_knowledge",
             "concord_work_define",
+            "concord_domain",
             "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
@@ -890,6 +1010,12 @@
             "messages",
             "search",
             "resolve_note",
+            "detail",
+            "active_work",
+            "attachments",
+            "overlaps",
+            "observation_record",
+            "observation_dismiss",
             "capture",
             "revise_intent",
             "lifecycle",
@@ -913,7 +1039,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries)$"
+          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "reason_code": {
           "type": "string",

@@ -117,7 +117,7 @@ func TestDomainOverlapSequencedAndGloballyBoundedDetailsValidate(t *testing.T) {
 	if encodeErr != nil {
 		t.Fatalf("bounded sequenced overlap rejected: %v", encodeErr)
 	}
-	if len(encoded) >= MaxEnvelopeBytes {
+	if len(encoded) >= MaxResultEnvelopeBytes {
 		t.Fatalf("bounded overlap envelope is too close to the transport cap: %d", len(encoded))
 	}
 	detail.ResolutionState = "current"
@@ -229,7 +229,13 @@ func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 }
 
 func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
-	payload := json.RawMessage(fmt.Sprintf(`{"value":%q}`, strings.Repeat("x", MaxEnvelopeBytes)))
+	if MaxEnvelopeBytes != 65536 {
+		t.Fatalf("transport input limit=%d, want 65536", MaxEnvelopeBytes)
+	}
+	if MaxResultEnvelopeBytes != 51200 {
+		t.Fatalf("serialized envelope limit=%d, want 51200", MaxResultEnvelopeBytes)
+	}
+	payload := json.RawMessage(fmt.Sprintf(`{"value":%q}`, strings.Repeat("x", MaxResultEnvelopeBytes)))
 	e := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), "PM1.Q1", payload, false)
 	if _, err := e.Encode(); err == nil {
 		t.Fatal("oversize envelope accepted")
@@ -314,8 +320,8 @@ func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T
 	if err != nil {
 		t.Fatalf("limit error must remain deliverable: %v", err)
 	}
-	if len(encoded) > MaxEnvelopeBytes {
-		t.Fatalf("limit error size=%d, want <= %d", len(encoded), MaxEnvelopeBytes)
+	if len(encoded) > MaxResultEnvelopeBytes {
+		t.Fatalf("limit error size=%d, want <= %d", len(encoded), MaxResultEnvelopeBytes)
 	}
 	if len(hardLimited.EvidenceRefs) != 0 {
 		t.Fatalf("limit error retained rejected success evidence: %d refs", len(hardLimited.EvidenceRefs))
@@ -372,8 +378,8 @@ func mustEncode(e Envelope) []byte {
 // through runtime.resultEnvelope.
 func decodeEnvelopeForTest(data []byte) (Envelope, error) {
 	var e Envelope
-	if len(data) > MaxEnvelopeBytes {
-		return e, fmt.Errorf("agent envelope exceeds %d bytes", MaxEnvelopeBytes)
+	if len(data) > MaxResultEnvelopeBytes {
+		return e, fmt.Errorf("agent envelope exceeds %d bytes", MaxResultEnvelopeBytes)
 	}
 	return e, json.Unmarshal(data, &e)
 }

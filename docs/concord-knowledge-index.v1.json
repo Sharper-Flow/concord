@@ -414,7 +414,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5ba4aa39e02c1d3a57bfb5afa67937c71607bbe1756f7e57a24ad4fc36c9971a",
+      "sha256": "sha256:1e44b42106e1d8e830ed75ddbcca100735fdd7969f8396fbec8610a2e5054f04",
       "status": "accepted",
       "summary": "Consolidates the generated current agent surface, exact manifest-digest identity, core authority boundary, and deterministic pre-go-live evidence as amended by CD-0042.",
       "tags": [
@@ -3489,7 +3489,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:66e9a6606bb139254b9da584453a986fef6e66b7cd6f2fb89e896dc094a3465a",
+      "sha256": "sha256:ee6093e2d3940356358724adb25bebd2488b90de5817d354415d03b3c5dce59d",
       "status": "accepted",
       "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
       "tags": [

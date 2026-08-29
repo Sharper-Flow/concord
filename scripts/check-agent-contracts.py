@@ -72,6 +72,10 @@ def validate_host_pin(pin: object, schema: dict, findings: list[str]) -> dict | 
             findings.append(f"adapter host pin: outstanding allowance {allowance['file']} {allowance['code']} carries no tracking issue")
         if not outstanding and "issue" in allowance:
             findings.append(f"adapter host pin: {allowance['state']} allowance {allowance['file']} {allowance['code']} must not carry an issue")
+    runtime_version = pin["runtime_probe"]["host_version"]
+    plugin_versions = [package["version"] for package in pin["packages"] if package["name"] == "@opencode-ai/plugin"]
+    if plugin_versions and runtime_version != plugin_versions[0]:
+        findings.append(f"adapter host pin: runtime probe version does not match @opencode-ai/plugin ({runtime_version} != {plugin_versions[0]})")
     return None if findings else pin
 
 

@@ -75,7 +75,7 @@
           ]
         },
         "max_bytes": {
-          "const": 65536
+          "const": 51200
         }
       }
     },
@@ -324,7 +324,7 @@
           ]
         },
         "output_bytes": {
-          "const": 65536
+          "const": 51200
         },
         "versions": {
           "type": "array",
@@ -352,7 +352,7 @@
       ],
       "properties": {
         "max_output_bytes": {
-          "const": 65536
+          "const": 51200
         },
         "max_items": {
           "const": 100

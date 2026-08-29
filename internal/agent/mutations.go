@@ -2237,8 +2237,8 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	if err != nil {
 		return coreError(base, "malformed_response", fmt.Sprintf("mutation result envelope cannot be encoded: %v", err), "contact_operator", false)
 	}
-	if len(encoded) > MaxEnvelopeBytes {
-		return coreError(base, "limit_exceeded", fmt.Sprintf("mutation result envelope exceeds %d bytes", MaxEnvelopeBytes), "reduce_limit", false)
+	if len(encoded) > MaxResultEnvelopeBytes {
+		return coreError(base, "limit_exceeded", fmt.Sprintf("mutation result envelope exceeds %d bytes", MaxResultEnvelopeBytes), "reduce_limit", false)
 	}
 	return response
 }

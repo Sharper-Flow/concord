@@ -100,7 +100,7 @@ Binding: [`../agent-adapter-transport-contract.md`](../agent-adapter-transport-c
 Every tool returns strict `ok|pending|partial|error`. Core and adapter origins are
 disjoint. Authority, freshness, source versions, pagination, omissions, warnings,
 evidence, effect certainty, and recovery are structural. No success boolean or raw
-process exhaust. Serialized output caps at 65,536 bytes.
+process exhaust. Serialized output caps at 51,200 bytes.
 
 Binding: [`../agent-result-envelope.md`](../agent-result-envelope.md) and
 [`../../contracts/agent-tool-envelope.schema.json`](../../contracts/agent-tool-envelope.schema.json).

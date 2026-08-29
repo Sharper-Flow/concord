@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-29T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0082",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0082-migration-and-replacement-controls-are-demand-driven.md",
+  "product_wide_rationale": "Keeps migration and correction demand-driven, retains the current replacement-readiness evidence floor, and removes unsupported Product-wide obligations without changing runtime behavior.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:012cee5a824329a894064bcabe9551c61bca76f938a27c0696b547f2bcc9e4cb",
+  "status": "accepted",
+  "summary": "Migration and correction are demand-driven and ad hoc. Replacement readiness remains an evidence claim. CD-0006 D1-D2 and CD-0053 D4 cutover framing are amended, while Domain, PM4, and data-integrity controls remain bounded and current.",
+  "tags": [
+    "migration",
+    "replacement-readiness",
+    "product-law"
+  ],
+  "title": "Migration and replacement controls are demand-driven"
+}

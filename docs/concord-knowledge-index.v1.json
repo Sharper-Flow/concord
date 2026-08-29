@@ -298,7 +298,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:8ee0326a5879603554438e797365d04151d4807cae422010f711fa81c5b2dfdf",
+      "sha256": "sha256:ea55aefbb8d72c2b004cf27357c6c658e2a383a48e9fad9f62bda1df90a0ba39",
       "status": "accepted",
       "summary": "Defines the resource-first managed-resource inventory with a singular owner Product, consumer links, and typed locators.",
       "tags": [
@@ -439,7 +439,7 @@
       },
       "sha256": "sha256:d843c2ab1fa037963ce6b08d9efc440385b023d00b2eea88ba710c96430df66a",
       "status": "accepted",
-      "summary": "Defines the root Product and fix-forward policy.",
+      "summary": "Defines the root Product, full-successor intent, and replacement-readiness boundary. CD-0082 amends its migration clauses without changing the remaining root-policy rules.",
       "tags": [
         "product",
         "governance"
@@ -1742,7 +1742,7 @@
       },
       "sha256": "sha256:89652b9df99d35d852be3ccb2877e9a066493538c0d54852d68716086e737825",
       "status": "accepted",
-      "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. Each answer cites its mechanism and executable evidence and is cutover-blocking per issue #295.",
+      "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. CD-0082 amends the cutover framing without changing these answers.",
       "tags": [
         "predecessor",
         "migration",
@@ -2593,6 +2593,30 @@
       "title": "The registry gains a design worker lane"
     },
     {
+      "date": "2026-08-29T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0082",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0082-migration-and-replacement-controls-are-demand-driven.md",
+      "product_wide_rationale": "Keeps migration and correction demand-driven, retains the current replacement-readiness evidence floor, and removes unsupported Product-wide obligations without changing runtime behavior.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:012cee5a824329a894064bcabe9551c61bca76f938a27c0696b547f2bcc9e4cb",
+      "status": "accepted",
+      "summary": "Migration and correction are demand-driven and ad hoc. Replacement readiness remains an evidence claim. CD-0006 D1-D2 and CD-0053 D4 cutover framing are amended, while Domain, PM4, and data-integrity controls remain bounded and current.",
+      "tags": [
+        "migration",
+        "replacement-readiness",
+        "product-law"
+      ],
+      "title": "Migration and replacement controls are demand-driven"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -2771,7 +2795,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:4f8f3f8ce4f6c74f572b5afa73369699122a64ac90019016d5bc5297674b796d",
+      "sha256": "sha256:d1a97971028bdfbb56ac3ef06835d6c2c45c91c63ee701defd3573085c52fd71",
       "status": "accepted",
       "summary": "Defines the authoritative event log and typed Product-memory projections.",
       "tags": [
@@ -2823,7 +2847,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:1c67fe457c36032cbfa6aa15a809327a20b6b58cfa0c94d6f795c66b580ec847",
+      "sha256": "sha256:59a05c2c2926bd89d8118dea51cd9bc0e42b0245b908178dc118f198dbc04532",
       "status": "accepted",
       "summary": "Defines the five-state work lifecycle, its closed transition table, and the typed relations derived from it.",
       "tags": [
@@ -3083,7 +3107,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e49b028c566c63df1074d8fbb60ab2d10e8d8319187fc26601a5075a90621b89",
+      "sha256": "sha256:b644b7fc2f7ce21aca3a32a6180673f52bd3bfd311e2ac45fbddc254d5ed9f04",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -3648,7 +3672,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d3175c205cbfdfd9a87978cdae6fdfa14e237672461e33b1a1986039d45d1ba1",
+      "sha256": "sha256:7d5c563de0284a0bbd970a669075e7dd8c15a2b3a9d78c7e8233fe2480bf2344",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -3695,7 +3719,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:3ef557857a32c790c337e868b0a39d92afd43624eed0d2e72fb1385eaa3f32ec",
+      "sha256": "sha256:45dbb7392ad92679ba2be155bdb023e9e06210075221f3b701ed0160751102f2",
       "status": "published",
       "summary": "Descriptive companion record of the Go-core architecture direction and the consolidated resilience invariants. Not accepted law: the header names priorities.md as canonical for its subject and records direction only, so under the procedure's recorded-acceptance rule it cannot take a law-bearing kind. The decisions it cites (CD-0002 and peers) carry the authority for the invariants it restates.",
       "tags": [
@@ -3767,7 +3791,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:a5d067752687e35199751d5bc88f575ebfc90ac42e9c398fa16aa88cf1267812",
+      "sha256": "sha256:bc3f5c04a3714c90289384aeae7fe4650f9c0247a428ee899ccaacd78697e813",
       "status": "accepted",
       "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
       "tags": [
@@ -3789,7 +3813,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:53eb4462af6e8520c669d6dd37509e0b1b1f404ce69c371f059499fb480af48e",
+      "sha256": "sha256:ce06047a2b1510d12e91c778463b21a52195c055f2d0611df79bb015eeaedc5f",
       "status": "published",
       "summary": "Predecessor capability inventory marked non-authorizing in its own header: every capability categorized as transfer, refactor, or new, aligned to priorities without restating them. It is snapshot evidence about the predecessor, not current operational truth, and establishes no transfer plan.",
       "tags": [
@@ -3815,7 +3839,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:2fd25e586b3cec4c5320bea19e128a3b0dbca1332811bc037004f6e6a56f849b",
+      "sha256": "sha256:09685d73dc12e20288197d87f7088d560689fee04fccda124314c93b4e8e982f",
       "status": "published",
       "summary": "Describes the floor-readiness contract and the check that measures distance from the first-usable floor.",
       "tags": [
@@ -3907,7 +3931,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:2394b7c09ced4b249807f559bfb22ff339bc317519ebddf58a2c2b6b55dac53f",
+      "sha256": "sha256:a98a33921c466e54c26e10d0b735a1fa46223685cf76ffe7d8c6789fc8958945",
       "status": "published",
       "summary": "Per-territory assessment of Concord's operational coverage against the predecessor, validated on every CI run.",
       "tags": [
@@ -3930,7 +3954,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:fe0d6045f5446090a824fa88da22f7f51e063b657725d15b31889704ec101732",
+      "sha256": "sha256:978fec0d599bd52e553c4bd9590e9d5f23f163aa4db2e2a2a2a62d242fd7efd1",
       "status": "accepted",
       "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
       "tags": [
@@ -3956,7 +3980,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:acaba916bea2e12e3af0e966a6da83c7c7cb40f9541a7fc1c10b7f5f8b14071e",
+      "sha256": "sha256:e3a6095a3641c25ff2f7dbd56a1be295f3ca93787da993e886e3e9e06b68193e",
       "status": "published",
       "summary": "Canonical Product data model with Domains and Initiative, aligned v4 under CD-0041.",
       "tags": [
@@ -4008,7 +4032,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:dc5fc94fea9ef44ea711eae1244998c8d3c81d692ab2080da5e53518c9ee8cd7",
+      "sha256": "sha256:9e2e4ddd8285c70bf0539c05131d357f7ed921fcad6e0198cf4b3931d6efa9ac",
       "status": "published",
       "summary": "Sequences the public bootstrap and the path to replacement readiness under CD-0007 and CD-0010.",
       "tags": [
@@ -4161,7 +4185,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:399299a4f52e3a14224d1ce5aa0241c65d7df4b7e589a9f5be135b817416c8be",
+      "sha256": "sha256:528cf3aa4b5d4316b9a89e3ce084c9f588ef38a1e00b7d1cdc179edd92f52a1c",
       "status": "published",
       "summary": "Investigates whether to own, absorb, or Product-scope the adjacent lgrep, vision, and episode tools.",
       "tags": [

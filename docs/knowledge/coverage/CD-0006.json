@@ -1,5 +1,22 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBuiltinWorkflowRegistryHoldsOneVersionPerFamily"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProductChangingDefinitionsHaveApprovalRoute"
+    },
+    {
+      "kind": "scenario",
+      "value": "WF02-planning-requires-outcome"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-floor-readiness.py"
+    }
+  ],
   "id": "CD-0006",
-  "issue": 295,
-  "state": "outstanding"
+  "state": "satisfied"
 }

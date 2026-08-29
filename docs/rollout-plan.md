@@ -84,20 +84,19 @@ Beyond the usability floor, replacement readiness additionally requires:
 Both bars are decomposed in the floor manifest, and each condition's `source` names
 the document and section that bears it.
 
-## 4. Later migration
+## 4. Demand-driven adoption and correction
 
 Concord does not self-host its own development workflow before the replacement-ready
-floor is proven. After the floor is accepted, migration proceeds one Product at a
-time under the accepted fix-forward policy:
+floor is proven. The floor is an evidence claim, not a migration trigger or plan.
 
-- all Projects in the selected Product move together;
-- only deliberately selected active work moves;
-- a migrated Product fixes forward in Concord and does not roll back;
-- the predecessor remains authority only for Products not yet migrated;
-- the predecessor retires after the final Product migration.
+Migration and correction remain demand-driven and ad hoc. Each operation defines
+its local scope, authority, input, idempotency, provenance, recovery, and native
+execution boundary. The existing predecessor inventory and import commands remain
+utilities with their current safeguards.
 
-Migration is a later accepted operation, not an implication of a passing test or a
-partial implementation.
+No global adoption sequence, mandatory pre-adoption exercise, rollback restriction,
+retirement sequence, or migration record applies unless a later decision accepts a
+bounded need.
 
 ## 5. Related authority
 

@@ -15,6 +15,14 @@
     {
       "kind": "go_test",
       "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
     }
   ],
   "id": "C14",

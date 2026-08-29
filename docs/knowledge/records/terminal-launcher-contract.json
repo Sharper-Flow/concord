@@ -43,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:72be379b1722c1d0b6fd39ec7f06b6b4cc03d294fb7c2774dada53069a4f0261",
+  "sha256": "sha256:65d20104859ee82b1e067634b9856eb5321c6352ae7049e891f5c4f47223de40",
   "status": "accepted",
   "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
   "tags": [

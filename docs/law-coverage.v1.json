@@ -22,6 +22,14 @@
         {
           "kind": "go_test",
           "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
         }
       ],
       "id": "C14",
@@ -1351,6 +1359,20 @@
       "id": "CD-0082",
       "reason": "This decision removes future migration obligations and changes no runtime behavior.",
       "state": "out_of_scope"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
+        }
+      ],
+      "id": "CD-0083",
+      "state": "satisfied"
     },
     {
       "evidence": [

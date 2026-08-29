@@ -101,7 +101,7 @@ Product-law model.
 **Key implications.**
 - Agent-facing writes queue behind one writer and are admitted within the accepted bound: no escaped busy failure, no lost or duplicated effect, no retry storm. Reads are lock-free. See CD-0045.
 - No hand-repair of history; corrections are appended, not destructive.
-- Acknowledged consequential operations — grants, approvals, workflow dispatch
+- Acknowledged consequential operations — approvals, workflow dispatch
   and terminal transitions, cross-authority step claims, and worker evidence —
   are durable across power loss and OS crash (CD-0050); ordinary writes are
   durable through the last consequential boundary and never corrupt the store.

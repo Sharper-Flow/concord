@@ -14,11 +14,11 @@ refuses to continue when any of these are missing:
 - a user-session D-Bus service named `org.freedesktop.secrets`; and
 - the installer's binary directory on `PATH`.
 
-The adapter's grant bootstrap requires Secret Service storage. Concord does not
-install a keyring, store a private key in a file, or invent a file-based
-fallback. If `secret-tool`, `gnome-keyring-daemon`, or
+The adapter reads its client signing key from Secret Service storage. Concord
+does not install a keyring, store a private key in a file, or invent a
+file-based fallback. If `secret-tool`, `gnome-keyring-daemon`, or
 `org.freedesktop.secrets` is unavailable, installation refuses and says that
-grant bootstrap will fail closed.
+worker evidence signing will fail closed.
 
 The installer also refuses to overwrite an existing user-authored adapter,
 launcher, version directory, or incompatible OpenCode configuration. When it
@@ -116,10 +116,10 @@ The authority database is outside a project repository at
 select another location, but Concord refuses an override inside a Git
 repository or worktree.
 
-Grant host resolution is deliberately strict. The signed `directory` or
+Host resolution is deliberately strict. The `directory` or
 `worktree` must be a real Git repository, and that repository must have a
 registered Concord Project locator (`canonical_path` or matching `git_remote`).
-The installer does not invent a Product, Project, locator, key, or grant, and
+The installer does not invent a Product, Project, locator, or key, and
 it does not modify a repository. Complete that operator bootstrap separately
 before using adapter tools.
 

@@ -15,8 +15,8 @@ import (
 
 func TestLaneRegistryIsGeneratedClosedAndDigestPinned(t *testing.T) {
 	definitions := BuiltinLaneDefinitions()
-	if len(definitions) != 4 {
-		t.Fatalf("lane count = %d, want 4", len(definitions))
+	if len(definitions) != 5 {
+		t.Fatalf("lane count = %d, want 5", len(definitions))
 	}
 	for _, definition := range definitions {
 		if err := ValidateLaneDefinition(definition); err != nil {

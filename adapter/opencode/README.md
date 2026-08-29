@@ -163,6 +163,7 @@ targets under its plugin tuple, for example:
     "agents": {
       "concord-research": { "fallback_models": ["provider/preferred", "provider/fallback"] },
       "concord-implement": { "fallback_models": ["provider/preferred", "provider/fallback"] },
+      "concord-design": { "fallback_models": ["provider/preferred", "provider/fallback"] },
       "concord-review": { "fallback_models": ["provider/preferred", "provider/fallback"] },
       "concord-verify": { "fallback_models": ["provider/preferred", "provider/fallback"] }
     }

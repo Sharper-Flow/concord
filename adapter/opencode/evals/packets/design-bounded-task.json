@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "attempt_id": "attempt:eval-design-bounded-task",
+  "lane_id": "design",
+  "lane_version": 1,
+  "lane_digest": "sha256:50b73594e743bf14dc4ba2fdd8294bb7de64f695ea571a2fff572b5329c649a5",
+  "work_id": "work:eval-harness",
+  "step_id": "execution",
+  "inputs": {
+    "task": "Align one component's spacing and contrast with the accepted design tokens and report the visual check.",
+    "context": "The change is scoped to a single component file.",
+    "constraints": [
+      "Touch only the named component.",
+      "Cite the visual artifact you inspected."
+    ]
+  }
+}

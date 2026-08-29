@@ -48,6 +48,7 @@ INSTRUCTION_FILES = (
     "voice.md",
 )
 AGENT_FILES = (
+    "concord-design.md",
     "concord-implement.md",
     "concord-research.md",
     "concord-review.md",

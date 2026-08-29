@@ -9,7 +9,7 @@
     "schema_version": {"const": "1.0"},
     "registry": {"const": "agent_lanes"},
     "version": {"const": 1},
-    "lanes": {"type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/lane"}}
+    "lanes": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/lane"}}
   },
   "$defs": {
     "lane": {
@@ -30,7 +30,7 @@
       }
     },
     "evidence_obligation": {
-      "enum": ["bounded_findings", "commands", "contract_findings", "exit_codes", "failure_classification", "files_touched", "severity", "source_citations", "uncertainties", "unresolved_issues", "verification_commands"]
+      "enum": ["bounded_findings", "commands", "contract_findings", "exit_codes", "failure_classification", "files_touched", "severity", "source_citations", "uncertainties", "unresolved_issues", "verification_commands", "visual_artifacts"]
     },
     "budgets": {
       "type": "object",

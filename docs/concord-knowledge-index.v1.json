@@ -2561,6 +2561,38 @@
       "title": "Capability scoping replaces the grant token"
     },
     {
+      "date": "2026-08-29T00:00:00Z",
+      "evidence": [
+        "contracts/agent-lanes.v1.json",
+        "contracts/agent-lanes.schema.json",
+        "contracts/agent-lane-report.schema.json",
+        "internal/store/agent_lanes.go",
+        "internal/store/generated_agent_lanes.go",
+        "scripts/generate-agent-lanes.py"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "CD-0081",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0081-the-registry-gains-a-design-worker-lane.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:26d3cf6125c1168b735d1898205573ce33c1221006388b74bd8e803fd6e06f33",
+      "status": "accepted",
+      "summary": "The closed lane registry becomes research, implement, design, review, verify. The design lane implements visual UI and UX changes for one approved bounded task under implement-matching budgets, and its completions must discharge a new visual_artifacts obligation extended into the CD-0056 closed vocabulary across both schema enums, the Go slice, and the worker-complete CLI spec. The manifest digest moves, the four pre-existing lane digests do not, and model resolution stays with the host under CD-0058.",
+      "tags": [
+        "typed-workers",
+        "lanes",
+        "evidence",
+        "design"
+      ],
+      "title": "The registry gains a design worker lane"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

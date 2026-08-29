@@ -2593,6 +2593,35 @@
       "title": "The registry gains a design worker lane"
     },
     {
+      "date": "2026-08-29T00:00:00Z",
+      "evidence": [
+        "docs/priorities.md",
+        "docs/rollout-plan.md",
+        "cmd/concord/predecessor_import.go"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "CD-0082",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0082-migration-is-demand-driven.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:fca3691d51c20946ca9a5ddb9f9f83e04e2c49d2ab115d02c1db5d21a3627c7e",
+      "status": "accepted",
+      "summary": "Migration becomes demand-driven: a Product migrates when a concrete workflow needs it, with no prescribed sequence and no retirement-sequence obligation. Nothing mandates shadow operation, a cutover checklist, a migration record, a quarantine mechanism, or a generic non-Domain replacement relation. The delivered importer safeguards bind when a Product migrates, and the Domain-overlap execution block, append-only events, fold-only projections, immutable schema migrations, and the v4.7.0 operator surfaces are unchanged.",
+      "tags": [
+        "migration",
+        "yagni",
+        "predecessor",
+        "law"
+      ],
+      "title": "Migration is demand-driven"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -3930,7 +3959,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:fe0d6045f5446090a824fa88da22f7f51e063b657725d15b31889704ec101732",
+      "sha256": "sha256:9a0c04a8ce8ab94b907e961afc29bddf3fbcf3c77fcf60694c5e32925c602102",
       "status": "accepted",
       "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
       "tags": [
@@ -4008,7 +4037,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:dc5fc94fea9ef44ea711eae1244998c8d3c81d692ab2080da5e53518c9ee8cd7",
+      "sha256": "sha256:2153328a74035b0d952f94f86a0ca604c0efd70f371e89badba7e32b504ad803",
       "status": "published",
       "summary": "Sequences the public bootstrap and the path to replacement readiness under CD-0007 and CD-0010.",
       "tags": [

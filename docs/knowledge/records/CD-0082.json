@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-29T00:00:00Z",
+  "evidence": [
+    "docs/priorities.md",
+    "docs/rollout-plan.md",
+    "cmd/concord/predecessor_import.go"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0082",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0082-migration-is-demand-driven.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:fca3691d51c20946ca9a5ddb9f9f83e04e2c49d2ab115d02c1db5d21a3627c7e",
+  "status": "accepted",
+  "summary": "Migration becomes demand-driven: a Product migrates when a concrete workflow needs it, with no prescribed sequence and no retirement-sequence obligation. Nothing mandates shadow operation, a cutover checklist, a migration record, a quarantine mechanism, or a generic non-Domain replacement relation. The delivered importer safeguards bind when a Product migrates, and the Domain-overlap execution block, append-only events, fold-only projections, immutable schema migrations, and the v4.7.0 operator surfaces are unchanged.",
+  "tags": [
+    "migration",
+    "yagni",
+    "predecessor",
+    "law"
+  ],
+  "title": "Migration is demand-driven"
+}

@@ -14,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dc5fc94fea9ef44ea711eae1244998c8d3c81d692ab2080da5e53518c9ee8cd7",
+  "sha256": "sha256:2153328a74035b0d952f94f86a0ca604c0efd70f371e89badba7e32b504ad803",
   "status": "published",
   "summary": "Sequences the public bootstrap and the path to replacement readiness under CD-0007 and CD-0010.",
   "tags": [

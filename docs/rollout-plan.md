@@ -87,14 +87,20 @@ the document and section that bears it.
 ## 4. Later migration
 
 Concord does not self-host its own development workflow before the replacement-ready
-floor is proven. After the floor is accepted, migration proceeds one Product at a
-time under the accepted fix-forward policy:
+floor is proven. After the floor is accepted, migration is demand-driven under
+CD-0082:
 
-- all Projects in the selected Product move together;
-- only deliberately selected active work moves;
+- a Product migrates when a concrete workflow needs it, with no prescribed
+  sequence;
+- the delivered importer moves one whole Product at a time and refuses
+  partial-Product import;
+- only deliberately selected active work moves, with recorded provenance;
 - a migrated Product fixes forward in Concord and does not roll back;
-- the predecessor remains authority only for Products not yet migrated;
-- the predecessor retires after the final Product migration.
+- the predecessor remains authority only for Products not yet migrated.
+
+No shadow operation, cutover checklist, migration record, or generic non-Domain
+replacement mechanism is mandated. A concrete failure may justify a stronger
+mechanism through a later accepted decision.
 
 Migration is a later accepted operation, not an implication of a passing test or a
 partial implementation.

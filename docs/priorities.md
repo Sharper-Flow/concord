@@ -214,13 +214,13 @@ See [`workflows.md`](./workflows.md).
 
 Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine, anchored to a **Product-first terminal launcher**. It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
 
-Incremental design, build, replay, and shadow evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Migration begins only after the full floor below is proven.
+Incremental design, build, replay, and evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Migration begins only after the full floor below is proven.
 
 Distance from the floor is recorded in [`floor-readiness.md`](./floor-readiness.md) and its validated manifest, which decomposes each condition below into items whose state is checked in CI. That record is authorizing for *where Concord stands*; this section remains authorizing for *what the floor is*.
 
 The six numbered conditions below define the **usability floor — the bar Concord must clear for one operator and many agents to do real work on this machine**. Replacement readiness is a higher bar: it additionally requires the release, install, privacy, and Linux amd64 release-evidence bar owned by [`rollout-plan.md`](./rollout-plan.md) §3. Both bars are decomposed in the floor manifest, and the manifest's `source` for each condition names the document and section that bears it.
 
-Migration then proceeds one Product at a time. Advance remains authority for unmigrated Products; each migrated Product fixes forward in Concord. Advance retires after the final Product moves. This is a bounded transition, not permanent coexistence or rollback.
+Migration is demand-driven: a Product moves when a concrete workflow needs it, not on a prescribed sequence (CD-0082). The delivered importer moves one whole Product at a time, with deliberately selected active work and recorded provenance. Advance remains authority for Products not yet migrated, and each migrated Product fixes forward in Concord. No shadow operation, cutover checklist, migration record, or rollback mechanism is mandated; a concrete failure may justify a stronger mechanism through a later accepted decision.
 
 It becomes usable when:
 

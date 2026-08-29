@@ -1,5 +1,10 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProducerRefusesNoteOverTheDurableBound"
+    }
+  ],
   "id": "CD-0069",
-  "issue": 463,
-  "state": "outstanding"
+  "state": "satisfied"
 }

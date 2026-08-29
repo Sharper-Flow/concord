@@ -1,5 +1,6 @@
 import { sign as signBytes } from "node:crypto"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { maxEnvelopeBytes } from "./generated-contracts"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 
 const MAX_OUTPUT_BYTES = 65_536
@@ -58,7 +59,7 @@ export interface RunSessionMetadata {
 // DispatchAuthorizer asks the core to authorize one dispatch_worker action and
 // returns the core response envelope. The caller owns the transport, so the
 // adapter never holds the authorization decision (CD-0017 D2, CD-0059 D1).
-export type DispatchAuthorizer = (request: { work_id: string; attempt_id: string }) => Promise<unknown>
+export type DispatchAuthorizer = (request: { work_id: string; attempt_id: string }) => Promise<Record<string, unknown>>
 
 export interface AgentResultEnvelope {
   schema_version: "1.0"
@@ -79,6 +80,11 @@ export interface AgentResultEnvelope {
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
     message: string
   }
+}
+
+function withHostBoundedOutput(envelope: AgentResultEnvelope, output: string): AgentResultEnvelope | null {
+  const candidate = { ...envelope, output }
+  return Buffer.byteLength(JSON.stringify(candidate)) <= maxEnvelopeBytes ? candidate : null
 }
 
 const defaultRunner: DispatchRunner = {
@@ -697,10 +703,11 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (readback.readback_agent !== expectedAgent) {
     return errorEnvelope(lane, packet, "error", "agent_identity_mismatch", `executed agent ${JSON.stringify(readback.readback_agent)} does not match the dispatched lane agent ${JSON.stringify(expectedAgent)}`, "contact_operator")
   }
-  const envelope = baseEnvelope(lane, packet, "ok")
-  envelope.readback_model = readback.readback_model
-  envelope.session_id = readback.session_id
-  envelope.output = result.stdout
+  const base = baseEnvelope(lane, packet, "ok")
+  base.readback_model = readback.readback_model
+  base.session_id = readback.session_id
+  const envelope = withHostBoundedOutput(base, result.stdout)
+  if (!envelope) return errorEnvelope(lane, packet, "error", "error", "worker result exceeds the pinned host output limit", "adjust_budget")
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
   // worker-complete binds to the dispatched attempt row, so the dispatch event
@@ -811,8 +818,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation")
     failed.readback_model = readback.readback_model
     failed.session_id = readback.session_id
-    failed.output = result.stdout
-    return failed
+    return withHostBoundedOutput(failed, result.stdout) ?? failed
   }
 
   const completionFailure = await recordWorkerEvent(cliRunner, cli, "worker-complete", {

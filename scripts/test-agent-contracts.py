@@ -210,7 +210,7 @@ class AdapterHostPinTests(unittest.TestCase):
             "schema_version": "1.0",
             "sources": ["adapter/opencode"],
             "packages": [
-                {"name": "@example/host", "version": "1.0.0", "declares": "the host tool surface"},
+                {"name": "@opencode-ai/plugin", "version": "1.0.0", "declares": "the host tool surface"},
                 {"name": "runtime-types", "version": "2.0.0", "declares": "the ambient runtime globals"},
             ],
             "typescript": "5.9.3",
@@ -220,6 +220,14 @@ class AdapterHostPinTests(unittest.TestCase):
                 "skipLibCheck": True, "resolveJsonModule": True, "forceConsistentCasingInFileNames": True,
             },
             "allowances": [{"file": "example.ts", "code": "TS2322", "count": 1, "state": "outstanding", "issue": 1, "reason": "a recorded divergence"}],
+            "runtime_probe": {
+                "probe_identity": "tool-result-contract-v1", "runner": "python3 scripts/probe-adapter-host-result.py", "observed_on": "2026-08-29", "host_package": "opencode-ai", "host_version": "1.0.0",
+                "source_urls": ["https://example.com/registry", "https://example.com/truncate"],
+                "commands": {"bare": "bunx opencode-ai@1.0.0 --pure debug agent build --tool result-probe_bare --params '{}'", "conforming": "bunx opencode-ai@1.0.0 --pure debug agent build --tool result-probe_conforming --params '{}'"},
+                "bare_object_failure": {"status": "failed", "exit_code": 1, "error_contains": "undefined is not an object (evaluating 'c.split')"},
+                "conforming_result_success": {"status": "passed", "exit_code": 0, "output": "{}", "metadata_truncated": False},
+                "limits": {"max_bytes": 51200, "max_lines": 2000},
+            },
         }
 
     def findings(self, mutate=None, pin=None):
@@ -235,6 +243,16 @@ class AdapterHostPinTests(unittest.TestCase):
 
     def test_fixture_is_valid_so_tamper_cases_isolate_one_defect(self):
         self.assertEqual(self.findings(), [])
+
+    def test_missing_runtime_probe_evidence_is_rejected(self):
+        def mutate(value):
+            del value["runtime_probe"]
+        self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
+
+    def test_stale_runtime_probe_version_is_rejected(self):
+        def mutate(value):
+            value["runtime_probe"]["host_version"] = "2.0.0"
+        self.assertTrue(any("version does not match" in f for f in self.findings(mutate)))
 
     def test_ambient_type_package_that_is_not_pinned_is_rejected(self):
         def mutate(value):

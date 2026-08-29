@@ -33,13 +33,35 @@
     "forceConsistentCasingInFileNames": true
   },
   "allowances": [
-    {
-      "file": "concord.ts",
-      "code": "TS2322",
-      "count": 1,
-      "state": "outstanding",
-      "issue": 560,
-      "reason": "work_transition is the only export typed Promise<unknown>; the host declares execute as Promise<ToolResult>, where ToolResult is a string or an object carrying output. All ten exports return the core response object, so all ten diverge; the other nine typecheck only because invokeConcordOperation is typed Promise<any>. Whether the adapter or the declaration is wrong needs a runtime probe against a host, which is why this is one recorded divergence rather than a cast."
+  ],
+  "runtime_probe": {
+    "probe_identity": "tool-result-contract-v1",
+    "runner": "python3 scripts/probe-adapter-host-result.py",
+    "observed_on": "2026-08-29",
+    "host_package": "opencode-ai",
+    "host_version": "1.18.23",
+    "source_urls": [
+      "https://github.com/anomalyco/opencode/blob/v1.18.23/packages/opencode/src/tool/registry.ts",
+      "https://github.com/anomalyco/opencode/blob/v1.18.23/packages/opencode/src/tool/truncate.ts"
+    ],
+    "commands": {
+      "bare": "bunx opencode-ai@1.18.23 --pure debug agent build --tool result-probe_bare --params '{}'",
+      "conforming": "bunx opencode-ai@1.18.23 --pure debug agent build --tool result-probe_conforming --params '{}'"
+    },
+    "bare_object_failure": {
+      "status": "failed",
+      "exit_code": 1,
+      "error_contains": "undefined is not an object (evaluating 'c.split')"
+    },
+    "conforming_result_success": {
+      "status": "passed",
+      "exit_code": 0,
+      "output": "{}",
+      "metadata_truncated": false
+    },
+    "limits": {
+      "max_bytes": 51200,
+      "max_lines": 2000
     }
-  ]
+  }
 }

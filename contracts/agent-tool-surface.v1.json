@@ -18,7 +18,7 @@
       "core",
       "adapter"
     ],
-    "max_bytes": 65536
+    "max_bytes": 51200
   },
   "tools": [
     {
@@ -155,7 +155,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -176,7 +176,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -197,7 +197,7 @@
         "context": "portfolio",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -218,7 +218,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -239,7 +239,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -260,7 +260,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -281,7 +281,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -302,7 +302,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -323,7 +323,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -344,7 +344,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -365,7 +365,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -386,7 +386,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "limit",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -407,7 +407,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "limit",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -428,7 +428,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -449,7 +449,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -470,7 +470,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -491,7 +491,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -512,7 +512,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -533,7 +533,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "limit",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -554,7 +554,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -575,7 +575,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -596,7 +596,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -617,7 +617,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -638,7 +638,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -659,7 +659,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -680,7 +680,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -701,7 +701,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -722,7 +722,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -743,7 +743,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -764,7 +764,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -785,7 +785,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -806,7 +806,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -827,7 +827,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -848,7 +848,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -869,7 +869,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -891,7 +891,7 @@
         "context": "workflow",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -912,7 +912,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -933,7 +933,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -954,7 +954,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -975,7 +975,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -996,7 +996,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1017,7 +1017,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1038,7 +1038,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1059,7 +1059,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1080,7 +1080,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1101,7 +1101,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1122,7 +1122,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1143,7 +1143,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1164,7 +1164,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1185,7 +1185,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1206,7 +1206,7 @@
         "context": "ambient",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1227,7 +1227,7 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1248,7 +1248,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1269,7 +1269,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1290,7 +1290,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1311,7 +1311,7 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1332,7 +1332,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1353,7 +1353,7 @@
         "context": "explicit",
         "idempotency": "required",
         "pagination": "none",
-        "output_bytes": 65536,
+        "output_bytes": 51200,
         "versions": [
           "1.0"
         ]
@@ -1727,7 +1727,7 @@
     "claim"
   ],
   "bounds": {
-    "max_output_bytes": 65536,
+    "max_output_bytes": 51200,
     "max_items": 100,
     "max_warnings": 16,
     "max_omissions": 16,
@@ -1752,5 +1752,5 @@
     ]
   },
   "payload_digest": "sha256:9c9306113ab34f71eb922706526cc446c335558eb24acdb40690b08bac893e0e",
-  "digest": "sha256:c6779b4161c8e8ceae67075ab78bb2099891f2fbcd710150fb2263e5b2d577b8"
+  "digest": "sha256:4a620584583afa239c460947b427757c5b5fba697bbaa9e1eddb4e2b2857f747"
 }

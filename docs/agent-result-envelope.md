@@ -1,8 +1,8 @@
 # Concord Agent Result, Error, Evidence, and Pagination Envelope (TS7)
 
-> **Status:** **Accepted — binding until superseded; producer-bounded result law amended by issue #43.**
+> **Status:** **Accepted — binding until superseded; producer-bounded result law amended by issues #43 and #560.**
 > **Accepted by operator:** 2026-08-06.
-> **Amendment approved by operator:** 2026-08-11 under issue #43.
+> **Amendments approved by operator:** 2026-08-11 under issue #43 and 2026-08-29 under issue #560.
 > **Decision:** TS7; binding input to CD-0005 §7 and TS8–TS9.
 > **Canonical schema:** [`agent-tool-envelope.schema.json`](../contracts/agent-tool-envelope.schema.json).
 > **Binding inputs:** PM1 universal query envelope/corpus and accepted TS1–TS6
@@ -18,8 +18,8 @@ universal query envelope and corpus and the accepted TS1 through TS6
 contracts. This record fixes the strict JSON envelope with exactly one
 outcome per call, its universal fields, the durable outcomes, the typed error
 contract, authority and freshness semantics, evidence locators, pagination
-and output bounds, and adapter transport failures. The producer-bounded
-result law is amended by issue #43.
+and output bounds, and adapter transport failures. Issues #43 and #560 amend
+the producer-bounded result law.
 ## Contract
 
 The binding contract is sections 1 through 9: the four-outcome decision,
@@ -236,7 +236,7 @@ retrieve bounded evidence from its authority only when needed.
 - Snapshot previews: default 5, maximum 20 per requested bucket; duplicate work
   across buckets is emitted once with view flags.
 - Relation graphs: depth maximum 3, 100 nodes, 200 edges.
-- Serialized envelope: hard maximum 65,536 bytes.
+- Serialized envelope: hard maximum 51,200 bytes.
 - Warnings: 16; omissions: 16; evidence refs: 32; changed refs: 32; next valid
   intents: 16; error candidates/violations: 20 each; error options: 3.
 
@@ -251,9 +251,14 @@ No server session is required.
 
 ### 8.1 Producer-side completeness obligation
 
+The OpenCode adapter encodes each raw Concord envelope as one `ToolResult` object:
+`{title, output, metadata}`. The `output` field contains exactly one serialized
+envelope. OpenCode truncates tool output at 2,000 lines or 51,200 bytes, so the
+Concord envelope cap matches the pinned host transport limit.
+
 Every delegated or mutation-result producer validates the exact tool/operation
 payload against its closed generated output schema before exchange. It also
-checks the 65,536-byte serialized envelope cap, caller `max_bytes` and
+checks the 51,200-byte serialized envelope cap, caller `max_bytes` and
 `max_items` budgets, and the envelope's completeness markers before returning
 `ok`. A producer refuses an over-budget result; it does not silently cut an
 item, array, cursor, omission, or evidence reference.
@@ -328,7 +333,7 @@ Reopen TS7 when:
 - supported agents cannot recover from a typed error without parsing `message`;
 - routine successful mutation still requires a follow-up read to choose next action;
 - legitimate PM1/TS1 payloads cannot fit bounded pagination;
-- the 65,536-byte cap regularly forces pathological extra calls;
+- the 51,200-byte cap regularly forces pathological extra calls;
 - cursor binding prevents legitimate continuation after accepted source changes;
 - evidence locators cannot identify required proof without embedding raw content;
 - adapters/clients cannot validate the canonical schema consistently; or

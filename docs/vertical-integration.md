@@ -3,9 +3,8 @@
 > **Status:** Aligned v2. Companion to [`README.md`](./README.md),
 > [`product-data-model.md`](./product-data-model.md), [`workflows.md`](./workflows.md),
 > [`clarifications.md`](./clarifications.md).
-> **Purpose:** Explore whether Concord should **own** or **swallow** lgrep, vision,
-> and episode for tighter vertical integration. Record the spectrum, tradeoffs,
-> and current lean.
+> **Purpose:** Record the ownership spectrum for lgrep, vision, and episode. The
+> episode boundary is resolved; lgrep and vision retain the current lean.
 > **Origin:** User direction, 2026-07-25 ("we may want to consider…").
 
 ## Resolved direction (interface/audience boundary)
@@ -61,7 +60,7 @@ Product-aware**. Vertical integration could make them cohesive and Product-scope
 | Option | What it means | Integration | Cost / risk |
 |---|---|---|---|
 | **Status quo** | Tools stay global/shared, not Product-aware | Low | None — but no locality benefit |
-| **Product-scoping** | Concord gives each Product scoped instances (product-scoped lgrep index, episode namespace, vision server set). Tools stay independent; Concord orchestrates product context. | Medium — locality + cohesion | Low — orchestration layer, no tool rewrites |
+| **Product-scoping** | Configured integrations receive Product context (product-scoped lgrep index, episode namespace, vision server set). Tools stay independent. | Medium — locality + cohesion | Low — orchestration layer, no tool rewrites |
 | **Owning** | Concord owns the tools as subsystems; code lives in/with Concord; tools become Product-native. | High | Medium — scope growth, migration, loses generality |
 | **Swallowing** | Concord absorbs + replaces the tools entirely. | Maximum | High — rewrites, maturity loss, risk |
 
@@ -93,7 +92,7 @@ Product-aware**. Vertical integration could make them cohesive and Product-scope
 
 ---
 
-## Current lean
+## Current lean for lgrep and vision
 
 **Product-scoping first; defer owning/swallowing until measured need.**
 
@@ -103,6 +102,22 @@ Product-aware**. Vertical integration could make them cohesive and Product-scope
 - This honors *"don't pay until it hurts"* and *"tightly scoped."*
 - Re-evaluate owning/swallowing only if product-scoping proves insufficient AND a
   concrete integration pain can't be solved without ownership.
+
+### Resolved episode boundary
+
+CD-0086 resolves episode as an external, optional authority. Concord does not
+require it for the build, installation, startup, storage, authorization, or any
+core workflow. Operators can use every Concord capability without episode.
+
+When an operator configures episode, its memory is Product-scoped and episode
+retains authority for recall, memory storage, and promotion state. Concord owns
+Product law and the formalized promotion target. The integration adds memory. It
+does not become a correctness dependency for Concord.
+
+Automatic Product derivation and a real multi-project probe remain episode-side
+follow-up work. That evidence can reopen the ownership decision if the external
+boundary cannot resolve Product and work identity, or if maintaining the bridge
+costs more than ownership. The probe does not block the current direction.
 
 ## Decision trigger (what would move us to own/swallow)
 
@@ -116,24 +131,19 @@ Until one of these fires, **product-scoping is the answer.**
 
 ### Triggers are evaluated per tool
 
-The spectrum, the lean, and the decision triggers above apply to all three tools,
-but each tool reaches its trigger on its own evidence. As of 2026-08-14 the
-clarification entries are split accordingly: lgrep and vision share
-[`clarifications.md`](./clarifications.md) C8, and episode has its own entry C20
-owned by issue #46.
+The spectrum and decision triggers apply per tool. lgrep and vision remain open
+under [`clarifications.md`](./clarifications.md) C8. The episode boundary is
+resolved by R7 and issue #46.
 
-The practical difference: episode consumes predecessor wisdom and reflection
-state, so issue #46 owns its probe scope and evidence. lgrep and vision index and
-host general-purpose data. A measured need against one tool is not evidence about
-the others.
+episode consumes predecessor wisdom and reflection state. lgrep and vision index
+and host general-purpose data. Evidence about one tool does not move the boundary
+for another tool.
 
 ## Promotion receiving contract (episode → Concord knowledge)
 
-Issue #46 Item 2. episode may graduate a memory to `Promoted { target }`, where
-`target` names a Concord record and stays opaque to episode. Concord owns the
-destination, so this section defines what receiving that promotion means. The
-emitter does not exist yet — episode's own spec 0010 defers promotion — so the
-contract waits for it.
+episode may graduate a memory to `Promoted { target }`, where `target` names a
+Concord record and stays opaque to episode. Concord owns the destination, so this
+section defines what receiving that promotion means.
 
 - **Target identity.** A promotion target is a formalized knowledge record of
   kind `spec` or `decision`, resolved through the knowledge manifest. A target
@@ -153,9 +163,9 @@ contract waits for it.
   memory reaches Product law only through the formalization procedure, and an
   unprocessed document carries no authority regardless of origin.
 
-This contract defines the seam only. It adds no runtime surface, no event, and
-no validation, and it changes no direction: the ownership lean stays
-product-scoping first until the #46 probe evidence says otherwise.
+This contract defines the seam only. It adds no runtime surface, event, or
+validation. When episode is absent, the seam stays inactive and no Concord
+behavior changes.
 
 ---
 
@@ -164,14 +174,12 @@ product-scoping first until the #46 probe evidence says otherwise.
 | Doc | Link |
 |---|---|
 | [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the launcher/interface decision (R1). |
-| [`clarifications.md`](./clarifications.md) C20 | Open question about episode ownership; owned by issue #46. |
+| [`clarifications.md`](./clarifications.md) R7 | Resolved episode boundary: external, optional, and Product-scoped when configured. |
 | `clarifications.md` R1 | Resolved launcher/interface direction: terminal launcher primary; ZLauncher is bootstrap only. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |
 
 ---
 
-*This is a consideration about tool ownership/integration, not a commitment. The
-lean is explicit so it can be challenged with evidence rather than re-litigated
-from scratch. The launcher/interface question is resolved separately and is not
-re-opened here.*
+*The episode boundary is resolved. The lgrep and vision direction remains a lean
+that evidence can challenge. The launcher/interface question is separate.*

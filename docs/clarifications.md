@@ -18,7 +18,7 @@ Two ordered, build-authorizing backlogs now govern the foundation:
 - **PM1–PM10:** Product-memory and per-store decisions.
 - **TS1–TS9:** minimal agent tool-surface decisions.
 
-**PM1–PM10, TS1–TS9, C7, C14, C15, and CD-0006 through CD-0042 are accepted.**
+**PM1–PM10, TS1–TS9, C7, C14, C15, C20, and CD-0006 through CD-0042 are accepted.**
 Storage/core and agent-adapter/tool acceptance slices may begin once the implementation
 repo/package is chosen and separately authorized; pre-go-live changes remain subject
 to the deterministic TS9 evidence contract.
@@ -33,8 +33,8 @@ surface versions, compatibility/deprecation paths, supported-model release gates
 and unreleased replay paths are not current policy. Deterministic PM1/TS1, strict
 schema, authority, transaction, negative, and conformance evidence remains required;
 the first go-live decision must define future compatibility and measurement law.
-Open clarifications remain open; acceptance of these records does not close C8–C10,
-C20, or other explicitly deferred questions.
+Open clarifications remain open; acceptance of these records does not close C8–C10
+or other explicitly deferred questions.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -135,6 +135,24 @@ re-litigate them silently.
   becoming a second domain/tool surface.
 - **Effect:** recorded in `core-architecture.md` §1,
   `design-constraints.md` §7, and `priorities.md` (open questions table).
+
+### R7. episode remains external and optional
+
+- **Decision (2026-08-30):** CD-0086 resolves C20 under issue #46. episode
+  remains an independent authority for durable agent-decision memory. Concord
+  does not own or absorb it.
+- **Optionality:** Concord is complete without episode. No Concord build,
+  installation, startup, storage, authority, or core workflow requires it.
+  Operators who configure episode add its memory capability. Other operators
+  retain all Concord capabilities.
+- **Integration boundary:** when configured, episode memory is Product-scoped.
+  Concord owns Product law and the formalized promotion target. episode owns
+  recall, memory storage, and promotion state. Automatic Product derivation and
+  its multi-project probe remain episode-side follow-up work.
+- **Reopen trigger:** revisit ownership only if a real multi-project probe shows
+  that the external boundary cannot resolve Product and work identity, or if the
+  bridge costs more than ownership.
+- **Effect:** recorded in [`vertical-integration.md`](./vertical-integration.md).
 
 ---
 
@@ -360,29 +378,8 @@ re-litigate them silently.
   the resolved launcher/interface boundary.
 - **Scope (2026-08-14):** narrowed to lgrep and vision. Both are general-purpose
   beyond Concord and neither has a recorded integration pain that orchestration
-  cannot resolve, so they share one decision trigger. episode moved to C20
-  because its evidence and trigger diverged; the split changes neither lean.
-
-### C20. episode ownership and the memory-territory boundary
-- **Question:** Does episode stay external and product-scoped, or does Concord
-  own the agent-memory territory? (`vertical-integration.md`)
-- **Lean:** unchanged from C8 — product-scoping first; revisit only on measured
-  need.
-- **Why it is separate from C8:** episode's decision trigger is owned by issue
-  #46, which fires on a specific product-scoping probe outcome and additionally
-  requires a promotion-receiving contract. lgrep and vision have no analogue for
-  either. episode also ingests predecessor wisdom and reflection state, so its
-  probe window is bounded by issue #46's evidence, while lgrep and vision have no
-  such dependency. Keeping one entry for all three meant #46 could not fire
-  without implying a direction change for the other two.
-- **Adjacent, already resolved:** agent context continuity is settled inside
-  Concord's own authority by CD-0016 (C19). C20 is about durable decision
-  memory, not the continuity projections, and does not reopen C19.
-- **Direction (2026-08-14):** 🟡 unchanged. Owner: issue #46.
-- **Promotion-receiving contract (2026-08-30):** defined in
-  [`vertical-integration.md`](./vertical-integration.md) §Promotion receiving
-  contract, satisfying issue #46 Item 2's define-half. The ownership lean is
-  untouched; the probe evidence gate (Item 1) remains the only direction input.
+  cannot resolve, so they share one decision trigger. R7 resolves episode on its
+  separate evidence and does not move C8.
 
 ### C9. Capability-placement rubric enforcement
 - **Question:** Structural (blocks misplaced capabilities) or advisory + recorded?
@@ -594,4 +591,4 @@ evidence binding, unreadable-record isolation, execution mechanics, and
 demand-driven migration/correction. PM1 remains the shared query/read-tool corpus.
 No storage table or CLI command automatically earns a tool. Remaining open
 clarifications resolve through their own evidence gates; C5 and C8–C10 remain
-deferred, while C20 remains owned by issue #46.
+deferred.

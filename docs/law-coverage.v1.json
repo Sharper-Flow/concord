@@ -1390,6 +1390,11 @@
       "state": "satisfied"
     },
     {
+      "id": "CD-0086",
+      "reason": "This decision defines an optional external integration boundary and changes no runtime behavior.",
+      "state": "out_of_scope"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

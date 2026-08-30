@@ -2734,6 +2734,35 @@
       "title": "episode is an optional external authority"
     },
     {
+      "date": "2026-08-30T00:00:00Z",
+      "evidence": [
+        "scripts/install.py",
+        "scripts/test-installer.py",
+        "docs/decisions/CD-0087-provider-specific-provisioning-may-initialize-os-custody.md"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "CD-0087",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0087-provider-specific-provisioning-may-initialize-os-custody.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:ef20fcdf1bf6f2d589003c3815c5613362d4b3d8b6bdc67c8559d543c934e3e1",
+      "status": "accepted",
+      "summary": "Credential reads remain provider-independent through the single Secret Service custody adapter, while first-use provisioning may use provider-specific controls. The Linux reference provisioner can create an unencrypted user-scoped gnome-keyring collection, refuses to stop a provider with live items, verifies restricted permissions, and installs automatic unlock after daemon restart.",
+      "tags": [
+        "security",
+        "platform",
+        "installer",
+        "credentials"
+      ],
+      "title": "Provider-specific provisioning may initialize OS custody"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

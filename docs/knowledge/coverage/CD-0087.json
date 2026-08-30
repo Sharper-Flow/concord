@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-installer.py"
+    }
+  ],
+  "id": "CD-0087",
+  "state": "satisfied"
+}

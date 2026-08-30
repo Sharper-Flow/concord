@@ -8,6 +8,8 @@ import { errorEnvelopeForLane, type AgentResultEnvelope } from "./dispatch"
 const MAX_STDERR = 8192
 
 type HostToolArgs = Record<string, unknown> & { operation: string; input: Record<string, unknown> }
+type HostToolCall = { request: HostToolArgs }
+type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>
 type HostConcordEnvelope = CoreConcordEnvelope | AgentResultEnvelope
 
@@ -33,52 +35,72 @@ export function configureConcordAdapter(overrides: { runner?: ChildRunner } = {}
   if (overrides.runner) runner = overrides.runner
 }
 
-function zodSchema(schema: any, root: Record<string, any>): any {
-  const z = tool.schema
-  if (schema?.$ref) return zodSchema(root[schema.$ref.replace("#/$defs/", "")], root)
-  if (schema?.oneOf || schema?.anyOf) return z.union((schema.oneOf ?? schema.anyOf).map((item: any) => zodSchema(item, root)) as any)
-  if (schema?.const !== undefined) return z.literal(schema.const)
-  if (schema?.enum) return z.union(schema.enum.map((item: any) => z.literal(item)) as any)
-  if (schema?.type === "object" || schema?.properties) {
-    const required = new Set(schema.required ?? [])
-    const shape: Record<string, any> = {}
-    for (const [key, child] of Object.entries(schema.properties ?? {})) {
-      const value = zodSchema(child, root)
-      shape[key] = required.has(key) ? value : value.optional()
+function schemaName(ref: string): string {
+  const prefix = ref.startsWith("#/$defs/") ? "#/$defs/" : ref.startsWith("#/schemas/") ? "#/schemas/" : ""
+  const name = prefix ? ref.slice(prefix.length) : ""
+  if (!name || !Object.hasOwn(payloadSchemas, name)) throw new Error(`unknown payload schema reference ${ref}`)
+  return name
+}
+
+function collectSchemaRefs(value: unknown, names: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectSchemaRefs(item, names)
+    return
+  }
+  if (typeof value !== "object" || value === null) return
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")) names.add(schemaName(item))
+    else collectSchemaRefs(item, names)
+  }
+}
+
+function rewriteSchemaRefs(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(rewriteSchemaRefs)
+  if (typeof value !== "object" || value === null) return value
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")
+      ? `#/properties/request/definitions/${schemaName(item)}`
+      : rewriteSchemaRefs(item),
+  ]))
+}
+
+export function publishedRequestSchema(toolName: string): JSONSchema {
+  const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
+  if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
+  const needed = new Set<string>(operations.map((operation: any) => schemaName(operation.input_schema)))
+  const definitions: Record<string, unknown> = {}
+  while (true) {
+    const pending = [...needed].filter((name) => !Object.hasOwn(definitions, name)).sort()
+    if (pending.length === 0) break
+    for (const name of pending) {
+      const schema = (payloadSchemas as Record<string, unknown>)[name]
+      collectSchemaRefs(schema, needed)
+      definitions[name] = rewriteSchemaRefs(schema)
     }
-    return z.object(shape).strict()
   }
-  if (schema?.type === "array") {
-    let value = z.array(zodSchema(schema.items ?? {}, root))
-    if (schema.minItems !== undefined) value = value.min(schema.minItems)
-    if (schema.maxItems !== undefined) value = value.max(schema.maxItems)
-    return value
+  return {
+    oneOf: operations.map((operation: any) => ({
+      type: "object",
+      additionalProperties: false,
+      required: ["operation", "input"],
+      properties: {
+        operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
+        input: { $ref: `#/properties/request/definitions/${schemaName(operation.input_schema)}` },
+      },
+    })),
+    definitions,
   }
-  if (schema?.type === "integer" || schema?.type === "number") {
-    let value = z.number()
-    if (schema.type === "integer") value = value.int()
-    if (schema.minimum !== undefined) value = value.min(schema.minimum)
-    if (schema.maximum !== undefined) value = value.max(schema.maximum)
-    return value
-  }
-  if (schema?.type === "string") {
-    let value = z.string()
-    if (schema.minLength !== undefined) value = value.min(schema.minLength)
-    if (schema.maxLength !== undefined) value = value.max(schema.maxLength)
-    if (schema.pattern) value = value.regex(new RegExp(schema.pattern))
-    return value
-  }
-  if (Array.isArray(schema?.type) && schema.type.includes("null")) return z.union([z.string(), z.null()])
-  return z.unknown()
 }
 
 function argsSchema(toolName: string): any {
   const z = tool.schema
-  const operations = contractOperations.filter((op: any) => op.tool === toolName)
-  return {
-    operation: z.union(operations.map((op: any) => z.literal(op.id.slice(op.id.indexOf(".") + 1))) as any),
-    input: z.union(operations.map((op: any) => zodSchema((payloadSchemas as Record<string, unknown>)[op.input_schema.split("/").pop()!], payloadSchemas as any)) as any),
-  }
+  const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
+  const literals = operations.map((operation: any) => z.literal(operation.id.slice(operation.id.indexOf(".") + 1)))
+  if (literals.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
+  const operation = literals.length === 1 ? literals[0] : z.union(literals as any)
+  const request = z.object({ operation, input: z.record(z.string(), z.unknown()) }).strict()
+  return { request: request.meta(publishedRequestSchema(toolName)) }
 }
 
 ;
@@ -240,16 +262,16 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
   return encodeHostResult("concord_work_transition", args.operation, `${context.sessionID}-${context.messageID}`, await executeWorkTransition(args, context))
 }
 
-export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", args, context) })
-export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", args, context) })
-export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", args, context) })
-export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", args, context) })
-export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", args, context) })
-export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", args, context) })
-export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", args, context) })
-export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTransition(args, context) })
-export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", args, context) })
-export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolArgs, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", args, context) })
+export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", args.request, context) })
+export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", args.request, context) })
+export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", args.request, context) })
+export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", args.request, context) })
+export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", args.request, context) })
+export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", args.request, context) })
+export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", args.request, context) })
+export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(args.request, context) })
+export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", args.request, context) })
+export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", args.request, context) })
 
 // laneDispatchRequest decides whether a work_transition invocation routes to
 // the lane dispatcher (CD-0067 D5) or falls through to the generic core

@@ -935,34 +935,17 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
                 print(f"adapter host typecheck skipped: {staging_error}")
                 summary = "Bun syntax/build; host typecheck NOT run"
             else:
+                schema_probe = subprocess.run([bun, "run", "src/host_schema_probe.ts"], cwd=workspace, capture_output=True, text=True)
+                if schema_probe.returncode:
+                    print((schema_probe.stderr or schema_probe.stdout).strip(), file=sys.stderr)
+                    print("adapter host schema probe failed", file=sys.stderr)
+                    return schema_probe.returncode
                 typecheck = subprocess.run([bun, "x", f"typescript@{pin['typescript']}", "-p", "tsconfig.json"], cwd=workspace, capture_output=True, text=True)
                 reconcile_diagnostics(typecheck.stdout + typecheck.stderr, pin["allowances"], pin_findings, typecheck.returncode)
                 if pin_findings:
                     print(typecheck.stdout.strip(), file=sys.stderr)
                     for finding in pin_findings: print(finding, file=sys.stderr)
                     return 1
-                schema_probe = workspace / "schema-probe.ts"
-                schema_probe.write_text('''import { tool } from "@opencode-ai/plugin";
-import * as adapter from "./src/concord.ts";
-
-const propertyName = /^[a-zA-Z0-9_.-]{1,64}$/;
-let checked = 0;
-for (const [name, definition] of Object.entries(adapter)) {
-  const args = (definition as { args?: unknown }).args;
-  if (!args) continue;
-  checked++;
-  const schema = tool.schema.toJSONSchema(tool.schema.object(args as Record<string, never>)) as { properties?: Record<string, unknown> };
-  const properties = schema.properties;
-  if (!properties || Object.keys(properties).join(",") !== "operation,input" || Object.keys(properties).some((key) => !propertyName.test(key))) {
-    throw new Error(`${name} has an invalid input schema: ${JSON.stringify(schema)}`);
-  }
-}
-if (checked !== 10) throw new Error(`expected 10 Concord tool schemas, got ${checked}`);
-''', encoding="utf-8")
-                schema_check = subprocess.run([bun, "run", str(schema_probe)], cwd=workspace, capture_output=True, text=True)
-                if schema_check.returncode:
-                    print(schema_check.stderr.strip() or schema_check.stdout.strip(), file=sys.stderr)
-                    return schema_check.returncode
             source = (ROOT / "adapter/opencode/concord.ts").read_text(encoding="utf-8")
             exports = re.findall(r"export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(", source)
             if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_initiative", "work_transition", "work_relate", "work_compact"]:

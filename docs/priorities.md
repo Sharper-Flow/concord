@@ -265,7 +265,7 @@ operations need their own demand, local scope, and evidence.
 | [`design-constraints.md`](./design-constraints.md) | NFRs and hard constraints derived from the priorities. |
 | [`rollout-plan.md`](./rollout-plan.md) | Dependency-driven sequencing and entry conditions. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public issue-linked predecessor lessons; non-authorizing design input. |
-| [`development-authority.md`](./development-authority.md) | Accepted authority model before replacement readiness. |
+| [`development-authority.md`](./development-authority.md) | Concord development workflow under CD-0088, with GitHub planning and merge authority. |
 | [`clarifications.md`](./clarifications.md) | Open decisions needing operator direction before build. |
 | [`canonical-git-note-placement.md`](./canonical-git-note-placement.md) | **Accepted PM6:** deterministic durable-note home and git publish proof. |
 | [`compaction-retention-policy.md`](./compaction-retention-policy.md) | **Accepted PM7:** bounded lazy projection pruning, retained event authority, and immutable pruned IDs. |

@@ -15,13 +15,32 @@
     {
       "criterion": 4,
       "exemption": "Law-conflict surfacing is enforced by scripts/check-knowledge-closure.py --strict, which requires every document to carry an accepted record or explicit disposition."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Session identity and authoritative issue linkage are enforced by the concord session boot contract, the capture external_ref contract, and their CLI and agent contract tests."
+    },
+    {
+      "criterion": 6,
+      "exemption": "Durable transition, evidence, and completion records are enforced by the generated agent contracts and store workflow tests."
+    },
+    {
+      "criterion": 7,
+      "exemption": "Replacement readiness is checked by scripts/check-floor-readiness.py against the accepted floor manifest and executable evidence anchors."
+    },
+    {
+      "criterion": 8,
+      "exemption": "The no-predecessor-write boundary is enforced by scripts/check-predecessor-independence.py."
     }
   ],
-  "date": "2026-08-07T00:00:00Z",
+  "date": "2026-08-30T00:00:00Z",
   "evidence": [
     "scripts/check-public-content.py",
     "scripts/check-commit-title.py",
     "scripts/check-knowledge-closure.py",
+    "scripts/check-agent-contracts.py",
+    "scripts/check-floor-readiness.py",
+    "scripts/check-predecessor-independence.py",
     ".github/workflows/ci.yml"
   ],
   "home_domain_id": "repository-verification",
@@ -35,13 +54,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bc3f5c04a3714c90289384aeae7fe4650f9c0247a428ee899ccaacd78697e813",
+  "sha256": "sha256:9f74282fbd8992b50172a62dd6066616e322b754da9a2ff269eaabc74cc77eb6",
   "status": "accepted",
-  "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
+  "summary": "Defines Concord's development workflow after issue #600 while GitHub retains planning, review, and merge authority under CD-0088.",
   "tags": [
     "authority",
     "process",
-    "cd-0010"
+    "cd-0088",
+    "coordination"
   ],
   "title": "development authority"
 }

@@ -1,0 +1,31 @@
+{
+  "date": "2026-08-30T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0088",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0010"
+    }
+  ],
+  "path": "docs/decisions/CD-0088-concord-development-coordination.md",
+  "product_wide_rationale": "Moves Concord development coordination into Concord after the issue #600 bootstrap release while preserving GitHub planning and merge authority, replacement-readiness evidence, and Advance reference-only status.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a59657d0eb5abd86f4001d95601218190c4b7812369e7b562be8614f1cc271d5",
+  "status": "accepted",
+  "summary": "Concord owns its development workflow after issue #600 while GitHub retains planning, review, and merge authority. CD-0088 supersedes only CD-0010's self-hosting prohibition.",
+  "tags": [
+    "authority",
+    "coordination",
+    "github",
+    "replacement-readiness"
+  ],
+  "title": "Concord development coordination"
+}

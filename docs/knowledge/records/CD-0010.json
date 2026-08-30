@@ -14,7 +14,7 @@
   },
   "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730",
   "status": "accepted",
-  "summary": "Defines GitHub-native development authority before replacement readiness.",
+  "summary": "Defines GitHub planning, review, and isolation authority. CD-0088 supersedes only its self-hosting prohibition.",
   "tags": [
     "authority",
     "github"

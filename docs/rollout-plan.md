@@ -1,6 +1,6 @@
 # Concord Rollout Plan
 
-> **Status:** Public bootstrap and replacement-readiness sequence.
+> **Status:** Public bootstrap and Concord coordination sequence.
 > **Authority:** [`priorities.md`](./priorities.md) owns the ranked priorities and
 > operating envelope; this document owns sequencing and entry conditions.
 > **Origin:** Product direction recorded 2026-07-25; public bootstrap execution
@@ -17,10 +17,10 @@ Advance is a public predecessor and lesson source, not a runtime prerequisite or
 second authority. Reachable issue-backed lessons are summarized in
 [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md).
 
-## 1. Work allowed before replacement readiness
+## 1. Work allowed after bootstrap
 
-The following may proceed through ordinary public GitHub Issues, branches, worktrees,
-pull requests, and checks:
+After issue #600 ships, the following may proceed through Concord's workflow with
+GitHub Issues, branches, worktrees, pull requests, and required checks:
 
 - refine constitutional docs, specifications, and decision records;
 - implement the accepted storage/core slice after bootstrap;
@@ -30,15 +30,15 @@ pull requests, and checks:
 - improve documentation links, examples, and release evidence.
 
 The authority model for this work is accepted in
-[`development-authority.md`](./development-authority.md) and CD-0010.
+[`development-authority.md`](./development-authority.md) and CD-0088.
 
 ## 2. Entry conditions
 
 Runtime implementation proceeds only when all of these are true:
 
 1. The public constitutional snapshot is tagged `constitutional-bootstrap`.
-2. GitHub Issues, pull requests, required checks, branches, and worktrees are the
-   active interim authority model.
+2. Concord's development workflow is active, with GitHub Issues, pull requests,
+   required checks, branches, and worktrees retaining their authority.
 3. CD-0002 fixes SQLite as the sole durable authority; PM2/PM3 fix global scope and
    typed projections.
 4. CD-0005, as amended by CD-0042, fixes the bounded generated agent surface and
@@ -84,10 +84,11 @@ Beyond the usability floor, replacement readiness additionally requires:
 Both bars are decomposed in the floor manifest, and each condition's `source` names
 the document and section that bears it.
 
-## 4. Demand-driven adoption and correction
+## 4. Concord coordination and demand-driven correction
 
-Concord does not self-host its own development workflow before the replacement-ready
-floor is proven. The floor is an evidence claim, not a migration trigger or plan.
+Concord coordinates its own development after issue #600 ships. The replacement
+readiness floor is an evidence claim, not a development gate, migration trigger,
+or migration plan.
 
 Migration and correction remain demand-driven and ad hoc. Each operation defines
 its local scope, authority, input, idempotency, provenance, recovery, and native
@@ -103,9 +104,10 @@ bounded need.
 | Document | Role |
 |---|---|
 | [`priorities.md`](./priorities.md) | Canonical priorities, operating envelope, and replacement floor. |
-| [`development-authority.md`](./development-authority.md) | Interim GitHub/Git/docs authority. |
+| [`development-authority.md`](./development-authority.md) | Concord development workflow with GitHub planning and merge authority. |
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
-| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Accepted pre-readiness development authority. |
+| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Historical pre-readiness authority, superseded only by CD-0088 at its self-hosting boundary. |
+| [`decisions/CD-0088-concord-development-coordination.md`](./decisions/CD-0088-concord-development-coordination.md) | Concord development coordination after the issue #600 bootstrap exception. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
 | [`storage-spine-slice.md`](./storage-spine-slice.md) | First implementation acceptance slice. |

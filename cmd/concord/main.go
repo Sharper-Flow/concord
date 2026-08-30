@@ -47,25 +47,13 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	// The launcher is a terminal command, not a JSON command. Route it before
 	// any stdin read so bytes intended for the TUI can never be parsed as JSON.
-	// `concord` with no arguments is the primary entry point to the launcher.
-	if len(args) == 0 || (len(args) > 0 && args[0] == "launcher") {
-		var launcherArgs []string
-		if len(args) > 0 && args[0] == "launcher" {
-			launcherArgs = args[1:]
-		}
-		return runLauncherCommand(launcherArgs, in, out, errOut, terminalStreams(in, out))
+	if len(args) > 0 && args[0] == "launcher" {
+		return runLauncherCommand(args[1:], in, out, errOut, terminalStreams(in, out))
 	}
 	// Session boot is a TTY command invoked by the identity-only launcher.
 	// It derives continuity in the core before OpenCode receives any prompt.
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), deriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
-	}
-	// `concord <project> [-- <prompt>...]` resolves a local Project to its
-	// Product and starts a Concord orchestrator session. It is routed before
-	// JSON commands because the project token is not part of the operator
-	// command grammar.
-	if len(args) >= 1 && isProjectLaunchSyntax(args) {
-		return runProjectLaunchCommand(args, in, out, errOut, terminalStreams(in, out))
 	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
@@ -162,10 +150,8 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage:")
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
-	_, _ = fmt.Fprintln(out, "  concord                              # interactive TTY launcher")
-	_, _ = fmt.Fprintln(out, "  concord launcher                     # interactive TTY launcher (explicit)")
-	_, _ = fmt.Fprintln(out, "  concord <project> [-- <prompt>...]   # start Concord orchestrator for Project")
-	_, _ = fmt.Fprintln(out, "  concord session                      # internal TTY bootstrap; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
+	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {

@@ -101,8 +101,8 @@ func TestRunWithoutArguments(t *testing.T) {
 	if code := run(nil, &out, &errOut); code == 0 {
 		t.Fatalf("run() exit code = %d, want nonzero", code)
 	}
-	if out.Len() != 0 || !strings.Contains(errOut.String(), "requires an interactive TTY") {
-		t.Fatalf("run() output = %q / %q, want launcher TTY diagnostic on stderr", out.String(), errOut.String())
+	if out.Len() != 0 || !strings.Contains(errOut.String(), "Usage:") {
+		t.Fatalf("run() output = %q / %q, want usage on stderr", out.String(), errOut.String())
 	}
 }
 

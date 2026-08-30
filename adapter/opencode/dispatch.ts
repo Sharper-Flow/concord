@@ -261,7 +261,7 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // writes one JSON run event per stdout line, and the assistant's text is carried
 // only by `text` events, at `part.text`. No other event or key on the stream
 // carries it.
-function readRunTextParts(stdout: string): string[] {
+export function readRunTextParts(stdout: string): string[] {
   const texts: string[] = []
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim()

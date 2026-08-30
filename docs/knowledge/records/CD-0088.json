@@ -1,0 +1,33 @@
+{
+  "date": "2026-08-30T00:00:00Z",
+  "evidence": [
+    "cmd/concord/work_bootstrap.go",
+    "cmd/concord/work_bootstrap_test.go",
+    "internal/store/bootstrap.go",
+    "adapter/opencode/concord.ts",
+    "adapter/opencode/concord.test.ts",
+    "scripts/check-agent-contracts.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0088",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:94ad66d6a048df5c4ef4197231f68e1f6067d85a7a8832a7f9a0c0ac30d41711",
+  "status": "accepted",
+  "summary": "One host-owned operation captures or resumes work, reconciles its canonical linked worktree from durable intent, and launches the verified agent there without granting ordinary default-checkout mutation authority. The generic capability does not activate Concord self-hosting before a separate replacement-readiness claim and accepted authority change.",
+  "tags": [
+    "agent-surface",
+    "worktree",
+    "authority",
+    "idempotency",
+    "development-process"
+  ],
+  "title": "Host-owned work bootstrap preserves pre-readiness authority"
+}

@@ -36,6 +36,17 @@ type ProjectLocator struct {
 type HostRepository struct {
 	CanonicalPath string
 	GitRemote     string
+	WorktreePath  string
+}
+
+// WorktreeLocation is the pinned native worktree intent derived from a
+// registered Project and a repository ref.
+type WorktreeLocation struct {
+	Branch  string `json:"branch"`
+	BaseSHA string `json:"base_sha"`
+	Path    string `json:"path"`
+	Repo    string `json:"repo"`
+	Ref     string `json:"ref"`
 }
 
 // GitRunner is the test seam for host verification. Implementations receive
@@ -173,6 +184,53 @@ func (s *Store) ProjectCanonicalPath(ctx context.Context, projectID string) (str
 	return normalized, nil
 }
 
+// LocateWorktree owns the branch, base, and path derivation used by native
+// worktree operations.
+func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref string) (WorktreeLocation, error) {
+	var out WorktreeLocation
+	if projectID == "" || workID == "" {
+		return out, newFailure(KindInvalidOperation, "worktree_locate", "project and work IDs are required", false, "supply one Project and one work item")
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+	repo, err := s.ProjectCanonicalPath(ctx, projectID)
+	if err != nil {
+		return out, err
+	}
+	sha, err := ResolveCommitSHA(ctx, repo, ref)
+	if err != nil {
+		return out, err
+	}
+	out = WorktreeLocation{
+		Branch:  "work/" + workID,
+		BaseSHA: sha,
+		Path:    filepath.Join(filepath.Dir(s.Path()), "worktrees", projectID, workID),
+		Repo:    repo,
+		Ref:     ref,
+	}
+	if err := ValidateWorktreeClaimIntent(out.Branch, out.BaseSHA, out.Path); err != nil {
+		return WorktreeLocation{}, wrapFailure(KindInvalidOperation, "worktree_locate", "derived intent fails the claim's own validation", false, "use a valid work item ID and repository ref", err)
+	}
+	return out, nil
+}
+
+// ResolveCommitSHA pins a repository ref to one full commit SHA.
+func ResolveCommitSHA(ctx context.Context, repo, ref string) (string, error) {
+	if repo == "" || strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n\r\x00") {
+		return "", newFailure(KindInvalidOperation, "worktree_locate", "ref starts with a dash or contains whitespace or NUL", false, "supply one rev-syntax ref")
+	}
+	out, err := ExecGitRunner{}.Run(ctx, repo, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return "", newFailure(KindGitUnreachable, "worktree_locate", fmt.Sprintf("cannot resolve %s to a commit in %s", ref, repo), false, "supply a ref that resolves to one commit")
+	}
+	sha := strings.TrimSpace(string(out))
+	if !worktreeSHAPattern.MatchString(sha) || len(sha) != 40 {
+		return "", newFailure(KindGitUnreachable, "worktree_locate", "resolved value is not a full 40-character SHA", false, "supply a ref that resolves to one full commit SHA")
+	}
+	return sha, nil
+}
+
 func (s *Store) AddProjectLocator(ctx context.Context, projectID string, locator ProjectLocator, expectedVersion int64) error {
 	return s.applyLocatorEvent(ctx, projectID, "project.locator_added", locator, expectedVersion)
 }
@@ -294,11 +352,15 @@ func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktre
 	if root == "" {
 		return ProjectResolution{}, newFailure(KindGitUnreachable, "resolve_project", "signed directory/worktree is not a git repository", true, "run the client from a reachable git worktree")
 	}
-	canonical, err := normalizePath(root)
+	worktreeRoot, err := normalizePath(root)
 	if err != nil {
 		return ProjectResolution{}, err
 	}
-	mainWorktree, err := resolveMainWorktree(ctx, runner, canonical)
+	mainWorktree, err := resolveMainWorktree(ctx, runner, worktreeRoot)
+	if err != nil {
+		return ProjectResolution{}, err
+	}
+	canonical, err := resolveRepositoryCommonRoot(ctx, runner, worktreeRoot)
 	if err != nil {
 		return ProjectResolution{}, err
 	}
@@ -310,7 +372,7 @@ func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktre
 			return ProjectResolution{}, err
 		}
 	}
-	host := HostRepository{CanonicalPath: canonical, GitRemote: remote}
+	host := HostRepository{CanonicalPath: canonical, GitRemote: remote, WorktreePath: worktreeRoot}
 	locators := []ProjectLocator{}
 	if remote != "" {
 		locators, err = matchProjectLocators(ctx, q, LocatorGitRemote, remote)
@@ -345,6 +407,28 @@ func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktre
 		id = candidate
 	}
 	return ProjectResolution{ProjectID: id, Repository: host, Locators: locators, MainWorktree: mainWorktree}, nil
+}
+
+func resolveRepositoryCommonRoot(ctx context.Context, runner GitRunner, worktreeRoot string) (string, error) {
+	out, err := runner.Run(ctx, worktreeRoot, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", newFailure(KindGitUnreachable, "resolve_project", "cannot determine the repository common directory", true, "run the client from a reachable git worktree")
+	}
+	common := strings.TrimSpace(string(out))
+	if common == "" {
+		return "", newFailure(KindGitUnreachable, "resolve_project", "git reported an empty common directory", true, "run the client from a reachable git worktree")
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(worktreeRoot, common)
+	}
+	common, err = filepath.EvalSymlinks(common)
+	if err != nil {
+		return "", newFailure(KindGitUnreachable, "resolve_project", "repository common directory is not reachable", true, "restore access to the repository and retry")
+	}
+	if filepath.Base(common) == ".git" {
+		common = filepath.Dir(common)
+	}
+	return normalizePath(common)
 }
 
 // resolveMainWorktree reports whether the working tree at root is the

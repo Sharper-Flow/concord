@@ -45,9 +45,10 @@ documents are Product law, and the predecessor is reference-only.
 6. Replacement readiness is an evidence claim defined by the accepted floor and
    release evidence. It does not block Concord development or trigger migration.
 
-CD-0089 supersedes only CD-0010's self-hosting prohibition. The CD-0010 file and
-historical research records remain unchanged. Any later change to this model needs
-an accepted decision record and public review evidence.
+CD-0088 defines a narrow host-owned work bootstrap without changing ordinary
+default-checkout authority. CD-0089 supersedes only CD-0010's self-hosting
+prohibition. Any later change to this model needs an accepted decision record and
+public review evidence.
 
 ## Acceptance criteria
 

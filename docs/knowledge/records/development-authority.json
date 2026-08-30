@@ -54,13 +54,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5f8eb9167e96b8064d14bb8894a8e3fc025f1158ebd8df4b1d1e34094f2f2d0e",
+  "sha256": "sha256:ea78d34a4d74d84c5d51c98788484b28c92ce70121b1538cdea3bdf147da6109",
   "status": "accepted",
   "summary": "Defines Concord's development workflow after issue #600 while GitHub retains planning, review, and merge authority under CD-0089.",
   "tags": [
     "authority",
     "process",
     "cd-0088",
+    "cd-0089",
     "coordination"
   ],
   "title": "development authority"

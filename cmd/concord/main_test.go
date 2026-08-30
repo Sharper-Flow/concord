@@ -106,6 +106,18 @@ func TestRunWithoutArguments(t *testing.T) {
 	}
 }
 
+func TestHelpListsHostBootstrapCommands(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
+		t.Fatalf("help exit code=%d stderr=%q", code, errOut.String())
+	}
+	for _, command := range []string{"concord work-bootstrap < JSON stdin", "concord session-prepare < JSON stdin"} {
+		if !strings.Contains(out.String(), command) {
+			t.Fatalf("help does not list %q", command)
+		}
+	}
+}
+
 func TestLauncherRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"launcher"}, strings.NewReader("not json"), &out, &errOut); code != 2 {

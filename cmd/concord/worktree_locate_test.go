@@ -54,6 +54,8 @@ func initLocatorRepo(t *testing.T) string {
 	}
 	run("add", ".")
 	run("commit", "-q", "-m", "base")
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	return repo
 }
 

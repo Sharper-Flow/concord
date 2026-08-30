@@ -1,4 +1,4 @@
-# CD-0088: A per-turn runtime continuity hook re-pins orchestrator context
+# CD-0090: A per-turn runtime continuity hook re-pins orchestrator context
 
 - **Status:** Accepted under operator approval.
 - **Approval date:** 2026-08-30.
@@ -64,7 +64,7 @@ The adapter plugin entry (`concord-plugin.ts`) registers
 
 The render path is pinned to `sessionboot.Build`. The envelope render stamps
 wall-clock `ObservedAt` and is nondeterministic; using it would break
-byte-stability. Spawns are TTL-gated and keyed by identity.
+byte-stability. Spawns are gated by a bounded time window and keyed by identity.
 
 ### D3. Byte-stability is the cache-safety mechanism
 
@@ -103,7 +103,7 @@ version number.
   (`cmd/concord` tests).
 - Step join: `StepActions` equals the current step's `actions[]` for a fixture
   definition; empty when no workflow is in flight (`internal/store` tests).
-- Hook: determinism, sentinel-replacement-not-append, failure no-op, TTL gate
+- Hook: determinism, sentinel-replacement-not-append, failure no-op, spawn-window gate
   (adapter tests).
 - Cache safety: repeated-turn measurement with the hook on vs off shows
   `cache_creation` equal to baseline after the first turn (recorded as

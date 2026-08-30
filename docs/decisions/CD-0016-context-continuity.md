@@ -6,7 +6,7 @@
 
 > **Subsequent decision:** CD-0031 supplies automatic core-derived continuity to launcher-started operator sessions. The absence statement in §Consequences records the state when CD-0016 was accepted.
 >
-> **Subsequent decision:** CD-0088 adds one bounded runtime re-pin surface — a per-turn host plugin hook that re-asserts the pinned projection after context boundaries. The "does not add a generic host hook" clause in §Consequences records the state when CD-0016 was accepted; no generic hook exists, and the added surface holds no authority.
+> **Subsequent decision:** CD-0090 adds one bounded runtime re-pin surface — a per-turn host plugin hook that re-asserts the pinned projection after context boundaries. The "does not add a generic host hook" clause in §Consequences records the state when CD-0016 was accepted; no generic hook exists, and the added surface holds no authority.
 
 ## Decision
 

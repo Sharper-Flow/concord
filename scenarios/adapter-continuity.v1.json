@@ -1,0 +1,56 @@
+{
+  "$schema": "contracts/adapter-continuity-scenarios.schema.json",
+  "schema_version": "1.0",
+  "contract": "CD-0088",
+  "contract_status": "accepted",
+  "fixtures": {
+    "work_id": "work_repin_fixture",
+    "verb_output_stable": "{\"work_id\":\"work_repin_fixture\",\"workflow_step\":\"implement\",\"contract_version\":3,\"spec_mandate\":[\"law.continuity.v1\"],\"pending_messages\":0}",
+    "verb_output_changed": "{\"work_id\":\"work_repin_fixture\",\"workflow_step\":\"verify\",\"contract_version\":3,\"spec_mandate\":[\"law.continuity.v1\"],\"pending_messages\":1}"
+  },
+  "scenarios": [
+    {
+      "id": "adapter-continuity-byte-stable-across-turns",
+      "given": "a launcher-started session whose work snapshot is unchanged between two turns",
+      "when": "experimental.chat.system.transform runs on consecutive turns with the cached verb output",
+      "then": [
+        {"assertion": "system_prompt_byte_identical"},
+        {"assertion": "no_duplicate_sentinel"}
+      ]
+    },
+    {
+      "id": "adapter-continuity-state-change-replaces-block",
+      "given": "a system[0] already carrying the sentinel block from the prior turn and a changed snapshot",
+      "when": "the transform runs with the changed verb output",
+      "then": [
+        {"assertion": "sentinel_block_replaced_in_place"},
+        {"assertion": "no_duplicate_sentinel"}
+      ]
+    },
+    {
+      "id": "adapter-continuity-failure-is-absence",
+      "given": "the core verb exits nonzero, emits nothing, or identity env is absent (manual session)",
+      "when": "the transform runs",
+      "then": [
+        {"assertion": "system_prompt_untouched"}
+      ]
+    },
+    {
+      "id": "adapter-continuity-ttl-gates-spawn",
+      "given": "a render already cached for the identity within the TTL window",
+      "when": "a second transform runs inside the window",
+      "then": [
+        {"assertion": "no_child_spawn"},
+        {"assertion": "system_prompt_byte_identical"}
+      ]
+    },
+    {
+      "id": "adapter-continuity-post-boundary-re-pin",
+      "given": "a host context boundary (compaction) crossed with no intervening concord_* tool call and the snapshot unchanged",
+      "when": "the next turn's transform runs from the TTL cache or a fresh spawn",
+      "then": [
+        {"assertion": "pinned_block_present_without_tool_call"}
+      ]
+    }
+  ]
+}

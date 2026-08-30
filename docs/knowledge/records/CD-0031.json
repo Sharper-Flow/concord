@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:be076d19e2951ed4de4e77f0be6dfa426c54867eaf7474fba52b3e9ff0826008",
+  "sha256": "sha256:6fc7d2b7994f097a6ba7cbe89ec4c18b3b0f95c53cf78dfa83d16b5376a0f0d5",
   "status": "accepted",
   "summary": "Launcher-started operator sessions receive one generated, digest-bound packet rendered from canonical continuity before OpenCode starts; the launcher remains identity-only.",
   "tags": [

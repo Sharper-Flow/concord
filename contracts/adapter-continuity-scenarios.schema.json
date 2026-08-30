@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/adapter-continuity-scenarios.schema.json",
+  "title": "Concord adapter continuity-hook scenario corpus v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "contract", "contract_status", "fixtures", "scenarios"],
+  "properties": {
+    "$schema": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "1.0"},
+    "contract": {"const": "CD-0088"},
+    "contract_status": {"const": "accepted"},
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verb_output_stable", "verb_output_changed", "work_id"],
+      "properties": {
+        "work_id": {"type": "string", "pattern": "^work_[a-z0-9_.-]+$"},
+        "verb_output_stable": {"type": "string", "minLength": 1, "description": "Deterministic continuity-block stdout from the internal verb for an unchanged snapshot."},
+        "verb_output_changed": {"type": "string", "minLength": 1, "description": "Verb stdout after a state change; must differ from verb_output_stable."}
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "given", "when", "then"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^adapter-continuity-[a-z0-9-]+$"},
+          "given": {"type": "string", "minLength": 8, "maxLength": 512},
+          "when": {"type": "string", "minLength": 8, "maxLength": 512},
+          "then": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["assertion"],
+              "properties": {
+                "assertion": {
+                  "enum": [
+                    "system_prompt_byte_identical",
+                    "sentinel_block_replaced_in_place",
+                    "no_duplicate_sentinel",
+                    "system_prompt_untouched",
+                    "no_child_spawn",
+                    "pinned_block_present_without_tool_call"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

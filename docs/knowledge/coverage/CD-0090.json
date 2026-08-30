@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestContinuityBlockPrintsDeterministicPacket"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestContinuityBlockWithEmptyWorkIDDoesNothing"
+    },
+    {
+      "kind": "scenario",
+      "value": "adapter-continuity-post-boundary-re-pin"
+    },
+    {
+      "kind": "scenario",
+      "value": "adapter-continuity-byte-stable-across-turns"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-json.py"
+    }
+  ],
+  "id": "CD-0090",
+  "state": "satisfied"
+}

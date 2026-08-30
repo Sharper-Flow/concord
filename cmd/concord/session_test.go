@@ -104,6 +104,67 @@ func TestSessionRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
 	}
 }
 
+func TestContinuityBlockPrintsDeterministicPacket(t *testing.T) {
+	t.Setenv(selectedProductEnv, "product-1")
+	t.Setenv(selectedWorkEnv, "work-1")
+	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "fixture.db"))
+	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
+		return sessionboot.Build("product-1", store.ContinuitySnapshot{
+			WorkID: "work-1", ProductIdentity: []string{"product-1"}, WorkflowStep: "planning",
+			SpecMandate: []string{}, Boundaries: []store.ContextBoundary{}, Watermark: "seq:42",
+			RestartUnavailableReason: "typed restart is deliberately excluded", PendingMessages: 3,
+		})
+	}
+	var packets []string
+	for range 2 {
+		var out, errOut bytes.Buffer
+		if code := runContinuityBlockCommandWithBootstrap(nil, &out, &errOut, bootstrap); code != 0 {
+			t.Fatalf("continuity-block exit=%d stderr=%q", code, errOut.String())
+		}
+		packets = append(packets, out.String())
+	}
+	if packets[0] == "" || packets[0] != packets[1] {
+		t.Fatalf("continuity-block packets differ: %q vs %q", packets[0], packets[1])
+	}
+	if err := sessionboot.Validate([]byte(packets[0])); err != nil {
+		t.Fatalf("continuity-block packet invalid: %v", err)
+	}
+}
+
+func TestContinuityBlockWithEmptyWorkIDDoesNothing(t *testing.T) {
+	t.Setenv(selectedProductEnv, "product-1")
+	t.Setenv(selectedWorkEnv, "")
+	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "fixture.db"))
+	called := false
+	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
+		called = true
+		return nil, errors.New("bootstrap must not run")
+	}
+	var out, errOut bytes.Buffer
+	if code := runContinuityBlockCommandWithBootstrap(nil, &out, &errOut, bootstrap); code != 0 {
+		t.Fatalf("continuity-block exit=%d stderr=%q", code, errOut.String())
+	}
+	if called || out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("continuity-block empty-work output=%q stderr=%q called=%t", out.String(), errOut.String(), called)
+	}
+}
+
+func TestContinuityBlockReadFailureIsSilentOnStdout(t *testing.T) {
+	t.Setenv(selectedProductEnv, "product-1")
+	t.Setenv(selectedWorkEnv, "work-1")
+	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "fixture.db"))
+	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
+		return nil, errors.New("continuity read failed")
+	}
+	var out, errOut bytes.Buffer
+	if code := runContinuityBlockCommandWithBootstrap(nil, &out, &errOut, bootstrap); code == 0 {
+		t.Fatal("continuity-block succeeded after continuity read failure")
+	}
+	if out.Len() != 0 || !strings.Contains(errOut.String(), "continuity read failed") {
+		t.Fatalf("continuity-block failure output=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
 func TestSessionRefusesToStartWhenRequiredAgentIdentityIsAbsent(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")

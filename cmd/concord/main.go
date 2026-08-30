@@ -53,7 +53,12 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	// Session boot is a TTY command invoked by the identity-only launcher.
 	// It derives continuity in the core before OpenCode receives any prompt.
 	if len(args) > 0 && args[0] == "session" {
-		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), deriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+	}
+	// Continuity block is a read-only transport for launcher hooks. It must run
+	// before project and JSON routing so it does not consume stdin.
+	if len(args) > 0 && args[0] == "continuity-block" {
+		return runContinuityBlockCommand(args[1:], out, errOut)
 	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
@@ -152,6 +157,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord --version")
 	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
 	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord continuity-block             # read-only continuity packet; launcher identity env required")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {

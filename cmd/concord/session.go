@@ -112,7 +112,9 @@ func orchestratorAssertionEventID(productID, workID string) string {
 	return "session-orchestrator-identity:" + scope + ":" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
-func deriveSessionBoot(ctx context.Context, database, productID, workID string) (packet []byte, errResult error) {
+// DeriveSessionBoot reads the canonical continuity projection and renders the
+// deterministic session boot packet shared by session transports.
+func DeriveSessionBoot(ctx context.Context, database, productID, workID string) (packet []byte, errResult error) {
 	s, err := store.Open(ctx, database)
 	if err != nil {
 		return nil, err
@@ -128,6 +130,40 @@ func deriveSessionBoot(ctx context.Context, database, productID, workID string) 
 		return nil, err
 	}
 	return sessionboot.Build(productID, snapshot)
+}
+
+func runContinuityBlockCommand(args []string, out, errOut io.Writer) int {
+	return runContinuityBlockCommandWithBootstrap(args, out, errOut, DeriveSessionBoot)
+}
+
+func runContinuityBlockCommandWithBootstrap(args []string, out, errOut io.Writer, bootstrap sessionBootstrapFunc) int {
+	if len(args) != 0 {
+		writeDiagnostic(errOut, "concord continuity-block: unsupported arguments")
+		return 2
+	}
+	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
+	if workID == "" {
+		return 0
+	}
+	if !sessionIdentity.MatchString(productID) || !sessionIdentity.MatchString(workID) {
+		writeDiagnostic(errOut, "concord continuity-block: launcher identity is missing or invalid")
+		return 2
+	}
+	database, err := databasePath()
+	if err != nil {
+		writeDiagnostic(errOut, err.Error())
+		return 1
+	}
+	packet, err := bootstrap(context.Background(), database, productID, workID)
+	if err != nil {
+		writeDiagnostic(errOut, "concord continuity-block: "+err.Error())
+		return 1
+	}
+	if _, err := out.Write(packet); err != nil {
+		writeDiagnostic(errOut, "concord continuity-block: "+err.Error())
+		return 1
+	}
+	return 0
 }
 
 func runOpenCode(ctx context.Context, argv, env []string, in io.Reader, out, errOut io.Writer) error {

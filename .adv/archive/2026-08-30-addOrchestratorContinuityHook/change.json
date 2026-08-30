@@ -1,0 +1,1639 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Sharper-Flow/Advance/trunk/plugin/schemas/change.schema.json",
+  "id": "addOrchestratorContinuityHook",
+  "title": "Add orchestrator continuity hook",
+  "status": "archived",
+  "created_at": "2026-08-30T21:50:39.132Z",
+  "tasks": [
+    {
+      "id": "tk-8ebab223285c",
+      "title": "Core: continuity read verb",
+      "type": "code",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-08-30T22:07:29.662Z",
+      "started_at": "2026-08-30T22:10:29.829Z",
+      "completed_at": "2026-08-30T22:18:37.940Z",
+      "verification": "Red run tr_mtgdbfco_8a3437dd failed before implementation. Green run tr_mtgddabc_88c768a0 passed focused continuity-block tests. Verify run tr_mtgdeqfp_2eee703c passed go test ./... -count=1.",
+      "summary": "Red run tr_mtgdbfco_8a3437dd failed before implementation. Green run tr_mtgddabc_88c768a0 passed focused continuity-block tests. Verify run tr_mtgdeqfp_2eee703c passed go test ./... -count=1.",
+      "filesTouched": [
+        "cmd/concord/main.go",
+        "cmd/concord/project_launch.go",
+        "cmd/concord/session.go",
+        "cmd/concord/session_test.go"
+      ],
+      "checkpointSha": "03880c1c10fe94001b909a43498220a4927e5647",
+      "completedAt": "2026-08-30T22:18:37.940Z",
+      "assignedTo": "agent",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "provenance": "new",
+        "stage": "stage-v2"
+      },
+      "evidence_policy": "test",
+      "metadata": {
+        "tdd_intent": "inline"
+      }
+    },
+    {
+      "id": "tk-b40095d849d8",
+      "title": "Core: StepActions in continuity snapshot (Scope B)",
+      "type": "code",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-08-30T22:07:39.353Z",
+      "started_at": "2026-08-30T22:20:45.111Z",
+      "completed_at": "2026-08-30T22:29:23.983Z",
+      "verification": "RED tr_mtgdlc2t_f5308734 failed on missing StepActions; GREEN tr_mtgdnpvt_7aa4c59b passed. Verify tr_mtgdrhkr_337696c2 passed go test ./... -count=1 and tr_mtgdsd0p_e2215453 passed bun adapter tests. Generator check and 53 contract tests passed.",
+      "summary": "RED tr_mtgdlc2t_f5308734 failed on missing StepActions; GREEN tr_mtgdnpvt_7aa4c59b passed. Verify tr_mtgdrhkr_337696c2 passed go test ./... -count=1 and tr_mtgdsd0p_e2215453 passed bun adapter tests. Generator check and 53 contract tests passed.",
+      "filesTouched": [
+        "adapter/opencode/generated-contracts.ts",
+        "adapter/opencode/packet.test.ts",
+        "contracts/agent-tool-surface-payloads.schema.json",
+        "contracts/agent-tool-surface.digest",
+        "contracts/agent-tool-surface.fixtures.json",
+        "contracts/agent-tool-surface.v1.json",
+        "docs/generated-agent-tool-surface.md",
+        "internal/agent/generated_contracts.go",
+        "internal/agent/generated_payload_schemas.go",
+        "internal/agent/runtime.go",
+        "internal/store/workflow_continuity.go",
+        "internal/store/workflow_continuity_test.go"
+      ],
+      "checkpointSha": "7fc639c45c2e0a5f50c9b305fa7e0747cddca262",
+      "completedAt": "2026-08-30T22:29:23.983Z",
+      "assignedTo": "agent",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "provenance": "new",
+        "stage": "stage-v2"
+      },
+      "evidence_policy": "test",
+      "metadata": {
+        "tdd_intent": "inline"
+      }
+    },
+    {
+      "id": "tk-ba06f35c9aa5",
+      "title": "Docs: amend CD-0031/CD-0016, record injection surface and 2.4.0",
+      "type": "docs",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-08-30T22:07:42.761Z",
+      "started_at": "2026-08-30T22:31:23.286Z",
+      "completed_at": "2026-08-30T22:33:33.150Z",
+      "verification": "CD-0016/CD-0031 amended via subsequent-decision blockquotes; CD-0088 added. Validators: check-cd-allocation, check-doc-links, check-doc-contract, check-approval-consequence all exit 0 (runId tr_mtgdy01q_1a7a9036). Commit a06daff.",
+      "summary": "CD-0016/CD-0031 amended via subsequent-decision blockquotes; CD-0088 added. Validators: check-cd-allocation, check-doc-links, check-doc-contract, check-approval-consequence all exit 0 (runId tr_mtgdy01q_1a7a9036). Commit a06daff.",
+      "filesTouched": [
+        "docs/decisions/CD-0016-context-continuity.md",
+        "docs/decisions/CD-0031-core-derived-session-boot.md",
+        "docs/decisions/CD-0088-per-turn-continuity-re-pin-hook.md"
+      ],
+      "checkpointSha": "a06daff046375c239aaf5c62a3f357ee44cd31e1",
+      "completedAt": "2026-08-30T22:33:33.150Z",
+      "assignedTo": "agent",
+      "evidence_plan": {
+        "policy": "static_check",
+        "proof_target": "Static analysis or check output",
+        "rationale": "Decision-record amendments are durable docs validated by repo CI validators and cross-reference checks; no runtime behavior to test.",
+        "provenance": "new",
+        "stage": "stage-v2"
+      },
+      "evidence_policy": "static_check",
+      "metadata": {
+        "tdd_intent": "not_applicable"
+      }
+    },
+    {
+      "id": "tk-6bed19f2489e",
+      "title": "Cleanup: remove unregistered leftover concord-adapter.ts",
+      "type": "ops",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-08-30T22:07:45.064Z",
+      "started_at": "2026-08-30T22:34:01.799Z",
+      "completed_at": "2026-08-30T22:34:06.619Z",
+      "verification": "Host artifact evidence: ~/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
+      "summary": "Host artifact evidence: ~/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
+      "filesTouched": [
+        "docs/decisions/CD-0016-context-continuity.md",
+        "docs/decisions/CD-0031-core-derived-session-boot.md",
+        "docs/decisions/CD-0088-per-turn-continuity-re-pin-hook.md"
+      ],
+      "checkpointSha": "a06daff046375c239aaf5c62a3f357ee44cd31e1",
+      "completedAt": "2026-08-30T22:34:06.619Z",
+      "assignedTo": "agent",
+      "contract_refs": {
+        "not_applicable_reason": "Cleanup of a host-side unregistered file; evidence is the recorded post-removal verification output (file absent, opencode.jsonc plugin array unchanged), captured as an artifact reference."
+      },
+      "evidence_plan": {
+        "policy": "artifact_reference",
+        "proof_target": "No evidence required",
+        "rationale": "Verification output (file absence + unchanged config) recorded as an artifact on task completion.",
+        "provenance": "new",
+        "stage": "stage-v2"
+      },
+      "evidence_policy": "artifact_reference",
+      "metadata": {
+        "tdd_intent": "not_applicable"
+      }
+    },
+    {
+      "id": "tk-c92f126ae083",
+      "title": "Adapter: per-turn continuity hook in concord-plugin.ts",
+      "type": "code",
+      "status": "done",
+      "priority": 4,
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-8ebab223285c"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-b40095d849d8"
+        }
+      ],
+      "created_at": "2026-08-30T22:07:56.725Z",
+      "started_at": "2026-08-30T22:34:49.080Z",
+      "completed_at": "2026-08-30T22:43:30.908Z",
+      "verification": "RED tr_mtge59fs_15175c66 failed before implementation. GREEN tr_mtgeab8a_43c8f8a4 passed 5 focused tests. VERIFY tr_mtgeahf2_217fbc61 passed bun test adapter/opencode with 105 tests and 778 expectations.",
+      "summary": "RED tr_mtge59fs_15175c66 failed before implementation. GREEN tr_mtgeab8a_43c8f8a4 passed 5 focused tests. VERIFY tr_mtgeahf2_217fbc61 passed bun test adapter/opencode with 105 tests and 778 expectations.",
+      "filesTouched": [
+        "adapter/opencode/concord-plugin.ts",
+        "adapter/opencode/continuity-hook.ts",
+        "adapter/opencode/continuity_hook.test.ts",
+        "adapter/opencode/dispatch.ts"
+      ],
+      "checkpointSha": "b7cf1da8c23d9f81803b69fe82e15369c5c6ae51",
+      "completedAt": "2026-08-30T22:43:30.908Z",
+      "assignedTo": "agent",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "provenance": "new",
+        "stage": "stage-v2"
+      },
+      "evidence_policy": "test",
+      "metadata": {
+        "tdd_intent": "inline"
+      }
+    },
+    {
+      "id": "tk-35726ae8cf0e",
+      "title": "Verify: cache-safety measurement + scenario corpus",
+      "type": "verification",
+      "status": "done",
+      "priority": 5,
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-c92f126ae083"
+        }
+      ],
+      "created_at": "2026-08-30T22:08:06.938Z",
+      "completed_at": "2026-08-30T22:50:53.082Z",
+      "verification": "Scenario corpus: contracts/adapter-continuity-scenarios.schema.json + scenarios/adapter-continuity.v1.json (5 scenarios incl. post-boundary re-pin) + README row. Decision record renumbered CD-0088→CD-0090 (0088/0089 claimed by origin branches); knowledge index, law-coverage shard, and record hashes regenerated. Full validator chain exit 0 (runId tr_mtgekx4m_a88b18a5). CACHE MEASUREMENT DISPOSITION (AC3): mechanism is machine-proven — adapter determinism tests show system[0] byte-identical across turns with unchanged snapshot, which rules out prefix invalidation by construction. The live cache-meter number requires a concord-launched session with real provider calls (quota burn); BLOCKER recorded rather than claiming an unmeasured pass. Procedure: after deploy, run one orchestrator session of N>=5 turns with no state change, then `cache-stats summary` — pass = cache_creation equals baseline after turn 1. Recommend executing on first live session post-merge.",
+      "summary": "Scenario corpus: contracts/adapter-continuity-scenarios.schema.json + scenarios/adapter-continuity.v1.json (5 scenarios incl. post-boundary re-pin) + README row. Decision record renumbered CD-0088→CD-0090 (0088/0089 claimed by origin branches); knowledge index, law-coverage shard, and record hashes regenerated. Full validator chain exit 0 (runId tr_mtgekx4m_a88b18a5). CACHE MEASUREMENT DISPOSITION (AC3): mechanism is machine-proven — adapter determinism tests show system[0] byte-identical across turns with unchanged snapshot, which rules out prefix invalidation by construction. The live cache-meter number requires a concord-launched session with real provider calls (quota burn); BLOCKER recorded rather than claiming an unmeasured pass. Procedure: after deploy, run one orchestrator session of N>=5 turns with no state change, then `cache-stats summary` — pass = cache_creation equals baseline after turn 1. Recommend executing on first live session post-merge.",
+      "filesTouched": [
+        "contracts/adapter-continuity-scenarios.schema.json",
+        "docs/concord-knowledge-index.v1.json",
+        "docs/decisions/CD-0016-context-continuity.md",
+        "docs/decisions/CD-0031-core-derived-session-boot.md",
+        "docs/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",
+        "docs/knowledge/coverage/CD-0090.json",
+        "docs/knowledge/records/CD-0016.json",
+        "docs/knowledge/records/CD-0031.json",
+        "docs/knowledge/records/CD-0090.json",
+        "docs/law-coverage.v1.json",
+        "scenarios/README.md",
+        "scenarios/adapter-continuity.v1.json"
+      ],
+      "checkpointSha": "483a2e39c3cba43e18b27bdb6f3d410bb685537d",
+      "completedAt": "2026-08-30T22:50:53.082Z",
+      "evidence_plan": {
+        "policy": "artifact_reference",
+        "proof_target": "Artifact reference or operational output",
+        "rationale": "Cache measurement evidence is a recorded artifact (cache-stats output) plus a scenario corpus entry; behavior tests live in the dependent tasks.",
+        "provenance": "new",
+        "stage": "stage-v2"
+      },
+      "evidence_policy": "artifact_reference",
+      "metadata": {
+        "tdd_intent": "separate_verification"
+      }
+    }
+  ],
+  "subagent_reports": [
+    {
+      "schema_version": "1.0",
+      "change_id": "addOrchestratorContinuityHook",
+      "attempt": 1,
+      "workdir_used": "~/dev/concord",
+      "scope": {
+        "kind": "change",
+        "scope_key": "researcher:orchestrator-continuity"
+      },
+      "agent": "adv-researcher",
+      "topic": "Design validation: orchestrator continuity hook (OpenCode system.transform + StepActions + surface bump)",
+      "sources": [
+        {
+          "label": "Host plugin typings (installed)",
+          "locator": "~/.config/opencode/node_modules/@opencode-ai/plugin/dist/index.d.ts:265-270",
+          "summary": "experimental.chat.system.transform declared: (input {sessionID?, model}, output {system: string[]})."
+        },
+        {
+          "label": "Advance plugin (production usage)",
+          "locator": "~/dev/advance/plugin/src/index.ts:1305-1409",
+          "summary": "Hook writes one ordered block to output.system[0]; per-turn semantics proven by 'next turn' manifest reread (1326-1327), per-turn byte tracking (1378), compaction re-emit logic (1394-1405)."
+        },
+        {
+          "label": "Advance system-block assembler",
+          "locator": "~/dev/advance/plugin/src/utils/system-block.ts:1-31",
+          "summary": "Replace-not-append, sentinel-delimited single system entry per turn; internal-call guard precedent."
+        },
+        {
+          "label": "sessionboot determinism",
+          "locator": "internal/sessionboot/sessionboot.go:30-68; internal/agent/runtime.go:1774-1788,1795",
+          "summary": "Build is a pure json.Marshal of struct+map; ContinuityPayload has no clock. Envelope path DOES stamp time.Now() ObservedAt (1795) — the verb must reuse sessionboot, not the envelope render."
+        },
+        {
+          "label": "Identity propagation",
+          "locator": "cmd/concord/session.go:18-19,156,198-199; internal/launcher/render/bubbletea/model.go:920-937; adapter/opencode/concord.ts:158",
+          "summary": "Launcher sets CONCORD_SELECTED_{PRODUCT,WORK}_ID; session passes os.Environ() to opencode; adapter already reads CONCORD_SELECTED_PRODUCT_ID inside the host process."
+        },
+        {
+          "label": "StepActions feasibility",
+          "locator": "internal/store/workflow_continuity.go:113-124; internal/store/workflow_read.go:43-53; internal/store/workflow_registry.go:125-128,186-211; contracts/workflow-definition.schema.json:17,45,55",
+          "summary": "Registry Lookup(ref,version)+Verify already invoked inside ReadWorkflowContinuity; WorkflowStep.Actions exists. available_actions is per-DEFINITION; steps carry actions[] — design naming must be corrected."
+        },
+        {
+          "label": "Surface bump mechanics",
+          "locator": "contracts/agent-tool-surface-payloads.schema.json:1466-1476,5654-5689; internal/agent/generated_contracts.go:1-9; internal/agent/authority.go:224; adapter/opencode/concord.ts:146; scripts/check-agent-contracts.py:29,896-900",
+          "summary": "continuity_snapshot and session_boot_packet are additionalProperties:false; ManifestDigest lockstep enforced both directions. No machine-read '2.4.0' field exists — the number is docs-level only."
+        },
+        {
+          "label": "Install-state facts (design premise false)",
+          "locator": "adapter/opencode/concord-plugin.ts:1-45; scripts/install.py:35-49,299-349; ~/.local/share/concord/install-manifest.json:2-25; ~/.config/opencode/opencode.jsonc:52-53",
+          "summary": "Repo AND installed v4.10.3 (not v4.9.4) ship concord-plugin.ts; installer registers tools/concord-plugin.ts in the host plugin array (live line 53). ~/.config/opencode/concord-adapter.ts exists but is UNREGISTERED leftover."
+        },
+        {
+          "label": "Decision records",
+          "locator": "docs/decisions/CD-0016-context-continuity.md:56-69; docs/decisions/CD-0031-core-derived-session-boot.md:62-71; docs/decisions/CD-0034-host-prompt-provenance.md:20-37; docs/terminal-launcher-contract.md:464",
+          "summary": "No CD forbids the hook. CD-0031 consequence 'OpenCode host hooks and plugins are unnecessary' and CD-0016 'does not add a generic host hook' require amendment; CD-0034 provenance philosophy should be honored; TS6 transport-only note applies to concord.ts."
+        },
+        {
+          "label": "Bun.spawn pattern",
+          "locator": "adapter/opencode/dispatch.ts:90-102",
+          "summary": "Bun.spawn child-runner pattern at line 92 exactly as the design cites."
+        }
+      ],
+      "architecture_assessment": "All six load-bearing mechanisms check out against source. The hook is real and per-turn; the sessionboot render is byte-deterministic; identity env vars provably reach the host process; StepActions needs zero new lookup machinery; the contract pipeline is closed and lockstep-enforced. Three corrections are mandatory before prep: (1) the install-reconciliation premise is factually wrong — concord-plugin.ts already ships in-repo, in installed v4.10.3, and is the live registered plugin entry (opencode.jsonc:53), so that work item dissolves and the hook lands in the existing entry module; the unregistered ~/.config/opencode/concord-adapter.ts is a leftover to delete, not the live entry; (2) 'available_actions per-step' is a schema misread — per-step data is steps[].actions (schema:55); available_actions is definition-level (schema:17); (3) 'surface bumps to 2.4.0' names no repo field — surface version exists only in CD prose (CD-0016:56, CD-0024:46); the machine identity is ManifestDigest + schema consts, and the change must state where 2.4.0 is recorded. CD-0031/CD-0016 amendments are required companion records, not blockers.",
+      "validation": {
+        "status": "caution",
+        "blockers": [],
+        "notes": "No blocking decision found. Caution items: CD-0031 'host hooks are unnecessary' consequence must be superseded by a recorded amendment; CD-0034 provenance philosophy says the new per-turn injection surface should be recorded; experimental.* hook name is host-version-pinned (CD-0084 pin absorbs this); product-only sessions (empty workID) must skip the block; envelope render path is nondeterministic (ObservedAt) so the verb must stay on the sessionboot path."
+      },
+      "architecture_judgement": {
+        "applicability": "applicable",
+        "confidence": "high",
+        "risk": "medium",
+        "tradeoffs": [
+          "Per-turn core spawn adds latency; TTL cache keeps prompt-prefix stability only while the snapshot watermark is unchanged.",
+          "Closed generated schemas force full lockstep regeneration (Go + TS + fixtures + digest); an old adapter against a new core fails every call by design until the paired release installs.",
+          "A plugin-held hook puts continuity re-assertion in the host layer CD-0031:65 called unnecessary; the amendment must state why the --prompt-only boundary no longer holds (host compaction window).",
+          "StepActions grows ContinuitySnapshot and the per-turn block; steps cap at 32 and actions at 16/step, so the bound is safe but must be asserted in the schema."
+        ],
+        "alternatives_considered": [
+          {
+            "option": "Reuse concord_work_trace.continuity via signed adapter invoke from the hook",
+            "disposition": "rejected",
+            "rationale": "Requires client credentials + ed25519 signing inside a prompt hook; envelope path also stamps ObservedAt (runtime.go:1795), breaking byte-determinism and cache safety."
+          },
+          {
+            "option": "Issue #57 typed-agent dispatch injection instead of a host hook",
+            "disposition": "deferred",
+            "rationale": "CD-0016:66 names it the future mechanism, but it is not built; the hook is the only per-turn interception point today."
+          },
+          {
+            "option": "Treat the hook as adapter transport (TS6)",
+            "disposition": "rejected",
+            "rationale": "TS6 keeps concord.ts transport-only (terminal-launcher-contract.md:464); the hook is CD-0031 session-boot domain and belongs in the entry module with a CD amendment."
+          },
+          {
+            "option": "New hand-placed entry file (design's stated premise)",
+            "disposition": "rejected",
+            "rationale": "Premise false: concord-plugin.ts already ships (install.py:37,49) and is registered live (opencode.jsonc:53); also violates installer-managed placement."
+          }
+        ],
+        "recommendation": "Proceed to prep with four mandatory corrections: (1) drop the install-reconciliation work item and target adapter/opencode/concord-plugin.ts (the shipped, registered entry); (2) fix schema naming to steps[].actions (per-step) vs available_actions (per-definition) and resolve StepActions from the already-fetched registered.Definition inside ReadWorkflowContinuity (workflow_continuity.go:120-124); (3) record CD-0031/CD-0016 amendments naming the compaction window as the reason host hooks became necessary, and record the new injection surface CD-0034-style; (4) state where surface version 2.4.0 is durably recorded (CD text, CD-0024 precedent) while ManifestDigest carries the machine identity, and keep the verb on the sessionboot render path (never the envelope path) for byte-determinism."
+      },
+      "recommendation": "ENDORSE design direction; may proceed to prep once the four corrections are folded into proposal/design. No blocking dependency: the hook, registry lookup, and contract pipeline all exist today.",
+      "follow_ups": [
+        "Delete unregistered ~/.config/opencode/concord-adapter.ts leftover (environment cleanup, out of repo scope).",
+        "Decide hook scoping for non-orchestrator sessions in the same host (sessionID/agent guard) — Advance's internal-call guard is the precedent.",
+        "Product-only sessions (empty CONCORD_SELECTED_WORK_ID) must render no continuity block, matching session.go:179-191."
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "addOrchestratorContinuityHook",
+      "attempt": 1,
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "task_id": "tk-8ebab223285c",
+      "scope": {
+        "kind": "task",
+        "task_id": "tk-8ebab223285c"
+      },
+      "agent": "adv-engineer",
+      "status": "complete",
+      "evidence_binding_version": "typed-v1",
+      "files_touched": [
+        "cmd/concord/main.go",
+        "cmd/concord/project_launch.go",
+        "cmd/concord/session.go",
+        "cmd/concord/session_test.go"
+      ],
+      "verification": [
+        {
+          "test_run_id": "tr_mtgdbfco_8a3437dd",
+          "command": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+          "exit_code": 1,
+          "summary": "RED failed because the continuity-block command helper was not implemented."
+        },
+        {
+          "test_run_id": "tr_mtgdch6r_4c289b2f",
+          "command": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+          "exit_code": 1,
+          "summary": "GREEN retry found one stale deriveSessionBoot caller in project_launch.go."
+        },
+        {
+          "test_run_id": "tr_mtgddabc_88c768a0",
+          "command": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+          "exit_code": 0,
+          "summary": "GREEN focused continuity-block tests passed."
+        },
+        {
+          "test_run_id": "tr_mtgdeqfp_2eee703c",
+          "command": "go test ./... -count=1",
+          "exit_code": 0,
+          "summary": "VERIFY full Go test suite passed."
+        }
+      ],
+      "decisions": [
+        {
+          "what": "Named the exported helper DeriveSessionBoot and routed session and project launch through it.",
+          "why": "Go export names start with an uppercase letter, and both existing session transports need the shared helper."
+        },
+        {
+          "what": "Kept continuity-block output as raw packet bytes without a newline.",
+          "why": "The verb must print the exact deterministic sessionboot.Build output."
+        },
+        {
+          "what": "Added a bootstrap injection seam for transport tests.",
+          "why": "The tests can verify transport behavior against a stable fixture snapshot without adding store logic."
+        }
+      ],
+      "blockers": [],
+      "scope_drift": null,
+      "follow_ups": [],
+      "required_main_agent_actions": [],
+      "related_scan": "Scanned cmd/concord callers and updated every deriveSessionBoot reference. No broader same-pattern issue remained in scope.",
+      "context_update_for_adv": {
+        "what_ads_needs_to_know": "Implemented continuity-block, exported DeriveSessionBoot, updated all cmd/concord callers, and passed focused plus full tests. Checkpoint 03880c1c10fe94001b909a43498220a4927e5647.",
+        "suggested_next_action": "Proceed to the next task in addOrchestratorContinuityHook."
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "addOrchestratorContinuityHook",
+      "attempt": 1,
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "task_id": "tk-b40095d849d8",
+      "scope": {
+        "kind": "task",
+        "task_id": "tk-b40095d849d8"
+      },
+      "agent": "adv-engineer",
+      "status": "complete",
+      "evidence_binding_version": "typed-v1",
+      "files_touched": [
+        "internal/store/workflow_continuity.go",
+        "internal/store/workflow_continuity_test.go",
+        "internal/agent/runtime.go",
+        "contracts/agent-tool-surface-payloads.schema.json",
+        "internal/agent/generated_contracts.go",
+        "internal/agent/generated_payload_schemas.go",
+        "adapter/opencode/generated-contracts.ts",
+        "adapter/opencode/generated-contract-tests.ts",
+        "adapter/opencode/packet.test.ts",
+        "contracts/agent-tool-surface.digest",
+        "contracts/agent-tool-surface.fixtures.json",
+        "contracts/agent-tool-surface.v1.json",
+        "docs/generated-agent-tool-surface.md"
+      ],
+      "verification": [
+        {
+          "test_run_id": "tr_mtgdlc2t_f5308734",
+          "command": "go test ./internal/store/ -run TestContinuityStepActions -count=1",
+          "exit_code": 1,
+          "summary": "RED failed at compile because StepActions did not exist."
+        },
+        {
+          "test_run_id": "tr_mtgdnpvt_7aa4c59b",
+          "command": "go test ./internal/store/ -run TestContinuityStepActions -count=1",
+          "exit_code": 0,
+          "summary": "GREEN passed current-step action projection and empty non-nil action slice without a workflow."
+        },
+        {
+          "test_run_id": "tr_mtgdrhkr_337696c2",
+          "command": "go test ./... -count=1",
+          "exit_code": 0,
+          "summary": "Full Go test suite passed."
+        },
+        {
+          "test_run_id": "tr_mtgdsd0p_e2215453",
+          "command": "bun test adapter/opencode/*.test.ts",
+          "exit_code": 0,
+          "summary": "All 100 adapter tests passed with 761 assertions."
+        },
+        {
+          "test_run_id": "tr_mtgdutqc_48dfd3df",
+          "command": "python3 scripts/generate-agent-contracts.py --check && python3 scripts/test-agent-contracts.py",
+          "exit_code": 0,
+          "summary": "Generated contract check passed and all 53 generator contract tests passed."
+        }
+      ],
+      "decisions": [
+        {
+          "what": "Projected actions from the verified pinned definition's matching StepGraph step into pinned.step_actions.",
+          "why": "This uses the required registry Lookup plus Verify path and avoids the unrelated definition-wide available_actions list."
+        },
+        {
+          "what": "Regenerated all outputs with scripts/generate-agent-contracts.py after editing contracts/agent-tool-surface-payloads.schema.json.",
+          "why": "The session_boot_packet continuity property references the shared continuity_snapshot definition, so one schema source change updates both payload consumers in lockstep."
+        },
+        {
+          "what": "Normalized nil StepActions to an empty slice in ContinuityPayload.",
+          "why": "Closed payload validation requires an array, and absent workflow data must serialize as [] rather than null."
+        }
+      ],
+      "blockers": [],
+      "scope_drift": null,
+      "follow_ups": [],
+      "required_main_agent_actions": [],
+      "related_scan": "Scanned continuity payload builders and adapter contract fixtures. Updated the adapter continuity fixture for the new required field. No session render behavior changed.",
+      "context_update_for_adv": {
+        "what_ads_needs_to_know": "StepActions is populated from the verified current workflow step and exposed as pinned.step_actions. Commit 7fc639c45c2e0a5f50c9b305fa7e0747cddca262 is clean. Regen and all Go plus adapter tests pass.",
+        "suggested_next_action": "Proceed to the next task or review the checkpoint commit."
+      },
+      "apply_context": {
+        "implementation_cycle_id": "ic_tk-b40095d849d8_attempt1",
+        "implementation_provenance": {
+          "kind": "engineer_report",
+          "report_key": "tk-b40095d849d8-engineer"
+        }
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "addOrchestratorContinuityHook",
+      "attempt": 1,
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "task_id": "tk-c92f126ae083",
+      "scope": {
+        "kind": "task",
+        "task_id": "tk-c92f126ae083"
+      },
+      "agent": "adv-engineer",
+      "status": "complete",
+      "evidence_binding_version": "typed-v1",
+      "files_touched": [
+        "adapter/opencode/concord-plugin.ts",
+        "adapter/opencode/continuity-hook.ts",
+        "adapter/opencode/continuity_hook.test.ts",
+        "adapter/opencode/dispatch.ts"
+      ],
+      "verification": [
+        {
+          "test_run_id": "tr_mtge59fs_15175c66",
+          "command": "bun test adapter/opencode/continuity_hook.test.ts",
+          "exit_code": 1,
+          "summary": "RED failed before the continuity-hook module existed."
+        },
+        {
+          "test_run_id": "tr_mtgeab8a_43c8f8a4",
+          "command": "bun test adapter/opencode/continuity_hook.test.ts",
+          "exit_code": 0,
+          "summary": "GREEN passed 5 focused tests covering registration, determinism, replacement, no-op failures, absent identity, empty work, and TTL gating."
+        },
+        {
+          "test_run_id": "tr_mtgeahf2_217fbc61",
+          "command": "bun test adapter/opencode",
+          "exit_code": 0,
+          "summary": "VERIFY passed 105 adapter tests with 778 expectations."
+        }
+      ],
+      "decisions": [
+        {
+          "what": "Put hook logic in a new sibling module and reuse the dispatch runner and binary-path helpers.",
+          "why": "This keeps concord.ts transport-only and uses the existing Bun.spawn pattern without duplicating it."
+        },
+        {
+          "what": "Key the ten-second spawn gate by CONCORD_SELECTED_PRODUCT_ID and CONCORD_SELECTED_WORK_ID.",
+          "why": "These are the launcher identity variables consumed by the existing adapter and core session command."
+        }
+      ],
+      "blockers": [],
+      "scope_drift": null,
+      "follow_ups": [],
+      "required_main_agent_actions": [],
+      "related_scan": "Scanned the adapter for existing runner, binary-path, identity, and plugin-entry patterns. No additional continuity-hook instances required changes.",
+      "context_update_for_adv": {
+        "what_ads_needs_to_know": "The plugin now registers experimental.chat.system.transform. The sibling hook validates CONCORD_SELECTED_PRODUCT_ID and CONCORD_SELECTED_WORK_ID, runs continuity-block through the shared Bun runner, caches one result per identity for 10 seconds, and replaces sentinel content in place. Checkpoint commit is b7cf1da8c23d9f81803b69fe82e15369c5c6ae51.",
+        "suggested_next_action": "Proceed to the dependent cache-safety verification task."
+      },
+      "apply_context": {
+        "implementation_cycle_id": "ic_tk-c92f126ae083",
+        "implementation_provenance": {
+          "kind": "engineer_report",
+          "report_key": "tk-c92f126ae083"
+        }
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "addOrchestratorContinuityHook",
+      "attempt": 1,
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "scope": {
+        "kind": "change",
+        "scope_key": "review:acceptance"
+      },
+      "agent": "adv-reviewer",
+      "phase": "review",
+      "verdict": "READY",
+      "blocking_findings": [],
+      "nonblocking_findings": [
+        {
+          "id": "acceptance-ac1",
+          "label": "praise",
+          "file": "scenarios/adapter-continuity.v1.json",
+          "line": 48,
+          "what": "AC1 PASS: the corpus covers post-boundary re-pin without an intervening concord_* call",
+          "why": "The registered per-turn transform inserts the core continuity block on the next turn."
+        },
+        {
+          "id": "acceptance-ac2",
+          "label": "praise",
+          "file": "cmd/concord/session.go",
+          "line": 129,
+          "what": "AC2 PASS: the verb reads canonical continuity and renders with sessionboot.Build",
+          "why": "The adapter only selects identity, spawns the verb, caches bytes, and updates the prompt transport."
+        },
+        {
+          "id": "acceptance-ac3",
+          "label": "praise",
+          "file": "adapter/opencode/continuity_hook.test.ts",
+          "line": 35,
+          "what": "AC3 PASS: tests prove stable bytes and sentinel replacement without duplication",
+          "why": "CD-0090 now states that live cache measurement is deferred and gives the exact post-deployment procedure without claiming results."
+        },
+        {
+          "id": "acceptance-ac4",
+          "label": "praise",
+          "file": "adapter/opencode/continuity_hook.test.ts",
+          "line": 93,
+          "what": "AC4 PASS: throw, nonzero exit, empty output, absent identity, and empty work leave system bytes unchanged",
+          "why": "The verb returns typed nonzero exits and the hook catches failures without throwing."
+        },
+        {
+          "id": "acceptance-ac5",
+          "label": "praise",
+          "file": "adapter/opencode/continuity_hook.test.ts",
+          "line": 142,
+          "what": "AC5 PASS: the identity cache gates child spawns for the tested ten-second window",
+          "why": "The implementation records attempt time before spawn and suppresses another spawn inside the window."
+        },
+        {
+          "id": "acceptance-ac6",
+          "label": "praise",
+          "file": "adapter/opencode/continuity_hook.test.ts",
+          "line": 53,
+          "what": "AC6 PASS: pending_messages from core output is present inside the injected sentinel block",
+          "why": "The core payload renders pending_messages and the adapter transports the returned bytes unchanged."
+        }
+      ],
+      "changes_made": [
+        {
+          "file": "contracts/adapter-continuity-scenarios.schema.json",
+          "summary": "Changed the scenario contract constant from stale CD-0088 to CD-0090.",
+          "verification": "The stale-reference scan found no CD-0088 or CD-0089 references. The JSON and CD validators passed."
+        },
+        {
+          "file": "scenarios/adapter-continuity.v1.json",
+          "summary": "Changed the scenario contract reference from stale CD-0088 to CD-0090.",
+          "verification": "The JSON, knowledge, law, document, allocation, and floor validators passed."
+        },
+        {
+          "file": "adapter/opencode/continuity_hook.test.ts",
+          "summary": "Added an assertion that the hook carries pending_messages from core output into the sentinel block.",
+          "verification": "Focused adapter tests passed 6/6. The full adapter suite passed 106 tests with 779 assertions."
+        },
+        {
+          "file": "cmd/concord/session_test.go",
+          "summary": "Added an explicit assertion that continuity-block output includes pending_messages.",
+          "verification": "Focused Go continuity tests passed. go test ./... -count=1 passed."
+        },
+        {
+          "file": "docs/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",
+          "summary": "Corrected first-insert versus replacement behavior, failure wording, stale live-measurement claim, and recorded the deferred cache procedure.",
+          "verification": "The full validator chain passed after the knowledge hash update."
+        },
+        {
+          "file": "docs/knowledge/records/CD-0090.json",
+          "summary": "Updated the CD-0090 content hash after the decision-record correction.",
+          "verification": "check-knowledge-index and check-knowledge-closure passed."
+        },
+        {
+          "file": "docs/concord-knowledge-index.v1.json",
+          "summary": "Regenerated the knowledge index from the corrected CD-0090 record shard.",
+          "verification": "check-json and check-knowledge-index passed."
+        }
+      ],
+      "wisdom_candidates": [],
+      "verification": {
+        "tests_run": [
+          "bun test adapter/opencode/continuity_hook.test.ts",
+          "go test ./cmd/concord -run 'TestContinuityBlock' -count=1",
+          "go test ./... -count=1",
+          "bun test adapter/opencode",
+          "python3 scripts/check-json.py && python3 scripts/check-knowledge-index.py && python3 scripts/check-knowledge-closure.py && python3 scripts/check-law-coverage.py && python3 scripts/check-doc-links.py && python3 scripts/check-doc-contract.py && python3 scripts/check-cd-allocation.py && python3 scripts/check-floor-readiness.py",
+          "git diff --check $(git merge-base main HEAD)",
+          "git diff --exit-code $(git merge-base main HEAD) -- adapter/opencode/concord.ts"
+        ],
+        "results": "pass",
+        "evidence": "AC1 PASS at scenarios/adapter-continuity.v1.json:48-53 and concord-plugin.ts:45. AC2 PASS at session.go:116-133 and continuity-hook.ts:40-58. AC3 PASS at continuity_hook.test.ts:35-89 and CD-0090:108-113; live cache measurement is explicitly deferred. AC4 PASS at continuity_hook.test.ts:93-140 and session_test.go:137-168. AC5 PASS at continuity-hook.ts:3,44-58 and continuity_hook.test.ts:142-154. AC6 PASS at runtime.go:1783-1790, session_test.go:107-133, and continuity_hook.test.ts:53-64. Go full suite passed. Adapter suite passed 106 tests and 779 assertions. All eight requested validators passed. No added secret, debug, TODO, FIXME, XXX, or HACK pattern was found. concord.ts had no diff."
+      },
+      "scope_drift": null,
+      "risks": [
+        "The branch is two commits behind main. The review tested the five change commits against their merge base, not a rebased integration tree.",
+        "The live cache-meter workload has not run. CD-0090 records the post-deployment procedure and does not claim a measured result.",
+        "The host-side stale adapter removal was not re-probed because the reviewer workdir lock excludes host configuration paths. The completed task artifact records its removal and the need to restart OpenCode."
+      ],
+      "required_main_agent_actions": [
+        "Checkpoint the seven reviewer remediation files before acceptance completion.",
+        "Integrate the two newer main commits, then rerun the Go suite, adapter suite, and validator chain before release.",
+        "After deployment, run at least five unchanged-state orchestrator turns and then run cache-stats summary. Record the result before claiming live cache safety.",
+        "Restart OpenCode to clear any stale host plugin module cache from the completed adapter cleanup task."
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "addOrchestratorContinuityHook",
+      "attempt": 1,
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "task_id": "tk-c92f126ae083",
+      "scope": {
+        "kind": "task",
+        "task_id": "tk-c92f126ae083"
+      },
+      "agent": "adv-reviewer",
+      "phase": "harden",
+      "verdict": "READY",
+      "blocking_findings": [],
+      "nonblocking_findings": [],
+      "changes_made": [
+        {
+          "file": "scripts/install.py",
+          "summary": "Added continuity-hook.ts to ADAPTER_FILES between credentials.ts and dispatch.ts, so installer and release packaging include the runtime import.",
+          "verification": "Targeted tuple assertion passed. scripts/test-installer.py passed 40 tests. scripts/check-agent-contracts.py passed 53 Python tests, an import-closed shipped-adapter build, 106 Bun tests, and the host typecheck."
+        }
+      ],
+      "wisdom_candidates": [
+        {
+          "type": "gotcha",
+          "content": "New runtime modules imported by adapter entry files must appear in scripts/install.py ADAPTER_FILES. Packaging and contract checks derive their shipped file set from this tuple."
+        }
+      ],
+      "verification": {
+        "tests_run": [
+          "python3 -c 'import sys; sys.path.insert(0, \"scripts\"); import install; assert \"continuity-hook.ts\" in install.ADAPTER_FILES'",
+          "python3 scripts/test-installer.py",
+          "python3 scripts/check-agent-contracts.py"
+        ],
+        "results": "pass",
+        "evidence": "The targeted check failed before the fix and passed after it. Post-fix exit codes were 0, 0, and 0. Installer tests: 40 passed. Contract checks: 53 Python tests and 106 Bun tests passed. The shipped adapter bundle included 8 modules and passed syntax, build, and typecheck checks. Commit: 8247df4a044183a85e2280ea6a5dc1a1102f7eba."
+      },
+      "scope_drift": null,
+      "risks": [],
+      "required_main_agent_actions": [
+        "Aggregate this READY remediation report into the harden release decision."
+      ],
+      "consumer_warnings": [
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: python3 -c 'import sys; sys.path.insert(0, \"scripts\"); import install; assert \"continuity-hook.ts\" in install.ADAPTER_FILES'"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: python3 scripts/test-installer.py"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: python3 scripts/check-agent-contracts.py"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "addOrchestratorContinuityHook",
+      "attempt": 1,
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "scope": {
+        "kind": "change",
+        "scope_key": "scanner-bundle:harden"
+      },
+      "agent": "adv-scanner-bundle",
+      "phase": "harden",
+      "scanner_count": 1,
+      "dimensions": [
+        "release-deploy-readiness",
+        "production-readiness",
+        "documentation-hygiene",
+        "cleanup-readiness",
+        "residual-slop-maintainability",
+        "test-coverage"
+      ],
+      "summary": "Compact inline harden pass (orchestrator-executed, one remediation lane). Dimensions checked with evidence: test-coverage — every non-generated source file has a paired test file; TDD RED/GREEN/VERIFY recorded on all three code tasks; 106 adapter tests / 779 assertions; full Go suites green post-rebase. documentation-hygiene — eight repo validators green. cleanup — no temp/debug/dead-code candidates in diff. residual-slop — no placeholders, type erosion, or debug artifacts in added code. production-readiness — no secrets; error paths tested; failure degrades to absence; low complexity. deployment-readiness — one HIGH finding fixed and verified. Report-created follow-up audit: 0 fixed during harden, 1 rationale recorded (FU-CACHE-MEASURE requires a post-deploy live session; not executable during harden). Status: READY.",
+      "findings": [
+        {
+          "scanner": "deployment-readiness",
+          "severity": "issue",
+          "summary": "HARDEN-DEPLOY-1 (fixed): new adapter runtime module missing from installer packaging; an installed release would omit it and the plugin entry would fail to load.",
+          "evidence": [
+            {
+              "label": "gap",
+              "locator": "scripts/install.py:35-44",
+              "summary": "ADAPTER_FILES lacked adapter/opencode/continuity-hook.ts; consumers scripts/check-agent-contracts.py:29 and scripts/test-installer.py:83 derive from the tuple"
+            },
+            {
+              "label": "fix",
+              "locator": "commit 8247df4",
+              "summary": "adv-reviewer lane added the file to ADAPTER_FILES; test-installer.py exit 0; check-agent-contracts.py exit 0"
+            }
+          ]
+        },
+        {
+          "scanner": "release-collision",
+          "severity": "issue",
+          "summary": "HARDEN-MERGE-1 (fixed): branch conflicted with same-day upstream launcher removal; resolved by rebase.",
+          "evidence": [
+            {
+              "label": "conflict",
+              "locator": "cmd/concord/main.go, cmd/concord/project_launch.go",
+              "summary": "merge dry-run vs origin/main conflicted; upstream b09e1b5 (#631) deleted project_launch.go while our delta there was one identifier rename"
+            },
+            {
+              "label": "resolution",
+              "locator": "branch change/addOrchestratorContinuityHook",
+              "summary": "rebase onto b09e1b5 accepted upstream deletions and preserved the continuity-block usage line; go build and go test ./cmd/concord/ -count=1 green; merge dry-run now clean"
+            }
+          ]
+        }
+      ],
+      "follow_ups": [
+        "FU-CACHE-MEASURE (non-blocking, from task tk-35726ae8cf0e, AC3): live cache-meter measurement on first real orchestrator session post-deploy — N>=5 turns with no state change, then cache-stats summary; pass = cache_creation equals baseline after turn 1. Mechanism already machine-proven by adapter determinism tests; procedure recorded on the task."
+      ]
+    }
+  ],
+  "test_runs": {
+    "tk-8ebab223285c": [
+      {
+        "runId": "tr_mtgdbfco_8a3437dd",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+        "durationMs": 4372.473637999967,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:15:24.811Z"
+      },
+      {
+        "runId": "tr_mtgdch6r_4c289b2f",
+        "phase": "green",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+        "durationMs": 276.6662599998526,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:16:13.834Z"
+      },
+      {
+        "runId": "tr_mtgddabc_88c768a0",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+        "durationMs": 1424.0905769998208,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:16:51.582Z"
+      },
+      {
+        "runId": "tr_mtgdeqfp_2eee703c",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "go test ./... -count=1",
+        "durationMs": 59753.360880999826,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:17:59.139Z"
+      }
+    ],
+    "tk-b40095d849d8": [
+      {
+        "runId": "tr_mtgdlc2t_f5308734",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "go test ./internal/store/ -run TestContinuityStepActions -count=1",
+        "durationMs": 749.9332130001858,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:23:07.119Z"
+      },
+      {
+        "runId": "tr_mtgdnpvt_7aa4c59b",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "go test ./internal/store/ -run TestContinuityStepActions -count=1",
+        "durationMs": 8903.648344000336,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:24:58.330Z"
+      },
+      {
+        "runId": "tr_mtgdrhkr_337696c2",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "go test ./... -count=1",
+        "durationMs": 63779.41297100019,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:27:54.180Z"
+      },
+      {
+        "runId": "tr_mtgdrpej_917cde41",
+        "phase": "verify",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test adapter/opencode/*.test.ts",
+        "durationMs": 1966.4592800000682,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:28:04.350Z"
+      },
+      {
+        "runId": "tr_mtgdsd0p_e2215453",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test adapter/opencode/*.test.ts",
+        "durationMs": 564.928915000055,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:28:34.960Z"
+      },
+      {
+        "runId": "tr_mtgdutqc_48dfd3df",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "python3 scripts/generate-agent-contracts.py --check && python3 scripts/test-agent-contracts.py",
+        "durationMs": 673.118986999616,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:30:29.899Z"
+      }
+    ],
+    "tk-ba06f35c9aa5": [
+      {
+        "runId": "tr_mtgdy01q_1a7a9036",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "python3 scripts/check-cd-allocation.py && python3 scripts/check-doc-links.py && python3 scripts/check-doc-contract.py && python3 scripts/check-approval-consequence.py",
+        "durationMs": 2993.1224699998274,
+        "recordedAt": "2026-08-30T22:32:58.084Z"
+      }
+    ],
+    "tk-c92f126ae083": [
+      {
+        "runId": "tr_mtge59fs_15175c66",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test adapter/opencode/continuity_hook.test.ts",
+        "durationMs": 35.7456269999966,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:38:36.816Z"
+      },
+      {
+        "runId": "tr_mtge6oid_f1f0c514",
+        "phase": "green",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test adapter/opencode/continuity_hook.test.ts",
+        "durationMs": 35.19732000026852,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:39:43.014Z"
+      },
+      {
+        "runId": "tr_mtge8e89_81374a49",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test adapter/opencode/continuity_hook.test.ts",
+        "durationMs": 52.16568799968809,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:41:03.005Z"
+      },
+      {
+        "runId": "tr_mtge8uwy_7594fd83",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test adapter/opencode",
+        "durationMs": 351.29419500008225,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:41:24.618Z"
+      },
+      {
+        "runId": "tr_mtgeab8a_43c8f8a4",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test adapter/opencode/continuity_hook.test.ts",
+        "durationMs": 73.86620400007814,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:42:32.538Z"
+      },
+      {
+        "runId": "tr_mtgeahf2_217fbc61",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test adapter/opencode",
+        "durationMs": 456.5027559995651,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T22:42:40.527Z"
+      },
+      {
+        "runId": "tr_mtgf98bg_d3d7bb57",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "python3 scripts/test-installer.py",
+        "durationMs": 33026.94388800021,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T23:09:41.609Z"
+      },
+      {
+        "runId": "tr_mtgf9hbj_c78c9c0f",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "python3 scripts/check-agent-contracts.py",
+        "durationMs": 4440.982537999749,
+        "evidence_kind": "unit",
+        "recordedAt": "2026-08-30T23:09:53.270Z"
+      }
+    ],
+    "tk-35726ae8cf0e": [
+      {
+        "runId": "tr_mtgeegkl_0694724b",
+        "phase": "verify",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "python3 scripts/check-json.py && python3 scripts/check-doc-links.py && python3 scripts/check-doc-contract.py",
+        "durationMs": 6714.644276000559,
+        "recordedAt": "2026-08-30T22:45:45.964Z"
+      },
+      {
+        "runId": "tr_mtgekx4m_a88b18a5",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "python3 scripts/check-json.py && python3 scripts/check-knowledge-index.py && python3 scripts/check-knowledge-closure.py && python3 scripts/check-law-coverage.py && python3 scripts/check-doc-links.py && python3 scripts/check-doc-contract.py && python3 scripts/check-cd-allocation.py && python3 scripts/check-floor-readiness.py",
+        "durationMs": 12284.872583999299,
+        "recordedAt": "2026-08-30T22:50:47.357Z"
+      }
+    ]
+  },
+  "deltas": {},
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-08-30T21:52:15.092Z",
+      "completed_by": "user",
+      "approval_evidence": "Problem statement confirmed as presented: CD-0016 continuity window + missing orchestrator instruction channel; scope A/B boundary deferred to design."
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-08-30T21:54:13.550Z",
+      "completed_by": "user",
+      "approval_evidence": "Agreement (O1-O4, AC1-AC6) approved as presented. Scope B boundary deferred into design per agreement terms."
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-08-30T22:06:11.999Z",
+      "completed_by": "user",
+      "approval_evidence": "Design validated by adv-researcher (ENDORSE, no blockers); corrections incorporated; discovery retraction recorded."
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-08-30T22:09:28.770Z",
+      "completed_by": "user",
+      "approval_evidence": "Six tasks ready; cleanup-task evidence policy repaired to artifact_reference with rationale per readiness check."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-08-30T22:51:00.038Z",
+      "completed_by": "agent",
+      "approval_evidence": "T1 verb (RED→GREEN→VERIFY), T2 StepActions+regen (RED→GREEN→VERIFY), T3 CD amendments, T4 host cleanup, T5 adapter hook (RED→GREEN→VERIFY, 105 tests), T6 corpus+validators+cache disposition. Decision record landed as CD-0090."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-08-30T23:03:34.049Z",
+      "completed_by": "user",
+      "approval_evidence": "Acceptance review PASS on all six ACs; remediations committed 1bb7d3f; rebased onto origin/main; suites green."
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "documents": {
+    "proposal": "# Add orchestrator continuity hook\n\n## Why\n\n<!-- What problem does this change solve? Why is it needed now? -->\n\n## What Changes\n\n<!-- Describe the specific modifications: new files, modified APIs, changed behavior -->\n\n## User Outcomes\n\n<!-- What user-perspective outcomes should this change deliver? Keep these implementation-free; discovery firms AC/SC. -->\n\n- [ ] User outcome 1\n- [ ] User outcome 2\n- [ ] Discovery will firm acceptance criteria and success criteria\n\n## Affected Code\n\n<!-- List files, modules, or subsystems that will be modified -->\n\n- `path/to/file.ts` — description of change\n- `path/to/other.ts` — description of change\n\n## Constraints\n\n<!-- Technical, time, or resource constraints that shape the solution -->\n\n## Impact\n\n<!-- Who/what is affected? Breaking changes? Migration needed? -->\n\n## Risks\n\n<!-- What could go wrong? Dependencies on external systems? -->\n\n## Validation Plan\n\n<!-- How will correctness be verified? TDD: write tests first (red → green → refactor) -->\n\n- Write failing tests for new behavior (red phase)\n- Implement to make tests pass (green phase)\n- Run full test suite to verify no regressions\n",
+    "problemStatement": "## Problem\n\nConcord's CD-0016 fixes a law: a summary \"cannot carry authority, approval, law,\nworkflow position, or evidence claims.\" Concord satisfies that law at two moments\nand misses a third.\n\n| Moment | Mechanism | State |\n|---|---|---|\n| Session boot | CD-0031 `session_boot_packet`, derived from the CD-0016 projection, validated, injected as initial prompt | Covered |\n| Any `concord_*` call | CD-0016 pinned projection re-derived per call | Covered |\n| Mid-session with no Concord call | none | **Uncovered** |\n\nThe uncovered window is reached in practice. Host compaction fires mid-session\nduring stretches of file editing, shell work, and reads. Once it does, the boot\npacket sits behind the compaction boundary and no call has re-derived the\nprojection. From that turn forward the orchestrator's workflow position is carried\nby the summary alone — the precise condition CD-0016 forbids. The host runs\nautomatic compaction, so this is a reached state, not a hypothetical one.\n\nConcord already owns the surface that would close it. `scripts/install.py` ships a\nplugin entry module and registers it in the host `plugin` array as the adapter's\nplugin factory. The adapter uses one hook key, `tool`. The remaining lifecycle\nhooks are available at no new surface cost.\n\nA second, related absence sits on the same mechanism. CD-0034 and CD-0043 give a\nlane worker its methodology through `CONCORD_HOST_INSTRUCTIONS`, bound by content\nhash into the dispatch provenance manifest. The orchestrator session has no\nequivalent: nothing derives its instruction from durable workflow position. The\npredecessor met this need with agent-selected command contracts, which lets the\nagent choose the wrong contract. Concord holds the workflow step in durable state\nand could derive it instead.\n\n## Why this matters\n\n- It is an unenforced internal invariant, not a missing feature. Concord's\n  continuity design is stronger than the predecessor's; it has no trigger during\n  the window that needs it most.\n- The payload already exists. `concord_work_trace.continuity` returns\n  `ContinuitySnapshot` with work identity, workflow step, approved contract, the\n  full `spec_mandate` set, pending operator decision, latest checkpoint,\n  unresolved failure, and `PendingMessages` peer signal.\n- Closing it also delivers the peer-session awareness that currently requires the\n  agent to choose to look.\n\n## Constraints\n\n1. The adapter never owns validation, authorization, or approval. This is a\n   runtime surface that re-asserts state the core derives; it decides nothing.\n2. CD-0016 holds: summaries stay advisory and never carry authority.\n3. Prompt-cache safety is a hard design constraint. Content that varies per turn\n   must not be placed where it invalidates the cached prompt prefix — a rewritten\n   prefix is re-billed as cache creation on every call. Placement must be chosen\n   against measured cache behavior, not assumed.\n4. If derived instruction is injected, CD-0043 D2's provenance discipline\n   (enumerated path, kind, content hash) is the governing precedent.\n\n## Open scope question for design\n\nTwo candidate boundaries, materially different in blast radius:\n\n- **A — re-pin only.** Adapter-side wiring. The payload is complete today; no core\n  change. Closes the CD-0016 window.\n- **B — re-pin plus derived orchestrator instruction.** Requires joining the\n  workflow definition's `available_actions` for the current step into the\n  continuity read, which changes a generated core contract and its surface\n  version. Closes the window and replaces agent-selected command contracts with\n  state-derived instruction.\n\nDesign must settle this boundary before tasks are synthesized.\n",
+    "agreement": "# Agreement — addOrchestratorContinuityHook\n\n## Objectives\n\n- **O1 — Close the CD-0016 window.** A turn that begins after a compaction\n  boundary, with no intervening `concord_*` call, carries pinned continuity\n  (work identity, workflow step, approved contract reference) derived from\n  durable state.\n- **O2 — Carry the peer signal.** `PendingMessages` from `ContinuitySnapshot`\n  surfaces in the same derived block when nonzero.\n- **O3 — Reconcile plugin entry ownership.** The hook lives in the entry module\n  the installer registers (`concord-plugin.ts` per `ADAPTER_FILES` /\n  `PLUGIN_ENTRY_FILE`), retiring the hand-placed `~/.config/opencode/concord-adapter.ts`\n  stand-in. Installer registration, shipped file, and hook presence stay\n  consistency-tested.\n- **O4 — Adapter owns no authority.** All derivation, validation, and rendering\n  happens in the core (`ReadWorkflowContinuity` → `sessionboot.Build` →\n  `Validate` path, `cmd/concord/session.go:130`); the adapter transports.\n\n## Acceptance criteria\n\n- **AC1:** After a context boundary with no intervening `concord_*` call, the\n  orchestrator prompt contains pinned continuity content. Evidence: adapter test\n  rendering hook output from a fixture `ContinuitySnapshot`; scenario coverage.\n- **AC2:** The injected payload is produced by the core's existing continuity\n  read path — not adapter-composed. The adapter contains no approval, gating,\n  or validation logic beyond transport.\n- **AC3:** Cache safety is measured, not assumed. With the hook active,\n  `opencode-cache-meter` shows no full-prefix `cache_creation` regression on a\n  repeated-turn workload versus baseline. Placement is outside the cached\n  prefix, or content is byte-stable across turns while state is unchanged.\n- **AC4:** Failure degrades to absence. Continuity read failure or no in-flight\n  work injects nothing and never throws; the session proceeds.\n- **AC5:** Per-turn cost stays bounded. The hook reuses the child-spawn pattern\n  (`dispatch.ts` `Bun.spawn` of the concord binary) with an explicit bound —\n  debounce or digest-gated emission — so no unbounded per-turn latency.\n- **AC6:** `PendingMessages > 0` renders in the injected block.\n\n## Constraints\n\n1. The adapter never owns validation, authorization, or approval.\n2. CD-0016 holds: summaries stay advisory and never carry authority.\n3. Prompt-cache prefix safety is a hard requirement (toolbox ADR 0013 economics).\n4. If derived instruction content is added later, CD-0043 D2 provenance\n   discipline (enumerated path, kind, content hash) governs.\n\n## Avoidances\n\n- No write-interception or trunk firewall — CD-0072 Invariant 1 forbids it;\n   separate concern, separate decision.\n- No new durable state; injection is derived, never stored.\n- Output bounding, history sanitization, and session metering are named\n   follow-ups, not this change.\n- **Scope boundary:** Scope B (joining `available_actions` into the continuity\n  read for derived orchestrator instruction) is decided at the design gate. It\n  may extend this change only if it does not weaken any criterion above; if it\n  does, this agreement reopens.\n",
+    "design": "# Design — addOrchestratorContinuityHook\n\nValidated by independent researcher (report `addOrchestratorContinuityHook|change:researcher:orchestrator-continuity|adv-researcher|1`). Overall verdict: **ENDORSE, no blockers**, with four corrections incorporated below and one discovery claim retracted.\n\n## Retraction\n\nDiscovery claimed the installer's `concord-plugin.ts` was missing from repo and\nrelease, with a hand-placed stand-in live. False on all counts:\n`adapter/opencode/concord-plugin.ts` ships in-repo (2026-08-30 17:37); the\ninstalled tree is v4.10.3 (the audit read a stale v4.9.4 dir); the live\nregistered entry is `~/.config/opencode/tools/concord-plugin.ts`\n(`opencode.jsonc:53`). O3 shrinks to removing the unregistered leftover\n`~/.config/opencode/concord-adapter.ts`.\n\n## Architecture\n\n### 1. Core read verb (Go)\n\nThin read-only internal CLI verb reusing the boot path exactly:\n`store.ReadWorkflowContinuity(ContinuityRequest{Work, Limit: 1})` →\n`sessionboot.Build(productID, snapshot)` (`cmd/concord/session.go:113-130`).\nExtract `deriveSessionBoot` into an exported helper shared by both callers.\n\n**Render-path constraint (validator trap):** the verb must stay on the\n`sessionboot.Build` path. The envelope render path stamps `time.Now()` into\n`ObservedAt` (`runtime.go:1795`) — that path is nondeterministic and would\nbreak byte-stability. `sessionboot.Build` is a pure `json.Marshal` with sorted\nmap keys and no clock (`sessionboot.go:30-49`, `runtime.go:1774-1788`).\n\nIdentity: the launcher sets env vars (`model.go:925-937`), the session reads\nthem (`session.go:156`), and OpenCode inherits `os.Environ()`\n(`session.go:198-199`); in-host consumption is proven\n(`adapter/opencode/concord.ts:158`). Product-only sessions (empty work id)\nskip the block (`session.go:179-191`).\n\n### 2. Adapter hook (TypeScript, existing `concord-plugin.ts`)\n\nRegisters `experimental.chat.system.transform` in the already-shipped,\nalready-registered entry module (`adapter/opencode/concord-plugin.ts`). The\nhook is real and per-turn — confirmed in `@opencode-ai/plugin` typings\n(`dist/index.d.ts:265-270`, `output.system: string[]`) and in the\npredecessor's production use (`~/dev/advance/plugin/src/index.ts:1321`,\nper-turn reread at 1326-1327, byte tracking at 1378). The `experimental.*`\nnaming risk is absorbed by the pinned host per CD-0084.\n\n- Spawn the core verb via the existing `Bun.spawn` runner pattern\n  (`adapter/opencode/dispatch.ts:92`), TTL-gated ≈10s, keyed by identity.\n- **Sentinel replacement, never append**: `<!-- concord:continuity:v1 -->…<!-- /concord:continuity:v1 -->`\n  replaces its prior occurrence in `output.system[0]` in place. Deterministic\n  render → byte-identical prompt across turns while state is unchanged.\n- Failure, empty work, absent identity (manual session) → emit nothing, never\n  throw. Manual sessions keep pull-only continuity, as today.\n- `PendingMessages > 0` renders a peer line.\n- TS6 transport-only discipline: the hook lives in `concord-plugin.ts`, not\n  `concord.ts` (`terminal-launcher-contract.md:464`).\n\n### 3. Leftover cleanup (O3, reduced)\n\nRemove the unregistered `~/.config/opencode/concord-adapter.ts`. The\ninstaller's registration path is already correct and needs no new consistency\ntest.\n\n## Cache-safety analysis (AC3)\n\nUnchanged snapshot → unchanged bytes → no prefix invalidation. A state change\ninvalidates once per change — the predecessor's active-change economics,\nbounded by state-change frequency, not turn frequency. Verification:\nscripted N-turn workload with no state change, hook on vs off,\n`cache-stats summary`; pass = `cache_creation` equal to baseline after the\nfirst turn.\n\n## Scope resolution: A + B (recommendation)\n\nB lands as an additive extension that cannot weaken A's criteria.\n\n- `ContinuitySnapshot` gains `StepActions []string`, resolved during\n  `ReadWorkflowContinuity` — no new lookup: the read already carries\n  ref+version+digest (`workflow_continuity.go:113`) and calls\n  `verifyReadWorkflowDefinition` → `registry.Lookup(ref, version)` + `Verify`\n  (`workflow_read.go:43-53`); the step's actions are\n  `Definition.StepGraph.Steps[].Actions` (`workflow_registry.go:125-128`).\n- **Naming correction (validator):** `available_actions` is per-definition\n  (`workflow-definition.schema.json:17`); steps carry `actions[]` (line 55).\n  The join reads the current step's `actions[]`.\n- Generated contracts regenerate (`scripts/generate-agent-contracts.py`); both\n  `continuity_snapshot` and `session_boot_packet` are\n  `additionalProperties:false` (`payloads.schema.json:1466, 5654`), so the\n  field must land in the schema before regen. Lockstep is enforced in both\n  directions (`authority.go:224`, `envelope.go:336`, `concord.ts:146`).\n- **Surface version recording (validator caution):** no machine-read \"2.4.0\"\n  field exists; the surface version lives in CD prose (CD-0016:56, CD-0024:46)\n  and the `ManifestDigest` is the machine identity. The change records 2.4.0\n  in the CD amendment text and relies on ManifestDigest for skew checks.\n- CD-0043: step/action listing is durable-state projection, same class as the\n  boot packet's workflow-step line — not host methodology. Provenance\n  discipline binds only if methodology prose is injected later.\n\n## Decision-record amendments required (validator)\n\nNo CD forbids the hook, but two recorded consequences contradict it and must\nbe superseded by amendment in this change:\n\n- **CD-0031:65** — \"OpenCode host hooks and plugins are unnecessary.\"\n- **CD-0016:68** — \"does not add a generic host hook.\"\n\nPlus a CD-0034-style record of the new injection surface (injection is\npermitted only when recorded).\n\n## LBP decisions\n\n1. Hook = runtime surface, not authority; core derives and validates.\n2. Reuse `sessionboot.Build`; never the envelope render (clock trap).\n3. Sentinel replacement over append — cache economics.\n4. Pull-on-transform over push-on-event — the system transform is the only\n   per-turn interception point; a compaction lifecycle event, if one appears,\n   is an optimization for refreshing the TTL cache, not a dependency.\n5. Verb stays internal; TS1–TS9 tool budget untouched.\n6. Supersede by amendment, not silent contradiction — CD-0031/CD-0016\n   consequences are updated in the same change that falsifies them.\n\n## Failure modes\n\n| Condition | Behavior |\n|---|---|\n| Core binary missing | No block; one stderr warning; session proceeds |\n| DB locked / unreachable | No block; session proceeds |\n| No in-flight work (product-only session) | No block |\n| Identity absent (manual session) | No block; pull-only, as today |\n| Render throws | Swallow; previous block, if any, stands |\n\n## Implementation strategy (refined into tasks at prep)\n\n1. Core: export `deriveSessionBoot`; add internal continuity verb + tests.\n2. Core (B): `StepActions` join via existing registry lookup; schema field;\n   contract regen; tests.\n3. Adapter: hook in `concord-plugin.ts`, TTL cache, sentinel render,\n   fixture-snapshot tests (determinism asserted).\n4. Decision records: amend CD-0031 + CD-0016; add CD-0034-style surface\n   record; record surface 2.4.0.\n5. Cleanup: remove unregistered `~/.config/opencode/concord-adapter.ts`.\n6. Verification: cache-meter measurement; scenario corpus entry.\n",
+    "executiveSummary": "# Executive Summary — addOrchestratorContinuityHook\n\n## Value\n\nConcord's continuity law (CD-0016) says a summary can never carry workflow\nposition or authority — yet after mid-session host compaction, with no\nintervening `concord_*` call, nothing re-asserted the pinned projection, so\nworkflow position traveled by summary alone. That window is now closed: every\nturn re-pins the orchestrator's durable continuity into the prompt, and the\ncurrent workflow step's available actions arrive with it (surface 2.4.0),\nreplacing agent-selected command contracts with state-derived instruction.\nVerified by RED→GREEN→VERIFY test cycles on all three code tasks, an\nindependent acceptance review (PASS on all six criteria), and the repo's full\nvalidator chain.\n\n## Release Readiness Summary\n\n| Row | Status | Evidence |\n|---|---|---|\n| Ops readiness | ready | harden compact pass: all six dimensions checked with evidence; scanner bundle `change:scanner-bundle:harden\\|1` |\n| Migration / data impact | n/a (source-backed) | no schema migration; payload additions regenerate through the existing contract pipeline; knowledge index and law coverage regenerated, validators exit 0 |\n| Frontend / preview impact | n/a (source-backed) | no frontend surface in scope |\n| Collision / release risk | clear | merge dry-run vs origin/main clean after rebase onto b09e1b5 (#631 launcher removal, #630 ignores); one packaging HIGH found and fixed (commit 8247df4, test-installer + contract checks exit 0) |\n| Open follow-ups | 1 non-blocking | FU-CACHE-MEASURE: live cache-meter number on first real orchestrator session post-deploy; mechanism already machine-proven by determinism tests; procedure on task tk-35726ae8cf0e |\n| Next action | `/adv-archive addOrchestratorContinuityHook` | harden status READY |\n\n## Approval Consequence Context\n\nIf archived: branch `change/addOrchestratorContinuityHook` merges; CD-0090\nbecomes product law; agent-tool surface moves to 2.4.0 with `step_actions`;\nCD-0016/CD-0031 recorded consequences carry amendment blockquotes. A restart\nof OpenCode drops the removed unregistered leftover entry. The live\ncache-meter measurement remains the one post-deploy verification owed.\n"
+  },
+  "cross_project_origin": {
+    "source_project": "toolbox",
+    "source_path": "~/toolbox",
+    "linked_at": "2026-08-30T21:50:38.992Z"
+  },
+  "same_project_dependencies": [],
+  "projection_revision": 57,
+  "projection_commits": [
+    {
+      "mutation_kind": "task_add",
+      "authority_kind": "mutation",
+      "authority_reason": "add task",
+      "authority_evidence": "tk-8ebab223285c",
+      "operation_id": "mutation:task_add:addOrchestratorContinuityHook:34313269-5f41-49b0-a0e8-105af9509b06",
+      "payload_hash": "92b2e161071a9f30bd1cb1917f2c27d42c3a48225fe06c061cc5917dc4910c2c",
+      "prior_revision": 7,
+      "new_revision": 8,
+      "committed_at": "2026-08-30T22:07:29.667Z"
+    },
+    {
+      "mutation_kind": "task_add",
+      "authority_kind": "mutation",
+      "authority_reason": "add task",
+      "authority_evidence": "tk-b40095d849d8",
+      "operation_id": "mutation:task_add:addOrchestratorContinuityHook:941e54e1-5e74-4614-b78f-ef5d4b0c28a0",
+      "payload_hash": "54c2051d5b51594143d8358bd6d29ce85e2ec9366bb401ace4398b3c8af09be2",
+      "prior_revision": 8,
+      "new_revision": 9,
+      "committed_at": "2026-08-30T22:07:39.359Z"
+    },
+    {
+      "mutation_kind": "task_add",
+      "authority_kind": "mutation",
+      "authority_reason": "add task",
+      "authority_evidence": "tk-ba06f35c9aa5",
+      "operation_id": "mutation:task_add:addOrchestratorContinuityHook:5138c58b-e98d-4b9a-98ed-d6ac7b892b0f",
+      "payload_hash": "1a11e2bc3e11a1f4d6bc3e6e1e884ebe1cba7ba34851c857b46cdaa6ee47bf2a",
+      "prior_revision": 9,
+      "new_revision": 10,
+      "committed_at": "2026-08-30T22:07:42.767Z"
+    },
+    {
+      "mutation_kind": "task_add",
+      "authority_kind": "mutation",
+      "authority_reason": "add task",
+      "authority_evidence": "tk-6bed19f2489e",
+      "operation_id": "mutation:task_add:addOrchestratorContinuityHook:1110ff76-99c4-42af-9e57-f7148a7dd177",
+      "payload_hash": "63c15aee8c8112632ecdb1f278a5ca7b46514abde6de427513d8a05dbfb2c3f8",
+      "prior_revision": 10,
+      "new_revision": 11,
+      "committed_at": "2026-08-30T22:07:45.076Z"
+    },
+    {
+      "mutation_kind": "task_add",
+      "authority_kind": "mutation",
+      "authority_reason": "add task",
+      "authority_evidence": "tk-c92f126ae083",
+      "operation_id": "mutation:task_add:addOrchestratorContinuityHook:6493bf43-2294-496a-8a27-f9d5ef551b72",
+      "payload_hash": "e1896385057d2d28a410b2a917174ec039e9de0d51ff72ac945ba8c67890dcc5",
+      "prior_revision": 11,
+      "new_revision": 12,
+      "committed_at": "2026-08-30T22:07:56.761Z"
+    },
+    {
+      "mutation_kind": "task_add",
+      "authority_kind": "mutation",
+      "authority_reason": "add task",
+      "authority_evidence": "tk-35726ae8cf0e",
+      "operation_id": "mutation:task_add:addOrchestratorContinuityHook:c6af0a2c-9d17-43a6-aebe-4c60e78b1bc7",
+      "payload_hash": "22bd2524bd9491ba779c8168eff0e609f9d507328c52af713b00d1272ab91e2f",
+      "prior_revision": 12,
+      "new_revision": 13,
+      "committed_at": "2026-08-30T22:08:06.998Z"
+    },
+    {
+      "mutation_kind": "task_mutation",
+      "authority_kind": "mutation",
+      "authority_reason": "task_mutation",
+      "authority_evidence": "pending",
+      "operation_id": "mutation:task_mutation:addOrchestratorContinuityHook:8348629e-e8c1-4a24-9ec4-51123fc6ca10",
+      "payload_hash": "a2ae07ea67a1a63f38bcf357b0ce78a2fd9f80d97f34d6e306cf14f29a8e90b5",
+      "prior_revision": 13,
+      "new_revision": 14,
+      "committed_at": "2026-08-30T22:09:23.742Z"
+    },
+    {
+      "mutation_kind": "gate_completion",
+      "authority_kind": "mutation",
+      "authority_reason": "complete gate",
+      "authority_evidence": "Six tasks ready; cleanup-task evidence policy repaired to artifact_reference with rationale per readiness check.",
+      "operation_id": "mutation:gate_completion:addOrchestratorContinuityHook:e902a5c9-7d77-438d-ba84-d921338bbbb2",
+      "payload_hash": "cdd936ed019322b88d3ebf69f41fc819908a0fa0233f01847511254c06c023c0",
+      "prior_revision": 14,
+      "new_revision": 15,
+      "committed_at": "2026-08-30T22:09:28.882Z"
+    },
+    {
+      "mutation_kind": "task_mutation",
+      "authority_kind": "mutation",
+      "authority_reason": "task_mutation",
+      "authority_evidence": "in_progress",
+      "operation_id": "mutation:task_mutation:addOrchestratorContinuityHook:3bc269b3-a9eb-4bc1-98bb-941ef8cea23d",
+      "payload_hash": "292b3ef3ff5eb76bd6766b044797afeab96bab8bfbd263591fa8d05cce373d76",
+      "prior_revision": 15,
+      "new_revision": 16,
+      "committed_at": "2026-08-30T22:10:29.853Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:7c97f0a5-129e-4f9c-a7b5-4c56280b5ea4",
+      "payload_hash": "dddea6fda482c5803e24f761f34d5f42dd9d39fc5ea1907c22351bcfeecf147a",
+      "prior_revision": 16,
+      "new_revision": 17,
+      "committed_at": "2026-08-30T22:15:24.845Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:39bc5c87-7d79-45a4-adbf-2d794fb2c194",
+      "payload_hash": "185c4445a7b25cbcd25bac129f6671ab6cbff4b440fe5761b2e0de264f983da6",
+      "prior_revision": 17,
+      "new_revision": 18,
+      "committed_at": "2026-08-30T22:16:13.839Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "go test ./cmd/concord/ -run TestContinuityBlock -count=1",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:fc642cb1-e023-4f2f-89ce-2937a460e415",
+      "payload_hash": "12cf2fc54d08e463a4d1591fb2de6f7f82ec76b681490c2a990fb402e42db247",
+      "prior_revision": 18,
+      "new_revision": 19,
+      "committed_at": "2026-08-30T22:16:51.602Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "go test ./... -count=1",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:4d719c25-8ec8-4776-bd67-68247411aa14",
+      "payload_hash": "8b2e2acc77f6ec23c6a5800e19f4c4e0c7db7d60d1c9bc4a09718c54ff621f7b",
+      "prior_revision": 19,
+      "new_revision": 20,
+      "committed_at": "2026-08-30T22:17:59.147Z"
+    },
+    {
+      "mutation_kind": "task_checkpoint_completed",
+      "authority_kind": "mutation",
+      "authority_reason": "record task checkpoint completion",
+      "authority_evidence": "03880c1c10fe94001b909a43498220a4927e5647:Red run tr_mtgdbfco_8a3437dd failed before implementation. Green run tr_mtgddabc_88c768a0 passed focused continuity-block tests. Verify run tr_mtgdeqfp_2eee703c passed go test ./... -count=1.",
+      "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:4a1c4ea9-e864-4561-bfa5-7e536c0138c3",
+      "payload_hash": "129ceb8b2765c754ce592199dcab8d7fffd4cc7a380f0f89251251541f0d3d45",
+      "prior_revision": 20,
+      "new_revision": 21,
+      "committed_at": "2026-08-30T22:18:37.955Z"
+    },
+    {
+      "mutation_kind": "subagent_report_submitted",
+      "authority_kind": "mutation",
+      "authority_reason": "persist sub-agent report",
+      "authority_evidence": "addOrchestratorContinuityHook|tk-8ebab223285c|adv-engineer|1",
+      "operation_id": "mutation:subagent_report_submitted:addOrchestratorContinuityHook:39908474-9279-4d22-8b04-55d08c2b4880",
+      "payload_hash": "bec178fb28d95033e981f1fb7125c9b9fd4a51bc8608e081c6e52849f813f352",
+      "prior_revision": 21,
+      "new_revision": 22,
+      "committed_at": "2026-08-30T22:19:18.807Z"
+    },
+    {
+      "mutation_kind": "task_mutation",
+      "authority_kind": "mutation",
+      "authority_reason": "task_mutation",
+      "authority_evidence": "in_progress",
+      "operation_id": "mutation:task_mutation:addOrchestratorContinuityHook:96bff8d0-60a4-4af1-80c0-7154cd718732",
+      "payload_hash": "81dd7813bf7c4cfac4992c778668b770c3817b2ba57edae2c77988ea98ff369b",
+      "prior_revision": 22,
+      "new_revision": 23,
+      "committed_at": "2026-08-30T22:20:45.158Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "go test ./internal/store/ -run TestContinuityStepActions -count=1",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:e7c647f2-809a-4f0d-acda-3d53c6b069e3",
+      "payload_hash": "9456b91f3a50799add434fa59b36bcd8a9c914fb2cf6e70d3405159ad6444c79",
+      "prior_revision": 23,
+      "new_revision": 24,
+      "committed_at": "2026-08-30T22:23:07.147Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "go test ./internal/store/ -run TestContinuityStepActions -count=1",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:e13e0b31-d1f7-4b41-849d-1178229aff4e",
+      "payload_hash": "83bc0cc88a1e7af9faddbffbfc173d63096bc8c7d8deb414b01ba0ae55c6e1da",
+      "prior_revision": 24,
+      "new_revision": 25,
+      "committed_at": "2026-08-30T22:24:58.377Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "go test ./... -count=1",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:08fbe6ee-8648-46d0-b154-d19f218abcc3",
+      "payload_hash": "7078d42672f6bbdb39b8e20d3432219b61efc00d631e278ed59a81b46393e939",
+      "prior_revision": 25,
+      "new_revision": 26,
+      "committed_at": "2026-08-30T22:27:54.190Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode/*.test.ts",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:4cdc95f2-d4bc-4fbd-a9b9-e800aa5c1933",
+      "payload_hash": "d3418c31d1d485828ceffaf3c537464aa4695c8830d2008a66f8fafd970420bd",
+      "prior_revision": 26,
+      "new_revision": 27,
+      "committed_at": "2026-08-30T22:28:04.430Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode/*.test.ts",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:158d9186-5df3-425d-aec9-31702038eb55",
+      "payload_hash": "d0f9662d21cd192914f488bb3f367adae21ac49b8352e8e4e6dc737f53689e1b",
+      "prior_revision": 27,
+      "new_revision": 28,
+      "committed_at": "2026-08-30T22:28:35.045Z"
+    },
+    {
+      "mutation_kind": "task_checkpoint_completed",
+      "authority_kind": "mutation",
+      "authority_reason": "record task checkpoint completion",
+      "authority_evidence": "7fc639c45c2e0a5f50c9b305fa7e0747cddca262:RED tr_mtgdlc2t_f5308734 failed on missing StepActions; GREEN tr_mtgdnpvt_7aa4c59b passed. Verify tr_mtgdrhkr_337696c2 passed go test ./... -count=1 and tr_mtgdsd0p_e2215453 passed bun adapter tests. Generator check and 53 contract tests passed.",
+      "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:5e9b2b8c-510a-4172-bb6f-c082a2715846",
+      "payload_hash": "85238c9061bb07aa867195e12d07e22c408aa92a0127ee112c83015087e95f44",
+      "prior_revision": 28,
+      "new_revision": 29,
+      "committed_at": "2026-08-30T22:29:23.987Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "python3 scripts/generate-agent-contracts.py --check && python3 scripts/test-agent-contracts.py",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:e87ee1f5-7525-4193-bcc1-5bf08005dff5",
+      "payload_hash": "42ab139539c8229cbd3dd84213292766f000d6d47d30482cd9e9c993bdcb0030",
+      "prior_revision": 29,
+      "new_revision": 30,
+      "committed_at": "2026-08-30T22:30:29.908Z"
+    },
+    {
+      "mutation_kind": "subagent_report_submitted",
+      "authority_kind": "mutation",
+      "authority_reason": "persist sub-agent report",
+      "authority_evidence": "addOrchestratorContinuityHook|tk-b40095d849d8|adv-engineer|1|cycle:ic_tk-b40095d849d8_attempt1",
+      "operation_id": "mutation:subagent_report_submitted:addOrchestratorContinuityHook:9199b904-8d2d-4a03-aeb9-07c6c3ae29c1",
+      "payload_hash": "a92c7cecbbea50e46ef1173ac2c49acb982e7c64350c56e7b19328675b95954f",
+      "prior_revision": 30,
+      "new_revision": 31,
+      "committed_at": "2026-08-30T22:30:51.595Z"
+    },
+    {
+      "mutation_kind": "task_mutation",
+      "authority_kind": "mutation",
+      "authority_reason": "task_mutation",
+      "authority_evidence": "in_progress",
+      "operation_id": "mutation:task_mutation:addOrchestratorContinuityHook:4f81fe9c-e74c-4b54-87d2-7bcc629e6185",
+      "payload_hash": "784b18a3843b2ab9ee790a90b9380e8078ac755dd5071234ab640a6563e5a8e4",
+      "prior_revision": 31,
+      "new_revision": 32,
+      "committed_at": "2026-08-30T22:31:23.357Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "python3 scripts/check-cd-allocation.py && python3 scripts/check-doc-links.py && python3 scripts/check-doc-contract.py && python3 scripts/check-approval-consequence.py",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:15e5e169-ba33-491b-81c7-ea084883f373",
+      "payload_hash": "c4263babcaebee9458234c3534b0d3f9a401c1b5ebe857d6d8d8a5982536acd5",
+      "prior_revision": 32,
+      "new_revision": 33,
+      "committed_at": "2026-08-30T22:32:58.214Z"
+    },
+    {
+      "mutation_kind": "task_checkpoint_completed",
+      "authority_kind": "mutation",
+      "authority_reason": "record task checkpoint completion",
+      "authority_evidence": "a06daff046375c239aaf5c62a3f357ee44cd31e1:CD-0016/CD-0031 amended via subsequent-decision blockquotes; CD-0088 added. check-cd-allocation, check-doc-links, check-doc-contract, check-approval-consequence all pass (exit 0, runId tr_mtgdy01q_1a7a9036).",
+      "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:a05e04f2-7c14-463f-8a8a-293bf1f1fed7",
+      "payload_hash": "33a21c87e82e30155180628ed88631a45abe471f078e8afcbc117480403a9225",
+      "prior_revision": 33,
+      "new_revision": 34,
+      "committed_at": "2026-08-30T22:33:03.848Z"
+    },
+    {
+      "mutation_kind": "task_checkpoint_completed",
+      "authority_kind": "mutation",
+      "authority_reason": "record task checkpoint completion",
+      "authority_evidence": "a06daff046375c239aaf5c62a3f357ee44cd31e1:CD-0016/CD-0031 amended via subsequent-decision blockquotes; CD-0088 added. Validators: check-cd-allocation, check-doc-links, check-doc-contract, check-approval-consequence all exit 0 (runId tr_mtgdy01q_1a7a9036). Commit a06daff.",
+      "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:5873befb-9c23-4e81-934a-ff0cbc5f145b",
+      "payload_hash": "3f3e09e5cd49342dcd0eb149181c541c872eb9467e5b94eb81f317570cbd0ba5",
+      "prior_revision": 34,
+      "new_revision": 35,
+      "committed_at": "2026-08-30T22:33:33.156Z"
+    },
+    {
+      "mutation_kind": "task_mutation",
+      "authority_kind": "mutation",
+      "authority_reason": "task_mutation",
+      "authority_evidence": "in_progress",
+      "operation_id": "mutation:task_mutation:addOrchestratorContinuityHook:c24762f0-6784-4bea-9133-627d04455a53",
+      "payload_hash": "8b590f83f173b5a8e4fccfa0a0a0aeca6b07f402fd9784a0ee70fa33d07d0c1e",
+      "prior_revision": 35,
+      "new_revision": 36,
+      "committed_at": "2026-08-30T22:34:01.832Z"
+    },
+    {
+      "mutation_kind": "task_checkpoint_completed",
+      "authority_kind": "mutation",
+      "authority_reason": "record task checkpoint completion",
+      "authority_evidence": "a06daff046375c239aaf5c62a3f357ee44cd31e1:Host artifact evidence: ~/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
+      "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:f2fa6413-ba64-42e5-8d95-8ae9c7fcda2d",
+      "payload_hash": "6e086613c8c523e5ea5de311ff13666093fe974c97c3303f1915aacaf8149ac5",
+      "prior_revision": 36,
+      "new_revision": 37,
+      "committed_at": "2026-08-30T22:34:06.658Z"
+    },
+    {
+      "mutation_kind": "task_mutation",
+      "authority_kind": "mutation",
+      "authority_reason": "task_mutation",
+      "authority_evidence": "in_progress",
+      "operation_id": "mutation:task_mutation:addOrchestratorContinuityHook:b4337cd7-6272-4c85-9f68-416814715ac9",
+      "payload_hash": "df9e3defdc7e3fdccb4174b3589a6e26870597df670f5208f2212da634e0fbb8",
+      "prior_revision": 37,
+      "new_revision": 38,
+      "committed_at": "2026-08-30T22:34:49.127Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode/continuity_hook.test.ts",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:e510514d-4e6e-4a07-a420-ff7002995e35",
+      "payload_hash": "b5a7c0b026a47a3d537dbb3cde8c1f792f2655fc231572d2ef0d9d7f33d73b7e",
+      "prior_revision": 38,
+      "new_revision": 39,
+      "committed_at": "2026-08-30T22:38:36.841Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode/continuity_hook.test.ts",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:4af102e4-6bd9-404c-babf-1f832f00bce7",
+      "payload_hash": "e444edc821596052cb5c9e60090701a541d0c096761319f99136d60c6e8955a3",
+      "prior_revision": 39,
+      "new_revision": 40,
+      "committed_at": "2026-08-30T22:39:43.066Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode/continuity_hook.test.ts",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:dbad7b93-4744-4146-b0ab-d4b0c4b8c372",
+      "payload_hash": "4459d7429cfff562d26f47db67cd4a9adee27a03525a514c211c43b90176b9b9",
+      "prior_revision": 40,
+      "new_revision": 41,
+      "committed_at": "2026-08-30T22:41:03.041Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:d3a71773-0d57-4ae0-8bc3-61c49a4baf72",
+      "payload_hash": "3779d08d815941ee47ccb769f41582aa94ba7c881285936d10f5c76e67162c23",
+      "prior_revision": 41,
+      "new_revision": 42,
+      "committed_at": "2026-08-30T22:41:24.635Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode/continuity_hook.test.ts",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:dc799652-f22c-4e2f-95b2-1fe3f4770483",
+      "payload_hash": "2a5787d2defef6414e2b1c436971280bfd241d3d1aac32fd65328ff2a27cbf7f",
+      "prior_revision": 42,
+      "new_revision": 43,
+      "committed_at": "2026-08-30T22:42:32.542Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "bun test adapter/opencode",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:c4c554aa-2ff0-4639-a375-65bd046495d8",
+      "payload_hash": "9c7a4a8a61974afe8d4b59036abf96387569a943946dde9feb0a17932bcfd318",
+      "prior_revision": 43,
+      "new_revision": 44,
+      "committed_at": "2026-08-30T22:42:40.531Z"
+    },
+    {
+      "mutation_kind": "task_checkpoint_completed",
+      "authority_kind": "mutation",
+      "authority_reason": "record task checkpoint completion",
+      "authority_evidence": "b7cf1da8c23d9f81803b69fe82e15369c5c6ae51:RED tr_mtge59fs_15175c66 failed before implementation. GREEN tr_mtgeab8a_43c8f8a4 passed 5 focused tests. VERIFY tr_mtgeahf2_217fbc61 passed bun test adapter/opencode with 105 tests and 778 expectations.",
+      "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:2fff0a76-cad0-41a4-81b9-4bdc996683e1",
+      "payload_hash": "3f7ccf0bb722e38407f68a81b497007716c2c482fb0ef6aacdf124a7b95fa3d8",
+      "prior_revision": 44,
+      "new_revision": 45,
+      "committed_at": "2026-08-30T22:43:30.939Z"
+    },
+    {
+      "mutation_kind": "subagent_report_submitted",
+      "authority_kind": "mutation",
+      "authority_reason": "persist sub-agent report",
+      "authority_evidence": "addOrchestratorContinuityHook|tk-c92f126ae083|adv-engineer|1|cycle:ic_tk-c92f126ae083",
+      "operation_id": "mutation:subagent_report_submitted:addOrchestratorContinuityHook:31e41303-ef40-4bcd-b615-c18343cf6abd",
+      "payload_hash": "74c2675bd2a651cdf19e6e021ff2345c57bb5d13c8fc3afebb539ed21da06045",
+      "prior_revision": 45,
+      "new_revision": 46,
+      "committed_at": "2026-08-30T22:44:25.977Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "python3 scripts/check-json.py && python3 scripts/check-doc-links.py && python3 scripts/check-doc-contract.py",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:575a0572-9971-496e-a51c-fa161bb500e6",
+      "payload_hash": "9de09a614a407e6b7656dec58779657463588f657526ecb9d558e0279377569c",
+      "prior_revision": 46,
+      "new_revision": 47,
+      "committed_at": "2026-08-30T22:45:45.996Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "python3 scripts/check-json.py && python3 scripts/check-knowledge-index.py && python3 scripts/check-knowledge-closure.py && python3 scripts/check-law-coverage.py && python3 scripts/check-doc-links.py && python3 scripts/check-doc-contract.py && python3 scripts/check-cd-allocation.py && python3 scripts/check-floor-readiness.py",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:b14c11b8-4c19-4ab6-8d55-3675ea03e4c1",
+      "payload_hash": "ab471d35abe59b93e5e5c19f9346a69ab4b208d63d307ed6a741abe49b4ab45c",
+      "prior_revision": 47,
+      "new_revision": 48,
+      "committed_at": "2026-08-30T22:50:47.363Z"
+    },
+    {
+      "mutation_kind": "task_checkpoint_completed",
+      "authority_kind": "mutation",
+      "authority_reason": "record task checkpoint completion",
+      "authority_evidence": "483a2e39c3cba43e18b27bdb6f3d410bb685537d:Scenario corpus: contracts/adapter-continuity-scenarios.schema.json + scenarios/adapter-continuity.v1.json (5 scenarios incl. post-boundary re-pin) + README row. Decision record renumbered CD-0088→CD-0090 (0088/0089 claimed by origin branches); knowledge index, law-coverage shard, and record hashes regenerated. Full validator chain exit 0 (runId tr_mtgekx4m_a88b18a5). CACHE MEASUREMENT DISPOSITION (AC3): mechanism is machine-proven — adapter determinism tests show system[0] byte-identical across turns with unchanged snapshot, which rules out prefix invalidation by construction. The live cache-meter number requires a concord-launched session with real provider calls (quota burn); BLOCKER recorded rather than claiming an unmeasured pass. Procedure: after deploy, run one orchestrator session of N>=5 turns with no state change, then `cache-stats summary` — pass = cache_creation equals baseline after turn 1. Recommend executing on first live session post-merge.",
+      "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:edb838be-ced0-4515-8c79-611b903f44ed",
+      "payload_hash": "f8c046b892fb62851563de8ebecd9371d94f33916f93779a72d41726c72ff4d9",
+      "prior_revision": 48,
+      "new_revision": 49,
+      "committed_at": "2026-08-30T22:50:53.117Z"
+    },
+    {
+      "mutation_kind": "gate_completion",
+      "authority_kind": "mutation",
+      "authority_reason": "complete gate",
+      "authority_evidence": "T1 verb (RED→GREEN→VERIFY), T2 StepActions+regen (RED→GREEN→VERIFY), T3 CD amendments, T4 host cleanup, T5 adapter hook (RED→GREEN→VERIFY, 105 tests), T6 corpus+validators+cache disposition. Decision record landed as CD-0090.",
+      "operation_id": "mutation:gate_completion:addOrchestratorContinuityHook:dd43a8e0-4de6-4fa0-b5b5-f1cc031e20e8",
+      "payload_hash": "8eed95c5c2d8a7ca7e30327a120ead0b1f76366b67677cc5d428d3e31dd40bd5",
+      "prior_revision": 49,
+      "new_revision": 50,
+      "committed_at": "2026-08-30T22:51:00.110Z"
+    },
+    {
+      "mutation_kind": "subagent_report_submitted",
+      "authority_kind": "mutation",
+      "authority_reason": "persist sub-agent report",
+      "authority_evidence": "addOrchestratorContinuityHook|change:review:acceptance|adv-reviewer|1",
+      "operation_id": "mutation:subagent_report_submitted:addOrchestratorContinuityHook:5b6470bc-aad4-4c4c-86e0-34e9f603fedb",
+      "payload_hash": "e547009a93632eb46bf5986d561a609fa21eee38eb2db4e14ef8be26b7215116",
+      "prior_revision": 50,
+      "new_revision": 51,
+      "committed_at": "2026-08-30T23:00:08.065Z"
+    },
+    {
+      "mutation_kind": "gate_completion",
+      "authority_kind": "mutation",
+      "authority_reason": "complete gate",
+      "authority_evidence": "Acceptance review PASS on all six ACs; remediations committed 1bb7d3f; rebased onto origin/main; suites green.",
+      "operation_id": "mutation:gate_completion:addOrchestratorContinuityHook:5d0ef836-366f-4448-9033-f37cd7358650",
+      "payload_hash": "9fffb4a44dc857afdf6b50f46ce734503c02a8beb7c26235c488d410639067c2",
+      "prior_revision": 51,
+      "new_revision": 52,
+      "committed_at": "2026-08-30T23:03:34.056Z"
+    },
+    {
+      "mutation_kind": "subagent_report_submitted",
+      "authority_kind": "mutation",
+      "authority_reason": "persist sub-agent report",
+      "authority_evidence": "addOrchestratorContinuityHook|tk-c92f126ae083|adv-reviewer|1",
+      "operation_id": "mutation:subagent_report_submitted:addOrchestratorContinuityHook:d3beb9f2-ff07-4311-b290-44e9c5db1c51",
+      "payload_hash": "9b0cb59666b81c152bc2c422a9e5b14b60da721206b1996618fb996de9a8099b",
+      "prior_revision": 52,
+      "new_revision": 53,
+      "committed_at": "2026-08-30T23:08:55.161Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "python3 scripts/test-installer.py",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:87b53881-2178-4808-b4bf-8e58e73b8bb9",
+      "payload_hash": "50cce8555adaa6a48f8ad3e7743d9a9e252056ec5c48931c9faeb1aeb131426f",
+      "prior_revision": 53,
+      "new_revision": 54,
+      "committed_at": "2026-08-30T23:09:41.620Z"
+    },
+    {
+      "mutation_kind": "test_run_recorded",
+      "authority_kind": "mutation",
+      "authority_reason": "record test-run evidence",
+      "authority_evidence": "python3 scripts/check-agent-contracts.py",
+      "operation_id": "mutation:test_run_recorded:addOrchestratorContinuityHook:d1c20a9e-88ab-47b4-b8a3-3cd5eacc2fec",
+      "payload_hash": "ff9f0d28bb75bab2e982fe41f1935957985298cb1c30954e6dbe11d61e621820",
+      "prior_revision": 54,
+      "new_revision": 55,
+      "committed_at": "2026-08-30T23:09:53.279Z"
+    },
+    {
+      "mutation_kind": "subagent_report_submitted",
+      "authority_kind": "mutation",
+      "authority_reason": "persist sub-agent report",
+      "authority_evidence": "addOrchestratorContinuityHook|change:scanner-bundle:harden|adv-scanner-bundle|1",
+      "operation_id": "mutation:subagent_report_submitted:addOrchestratorContinuityHook:dab7611f-cf67-41f4-8439-fe328f955b74",
+      "payload_hash": "47e7f9f3e04164d73f871ce4993e4d69e7cfa3d15c59187370931b914ae605bc",
+      "prior_revision": 55,
+      "new_revision": 56,
+      "committed_at": "2026-08-30T23:10:59.902Z"
+    },
+    {
+      "mutation_kind": "artifact_update",
+      "authority_kind": "mutation",
+      "authority_reason": "change artifact update",
+      "authority_evidence": "operator-requested artifact update",
+      "operation_id": "mutation:artifact_update:addOrchestratorContinuityHook:60532d75-dfe6-4e2b-9378-9ac5c51d51e7",
+      "payload_hash": "c97627447d04c184279d6c831b834a3bfab63e8ba0fdd58a7b58c49bc4055f4b",
+      "prior_revision": 56,
+      "new_revision": 57,
+      "committed_at": "2026-08-30T23:11:13.467Z"
+    }
+  ]
+}

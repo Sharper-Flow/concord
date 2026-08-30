@@ -676,6 +676,14 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array",
               "uniqueItems": true
             },
+            "step_actions": {
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "maxItems": 16,
+              "type": "array",
+              "uniqueItems": true
+            },
             "unresolved_failure": {
               "oneOf": [
                 {
@@ -693,6 +701,7 @@ const GeneratedPayloadSchemaDocument = `{
           "required": [
             "product_identity",
             "workflow_step",
+            "step_actions",
             "contract",
             "spec_mandate",
             "pending_operator_decision",

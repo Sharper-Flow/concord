@@ -1776,9 +1776,13 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if observations == nil {
 		observations = []store.WorkObservation{}
 	}
+	stepActions := snapshot.StepActions
+	if stepActions == nil {
+		stepActions = []string{}
+	}
 	return map[string]any{
 		"work_id":            snapshot.WorkID,
-		"pinned":             map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure},
+		"pinned":             map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure},
 		"latest_checkpoint":  snapshot.LatestCheckpoint,
 		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},

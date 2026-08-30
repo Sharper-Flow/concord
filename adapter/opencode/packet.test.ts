@@ -74,6 +74,7 @@ const continuityEnvelope = (contract: unknown = pinnedContract()) => coreEnvelop
     pinned: {
       product_identity: [PRODUCT_ID],
       workflow_step: WORKFLOW_STEP,
+      step_actions: [],
       contract,
       spec_mandate: [],
       pending_operator_decision: null,

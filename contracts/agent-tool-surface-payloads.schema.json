@@ -1484,6 +1484,7 @@
           "required": [
             "product_identity",
             "workflow_step",
+            "step_actions",
             "contract",
             "spec_mandate",
             "pending_operator_decision",
@@ -1501,6 +1502,14 @@
             },
             "workflow_step": {
               "$ref": "#/$defs/short"
+            },
+            "step_actions": {
+              "type": "array",
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/id"
+              }
             },
             "contract": {
               "oneOf": [

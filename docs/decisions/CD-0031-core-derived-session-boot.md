@@ -5,6 +5,8 @@
 **Approval:** Operator-approved GitHub issue #100 and implementation direction.
 **Related:** C18, CD-0016, CD-0017, CD-0018, CD-0029, CD-0030, issues #57, #99, #100.
 
+> **Subsequent decision:** CD-0090 registers a per-turn runtime continuity hook in the adapter plugin entry. The "OpenCode host hooks and plugins are unnecessary" clause in §Consequences records the state when CD-0031 was accepted: the boot packet covered session start, and CD-0090 closes the mid-session window the boot packet cannot.
+
 ## Decision
 
 A launcher-started operator session receives a bounded, versioned session-boot

@@ -36,6 +36,7 @@ ADAPTER_FILES = (
     "concord.ts",
     "concord-plugin.ts",
     "credentials.ts",
+    "continuity-hook.ts",
     "dispatch.ts",
     "generated-agent-lanes.ts",
     "generated-contract-tests.ts",

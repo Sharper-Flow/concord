@@ -87,7 +87,7 @@ function withHostBoundedOutput(envelope: AgentResultEnvelope, output: string): A
   return Buffer.byteLength(JSON.stringify(candidate)) <= maxEnvelopeBytes ? candidate : null
 }
 
-const defaultRunner: DispatchRunner = {
+export const defaultRunner: DispatchRunner = {
   async run(argv, input, signal) {
     const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
     const abort = () => child.kill()
@@ -371,7 +371,7 @@ export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<Age
   return errorEnvelope(lane, packet, outcome, kind, message, recovery_action)
 }
 
-function concordBinaryPath(override?: string): string {
+export function concordBinaryPath(override?: string): string {
   return override ?? process.env.CONCORD_BIN ?? "concord"
 }
 

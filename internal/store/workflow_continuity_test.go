@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -77,6 +78,29 @@ func continuityAction(t *testing.T, s *Store, workID string, version int64, acti
 		t.Fatal(err)
 	}
 	return result.ResultingVersion, nil
+}
+
+func TestContinuityStepActions(t *testing.T) {
+	s := openTemp(t)
+	continuityTestWorkflow(t, s, "continuity-actions")
+
+	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-actions", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"record_proposal", "checkpoint_context", "cross_context_boundary"}
+	if !reflect.DeepEqual(snapshot.StepActions, want) {
+		t.Fatalf("step actions=%v, want %v", snapshot.StepActions, want)
+	}
+
+	seedWork(t, s, "continuity-no-workflow")
+	empty, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-no-workflow", Limit: 20})
+	if err == nil {
+		t.Fatal("continuity read without a workflow unexpectedly succeeded")
+	}
+	if empty.StepActions == nil || len(empty.StepActions) != 0 {
+		t.Fatalf("empty workflow step actions=%v, want empty non-nil slice", empty.StepActions)
+	}
 }
 
 func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {

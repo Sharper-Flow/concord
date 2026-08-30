@@ -4,7 +4,7 @@
   "runtime": [
     {
       "module": "charm.land/bubbles/v2",
-      "version": "v2.1.1",
+      "version": "v2.2.1",
       "role": "runtime direct",
       "license": [
         {
@@ -16,7 +16,7 @@
     },
     {
       "module": "charm.land/bubbletea/v2",
-      "version": "v2.0.8",
+      "version": "v2.0.9",
       "role": "runtime direct",
       "license": [
         {
@@ -160,7 +160,7 @@
     },
     {
       "module": "github.com/mattn/go-runewidth",
-      "version": "v0.0.24",
+      "version": "v0.0.27",
       "role": "runtime transitive",
       "license": [
         {

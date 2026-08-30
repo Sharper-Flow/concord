@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkerEvidenceBindingMismatchOnPacketDigest"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-installer.py"
+    }
+  ],
+  "id": "CD-0085",
+  "state": "satisfied"
+}

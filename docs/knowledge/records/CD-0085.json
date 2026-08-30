@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-30T00:00:00Z",
+  "evidence": [
+    "adapter/opencode/credentials.ts",
+    "scripts/install.py",
+    "docs/decisions/CD-0085-client-signing-keys-live-behind-a-single-os-custody-adapter.md"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0085",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0085-client-signing-keys-live-behind-a-single-os-custody-adapter.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a68812a5346e6737cbef315f65198a2bc7049d43c78309cd904574be3ab7f98d",
+  "status": "accepted",
+  "summary": "The worker-evidence client signing key is held by the OS credential store behind exactly one custody adapter (the secret-tool lookup in adapter/opencode/credentials.ts); the Go core keeps only public keys. The dependency is the freedesktop Secret Service standard, not any provider — gnome-keyring, KWallet, and other implementations are interchangeable without code change, and a platform port swaps the adapter alone. The installer preflight fails closed without a provider, no plaintext fallback exists, and the single-user session-readability residual is recorded rather than hidden.",
+  "tags": [
+    "evidence",
+    "security",
+    "platform",
+    "adapter"
+  ],
+  "title": "Client signing keys live behind a single OS-custody adapter"
+}

@@ -14,6 +14,7 @@
     {"table":"agent_approvals","column":"consequence","authority":"check","validator":"scripts/check-approval-consequence.py"},
     {"table":"agent_client_keys","column":"status","authority":"check"},
     {"table":"agent_clients","column":"status","authority":"check"},
+    {"table":"bootstrap_operations","column":"state","authority":"check"},
     {"table":"archived_work","column":"scope_mode","authority":"check"},
     {"table":"archived_work","column":"terminal_state","authority":"check"},
     {"table":"archived_work","column":"type","authority":"registry_trigger","validator":"scripts/check-archived-work-kind.py"},

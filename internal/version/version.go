@@ -6,8 +6,3 @@ const Development = "dev"
 
 // Value is replaced by release tooling with -ldflags -X for versioned artifacts.
 var Value = Development
-
-// Current returns the version for the running build.
-func Current() string {
-	return Value
-}

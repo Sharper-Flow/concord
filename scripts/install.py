@@ -440,7 +440,11 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
             and not relative.startswith("agents/")
         ):
             raise InstallerError(f"refusing unknown managed version file {relative!r}")
-    if not allowed_fixed.issubset(version_files):
+    # A prior installation can legitimately predate a later adapter file. The
+    # manifest records the files that its installer managed, not the files this
+    # installer now ships. Keep the core binary mandatory, while the loop above
+    # still rejects every unknown or malformed recorded path.
+    if "bin/concord" not in version_files:
         raise InstallerError("installer manifest omits a required managed version file")
 
     # The manifest records what a previous install managed, which is a subset of

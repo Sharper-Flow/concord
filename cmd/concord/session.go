@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/sessionboot"
@@ -150,24 +149,11 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: unsupported arguments")
 		return 2
 	}
-	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
-	return orchestratorSession(productID, workID, "", in, out, errOut, terminal,
-		bootstrap, runner, identity, orchestrator)
-}
-
-// orchestratorSession is the shared session bootstrap used by both the
-// internal `concord session` verb and `concord <project>`. It records the
-// orchestrator identity, derives continuity when a work ID is present, and
-// starts the host under the asserted agent. The lead prompt is prepended to
-// the identity packet so a project-launched session receives the operator's
-// initial prompt verbatim.
-func orchestratorSession(productID, workID, leadPrompt string, in io.Reader, out, errOut io.Writer, terminal bool,
-	bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
-	identity sessionAgentIdentityFunc, orchestrator sessionOrchestratorFunc) int {
 	if !terminal {
 		writeDiagnostic(errOut, "concord session requires an interactive TTY")
 		return 2
 	}
+	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
 	if !sessionIdentity.MatchString(productID) || (workID != "" && !sessionIdentity.MatchString(workID)) {
 		writeDiagnostic(errOut, "concord session: launcher identity is missing or invalid")
 		return 2
@@ -189,7 +175,7 @@ func orchestratorSession(productID, workID, leadPrompt string, in io.Reader, out
 		writeDiagnostic(errOut, "concord session: orchestrator definition resolved without an invocation handle")
 		return 2
 	}
-	basePrompt := "Concord identity: product_id=" + productID
+	prompt := "Concord identity: product_id=" + productID
 	if workID != "" {
 		path, err := databasePath()
 		if err != nil {
@@ -201,11 +187,7 @@ func orchestratorSession(productID, workID, leadPrompt string, in io.Reader, out
 			writeDiagnostic(errOut, "concord session: "+err.Error())
 			return 1
 		}
-		basePrompt = "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
-	}
-	prompt := basePrompt
-	if leadPrompt != "" {
-		prompt = leadPrompt + "\n\n" + basePrompt
+		prompt = "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	}
 	// The session starts the host as the agent whose identity it just
 	// asserted and recorded, selecting it by the handle the host registers
@@ -214,18 +196,7 @@ func orchestratorSession(productID, workID, leadPrompt string, in io.Reader, out
 	// because the host answers an unselected name with the operator's
 	// default agent and exits zero (CD-0049 D2).
 	argv := []string{"opencode", "--agent", handle, "--prompt", prompt}
-	env := make([]string, 0, len(os.Environ())+2)
-	for _, value := range os.Environ() {
-		if strings.HasPrefix(value, selectedProductEnv+"=") || strings.HasPrefix(value, selectedWorkEnv+"=") {
-			continue
-		}
-		env = append(env, value)
-	}
-	env = append(env, selectedProductEnv+"="+productID)
-	if workID != "" {
-		env = append(env, selectedWorkEnv+"="+workID)
-	}
-	if err := runner(context.Background(), argv, env, in, out, errOut); err != nil {
+	if err := runner(context.Background(), argv, os.Environ(), in, out, errOut); err != nil {
 		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
 		return 1
 	}

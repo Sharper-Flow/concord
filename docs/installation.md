@@ -72,6 +72,15 @@ the Concord installer manifest. Re-running the same version makes no changes.
 Installing a newer version replaces the prior Concord-managed version after
 the new artifact is verified. It does not remove user-authored files.
 
+The adapter loads through an OpenCode plugin entry module,
+`~/.config/opencode/tools/concord-plugin.ts`. The installer registers its path
+in the host `plugin` array so the typed tools load on the next OpenCode start.
+OpenCode invokes every function-valued export of a plugin entry module as a
+factory, so the entry module exports exactly one default factory and re-exports
+the tool definitions; the tool modules are never entry points themselves. When
+the installer cannot safely edit the `plugin` array (for example a non-array
+value), it refuses and prints the exact entry to add manually.
+
 ### Crash recovery
 
 Before the first managed change, the installer writes a bounded transaction
@@ -106,8 +115,9 @@ python3 concord-installer.py status
 ```
 
 Restart OpenCode after installation or upgrade. OpenCode reads the registered
-versioned `skills.paths` entry at startup; the installer does not inject a
-plugin or modify unrelated configuration keys.
+versioned `skills.paths` entry and the plugin entry module at startup. The
+installer manages only those two registrations; it does not modify unrelated
+configuration keys.
 
 ## Uninstall
 

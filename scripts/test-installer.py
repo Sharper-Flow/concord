@@ -358,6 +358,64 @@ esac''',
         self.assertEqual(adapter.read_text(encoding="utf-8"), "operator-authored\n")
         self.assertFalse((self.root / "data").exists())
 
+    def plugin_entry_path(self) -> str:
+        return str((self.root / "config" / "opencode" / "tools" / installer.PLUGIN_ENTRY_FILE).resolve())
+
+    def test_install_registers_plugin_entry(self) -> None:
+        self.make_release("v1.0.0")
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        entry = self.plugin_entry_path()
+        self.assertTrue((self.root / "config" / "opencode" / "tools" / installer.PLUGIN_ENTRY_FILE).is_file())
+        config = self.config.read_text(encoding="utf-8")
+        self.assertIn(f'"{entry}"', config)
+        # The entry must be a member of the plugin array, not only a comment.
+        self.assertIn(entry, installer.jsonc_data(config)["plugin"])
+
+    def test_install_appends_plugin_entry_to_existing_array(self) -> None:
+        self.config.write_text(
+            '{\n  "keep": true,\n  "plugin": [\n    [\n      "/operator/plugin",\n      {"agents": {}}\n    ],\n    "/operator/other"\n  ]\n}\n',
+            encoding="utf-8",
+        )
+        self.make_release("v1.0.0")
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plugin = installer.jsonc_data(self.config.read_text(encoding="utf-8"))["plugin"]
+        self.assertIn(self.plugin_entry_path(), plugin)
+        # Existing entries are preserved, including the tuple form.
+        self.assertIn("/operator/other", plugin)
+        self.assertTrue(any(isinstance(item, list) and item[0] == "/operator/plugin" for item in plugin))
+
+    def test_install_plugin_entry_registration_is_idempotent(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        before = self.config.read_text(encoding="utf-8")
+        second = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("no changes", second.stdout)
+        self.assertEqual(self.config.read_text(encoding="utf-8"), before)
+
+    def test_install_refuses_a_non_array_plugin_value(self) -> None:
+        self.config.write_text('{\n  "keep": true,\n  "plugin": "not-an-array"\n}\n', encoding="utf-8")
+        self.make_release("v1.0.0")
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("plugin value is not an array", result.stderr)
+        self.assertIn("manually", result.stderr)
+        self.assertFalse((self.root / "data").exists())
+
+    def test_uninstall_removes_plugin_entry(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertIn(self.plugin_entry_path(), self.config.read_text(encoding="utf-8"))
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        config = self.config.read_text(encoding="utf-8")
+        self.assertNotIn(self.plugin_entry_path(), config)
+        self.assertIn('"keep": true', config)
+
     def test_existing_skills_config_and_launcher_are_not_clobbered(self) -> None:
         self.config.write_text(
             '{\n  "keep": true,\n  "skills": {"paths": ["/operator-authored/skill"]}\n}\n',

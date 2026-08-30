@@ -34,6 +34,7 @@ SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MANIFEST_NAME = "install-manifest.json"
 ADAPTER_FILES = (
     "concord.ts",
+    "concord-plugin.ts",
     "credentials.ts",
     "dispatch.ts",
     "generated-agent-lanes.ts",
@@ -42,6 +43,10 @@ ADAPTER_FILES = (
     "lane_dispatch.ts",
     "packet.ts",
 )
+# The OpenCode plugin entry module, shipped in ADAPTER_FILES and installed into
+# the tools directory. Unlike the tool modules it is registered by path in the
+# host `plugin` array so OpenCode loads it as the adapter's plugin factory.
+PLUGIN_ENTRY_FILE = "concord-plugin.ts"
 INSTRUCTION_FILES = (
     "README.md",
     "asking.md",
@@ -289,6 +294,84 @@ def remove_path_from_config(path: Path, skill_path: str) -> str:
         if before >= 0 and original[before] == ",":
             start = before
     return original[:start] + original[end:]
+
+
+def plugin_entry_path(paths: Paths) -> str:
+    """Absolute, version-stable path of the installed plugin entry module."""
+    return str((paths.tools_dir / PLUGIN_ENTRY_FILE).resolve())
+
+
+def drop_string_token(original: str, token: str) -> str:
+    """Remove one exact JSON string token and a single adjacent comma.
+
+    Shared by the skills and plugin deregistration paths. The caller guarantees
+    the token occurs exactly once in the original text.
+    """
+    start = original.index(token)
+    end = start + len(token)
+    after = end
+    while after < len(original) and original[after].isspace():
+        after += 1
+    if after < len(original) and original[after] == ",":
+        end = after + 1
+    else:
+        before = start - 1
+        while before >= 0 and original[before].isspace():
+            before -= 1
+        if before >= 0 and original[before] == ",":
+            start = before
+    return original[:start] + original[end:]
+
+
+def plan_plugin_entry(text: str, entry_path: str) -> str:
+    """Ensure the plugin entry module path is registered in the host plugin array.
+
+    The plugin path is version-stable, so this is an idempotent ensure-present:
+    it adds the path when absent and leaves an existing registration untouched.
+    Raises InstallerError carrying the exact manual entry when the existing
+    plugin configuration cannot be edited safely.
+    """
+    parsed = jsonc_data(text)
+    if not isinstance(parsed, dict):
+        raise InstallerError(
+            f"OpenCode config is not an object; add {json.dumps(entry_path)} to its plugin array manually"
+        )
+    token = json.dumps(entry_path)
+    plugin = parsed.get("plugin")
+    if plugin is None:
+        end = outer_object_end(text)
+        before = text[:end]
+        separator = "" if before.rstrip().endswith("{") else ","
+        addition = f'{separator}\n  "plugin": [\n    {token}\n  ]\n'
+        return text[:end] + addition + text[end:]
+    if not isinstance(plugin, list):
+        raise InstallerError(
+            f"OpenCode config plugin value is not an array; add {token} to it manually"
+        )
+    if any(isinstance(entry, str) and entry == entry_path for entry in plugin):
+        return text
+    matches = list(re.finditer(r'"plugin"\s*:\s*\[', text))
+    if len(matches) != 1:
+        raise InstallerError(
+            f"cannot locate the plugin array in the OpenCode config; add {token} to it manually"
+        )
+    insert_at = matches[0].end()
+    insertion = f"\n    {token}\n  " if len(plugin) == 0 else f"\n    {token},"
+    return text[:insert_at] + insertion + text[insert_at:]
+
+
+def remove_plugin_entry(text: str, entry_path: str) -> str:
+    """Remove the managed plugin entry registration. No-op when it is absent."""
+    parsed = jsonc_data(text)
+    if not isinstance(parsed, dict):
+        return text
+    plugin = parsed.get("plugin")
+    if not isinstance(plugin, list) or not any(isinstance(entry, str) and entry == entry_path for entry in plugin):
+        return text
+    token = json.dumps(entry_path)
+    if text.count(token) != 1:
+        raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
+    return drop_string_token(text, token)
 
 
 def safe_relative_target(root: Path, relative: str, label: str, allow_final_symlink: bool = False) -> Path:
@@ -741,6 +824,9 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         failures.append("existing installer manifest has no valid skills path")
     try:
         config_plan = plan_config(paths.config_file, str((paths.data_root / version / "skills").resolve()), old_skill)
+        plugin_text = plan_plugin_entry(config_plan.text, plugin_entry_path(paths))
+        if plugin_text != config_plan.text:
+            config_plan = ConfigPlan(config_plan.path, plugin_text, True, config_plan.managed_fragment)
     except InstallerError as error:
         failures.append(str(error))
         config_plan = ConfigPlan(paths.config_file, "", False, None)
@@ -1882,7 +1968,10 @@ def uninstall(args: argparse.Namespace) -> int:
     assert isinstance(skill_path, str)
     config_path = safe_relative_target(paths.config_file.parent, paths.config_file.name, "OpenCode config")
     current_config = config_path.read_text(encoding="utf-8") if config_path.exists() else None
-    new_config = remove_path_from_config(config_path, skill_path) if current_config is not None else None
+    if current_config is not None:
+        new_config = remove_plugin_entry(remove_path_from_config(config_path, skill_path), plugin_entry_path(paths))
+    else:
+        new_config = None
     transaction_root, journal = make_transaction(
         paths,
         "uninstall",

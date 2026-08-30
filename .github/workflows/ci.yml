@@ -147,9 +147,9 @@ jobs:
         run: go test -timeout=15m ./...
 
   # Race detector on store tests that coordinate concurrent Go callers.
-  # SQLite lock-wait tests prove database contention behavior without shared Go
-  # memory, so the ordinary suite covers them without multiplying fixed lock
-  # delays under the race detector. The full tree races in the nightly workflow.
+  # SQLite lock-wait tests coordinate through database locks and channels rather
+  # than unsynchronized mutable Go state. The ordinary suite covers them without
+  # multiplying fixed lock delays. The full tree races in the nightly workflow.
   verify-race:
     name: verify-race
     runs-on: ubuntu-latest

@@ -1800,6 +1800,11 @@
       "state": "out_of_scope"
     },
     {
+      "id": "predecessor-migration-runbook",
+      "reason": "Operational procedure for the delivered importer, not law: the policy it serves carries CD-0082's coverage, and the machinery it records is covered by the predecessor inventory and import tests under #295.",
+      "state": "out_of_scope"
+    },
+    {
       "id": "predecessor-operational-coverage",
       "reason": "Assessment record rather than a prescription. Its internal consistency is validated on every run by scripts/check-predecessor-coverage.py, and each gap it names is owned by its own issue.",
       "state": "out_of_scope"

@@ -7,9 +7,12 @@ function schemaBuilder() {
     optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
   }
 }
+function unionSchema() {
+  return Object.assign(schemaBuilder(), { "~standard": {}, def: {} })
+}
 const fakeTool = Object.assign((config: any) => config, {
   schema: {
-    object: schemaBuilder, array: schemaBuilder, union: schemaBuilder, literal: schemaBuilder,
+    object: schemaBuilder, array: schemaBuilder, union: unionSchema, literal: schemaBuilder,
     string: schemaBuilder, number: schemaBuilder, unknown: schemaBuilder, null: schemaBuilder,
   },
 })
@@ -23,6 +26,18 @@ test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1])
   expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_initiative", "work_transition", "work_relate", "work_compact"])
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
+})
+
+test("all exported tools serialize raw operation and input properties", () => {
+  let checked = 0
+  for (const [name, exportedTool] of Object.entries(adapter) as Array<[string, any]>) {
+    if (!exportedTool.args) continue
+    checked++
+    const properties = exportedTool.args
+    expect(Object.keys(properties), name).toEqual(["operation", "input"])
+    expect(Object.keys(properties).every((key) => /^[a-zA-Z0-9_.-]{1,64}$/.test(key)), name).toBe(true)
+  }
+  expect(checked).toBe(10)
 })
 
 test("all exported tools return one serialized Concord envelope", async () => {

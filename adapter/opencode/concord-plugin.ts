@@ -26,6 +26,7 @@ import {
   work_relate,
   work_compact,
 } from "./concord"
+import { createContinuityTransform } from "./continuity-hook"
 
 export default async function ConcordAdapterPlugin() {
   return {
@@ -41,5 +42,6 @@ export default async function ConcordAdapterPlugin() {
       concord_work_relate: work_relate,
       concord_work_compact: work_compact,
     },
+    "experimental.chat.system.transform": createContinuityTransform(),
   }
 }

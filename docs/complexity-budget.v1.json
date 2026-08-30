@@ -18,13 +18,6 @@
   "threshold": 100,
   "allowances": [
     {
-      "function": "internal/agent.(runtime).mutate",
-      "measured": 386,
-      "state": "outstanding",
-      "issue": 406,
-      "reason": "The dispatch remains outstanding under #406. Extracting shared work-kind refusal selection removed nested selection branches from the capture and revise arms and lowered the measured score from 388 to 386."
-    },
-    {
       "function": "internal/store.workflowSemanticActionEvents",
       "measured": 183,
       "state": "unmeasured",
@@ -35,13 +28,6 @@
       "measured": 208,
       "state": "unmeasured",
       "reason": "Flat dispatch over 28 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 189 to 208 when concord_knowledge.unprocessed added a repository read arm."
-    },
-    {
-      "function": "internal/agent.validateSchemaValue",
-      "measured": 164,
-      "state": "outstanding",
-      "issue": 406,
-      "reason": "Carries no dispatch at all - zero case arms - and reaches indent depth 7, with 27% of lines past depth 3. Scores 2.2x its cyclomatic number, which is nesting only."
     }
   ]
 }

@@ -876,6 +876,958 @@ func workKindMutationRefusal(kind string, allowed bool, fallback string) (string
 	return fallback, true
 }
 
+// mutationPlan carries the shared mutation plumbing one operation handler
+// populates before the common tail executes it: the scope facts the preflight
+// derives products from, the version map, approval routing, the governing-law
+// conflict, next intents, and the transactional effect.
+type mutationPlan struct {
+	scope             map[string]any
+	versions          map[string]any
+	consequence       string
+	approval          string
+	requiresApproval  bool
+	governingConflict []string
+	intents           []NextIntent
+	effect            mutationEffect
+}
+
+func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
+	return &mutationPlan{
+		scope:            map[string]any{"product_id": envelope.SelectedProductID, "project_ids": []string{envelope.AmbientProjectID}, "scope_version": envelope.ScopeVersion},
+		versions:         map[string]any{},
+		consequence:      string(op.Consequence),
+		requiresApproval: op.Approval == ApprovalClass("required"),
+	}
+}
+
+// planCapture plans concord_work_define.capture.
+func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in captureMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindAgentCaptureAllowed(in.Kind), "work kind is not capturable"); refused {
+		return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil, true
+	}
+	if len(in.ProjectIDs) == 0 {
+		return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil, true
+	}
+	workID := "work-" + digest[7:31]
+	var registeredDefinition store.RegisteredDefinition
+	if in.WorkflowTypeRef != "" {
+		var definitionErr error
+		registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
+		if definitionErr != nil {
+			return failureEnvelope(base, definitionErr), nil, true
+		}
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	productsByProject, scopeErr := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
+	if scopeErr != nil {
+		return failureEnvelope(base, scopeErr), nil, true
+	}
+	// CD-0035 D3: a governing-law conflict is a set difference against the
+	// requirements the target scope declares, never a reading of the
+	// instruction text. The refusal writes nothing and returns the operator
+	// the three resolutions; a reduced set proceeds only behind a core-issued
+	// approval bound to this exact operation, which is CD-0006 D5's
+	// legislative moment rather than an agent-side decision.
+	applicable, requirementErr := r.Store.GoverningRequirementsForProjectIDs(ctx, in.ProjectIDs)
+	if requirementErr != nil {
+		return failureEnvelope(base, requirementErr), nil, true
+	}
+	if missing := store.MissingGoverningRequirements(applicable, in.GoverningRequirements); len(missing) > 0 {
+		// The conflict is consequential, so it routes through the same
+		// approval machinery as every other governed consequence. That is
+		// deliberate: offering accept_scope_cut without minting the challenge
+		// it resolves against would repeat the defect where a refusal named a
+		// recovery the agent had nothing to act on.
+		plan.requiresApproval = true
+		plan.governingConflict = missing
+	}
+	for _, products := range productsByProject {
+		for _, product := range products {
+			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
+				plan.requiresApproval = true
+			}
+		}
+	}
+	plan.scope["project_ids"] = in.ProjectIDs
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		priority := in.Priority
+		urgency := in.Urgency
+		if urgency == "" {
+			urgency = "standard"
+		}
+		payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
+		memberships := make([]storeMembership, len(in.ProjectIDs))
+		for i, project := range in.ProjectIDs {
+			role := "secondary"
+			if i == 0 {
+				role = "primary"
+			}
+			memberships[i] = storeMembership{ProjectID: project, Role: role}
+		}
+		membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
+		now := r.Authority.now()
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
+			{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 2, Payload: payload},
+			{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
+		}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if in.WorkflowTypeRef != "" {
+			actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+			if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+		changedVersion := int64(2)
+		if in.WorkflowTypeRef != "" {
+			changedVersion = 4
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(changedVersion, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planReviseIntent plans concord_work_define.revise_intent.
+func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in reviseMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindFoldReviseAllowed(in.Kind), "work kind cannot be revised"); refused {
+		return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	var registeredDefinition store.RegisteredDefinition
+	if in.WorkflowTypeRef != "" {
+		var definitionErr error
+		registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
+		if definitionErr != nil {
+			return failureEnvelope(base, definitionErr), nil, true
+		}
+	}
+	plan.intents = []NextIntent{{Tool: "concord_work_transition", Operation: "lifecycle", ReasonCode: "continue_work", RequiredFields: []string{"work_id", "expected_version"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
+		if existingErr != nil {
+			return nil, nil, nil, existingErr
+		}
+		if definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef {
+			return nil, nil, nil, fmt.Errorf("workflow definition cannot be changed after initialization")
+		}
+		urgency := in.Urgency
+		if urgency == "" {
+			urgency = "standard"
+		}
+		payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if in.WorkflowTypeRef != "" && !definitionFound {
+			actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+			if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+		changedVersion := in.ExpectedVersion + 1
+		if in.WorkflowTypeRef != "" && !definitionFound {
+			changedVersion += 2
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planInitiativeCreate plans concord_work_initiative.create.
+func (r runtime) planInitiativeCreate(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in initiativeCreateMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if len(in.ProjectIDs) == 0 {
+		return coreError(base, "invalid_input", "Initiative creation requires at least one Project membership", "reread_entities", false), nil, true
+	}
+	plan.scope["project_ids"] = in.ProjectIDs
+	productsByProject, err := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	if products := uniqueProducts(productsByProject, in.ProjectIDs); len(products) != 1 {
+		return coreError(base, "invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false), nil, true
+	}
+	workID := "initiative-" + digest[7:31]
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_initiative"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		if products, err := deriveInitiativeProductsTx(ctx, tx, in.ProjectIDs); err != nil {
+			return nil, nil, nil, err
+		} else if len(products) != 1 {
+			return nil, nil, nil, newRuntimeFailure("invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false)
+		}
+		urgency := in.Urgency
+		if urgency == "" {
+			urgency = "standard"
+		}
+		payload, _ := json.Marshal(map[string]any{"work_kind": "initiative", "title": in.Title, "value_statement": in.ValueStatement, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "external_ref": in.ExternalRef})
+		memberships := make([]storeMembership, len(in.ProjectIDs))
+		for i, project := range in.ProjectIDs {
+			role := "secondary"
+			if i == 0 {
+				role = "primary"
+			}
+			memberships[i] = storeMembership{ProjectID: project, Role: role}
+		}
+		membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
+		now := r.Authority.now()
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
+			{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 2, Payload: payload},
+			{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
+		}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "2"}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planInitiativeEntry plans concord_work_initiative.add_entry, concord_work_initiative.reorder_entry, concord_work_initiative.change_requiredness.
+func (r runtime) planInitiativeEntry(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in initiativeEntryMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["initiative"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
+	kind := "initiative_entry.added"
+	intentReason := "inspect_initiative_entries"
+	if op.ID == "concord_work_initiative.reorder_entry" {
+		kind = "initiative_entry.reordered"
+		intentReason = "inspect_reordered_initiative"
+	} else if op.ID == "concord_work_initiative.change_requiredness" {
+		kind = "initiative_entry.requiredness_changed"
+		intentReason = "inspect_initiative_requiredness"
+	}
+	plan.intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: intentReason}}
+	required := true
+	if in.Required != nil {
+		required = *in.Required
+	}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		event, err := store.InitiativeEntryEvent(digest+":entry", kind, in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID, Position: in.Position, Required: required}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planInitiativeRemoveEntry plans concord_work_initiative.remove_entry.
+func (r runtime) planInitiativeRemoveEntry(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in initiativeRemoveEntryMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["initiative"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "inspect_removed_initiative_entry"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		event, err := store.InitiativeEntryEvent(digest+":entry", "initiative_entry.removed", in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planInitiativeNarrative plans concord_work_initiative.revise_narrative.
+func (r runtime) planInitiativeNarrative(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in initiativeNarrativeMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["initiative"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.InitiativeWorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "refresh_initiative_context"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		event, err := store.InitiativeNarrativeEvent(digest+":narrative", in.InitiativeWorkID, in.Narrative, in.Reason, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planLifecycle plans concord_work_transition.lifecycle.
+func (r runtime) planLifecycle(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in lifecycleMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Target == "superseded" {
+		return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "use_relation_operation", false), nil, true
+	}
+	// Terminal lifecycle transitions demand evidence before approval can be
+	// granted. Refuse the missing-evidence case structurally with a typed
+	// missing_evidence refusal whose recovery_action is provide_evidence;
+	// only when evidence is present do we let the normal challenge-minting
+	// path execute so the agent receives a real approval_ref to act on.
+	if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
+		response := coreError(base, "missing_evidence", "terminal lifecycle transition requires verification evidence", "provide_evidence", false)
+		response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}
+		return response, nil, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.requiresApproval = in.Target == "completed" || in.Target == "cancelled"
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"from": "", "to": in.Target, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+		from, err := currentLifecycle(ctx, tx, in.WorkID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		var eventPayload map[string]any
+		_ = json.Unmarshal(payload, &eventPayload)
+		eventPayload["from"] = from
+		payload, _ = json.Marshal(eventPayload)
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":transition", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResearchPackCreate plans concord_work_define.research_pack_create.
+func (r runtime) planResearchPackCreate(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in researchPackCreateMutation
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.scope["work_ids"] = []string{in.OwnerWorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_define", Operation: "research_finding_record", ReasonCode: "record_findings", RequiredFields: []string{"pack_id", "expected_version"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		pack, err := store.CreateResearchPackWithinTx(ctx, tx, store.CreateResearchPackRequest{OwnerWorkID: in.OwnerWorkID, Revision: storeResearchRevision(in.Revision), Freshness: store.ResearchFreshness(in.Freshness)})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "research_pack", ID: pack.PackID, Version: strconv.FormatInt(pack.ExpectedVersion, 10)}}
+		return mutationPayload(changed, plan.intents), []string{pack.PackID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResearchRevisionAppend plans concord_work_define.research_revision_append.
+func (r runtime) planResearchRevisionAppend(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in researchRevisionMutation
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.PackID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResearchFindingRecord plans concord_work_define.research_finding_record.
+func (r runtime) planResearchFindingRecord(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in researchFindingMutation
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		freshness := in.Finding.Freshness
+		if freshness == "" {
+			freshness = "current"
+		}
+		status := in.Finding.Status
+		if status == "" {
+			status = "active"
+		}
+		scopes := store.ResearchScopes{Mode: "home"}
+		if in.Finding.Scopes != nil {
+			scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, DomainIDs: in.Finding.Scopes.DomainIDs, TagIDs: in.Finding.Scopes.TagIDs}
+		}
+		finding, err := store.RecordResearchFindingWithinTxUpsert(ctx, tx, store.ResearchFindingRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Finding: store.ResearchFinding{FindingID: in.Finding.FindingID, Kind: store.ResearchFindingKind(in.Finding.Kind), Statement: in.Finding.Statement, Confidence: store.ResearchConfidence(in.Finding.Confidence), Freshness: store.ResearchFreshness(freshness), Status: store.ResearchFindingStatus(status), Scopes: scopes}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.PackID + ":" + finding.FindingID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResearchSourceRecord plans concord_work_define.research_source_record.
+func (r runtime) planResearchSourceRecord(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in researchSourceMutation
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.PackID + ":" + source.SourceID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResearchFreshnessSet plans concord_work_define.research_freshness_set.
+func (r runtime) planResearchFreshnessSet(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in researchFreshnessMutation
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.PackID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planLessonPublish plans concord_work_compact.lesson_publish.
+func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in lessonPublishInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.requiresApproval = true
+	plan.scope["work_ids"] = []string{in.WorkID}
+	workVersion, err := r.Store.WorkVersion(ctx, in.WorkID)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.versions["work"] = workVersion
+	// The knowledge home and work-version reads happen before the
+	// mutation transaction opens: the effect's transaction holds the
+	// write lock, and a second connection's read would deadlock.
+	lessonHome, homeErr := r.Store.ResolveCompactionHome(ctx, in.WorkID)
+	if homeErr != nil {
+		return failureEnvelope(base, homeErr), nil, true
+	}
+	plan.intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_published_lesson"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		scopes := store.KnowledgeRecordScopes{Mode: "home"}
+		if in.Scopes != nil {
+			scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, TagIDs: in.Scopes.TagIDs}
+		}
+		published, pubErr := store.PublishLessonRecord(ctx, lessonHome, store.LessonPublication{
+			LessonID: in.LessonID, Title: in.Title, Summary: in.Summary, Content: in.Content,
+			Tags: in.Tags, Scopes: scopes, Evidence: in.Evidence, Now: r.Authority.now(),
+		})
+		if pubErr != nil {
+			return nil, nil, nil, pubErr
+		}
+		changed := []ChangedRef{{EntityKind: "lesson", ID: published.Record.ID, Version: strconv.FormatInt(workVersion, 10)}}
+		return mutationPayload(changed, plan.intents), []string{published.Record.ID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResourceClaim plans concord_work_relate.resource_claim.
+func (r runtime) planResourceClaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in resourceClaimInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason, "holder_agent": grant.AgentRef, "holder_session": grant.SessionRef})
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResourceRelease plans concord_work_relate.resource_release.
+func (r runtime) planResourceRelease(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in resourceReleaseInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey})
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planMessageSend plans concord_work_relate.message_send.
+func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in messageSendInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.RecipientWorkID == "" && !in.Broadcast {
+		return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "supply_recipient_or_broadcast", false), nil, true
+	}
+	if in.RecipientWorkID != "" && in.Broadcast {
+		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "choose_addressing", false), nil, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	if in.RecipientWorkID != "" {
+		plan.scope["work_ids"] = []string{in.WorkID, in.RecipientWorkID}
+	}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		// Broadcast resolves the recipient set now, inside the caller's
+		// transaction, so the fan-out sees a consistent Product snapshot.
+		recipients := []string{in.RecipientWorkID}
+		if in.Broadcast {
+			active, listErr := activeWorkIDsTx(ctx, tx, r.Envelope.SelectedProductID)
+			if listErr != nil {
+				return nil, nil, nil, listErr
+			}
+			// The sender is not its own recipient.
+			filtered := make([]string, 0, len(active))
+			for _, id := range active {
+				if id != in.WorkID {
+					filtered = append(filtered, id)
+				}
+			}
+			if len(filtered) == 0 {
+				return nil, nil, nil, fmt.Errorf("no active work in this Product to receive the broadcast")
+			}
+			recipients = filtered
+		}
+		// One event per (sender, recipient) pair: the work version
+		// advances once (on the sender) regardless of fan-out size.
+		events := make([]store.Event, 0, len(recipients))
+		ids := make([]string, 0, len(recipients))
+		for i, recipient := range recipients {
+			messageID := messageIDFor(digest, recipient)
+			expected := in.ExpectedVersion + int64(i)
+			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": expected, "resulting_version": expected + 1, "message_id": messageID, "recipient_work_id": recipient, "body": in.Body})
+			events = append(events, store.Event{EventID: digest + ":msg:" + recipient, Kind: "work.message_sent", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload})
+			ids = append(ids, messageID)
+		}
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), ids, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planMessageWithdraw plans concord_work_relate.message_withdraw.
+func (r runtime) planMessageWithdraw(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in messageWithdrawInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID})
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":withdraw", Kind: "work.message_withdrawn", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.MessageID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planObservationRecord plans concord_work_define.observation_record.
+func (r runtime) planObservationRecord(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in observationRecordInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	if in.External != nil {
+		// CD-0040 D2/D3: the reporting or verifying authority is derived
+		// from the validated grant's trusted client. A caller-supplied
+		// authority name never reaches the record, and the agent surface
+		// can only ever claim attributed trusted-client reports — the
+		// core-owned Git probe is not reachable from agent input.
+		if err := validateObservationExternalVariant(in.External); err != nil {
+			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil, true
+		}
+		plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "external_observations", QueryID: "CD-0040.R1", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
+		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+			if in.External.Kind == "capture" {
+				// The reviewed policy references are derived from the
+				// subject kind before validation, which requires the
+				// record to carry exactly the reviewed policy.
+				policy, _ := store.ExternalSubjectPolicyFor(in.External.SubjectKind)
+				capture := store.ExternalObservationCapture{
+					ObservationID:         in.External.ObservationID,
+					SubjectKind:           in.External.SubjectKind,
+					SubjectRef:            in.External.SubjectRef,
+					CaptureMethod:         store.CaptureTrustedClientReport,
+					CapturedAt:            in.External.CapturedAt,
+					ReportingAuthorityRef: "client:" + grant.ClientRef,
+					SubjectDigest:         in.External.SubjectDigest,
+					ObservedUniverse:      *in.External.ObservedUniverse,
+					FreshnessPolicyRef:    store.PolicyRef(policy),
+					DivergencePolicyRef:   store.PolicyRef(policy),
+				}
+				if err := store.ValidateExternalObservationCapture(capture); err != nil {
+					return nil, nil, nil, err
+				}
+				if err := store.AppendExternalObservationCaptureTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), capture); err != nil {
+					return nil, nil, nil, err
+				}
+				changed := []ChangedRef{{EntityKind: "external_observation", ID: capture.ObservationID, Version: "1"}}
+				return mutationPayload(changed, plan.intents), []string{capture.ObservationID}, changed, nil
+			}
+			verification := store.ExternalObservationVerification{
+				ObservationID:         in.External.ObservationID,
+				VerificationMethod:    store.VerifyTrustedClientReport,
+				VerifiedAt:            in.External.VerifiedAt,
+				VerifyingAuthorityRef: "client:" + grant.ClientRef,
+				Result:                store.VerificationResultKind(in.External.Result),
+				CurrentDigest:         in.External.CurrentDigest,
+				Omissions:             in.External.Omissions,
+			}
+			if err := store.ValidateExternalObservationVerification(verification); err != nil {
+				return nil, nil, nil, err
+			}
+			if err := store.AppendExternalObservationVerificationTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), verification); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "external_observation", ID: verification.ObservationID, Version: "2"}}
+			return mutationPayload(changed, plan.intents), []string{verification.ObservationID}, changed, nil
+		}
+	} else {
+		plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
+		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+			observationID := in.ObservationID
+			if observationID == "" {
+				sum := sha256.Sum256([]byte(digest))
+				observationID = "obs:" + hex.EncodeToString(sum[:8])
+			}
+			payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
+			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":observation", Kind: "work.observation_recorded", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+				return nil, nil, nil, err
+			}
+			changed := []ChangedRef{{EntityKind: "observation", ID: observationID, Version: "1"}}
+			return mutationPayload(changed, plan.intents), []string{observationID}, changed, nil
+		}
+	}
+	return Envelope{}, nil, false
+}
+
+// planDomainObservationRecord plans concord_domain.observation_record.
+func (r runtime) planDomainObservationRecord(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in domainObservationRecordInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	product := in.ProductID
+	if product == "" {
+		product = r.Envelope.SelectedProductID
+	}
+	if product == "" || in.DomainID == "" {
+		return coreError(base, "unknown_scope", "recording a Domain observation requires a resolved Product and Domain", "reread_entities", false), nil, true
+	}
+	plan.scope["product_id"] = product
+	// CD-0068 D6: the observation is read back through the Domain surface
+	// it was recorded against, not through a dedicated read.
+	plan.intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_visible", RequiredFields: []string{"domain_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		sum := sha256.Sum256([]byte(digest))
+		observationID := "dob:" + hex.EncodeToString(sum[:8])
+		payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "product_id": product, "domain_id": in.DomainID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation", Kind: "domain.observation_recorded", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "domain_observation", ID: observationID, Version: "1"}}
+		return mutationPayload(changed, plan.intents), []string{observationID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planDomainObservationDismiss plans concord_domain.observation_dismiss.
+func (r runtime) planDomainObservationDismiss(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in domainObservationDismissInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	product := in.ProductID
+	if product == "" {
+		product = r.Envelope.SelectedProductID
+	}
+	if product == "" || in.DomainID == "" || in.ObservationID == "" {
+		return coreError(base, "unknown_scope", "dismissing a Domain observation requires a resolved Product, Domain, and observation", "reread_entities", false), nil, true
+	}
+	plan.scope["product_id"] = product
+	plan.intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_dismissed", RequiredFields: []string{"domain_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"observation_id": in.ObservationID, "product_id": product, "domain_id": in.DomainID})
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation_dismissed", Kind: "domain.observation_dismissed", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "domain_observation", ID: in.ObservationID, Version: "2"}}
+		return mutationPayload(changed, plan.intents), []string{in.ObservationID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planWorktreeClaim plans concord_work_transition.worktree_claim.
+func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in worktreeClaimInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		opID := digest + ":worktree-claim:" + in.ProjectID
+		if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
+			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
+			Branch: in.Branch, BaseSHA: in.BaseSHA, Path: in.Path,
+			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{opID + ":worktree-created"}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planWorktreeReclaim plans concord_work_transition.worktree_reclaim.
+func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in worktreeReclaimInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
+			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
+			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + in.ProjectID + ":worktree-reclaimed"}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planSetMemberships plans concord_work_relate.set_memberships.
+func (r runtime) planSetMemberships(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in membershipsMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if len(in.Memberships) == 0 {
+		return coreError(base, "invalid_input", "membership replacement cannot be empty", "supply_memberships", false), nil, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.requiresApproval = true
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.scope["project_ids"] = membershipIDs(in.Memberships)
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_membership_scope", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"memberships": in.Memberships, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planResolveOverlap plans concord_work_relate.resolve_overlap.
+func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in resolveOverlapMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.requiresApproval = true
+	plan.versions["from"] = in.FromExpectedVersion
+	plan.versions["to"] = in.ToExpectedVersion
+	plan.versions["from_contract"] = in.FromContractVersion
+	plan.versions["to_contract"] = in.ToContractVersion
+	plan.scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
+	plan.scope["resolution_kind"] = in.ResolutionKind
+	plan.scope["from_work_id"] = in.FromWorkID
+	plan.scope["to_work_id"] = in.ToWorkID
+	plan.scope["product_id"] = r.Envelope.SelectedProductID
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
+		result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, ApprovalRef: consumedApprovalRef, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.FromWorkID, Version: strconv.FormatInt(in.FromExpectedVersion+1, 10)}, {EntityKind: "work_item", ID: in.ToWorkID, Version: strconv.FormatInt(in.ToExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planLink plans concord_work_relate.link.
+func (r runtime) planLink(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in linkMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Kind == "supersedes" || in.Kind == "compatible_with" || in.Kind == "merged_into" {
+		return coreError(base, "invalid_relation", "operator-only overlap relations require relate.resolve_overlap", "reread_entities", false), nil, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.versions["from"] = in.FromExpectedVersion
+	plan.versions["to"] = in.ToExpectedVersion
+	plan.scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_relate", Operation: "unlink", ReasonCode: "remove_relation"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"from": in.FromWorkID, "to": in.ToWorkID, "kind": in.Kind, "reason": in.Reason, "expected_version": in.FromExpectedVersion, "resulting_version": in.FromExpectedVersion + 1, "to_expected_version": in.ToExpectedVersion, "to_resulting_version": in.ToExpectedVersion + 1})
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":link", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: in.FromWorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.FromWorkID): in.FromExpectedVersion, store.VersionRef(store.SubjectWorkItem, in.ToWorkID): in.ToExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.FromWorkID, Version: strconv.FormatInt(in.FromExpectedVersion+1, 10)}, {EntityKind: "work_item", ID: in.ToWorkID, Version: strconv.FormatInt(in.ToExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planUnlink plans concord_work_relate.unlink.
+func (r runtime) planUnlink(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in unlinkMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if len(in.ExpectedVersions) == 0 {
+		return coreError(base, "invalid_input", "unlink requires endpoint versions", "reread_relations", false), nil, true
+	}
+	endpoints, endpointErr := r.Store.RelationEndpoints(ctx, in.RelationID)
+	if endpointErr != nil {
+		return failureEnvelope(base, endpointErr), nil, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.scope["work_ids"] = append([]string(nil), endpoints...)
+	for _, endpoint := range in.ExpectedVersions {
+		if endpoint.WorkID == endpoints[0] {
+			plan.versions["from"] = endpoint.Version
+		}
+		if endpoint.WorkID == endpoints[1] {
+			plan.versions["to"] = endpoint.Version
+		}
+	}
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "relations", QueryID: "PM1.Q8", ReasonCode: "inspect_relation_graph"}}
+	plan.effect = r.unlinkEffect(digest, in, endpoints, plan.intents)
+	return Envelope{}, nil, false
+}
+
+// planRestoreSuperseded plans concord_work_relate.restore_superseded.
+func (r runtime) planRestoreSuperseded(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in restoreMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.versions["predecessor"] = in.PredecessorExpected
+	plan.versions["successor"] = in.SuccessorExpected
+	plan.scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "inspect_restored_work"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"superseded": in.PredecessorID, "replacement_successor": in.ReplacementSuccessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":restore", Kind: "work.reopened_from_superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.PredecessorID, Version: strconv.FormatInt(in.PredecessorExpected+1, 10)}, {EntityKind: "work_item", ID: in.SuccessorID, Version: strconv.FormatInt(in.SuccessorExpected+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// mutate dispatches one mutation operation to its handler. A handler answers
+// with a terminal envelope when the call is refused or fails before the
+// transaction (handled true), or populates the plan and lets the common tail
+// execute it (handled false). This is the dispatch shape (runtime).read
+// established: arms delegate rather than inline.
 func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
@@ -884,867 +1836,107 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {
 		return r.mutateCompaction(ctx, base, raw, digest, op)
 	}
-	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "scope_version": r.Envelope.ScopeVersion}
-	versions := map[string]any{}
-	consequence := string(op.Consequence)
-	approval := ""
-	requiresApproval := op.Approval == ApprovalClass("required")
-	// governingConflict names the scope requirements a capture failed to carry.
-	// It is empty for every other mutation and turns the approval refusal into a
-	// CD-0035 governing-law conflict carrying the operator's three resolutions.
-	var governingConflict []string
-	var effect mutationEffect
-	var intents []NextIntent
-
+	plan := newMutationPlan(r.Envelope, op)
+	var answer Envelope
+	var err error
+	var handled bool
 	switch op.ID {
 	case "concord_work_define.capture":
-		var in captureMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindAgentCaptureAllowed(in.Kind), "work kind is not capturable"); refused {
-			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
-		}
-		if len(in.ProjectIDs) == 0 {
-			return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil
-		}
-		workID := "work-" + digest[7:31]
-		var registeredDefinition store.RegisteredDefinition
-		if in.WorkflowTypeRef != "" {
-			var definitionErr error
-			registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
-			if definitionErr != nil {
-				return failureEnvelope(base, definitionErr), nil
-			}
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		productsByProject, scopeErr := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
-		if scopeErr != nil {
-			return failureEnvelope(base, scopeErr), nil
-		}
-		// CD-0035 D3: a governing-law conflict is a set difference against the
-		// requirements the target scope declares, never a reading of the
-		// instruction text. The refusal writes nothing and returns the operator
-		// the three resolutions; a reduced set proceeds only behind a core-issued
-		// approval bound to this exact operation, which is CD-0006 D5's
-		// legislative moment rather than an agent-side decision.
-		applicable, requirementErr := r.Store.GoverningRequirementsForProjectIDs(ctx, in.ProjectIDs)
-		if requirementErr != nil {
-			return failureEnvelope(base, requirementErr), nil
-		}
-		if missing := store.MissingGoverningRequirements(applicable, in.GoverningRequirements); len(missing) > 0 {
-			// The conflict is consequential, so it routes through the same
-			// approval machinery as every other governed consequence. That is
-			// deliberate: offering accept_scope_cut without minting the challenge
-			// it resolves against would repeat the defect where a refusal named a
-			// recovery the agent had nothing to act on.
-			requiresApproval = true
-			governingConflict = missing
-		}
-		for _, products := range productsByProject {
-			for _, product := range products {
-				if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
-					requiresApproval = true
-				}
-			}
-		}
-		scope["project_ids"] = in.ProjectIDs
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			priority := in.Priority
-			urgency := in.Urgency
-			if urgency == "" {
-				urgency = "standard"
-			}
-			payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
-			memberships := make([]storeMembership, len(in.ProjectIDs))
-			for i, project := range in.ProjectIDs {
-				role := "secondary"
-				if i == 0 {
-					role = "primary"
-				}
-				memberships[i] = storeMembership{ProjectID: project, Role: role}
-			}
-			membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
-			now := r.Authority.now()
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
-				{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 2, Payload: payload},
-				{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
-			}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if in.WorkflowTypeRef != "" {
-				actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-				if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
-					return nil, nil, nil, err
-				}
-			}
-			changedVersion := int64(2)
-			if in.WorkflowTypeRef != "" {
-				changedVersion = 4
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(changedVersion, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planCapture(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.revise_intent":
-		var in reviseMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindFoldReviseAllowed(in.Kind), "work kind cannot be revised"); refused {
-			return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil
-		}
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		var registeredDefinition store.RegisteredDefinition
-		if in.WorkflowTypeRef != "" {
-			var definitionErr error
-			registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
-			if definitionErr != nil {
-				return failureEnvelope(base, definitionErr), nil
-			}
-		}
-		intents = []NextIntent{{Tool: "concord_work_transition", Operation: "lifecycle", ReasonCode: "continue_work", RequiredFields: []string{"work_id", "expected_version"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
-			if existingErr != nil {
-				return nil, nil, nil, existingErr
-			}
-			if definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef {
-				return nil, nil, nil, fmt.Errorf("workflow definition cannot be changed after initialization")
-			}
-			urgency := in.Urgency
-			if urgency == "" {
-				urgency = "standard"
-			}
-			payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if in.WorkflowTypeRef != "" && !definitionFound {
-				actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-				if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
-					return nil, nil, nil, err
-				}
-			}
-			changedVersion := in.ExpectedVersion + 1
-			if in.WorkflowTypeRef != "" && !definitionFound {
-				changedVersion += 2
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planReviseIntent(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_initiative.create":
-		var in initiativeCreateMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if len(in.ProjectIDs) == 0 {
-			return coreError(base, "invalid_input", "Initiative creation requires at least one Project membership", "reread_entities", false), nil
-		}
-		scope["project_ids"] = in.ProjectIDs
-		productsByProject, err := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		if products := uniqueProducts(productsByProject, in.ProjectIDs); len(products) != 1 {
-			return coreError(base, "invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false), nil
-		}
-		workID := "initiative-" + digest[7:31]
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_initiative"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			if products, err := deriveInitiativeProductsTx(ctx, tx, in.ProjectIDs); err != nil {
-				return nil, nil, nil, err
-			} else if len(products) != 1 {
-				return nil, nil, nil, newRuntimeFailure("invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false)
-			}
-			urgency := in.Urgency
-			if urgency == "" {
-				urgency = "standard"
-			}
-			payload, _ := json.Marshal(map[string]any{"work_kind": "initiative", "title": in.Title, "value_statement": in.ValueStatement, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "external_ref": in.ExternalRef})
-			memberships := make([]storeMembership, len(in.ProjectIDs))
-			for i, project := range in.ProjectIDs {
-				role := "secondary"
-				if i == 0 {
-					role = "primary"
-				}
-				memberships[i] = storeMembership{ProjectID: project, Role: role}
-			}
-			membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
-			now := r.Authority.now()
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
-				{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 2, Payload: payload},
-				{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
-			}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "2"}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planInitiativeCreate(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_initiative.add_entry", "concord_work_initiative.reorder_entry", "concord_work_initiative.change_requiredness":
-		var in initiativeEntryMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["initiative"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
-		kind := "initiative_entry.added"
-		intentReason := "inspect_initiative_entries"
-		if op.ID == "concord_work_initiative.reorder_entry" {
-			kind = "initiative_entry.reordered"
-			intentReason = "inspect_reordered_initiative"
-		} else if op.ID == "concord_work_initiative.change_requiredness" {
-			kind = "initiative_entry.requiredness_changed"
-			intentReason = "inspect_initiative_requiredness"
-		}
-		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: intentReason}}
-		required := true
-		if in.Required != nil {
-			required = *in.Required
-		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			event, err := store.InitiativeEntryEvent(digest+":entry", kind, in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID, Position: in.Position, Required: required}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planInitiativeEntry(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_initiative.remove_entry":
-		var in initiativeRemoveEntryMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["initiative"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
-		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "inspect_removed_initiative_entry"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			event, err := store.InitiativeEntryEvent(digest+":entry", "initiative_entry.removed", in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planInitiativeRemoveEntry(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_initiative.revise_narrative":
-		var in initiativeNarrativeMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["initiative"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.InitiativeWorkID}
-		intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "refresh_initiative_context"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			event, err := store.InitiativeNarrativeEvent(digest+":narrative", in.InitiativeWorkID, in.Narrative, in.Reason, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planInitiativeNarrative(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.lifecycle":
-		var in lifecycleMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.Target == "superseded" {
-			return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "use_relation_operation", false), nil
-		}
-		// Terminal lifecycle transitions demand evidence before approval can be
-		// granted. Refuse the missing-evidence case structurally with a typed
-		// missing_evidence refusal whose recovery_action is provide_evidence;
-		// only when evidence is present do we let the normal challenge-minting
-		// path execute so the agent receives a real approval_ref to act on.
-		if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
-			response := coreError(base, "missing_evidence", "terminal lifecycle transition requires verification evidence", "provide_evidence", false)
-			response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}
-			return response, nil
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		requiresApproval = in.Target == "completed" || in.Target == "cancelled"
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"from": "", "to": in.Target, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
-			from, err := currentLifecycle(ctx, tx, in.WorkID)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			var eventPayload map[string]any
-			_ = json.Unmarshal(payload, &eventPayload)
-			eventPayload["from"] = from
-			payload, _ = json.Marshal(eventPayload)
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":transition", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_pack_create":
-		var in researchPackCreateMutation
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		scope["work_ids"] = []string{in.OwnerWorkID}
-		intents = []NextIntent{{Tool: "concord_work_define", Operation: "research_finding_record", ReasonCode: "record_findings", RequiredFields: []string{"pack_id", "expected_version"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			pack, err := store.CreateResearchPackWithinTx(ctx, tx, store.CreateResearchPackRequest{OwnerWorkID: in.OwnerWorkID, Revision: storeResearchRevision(in.Revision), Freshness: store.ResearchFreshness(in.Freshness)})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "research_pack", ID: pack.PackID, Version: strconv.FormatInt(pack.ExpectedVersion, 10)}}
-			return mutationPayload(changed, intents), []string{pack.PackID}, changed, nil
-		}
+		answer, err, handled = r.planResearchPackCreate(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_revision_append":
-		var in researchRevisionMutation
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.PackID}, changed, nil
-		}
+		answer, err, handled = r.planResearchRevisionAppend(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_finding_record":
-		var in researchFindingMutation
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			freshness := in.Finding.Freshness
-			if freshness == "" {
-				freshness = "current"
-			}
-			status := in.Finding.Status
-			if status == "" {
-				status = "active"
-			}
-			scopes := store.ResearchScopes{Mode: "home"}
-			if in.Finding.Scopes != nil {
-				scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, DomainIDs: in.Finding.Scopes.DomainIDs, TagIDs: in.Finding.Scopes.TagIDs}
-			}
-			finding, err := store.RecordResearchFindingWithinTxUpsert(ctx, tx, store.ResearchFindingRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Finding: store.ResearchFinding{FindingID: in.Finding.FindingID, Kind: store.ResearchFindingKind(in.Finding.Kind), Statement: in.Finding.Statement, Confidence: store.ResearchConfidence(in.Finding.Confidence), Freshness: store.ResearchFreshness(freshness), Status: store.ResearchFindingStatus(status), Scopes: scopes}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.PackID + ":" + finding.FindingID}, changed, nil
-		}
+		answer, err, handled = r.planResearchFindingRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_source_record":
-		var in researchSourceMutation
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.PackID + ":" + source.SourceID}, changed, nil
-		}
+		answer, err, handled = r.planResearchSourceRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_freshness_set":
-		var in researchFreshnessMutation
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.PackID}, changed, nil
-		}
+		answer, err, handled = r.planResearchFreshnessSet(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_compact.lesson_publish":
-		var in lessonPublishInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		requiresApproval = true
-		scope["work_ids"] = []string{in.WorkID}
-		workVersion, err := r.Store.WorkVersion(ctx, in.WorkID)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		versions["work"] = workVersion
-		// The knowledge home and work-version reads happen before the
-		// mutation transaction opens: the effect's transaction holds the
-		// write lock, and a second connection's read would deadlock.
-		lessonHome, homeErr := r.Store.ResolveCompactionHome(ctx, in.WorkID)
-		if homeErr != nil {
-			return failureEnvelope(base, homeErr), nil
-		}
-		intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_published_lesson"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			scopes := store.KnowledgeRecordScopes{Mode: "home"}
-			if in.Scopes != nil {
-				scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, TagIDs: in.Scopes.TagIDs}
-			}
-			published, pubErr := store.PublishLessonRecord(ctx, lessonHome, store.LessonPublication{
-				LessonID: in.LessonID, Title: in.Title, Summary: in.Summary, Content: in.Content,
-				Tags: in.Tags, Scopes: scopes, Evidence: in.Evidence, Now: r.Authority.now(),
-			})
-			if pubErr != nil {
-				return nil, nil, nil, pubErr
-			}
-			changed := []ChangedRef{{EntityKind: "lesson", ID: published.Record.ID, Version: strconv.FormatInt(workVersion, 10)}}
-			return mutationPayload(changed, intents), []string{published.Record.ID}, changed, nil
-		}
+		answer, err, handled = r.planLessonPublish(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resource_claim":
-		var in resourceClaimInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason, "holder_agent": grant.AgentRef, "holder_session": grant.SessionRef})
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.ResourceKey}, changed, nil
-		}
+		answer, err, handled = r.planResourceClaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resource_release":
-		var in resourceReleaseInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey})
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.ResourceKey}, changed, nil
-		}
+		answer, err, handled = r.planResourceRelease(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.message_send":
-		var in messageSendInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.RecipientWorkID == "" && !in.Broadcast {
-			return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "supply_recipient_or_broadcast", false), nil
-		}
-		if in.RecipientWorkID != "" && in.Broadcast {
-			return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "choose_addressing", false), nil
-		}
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		if in.RecipientWorkID != "" {
-			scope["work_ids"] = []string{in.WorkID, in.RecipientWorkID}
-		}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			// Broadcast resolves the recipient set now, inside the caller's
-			// transaction, so the fan-out sees a consistent Product snapshot.
-			recipients := []string{in.RecipientWorkID}
-			if in.Broadcast {
-				active, listErr := activeWorkIDsTx(ctx, tx, r.Envelope.SelectedProductID)
-				if listErr != nil {
-					return nil, nil, nil, listErr
-				}
-				// The sender is not its own recipient.
-				filtered := make([]string, 0, len(active))
-				for _, id := range active {
-					if id != in.WorkID {
-						filtered = append(filtered, id)
-					}
-				}
-				if len(filtered) == 0 {
-					return nil, nil, nil, fmt.Errorf("no active work in this Product to receive the broadcast")
-				}
-				recipients = filtered
-			}
-			// One event per (sender, recipient) pair: the work version
-			// advances once (on the sender) regardless of fan-out size.
-			events := make([]store.Event, 0, len(recipients))
-			ids := make([]string, 0, len(recipients))
-			for i, recipient := range recipients {
-				messageID := messageIDFor(digest, recipient)
-				expected := in.ExpectedVersion + int64(i)
-				payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": expected, "resulting_version": expected + 1, "message_id": messageID, "recipient_work_id": recipient, "body": in.Body})
-				events = append(events, store.Event{EventID: digest + ":msg:" + recipient, Kind: "work.message_sent", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload})
-				ids = append(ids, messageID)
-			}
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), ids, changed, nil
-		}
+		answer, err, handled = r.planMessageSend(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.message_withdraw":
-		var in messageWithdrawInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID})
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":withdraw", Kind: "work.message_withdrawn", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.MessageID}, changed, nil
-		}
+		answer, err, handled = r.planMessageWithdraw(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.observation_record":
-		var in observationRecordInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		scope["work_ids"] = []string{in.WorkID}
-		if in.External != nil {
-			// CD-0040 D2/D3: the reporting or verifying authority is derived
-			// from the validated grant's trusted client. A caller-supplied
-			// authority name never reaches the record, and the agent surface
-			// can only ever claim attributed trusted-client reports — the
-			// core-owned Git probe is not reachable from agent input.
-			if err := validateObservationExternalVariant(in.External); err != nil {
-				return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
-			}
-			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "external_observations", QueryID: "CD-0040.R1", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
-			effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-				if in.External.Kind == "capture" {
-					// The reviewed policy references are derived from the
-					// subject kind before validation, which requires the
-					// record to carry exactly the reviewed policy.
-					policy, _ := store.ExternalSubjectPolicyFor(in.External.SubjectKind)
-					capture := store.ExternalObservationCapture{
-						ObservationID:         in.External.ObservationID,
-						SubjectKind:           in.External.SubjectKind,
-						SubjectRef:            in.External.SubjectRef,
-						CaptureMethod:         store.CaptureTrustedClientReport,
-						CapturedAt:            in.External.CapturedAt,
-						ReportingAuthorityRef: "client:" + grant.ClientRef,
-						SubjectDigest:         in.External.SubjectDigest,
-						ObservedUniverse:      *in.External.ObservedUniverse,
-						FreshnessPolicyRef:    store.PolicyRef(policy),
-						DivergencePolicyRef:   store.PolicyRef(policy),
-					}
-					if err := store.ValidateExternalObservationCapture(capture); err != nil {
-						return nil, nil, nil, err
-					}
-					if err := store.AppendExternalObservationCaptureTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), capture); err != nil {
-						return nil, nil, nil, err
-					}
-					changed := []ChangedRef{{EntityKind: "external_observation", ID: capture.ObservationID, Version: "1"}}
-					return mutationPayload(changed, intents), []string{capture.ObservationID}, changed, nil
-				}
-				verification := store.ExternalObservationVerification{
-					ObservationID:         in.External.ObservationID,
-					VerificationMethod:    store.VerifyTrustedClientReport,
-					VerifiedAt:            in.External.VerifiedAt,
-					VerifyingAuthorityRef: "client:" + grant.ClientRef,
-					Result:                store.VerificationResultKind(in.External.Result),
-					CurrentDigest:         in.External.CurrentDigest,
-					Omissions:             in.External.Omissions,
-				}
-				if err := store.ValidateExternalObservationVerification(verification); err != nil {
-					return nil, nil, nil, err
-				}
-				if err := store.AppendExternalObservationVerificationTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), verification); err != nil {
-					return nil, nil, nil, err
-				}
-				changed := []ChangedRef{{EntityKind: "external_observation", ID: verification.ObservationID, Version: "2"}}
-				return mutationPayload(changed, intents), []string{verification.ObservationID}, changed, nil
-			}
-		} else {
-			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
-			effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-				observationID := in.ObservationID
-				if observationID == "" {
-					sum := sha256.Sum256([]byte(digest))
-					observationID = "obs:" + hex.EncodeToString(sum[:8])
-				}
-				payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
-				if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":observation", Kind: "work.observation_recorded", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
-					return nil, nil, nil, err
-				}
-				changed := []ChangedRef{{EntityKind: "observation", ID: observationID, Version: "1"}}
-				return mutationPayload(changed, intents), []string{observationID}, changed, nil
-			}
-		}
+		answer, err, handled = r.planObservationRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_domain.observation_record":
-		var in domainObservationRecordInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		product := in.ProductID
-		if product == "" {
-			product = r.Envelope.SelectedProductID
-		}
-		if product == "" || in.DomainID == "" {
-			return coreError(base, "unknown_scope", "recording a Domain observation requires a resolved Product and Domain", "reread_entities", false), nil
-		}
-		scope["product_id"] = product
-		// CD-0068 D6: the observation is read back through the Domain surface
-		// it was recorded against, not through a dedicated read.
-		intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_visible", RequiredFields: []string{"domain_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			sum := sha256.Sum256([]byte(digest))
-			observationID := "dob:" + hex.EncodeToString(sum[:8])
-			payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "product_id": product, "domain_id": in.DomainID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation", Kind: "domain.observation_recorded", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "domain_observation", ID: observationID, Version: "1"}}
-			return mutationPayload(changed, intents), []string{observationID}, changed, nil
-		}
+		answer, err, handled = r.planDomainObservationRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_domain.observation_dismiss":
-		var in domainObservationDismissInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		product := in.ProductID
-		if product == "" {
-			product = r.Envelope.SelectedProductID
-		}
-		if product == "" || in.DomainID == "" || in.ObservationID == "" {
-			return coreError(base, "unknown_scope", "dismissing a Domain observation requires a resolved Product, Domain, and observation", "reread_entities", false), nil
-		}
-		scope["product_id"] = product
-		intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_dismissed", RequiredFields: []string{"domain_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"observation_id": in.ObservationID, "product_id": product, "domain_id": in.DomainID})
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation_dismissed", Kind: "domain.observation_dismissed", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "domain_observation", ID: in.ObservationID, Version: "2"}}
-			return mutationPayload(changed, intents), []string{in.ObservationID}, changed, nil
-		}
+		answer, err, handled = r.planDomainObservationDismiss(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_claim":
-		var in worktreeClaimInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			opID := digest + ":worktree-claim:" + in.ProjectID
-			if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
-				OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
-				Branch: in.Branch, BaseSHA: in.BaseSHA, Path: in.Path,
-				PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-				ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{opID + ":worktree-created"}, changed, nil
-		}
+		answer, err, handled = r.planWorktreeClaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_reclaim":
-		var in worktreeReclaimInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
-				WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
-				PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-				ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), []string{in.WorkID + ":" + in.ProjectID + ":worktree-reclaimed"}, changed, nil
-		}
+		answer, err, handled = r.planWorktreeReclaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.set_memberships":
-		var in membershipsMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if len(in.Memberships) == 0 {
-			return coreError(base, "invalid_input", "membership replacement cannot be empty", "supply_memberships", false), nil
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		requiresApproval = true
-		versions["work"] = in.ExpectedVersion
-		scope["work_ids"] = []string{in.WorkID}
-		scope["project_ids"] = membershipIDs(in.Memberships)
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_membership_scope", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"memberships": in.Memberships, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planSetMemberships(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resolve_overlap":
-		var in resolveOverlapMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		requiresApproval = true
-		versions["from"] = in.FromExpectedVersion
-		versions["to"] = in.ToExpectedVersion
-		versions["from_contract"] = in.FromContractVersion
-		versions["to_contract"] = in.ToContractVersion
-		scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
-		scope["resolution_kind"] = in.ResolutionKind
-		scope["from_work_id"] = in.FromWorkID
-		scope["to_work_id"] = in.ToWorkID
-		scope["product_id"] = r.Envelope.SelectedProductID
-		intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_id"}}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			consumedApprovalRef, _ := scope["approval_ref"].(string)
-			result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, ApprovalRef: consumedApprovalRef, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.FromWorkID, Version: strconv.FormatInt(in.FromExpectedVersion+1, 10)}, {EntityKind: "work_item", ID: in.ToWorkID, Version: strconv.FormatInt(in.ToExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planResolveOverlap(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.link":
-		var in linkMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.Kind == "supersedes" || in.Kind == "compatible_with" || in.Kind == "merged_into" {
-			return coreError(base, "invalid_relation", "operator-only overlap relations require relate.resolve_overlap", "reread_entities", false), nil
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		versions["from"] = in.FromExpectedVersion
-		versions["to"] = in.ToExpectedVersion
-		scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
-		intents = []NextIntent{{Tool: "concord_work_relate", Operation: "unlink", ReasonCode: "remove_relation"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"from": in.FromWorkID, "to": in.ToWorkID, "kind": in.Kind, "reason": in.Reason, "expected_version": in.FromExpectedVersion, "resulting_version": in.FromExpectedVersion + 1, "to_expected_version": in.ToExpectedVersion, "to_resulting_version": in.ToExpectedVersion + 1})
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":link", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: in.FromWorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.FromWorkID): in.FromExpectedVersion, store.VersionRef(store.SubjectWorkItem, in.ToWorkID): in.ToExpectedVersion}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.FromWorkID, Version: strconv.FormatInt(in.FromExpectedVersion+1, 10)}, {EntityKind: "work_item", ID: in.ToWorkID, Version: strconv.FormatInt(in.ToExpectedVersion+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planLink(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.unlink":
-		var in unlinkMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if len(in.ExpectedVersions) == 0 {
-			return coreError(base, "invalid_input", "unlink requires endpoint versions", "reread_relations", false), nil
-		}
-		endpoints, endpointErr := r.Store.RelationEndpoints(ctx, in.RelationID)
-		if endpointErr != nil {
-			return failureEnvelope(base, endpointErr), nil
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		scope["work_ids"] = append([]string(nil), endpoints...)
-		for _, endpoint := range in.ExpectedVersions {
-			if endpoint.WorkID == endpoints[0] {
-				versions["from"] = endpoint.Version
-			}
-			if endpoint.WorkID == endpoints[1] {
-				versions["to"] = endpoint.Version
-			}
-		}
-		intents = []NextIntent{{Tool: "concord_work_trace", Operation: "relations", QueryID: "PM1.Q8", ReasonCode: "inspect_relation_graph"}}
-		effect = r.unlinkEffect(digest, in, endpoints, intents)
+		answer, err, handled = r.planUnlink(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.supersede":
-		var in supersedeMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		versions["predecessor"] = in.PredecessorExpected
-		versions["successor"] = in.SuccessorExpected
-		scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
-		intents = []NextIntent{{Tool: "concord_work_relate", Operation: "restore_superseded", ReasonCode: "restore_or_replace_successor"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"successor": in.SuccessorID, "superseded": in.PredecessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":supersede", Kind: "work.superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.PredecessorID, Version: strconv.FormatInt(in.PredecessorExpected+1, 10)}, {EntityKind: "work_item", ID: in.SuccessorID, Version: strconv.FormatInt(in.SuccessorExpected+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planSupersede(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.restore_superseded":
-		var in restoreMutationInput
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err
-		}
-		if in.Approval != nil {
-			approval = in.Approval.ApprovalRef
-		}
-		versions["predecessor"] = in.PredecessorExpected
-		versions["successor"] = in.SuccessorExpected
-		scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
-		intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "inspect_restored_work"}}
-		effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			payload, _ := json.Marshal(map[string]any{"superseded": in.PredecessorID, "replacement_successor": in.ReplacementSuccessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
-			result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":restore", Kind: "work.reopened_from_superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "work_item", ID: in.PredecessorID, Version: strconv.FormatInt(in.PredecessorExpected+1, 10)}, {EntityKind: "work_item", ID: in.SuccessorID, Version: strconv.FormatInt(in.SuccessorExpected+1, 10)}}
-			return mutationPayload(changed, intents), result.EventIDs, changed, nil
-		}
+		answer, err, handled = r.planRestoreSuperseded(ctx, base, raw, digest, grant, op, plan)
 	default:
 		return coreError(base, "invalid_input", "mutation operation is not implemented", "contact_operator", false), nil
 	}
-	if effect == nil {
+	if handled {
+		return answer, err
+	}
+	if plan.effect == nil {
 		return coreError(base, "invalid_input", "mutation input is not executable", "contact_operator", false), nil
 	}
-	preflightProducts, preflightErr := r.deriveMutationProducts(ctx, scope)
+	preflightProducts, preflightErr := r.deriveMutationProducts(ctx, plan.scope)
 	if preflightErr != nil {
 		return failureEnvelope(base, preflightErr), nil
 	}
-	scope["product_ids"] = preflightProducts
-	return r.executeMutation(ctx, base, raw, digest, scope, versions, consequence, approval, requiresApproval, governingConflict, intents, effect)
+	plan.scope["product_ids"] = preflightProducts
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect)
+}
+
+// planSupersede plans concord_work_relate.supersede.
+func (r runtime) planSupersede(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in supersedeMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.versions["predecessor"] = in.PredecessorExpected
+	plan.versions["successor"] = in.SuccessorExpected
+	plan.scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
+	plan.intents = []NextIntent{{Tool: "concord_work_relate", Operation: "restore_superseded", ReasonCode: "restore_or_replace_successor"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payload, _ := json.Marshal(map[string]any{"successor": in.SuccessorID, "superseded": in.PredecessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":supersede", Kind: "work.superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.PredecessorID, Version: strconv.FormatInt(in.PredecessorExpected+1, 10)}, {EntityKind: "work_item", ID: in.SuccessorID, Version: strconv.FormatInt(in.SuccessorExpected+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {

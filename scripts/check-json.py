@@ -138,6 +138,16 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"doc contract drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    # Lane eval baseline (issue #212): the record that lanes were measured,
+    # bound to the registry digests and per-attempt readback evidence. The
+    # check asserts structure and binding only; eval outcomes stay advisory
+    # under CD-0017 D7.
+    lane_eval_baseline_checker = ROOT / "scripts/check-lane-eval-baseline.py"
+    if lane_eval_baseline_checker.is_file():
+        checked = subprocess.run([sys.executable, str(lane_eval_baseline_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"lane eval baseline drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     for finding in findings[:MAX_FINDINGS]:
         print(finding)
     if len(findings) > MAX_FINDINGS:

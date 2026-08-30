@@ -62,7 +62,13 @@ esac''',
         path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
         path.chmod(0o755)
 
-    def make_release(self, version: str, marker: str | None = None, include_binary_checksum: bool = True) -> None:
+    def make_release(
+        self,
+        version: str,
+        marker: str | None = None,
+        include_binary_checksum: bool = True,
+        agent_names: tuple[str, ...] | None = None,
+    ) -> None:
         prefix = f"concord-{version}"
         source = self.root / f"source-{version}"
         (source / "bin").mkdir(parents=True)
@@ -76,7 +82,7 @@ esac''',
         for name in installer.INSTRUCTION_FILES:
             (source / "instructions" / name).write_text(f"rule:{name}:{marker or version}\n", encoding="utf-8")
         (source / "agents").mkdir()
-        for name in installer.AGENT_FILES:
+        for name in agent_names if agent_names is not None else installer.AGENT_FILES:
             (source / "agents" / name).write_text(f"agent:{name}:{marker or version}\n", encoding="utf-8")
         binary = (source / "bin" / "concord")
         binary.write_bytes((marker or version).encode("utf-8"))
@@ -790,6 +796,76 @@ esac''',
         result = self.run_installer("unlink", "--project", str(project_dir))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((project_dir / ".opencode" / "opencode.json").exists())
+
+    def test_uninstall_preserves_user_owned_concord_agents(self) -> None:
+        self.make_release("v1.0.0")
+        agents_dir = self.root / "config" / "opencode" / "agents"
+        agents_dir.mkdir(parents=True)
+        user_agents = {
+            "concord-0.md": b"operator intake\n",
+            "concord-orchestrator.md": b"operator shaping\n",
+            "concord-2.md": b"operator driving\n",
+        }
+        for name, content in user_agents.items():
+            (agents_dir / name).write_bytes(content)
+
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+
+        for name, content in user_agents.items():
+            self.assertEqual((agents_dir / name).read_bytes(), content)
+        for name in installer.AGENT_FILES:
+            self.assertFalse((agents_dir / name).exists())
+
+    def test_upgrade_refuses_new_managed_name_over_user_agent(self) -> None:
+        introduced = installer.AGENT_FILES[-1]
+        self.make_release("v1.0.0", agent_names=installer.AGENT_FILES[:-1])
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / introduced
+        target.write_bytes(b"operator-owned\n")
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(upgraded.returncode, 0)
+        self.assertIn("user-authored agent file", upgraded.stderr)
+        self.assertEqual(target.read_bytes(), b"operator-owned\n")
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "v1.0.0")
+
+    def test_upgrade_refuses_new_managed_name_over_user_symlink(self) -> None:
+        introduced = installer.AGENT_FILES[-1]
+        self.make_release("v1.0.0", agent_names=installer.AGENT_FILES[:-1])
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        source = self.root / "operator-agent.md"
+        source.write_bytes(b"operator-owned\n")
+        target = self.root / "config" / "opencode" / "agents" / introduced
+        target.symlink_to(source)
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(upgraded.returncode, 0)
+        self.assertIn("user-authored agent file", upgraded.stderr)
+        self.assertTrue(target.is_symlink())
+        self.assertEqual(source.read_bytes(), b"operator-owned\n")
+
+    def test_upgrade_restores_missing_managed_agent(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / installer.AGENT_FILES[0]
+        target.unlink()
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertEqual(target.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:v2.0.0\n")
 
     def test_uninstall_removes_central_agents_and_current_symlink(self) -> None:
         self.make_release("v1.0.0")

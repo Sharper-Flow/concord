@@ -1319,14 +1319,27 @@ def make_transaction(
     old_adapter: dict[str, object] = {}
     for name in ADAPTER_FILES:
         old_adapter[name] = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
-    # Capture the central agents state so rollback restores exactly what was
-    # there. The set is dynamic — every concord-*.md currently under the
-    # agents dir — so we iterate the directory rather than a static list.
+    # Capture only agent paths this transaction owns or will write. A broad
+    # concord-*.md snapshot would give uninstall deletion authority over
+    # operator-authored primary agents that the manifest never managed.
     old_agents: dict[str, object] = {}
-    if paths.agents_dir.exists() and not paths.agents_dir.is_symlink():
-        for entry in sorted(paths.agents_dir.iterdir()):
-            if entry.name.startswith("concord-") and entry.name.endswith(".md"):
-                old_agents[entry.name] = capture_file(entry, backup / "agents" / entry.name, f"agent {entry.name}")
+    managed_agents = managed_agent_records(old_manifest)
+    agent_names = set(managed_agents)
+    if isinstance(new_agents, dict):
+        agent_names.update(new_agents)
+    for name in sorted(agent_names):
+        target = paths.agents_dir / name
+        if target.exists() or target.is_symlink():
+            expected = managed_agents.get(name)
+            if expected is None:
+                raise InstallerError(f"refusing to overwrite user-authored agent file {target}")
+            if not target.is_file() or sha256(target) != expected:
+                raise InstallerError(f"refusing to overwrite modified managed agent file {target}")
+        old_agents[name] = capture_file(
+            target,
+            backup / "agents" / name,
+            f"agent {name}",
+        )
     old_config = capture_file(paths.config_file, backup / "config", "OpenCode config")
     old_manifest_state = capture_file(paths.data_root / MANIFEST_NAME, backup / "manifest", "installer manifest")
     old_launcher = file_state(paths.launcher)

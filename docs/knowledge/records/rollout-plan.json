@@ -3,7 +3,7 @@
   "evidence": [
     "docs/decisions/CD-0007-concord-repository-bootstrap.md",
     "docs/decisions/CD-0010-pre-readiness-development-authority.md",
-    "docs/decisions/CD-0088-concord-development-coordination.md"
+    "docs/decisions/CD-0089-concord-development-coordination.md"
   ],
   "id": "rollout-plan",
   "kind": "reference",
@@ -15,9 +15,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2da63ce3ba8a66c3ea3b7b287a1a8df5efdcba80b28a43e103ec3c646350ed71",
+  "sha256": "sha256:d77c0878d3967925f4776d7893a51c6159632c38e64b508adfa67e6ecdd3e2a5",
   "status": "published",
-  "summary": "Sequences the public bootstrap and Concord development coordination under CD-0007 and CD-0088 while retaining replacement-readiness evidence.",
+  "summary": "Sequences the public bootstrap and Concord development coordination under CD-0007 and CD-0089 while retaining replacement-readiness evidence.",
   "tags": [
     "rollout",
     "sequencing"

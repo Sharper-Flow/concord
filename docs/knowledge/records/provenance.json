@@ -2,7 +2,7 @@
   "date": "2026-08-05T00:00:00Z",
   "evidence": [
     "docs/decisions/CD-0002-concord-state-authority.md",
-    "docs/decisions/CD-0088-concord-development-coordination.md",
+    "docs/decisions/CD-0089-concord-development-coordination.md",
     "README.md"
   ],
   "home_domain_id": "product-root:concord",
@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b09f06f1a3f2d6907163d4027ee852a779cdc5544bb66e336e40c5645f52e0a1",
+  "sha256": "sha256:608aef8956f2e2a07b30673e57df74de600d0a0da8f6bac7f68eb93d793b8bfc",
   "status": "accepted",
   "summary": "Records Concord's public origin, the private material excluded at bootstrap, and the transition of authority to this repository.",
   "tags": [

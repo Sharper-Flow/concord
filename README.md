@@ -7,7 +7,7 @@ OpenCode adapter with public contracts, scenarios, and repository validators.
 
 ## Status
 
-Concord coordinates its own development under CD-0088. The
+Concord coordinates its own development under CD-0089. The
 [accepted readiness floor](docs/floor-readiness.md) remains an evidence claim,
 not a gate. GitHub issues remain authority for planning, and pull requests plus
 required checks remain authority for review and merge.

@@ -1,16 +1,16 @@
 # Concord development authority
 
-**Status:** Accepted under CD-0088.
+**Status:** Accepted under CD-0089.
 **Approval date:** 2026-08-30.
 **Approval:** Operator approval for issue #602.
 
-This is the authority model for Concord development under CD-0088. Concord owns
+This is the authority model for Concord development under CD-0089. Concord owns
 its workflow records while GitHub retains planning, review, and merge authority.
 
 ## Context
 
 Concord is a public Go project that coordinates its development through its own
-workflow after the issue #600 bootstrap release. CD-0088 supersedes only CD-0010's
+workflow after the issue #600 bootstrap release. CD-0089 supersedes only CD-0010's
 self-hosting prohibition. This record fixes which surface owns each fact type and
 keeps public evidence authoritative during Concord development.
 ## Contract
@@ -45,7 +45,7 @@ documents are Product law, and the predecessor is reference-only.
 6. Replacement readiness is an evidence claim defined by the accepted floor and
    release evidence. It does not block Concord development or trigger migration.
 
-CD-0088 supersedes only CD-0010's self-hosting prohibition. The CD-0010 file and
+CD-0089 supersedes only CD-0010's self-hosting prohibition. The CD-0010 file and
 historical research records remain unchanged. Any later change to this model needs
 an accepted decision record and public review evidence.
 

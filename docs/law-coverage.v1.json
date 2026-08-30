@@ -255,9 +255,14 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "validator",
+          "value": "scripts/check-predecessor-coverage.py"
+        }
+      ],
       "id": "CD-0019",
-      "issue": 295,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [
@@ -1419,9 +1424,9 @@
       "state": "satisfied"
     },
     {
-      "id": "CD-0088",
-      "reason": "Development authority is process law about Concord and GitHub ownership. Repository validators and public issue, pull request, and check records prove the boundary, not an executable runtime scenario.",
-      "state": "out_of_scope"
+      "id": "CD-0089",
+      "issue": 611,
+      "state": "outstanding"
     },
     {
       "evidence": [
@@ -1824,9 +1829,22 @@
       "state": "out_of_scope"
     },
     {
+      "evidence": [
+        {
+          "kind": "validator",
+          "value": "scripts/check-knowledge-closure.py"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-doc-contract.py"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-knowledge-index.py"
+        }
+      ],
       "id": "knowledge-formalization-procedure",
-      "issue": 295,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "id": "market-landscape",

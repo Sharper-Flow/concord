@@ -548,7 +548,7 @@
       },
       "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730",
       "status": "accepted",
-      "summary": "Defines GitHub planning, review, and isolation authority. CD-0088 supersedes only its self-hosting prohibition.",
+      "summary": "Defines GitHub planning, review, and isolation authority. CD-0089 supersedes only its self-hosting prohibition.",
       "tags": [
         "authority",
         "github"
@@ -2765,15 +2765,23 @@
     {
       "date": "2026-08-30T00:00:00Z",
       "home_domain_id": "product-root:concord",
-      "id": "CD-0088",
+      "id": "CD-0089",
       "kind": "decision",
       "law_relations": [
         {
           "kind": "refines",
           "target_id": "CD-0010"
+        },
+        {
+          "kind": "refines",
+          "target_id": "CD-0007"
+        },
+        {
+          "kind": "refines",
+          "target_id": "CD-0082"
         }
       ],
-      "path": "docs/decisions/CD-0088-concord-development-coordination.md",
+      "path": "docs/decisions/CD-0089-concord-development-coordination.md",
       "product_wide_rationale": "Moves Concord development coordination into Concord after the issue #600 bootstrap release while preserving GitHub planning and merge authority, replacement-readiness evidence, and Advance reference-only status.",
       "scopes": {
         "domain_ids": [],
@@ -2782,9 +2790,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:a59657d0eb5abd86f4001d95601218190c4b7812369e7b562be8614f1cc271d5",
+      "sha256": "sha256:9ca743c0abb1fbfdfe4d40f235af9255230abccc184659684b4267f106e1fc3a",
       "status": "accepted",
-      "summary": "Concord owns its development workflow after issue #600 while GitHub retains planning, review, and merge authority. CD-0088 supersedes only CD-0010's self-hosting prohibition.",
+      "summary": "Concord owns its development workflow after issue #600 while GitHub retains planning, review, and merge authority. CD-0089 supersedes only CD-0010's self-hosting prohibition.",
       "tags": [
         "authority",
         "coordination",
@@ -3284,7 +3292,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bbbe9fc9064f3b3acca55079190faa8cf341404fd24c5cd58fe6b6ae72df5ce4",
+      "sha256": "sha256:5080e4580c6570d07a8fa2f74866523cb574712803370b73fc228a3f2171877a",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -3849,7 +3857,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:90e52378c298cb1e07484175e24dc6ad009aa0f0d2139884560fcd97de886471",
+      "sha256": "sha256:0889522a9dda05c47cc2a7f512b4da5706e7488684a92d3d6ea8f2ae61fec98d",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -3987,9 +3995,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:9f74282fbd8992b50172a62dd6066616e322b754da9a2ff269eaabc74cc77eb6",
+      "sha256": "sha256:5f8eb9167e96b8064d14bb8894a8e3fc025f1158ebd8df4b1d1e34094f2f2d0e",
       "status": "accepted",
-      "summary": "Defines Concord's development workflow after issue #600 while GitHub retains planning, review, and merge authority under CD-0088.",
+      "summary": "Defines Concord's development workflow after issue #600 while GitHub retains planning, review, and merge authority under CD-0089.",
       "tags": [
         "authority",
         "process",
@@ -4178,7 +4186,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:2bd81e25cffe544dfe850c77e35c5e1e11bab0098e09e3c7e168d946ddb0f5bf",
+      "sha256": "sha256:634fd941e1e0b5d87dad71c9d07d75b84fcc2a9e8b693e7ddc15b53eac20d45f",
       "status": "accepted",
       "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
       "tags": [
@@ -4217,7 +4225,7 @@
       "date": "2026-08-05T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0002-concord-state-authority.md",
-        "docs/decisions/CD-0088-concord-development-coordination.md",
+        "docs/decisions/CD-0089-concord-development-coordination.md",
         "README.md"
       ],
       "home_domain_id": "product-root:concord",
@@ -4232,7 +4240,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:b09f06f1a3f2d6907163d4027ee852a779cdc5544bb66e336e40c5645f52e0a1",
+      "sha256": "sha256:608aef8956f2e2a07b30673e57df74de600d0a0da8f6bac7f68eb93d793b8bfc",
       "status": "accepted",
       "summary": "Records Concord's public origin, the private material excluded at bootstrap, and the transition of authority to this repository.",
       "tags": [
@@ -4246,7 +4254,7 @@
       "evidence": [
         "docs/decisions/CD-0007-concord-repository-bootstrap.md",
         "docs/decisions/CD-0010-pre-readiness-development-authority.md",
-        "docs/decisions/CD-0088-concord-development-coordination.md"
+        "docs/decisions/CD-0089-concord-development-coordination.md"
       ],
       "id": "rollout-plan",
       "kind": "reference",
@@ -4258,9 +4266,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:2da63ce3ba8a66c3ea3b7b287a1a8df5efdcba80b28a43e103ec3c646350ed71",
+      "sha256": "sha256:d77c0878d3967925f4776d7893a51c6159632c38e64b508adfa67e6ecdd3e2a5",
       "status": "published",
-      "summary": "Sequences the public bootstrap and Concord development coordination under CD-0007 and CD-0088 while retaining replacement-readiness evidence.",
+      "summary": "Sequences the public bootstrap and Concord development coordination under CD-0007 and CD-0089 while retaining replacement-readiness evidence.",
       "tags": [
         "rollout",
         "sequencing"

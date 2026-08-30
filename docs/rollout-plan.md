@@ -30,7 +30,7 @@ GitHub Issues, branches, worktrees, pull requests, and required checks:
 - improve documentation links, examples, and release evidence.
 
 The authority model for this work is accepted in
-[`development-authority.md`](./development-authority.md) and CD-0088.
+[`development-authority.md`](./development-authority.md) and CD-0089.
 
 ## 2. Entry conditions
 
@@ -106,8 +106,8 @@ bounded need.
 | [`priorities.md`](./priorities.md) | Canonical priorities, operating envelope, and replacement floor. |
 | [`development-authority.md`](./development-authority.md) | Concord development workflow with GitHub planning and merge authority. |
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
-| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Historical pre-readiness authority, superseded only by CD-0088 at its self-hosting boundary. |
-| [`decisions/CD-0088-concord-development-coordination.md`](./decisions/CD-0088-concord-development-coordination.md) | Concord development coordination after the issue #600 bootstrap exception. |
+| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Historical pre-readiness authority, superseded only by CD-0089 at its self-hosting boundary. |
+| [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination after the issue #600 bootstrap exception. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
 | [`storage-spine-slice.md`](./storage-spine-slice.md) | First implementation acceptance slice. |

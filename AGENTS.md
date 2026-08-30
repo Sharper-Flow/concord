@@ -20,7 +20,7 @@ derivable fact drifts from its source and no check catches it.
   authority — including this file, which is host instruction, not law.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`.
-- Concord coordinates its own development under CD-0088. Each session has a
+- Concord coordinates its own development under CD-0089. Each session has a
   Concord identity and a linked GitHub issue. See
   [`docs/development-authority.md`](docs/development-authority.md).
 - Advance is public predecessor evidence only. Do not create or dual-write

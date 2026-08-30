@@ -1,4 +1,4 @@
-# CD-0088: Concord development coordination
+# CD-0089: Concord development coordination
 
 - **Status:** Accepted
 - **Date:** 2026-08-30
@@ -6,7 +6,7 @@
   evidence, and completion after the bootstrap exception; issue #602
 - **Approval:** The operator approved the decision contract in issue #602 on
   2026-08-30.
-- **Related:** CD-0007, CD-0010, CD-0017, issue #600, and pull request #605
+- **Related:** CD-0007, CD-0010, CD-0017, CD-0082, issue #600, and pull request #605
 - **Supersedes:** CD-0010's prohibition on Concord coordinating its own
   development before replacement readiness, and only that prohibition
 - **Preserves:** GitHub Issues as planning authority; pull requests and required
@@ -60,7 +60,10 @@ Concord while retaining the external authority boundaries in D2.
 
 ## Supersession boundary
 
-This decision supersedes only CD-0010's self-hosting prohibition. CD-0010's
+This decision supersedes only CD-0010's self-hosting prohibition. It also
+retires equivalent restatements in CD-0007 D5, CD-0017 D9, CD-0019 D4,
+CD-0021's consequences, CD-0047's context and consequences, CD-0082 D2, and
+CD-0084's context. Those records retain their historical text. CD-0010's
 planning, review, merge, isolation, Product-law, and Advance rules remain
 current. The CD-0010 file and historical research records remain unchanged.
 

@@ -17,9 +17,22 @@ type fakeWorktreeGit struct {
 	branches   map[string]string // branch -> head sha
 	worktrees  map[string]string // path -> branch
 	dirty      map[string]bool   // path -> dirty
+	content    map[string]string // branch -> tree content id; defaults to the head sha
 	defaultRef string
 	failAdd    bool
 	calls      [][]string
+}
+
+// treeOf models the tree a ref resolves to. Content is normally keyed to the
+// head sha, so two branches agree only when their heads agree. A squash merge
+// is modelled by giving a branch the default ref's content under a different
+// head sha, which is exactly the shape commit reachability cannot see.
+func (g *fakeWorktreeGit) treeOf(ref string) string {
+	name := strings.TrimPrefix(ref, "origin/")
+	if tree, ok := g.content[name]; ok {
+		return tree
+	}
+	return g.resolveRef(ref)
 }
 
 func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
@@ -28,6 +41,7 @@ func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 		branches:  map[string]string{"main": strings.Repeat("a", 40)},
 		worktrees: map[string]string{},
 		dirty:     map[string]bool{},
+		content:   map[string]string{},
 	}
 }
 
@@ -57,6 +71,24 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("not a worktree")
 		}
 		return []byte(filepath.Join(g.repoRoot, ".git") + "\n"), nil
+	case strings.HasPrefix(join, "merge-tree --write-tree"):
+		parts := strings.Fields(join)
+		into, from := parts[2], parts[3]
+		if g.resolveRef(into) == into || g.resolveRef(from) == from {
+			return nil, fmt.Errorf("unknown ref")
+		}
+		// Merging a contained branch adds nothing, so the merged tree is the
+		// target's own tree. Otherwise the merge produces a different tree.
+		if g.treeOf(from) == g.treeOf(into) {
+			return []byte(g.treeOf(into) + "\n"), nil
+		}
+		return []byte(strings.Repeat("f", 40) + "\n"), nil
+	case strings.HasSuffix(join, "^{tree}") && strings.HasPrefix(join, "rev-parse "):
+		ref := strings.TrimSuffix(strings.TrimPrefix(join, "rev-parse "), "^{tree}")
+		if g.resolveRef(ref) == ref {
+			return nil, fmt.Errorf("unknown ref")
+		}
+		return []byte(g.treeOf(ref) + "\n"), nil
 	case strings.HasPrefix(join, "merge-base --is-ancestor"):
 		parts := strings.Fields(join)
 		base, head := g.resolveRef(parts[2]), g.resolveRef(parts[3])
@@ -299,6 +331,40 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	third.ExpectedVersion = 4
 	if _, err := s.ClaimWorktree(context.Background(), third); err != nil {
 		t.Fatalf("re-claim after reclaim failed: %v", err)
+	}
+}
+
+// TestReclaimWorktreeAcceptsSquashMergedBranch pins the merged-ness test to
+// content rather than commit reachability. A squash merge rewrites the branch's
+// commits into one new commit on the default ref, so the branch tip never
+// becomes an ancestor of it. Where squash is the only permitted merge method,
+// an ancestry probe refuses every branch that actually merged and no worktree
+// can ever be reclaimed (issue #628).
+func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	// The default ref advances to a new commit carrying the branch's content.
+	// The branch tip does not move and is not an ancestor of that commit.
+	const squashedTree = "squashed-content-tree"
+	git.branches["main"] = strings.Repeat("c", 40)
+	git.content["main"] = squashedTree
+	git.branches["work/w-1"] = strings.Repeat("b", 40)
+	git.content["work/w-1"] = squashedTree
+
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
+	if err != nil {
+		t.Fatalf("a squash-merged branch must reclaim, got %v", err)
+	}
+	if entry.State != worktreeEntryReclaimed {
+		t.Fatalf("entry=%+v", entry)
+	}
+	if _, still := git.worktrees[req.Path]; still {
+		t.Fatal("native worktree was not removed")
 	}
 }
 

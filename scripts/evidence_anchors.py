@@ -34,6 +34,7 @@ via `scripts/check-json.py`.
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 import sys
@@ -124,6 +125,92 @@ def scenario_exists(scenario_id: str) -> bool:
     return False
 
 
+SCRIPT_REFERENCE = re.compile(r"^scripts/[a-z0-9-]+\.py$")
+WORKFLOW_RUN_KEY = re.compile(r"^ {8}run:(?P<inline>.*)$")
+WORKFLOW_RUN_BODY_INDENT = 10
+
+
+def workflow_commands(text: str) -> str:
+    """The shell text a workflow runs, without the prose that surrounds it.
+
+    Matching a script name against the whole workflow file accepts a mention in
+    a step name or a `#` comment as though it were an invocation. Only the
+    `run:` blocks are commands. `scripts/check-script-tests.py` fails a workflow
+    whose step keys carry the wrong indent, so the exact indents this reads are
+    themselves enforced rather than assumed.
+    """
+    commands: list[str] = []
+    in_body = False
+    for line in text.splitlines():
+        match = WORKFLOW_RUN_KEY.match(line)
+        if match:
+            commands.append(match.group("inline"))
+            in_body = True
+            continue
+        if not in_body:
+            continue
+        if not line.strip():
+            continue
+        if line.startswith(" " * WORKFLOW_RUN_BODY_INDENT):
+            commands.append(line)
+            continue
+        in_body = False
+    return "\n".join(commands)
+
+
+def _script_constant(node: ast.AST) -> str | None:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Constant) and isinstance(child.value, str):
+            if SCRIPT_REFERENCE.fullmatch(child.value):
+                return child.value
+    return None
+
+
+def _is_subprocess_run(func: ast.AST) -> bool:
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "run"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "subprocess"
+    )
+
+
+def nested_invocations(path: Path) -> set[str]:
+    """Scripts a Python module reaches through `subprocess.run`.
+
+    Derived from the call graph rather than from the file containing a string,
+    because a mention is not a call. A script named in a comment, a docstring,
+    or a variable that nothing runs must not count as proof that a law record
+    is enforced.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return set()
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        script = _script_constant(node.value)
+        if script is None:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                bindings[target.id] = script
+    invoked: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not _is_subprocess_run(node.func):
+            continue
+        for argument in node.args:
+            for child in ast.walk(argument):
+                if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                    if SCRIPT_REFERENCE.fullmatch(child.value):
+                        invoked.add(child.value)
+                elif isinstance(child, ast.Name) and child.id in bindings:
+                    invoked.add(bindings[child.id])
+    return invoked
+
+
 def validator_runs_in_ci(script: str) -> bool:
     """A validator anchor resolves when a required workflow actually invokes it.
 
@@ -133,14 +220,18 @@ def validator_runs_in_ci(script: str) -> bool:
     `.github/workflows/release.yml`; both are documented sources of durable
     authority. `check-json.py` nests several sub-validators, so a nested
     invocation counts as invocation too.
+
+    Both cases resolve structurally: a workflow proves invocation through its
+    `run:` commands, and the nesting case through the `subprocess.run` call
+    graph. Substring matching over whole files accepted a name in a comment as
+    proof, which is presence standing in for enforcement.
     """
     if not (ROOT / script).is_file():
         return False
     for workflow in REQUIRED_WORKFLOWS:
-        if workflow.is_file() and script in workflow.read_text(encoding="utf-8"):
+        if workflow.is_file() and script in workflow_commands(workflow.read_text(encoding="utf-8")):
             return True
-    nested = ROOT / "scripts/check-json.py"
-    return nested.is_file() and script in nested.read_text(encoding="utf-8")
+    return script in nested_invocations(ROOT / "scripts/check-json.py")
 
 
 def generated_symbol_exists(file: str, symbol: str) -> bool:

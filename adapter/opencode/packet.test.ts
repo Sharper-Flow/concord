@@ -10,11 +10,12 @@ import { agentLanes } from "./generated-agent-lanes"
 function schemaBuilder() {
   return {
     optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
+    meta() { return this },
   }
 }
 const fakeTool = Object.assign((config: any) => config, {
   schema: {
-    object: schemaBuilder, array: schemaBuilder, union: schemaBuilder, literal: schemaBuilder,
+    object: schemaBuilder, array: schemaBuilder, record: schemaBuilder, union: schemaBuilder, literal: schemaBuilder,
     string: schemaBuilder, number: schemaBuilder, unknown: schemaBuilder, null: schemaBuilder,
   },
 })

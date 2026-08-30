@@ -29,7 +29,7 @@ def schema_validate(value, schema, root, path="$"):
         if target is None: fail(f"missing schema ref {ref}")
         return schema_validate(value, target, root, path)
     if "const" in schema and value != schema["const"]: fail(f"const mismatch at {path}")
-    if "enum" in schema and value not in schema["enum"]: fail(f"enum mismatch at {path}")
+    if "enum" in schema and value not in schema["enum"]: fail(f"enum mismatch at {path}: accepted values are {json.dumps(schema['enum'], ensure_ascii=False, separators=(',', ':'))}")
     types = schema.get("type")
     if types is not None:
         types = types if isinstance(types, list) else [types]

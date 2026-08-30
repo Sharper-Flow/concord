@@ -172,7 +172,11 @@ func validateValueKeywords(value any, schema map[string]any, path string) error 
 			}
 		}
 		if !found {
-			return fmt.Errorf("enum mismatch at %s", path)
+			accepted, err := json.Marshal(values)
+			if err != nil {
+				return fmt.Errorf("enum mismatch at %s", path)
+			}
+			return fmt.Errorf("enum mismatch at %s: accepted values are %s", path, accepted)
 		}
 	}
 	if types, ok := schema["type"]; ok && !matchesAnyType(value, types) {

@@ -2,18 +2,23 @@ import { test, expect, mock } from "bun:test"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope } from "./generated-contract-tests"
 
-function schemaBuilder() {
+function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
+    kind, args, metadata: undefined as unknown,
     optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
+    meta(metadata: unknown) { this.metadata = metadata; return this },
   }
-}
-function unionSchema() {
-  return Object.assign(schemaBuilder(), { "~standard": {}, def: {} })
 }
 const fakeTool = Object.assign((config: any) => config, {
   schema: {
-    object: schemaBuilder, array: schemaBuilder, union: unionSchema, literal: schemaBuilder,
-    string: schemaBuilder, number: schemaBuilder, unknown: schemaBuilder, null: schemaBuilder,
+    object: (...args: unknown[]) => schemaBuilder("object", ...args),
+    record: (...args: unknown[]) => schemaBuilder("record", ...args),
+    union: (...args: unknown[]) => schemaBuilder("union", ...args),
+    literal: (...args: unknown[]) => schemaBuilder("literal", ...args),
+    string: (...args: unknown[]) => schemaBuilder("string", ...args),
+    number: (...args: unknown[]) => schemaBuilder("number", ...args),
+    unknown: (...args: unknown[]) => schemaBuilder("unknown", ...args),
+    null: (...args: unknown[]) => schemaBuilder("null", ...args),
   },
 })
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
@@ -21,6 +26,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.url)).text()
 const adapter = await import("./concord")
+const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 
 test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1])
@@ -28,16 +34,32 @@ test("exports exactly the generated tool names", () => {
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
 
-test("all exported tools serialize raw operation and input properties", () => {
-  let checked = 0
-  for (const [name, exportedTool] of Object.entries(adapter) as Array<[string, any]>) {
-    if (!exportedTool.args) continue
-    checked++
-    const properties = exportedTool.args
-    expect(Object.keys(properties), name).toEqual(["operation", "input"])
-    expect(Object.keys(properties).every((key) => /^[a-zA-Z0-9_.-]{1,64}$/.test(key)), name).toBe(true)
+test("published tool arguments expose one generated request union", () => {
+  const tools = {
+    concord_product_view: adapter.product_view,
+    concord_work_browse: adapter.work_browse,
+    concord_work_trace: adapter.work_trace,
+    concord_knowledge: adapter.knowledge,
+    concord_work_define: adapter.work_define,
+    concord_domain: adapter.domain,
+    concord_work_initiative: adapter.work_initiative,
+    concord_work_transition: adapter.work_transition,
+    concord_work_relate: adapter.work_relate,
+    concord_work_compact: adapter.work_compact,
+  } as const
+  for (const [toolName, exportedTool] of Object.entries(tools)) {
+    expect(Object.keys((exportedTool as any).args), toolName).toEqual(["request"])
+    const published = adapter.publishedRequestSchema(toolName) as any
+    const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
+    expect(published.oneOf.map((variant: any) => variant.properties.operation.const), toolName).toEqual(expected)
+    expect(JSON.stringify(published), toolName).not.toContain("~standard")
+    expect(JSON.stringify(published), toolName).not.toContain('"def"')
   }
-  expect(checked).toBe(10)
+  const published = adapter.publishedRequestSchema("concord_work_define") as any
+  const capture = published.oneOf.find((variant: any) => variant.properties.operation.const === "capture")
+  const inputRef = capture.properties.input.$ref.replace("#/properties/request/definitions/", "")
+  const urgencyRef = published.definitions[inputRef].properties.urgency.$ref.replace("#/properties/request/definitions/", "")
+  expect(published.definitions[urgencyRef].enum).toEqual(["standard", "expedite"])
 })
 
 test("all exported tools return one serialized Concord envelope", async () => {
@@ -60,7 +82,7 @@ test("all exported tools return one serialized Concord envelope", async () => {
     })
     expect(validateGeneratedEnvelope(core), `${toolName} core fixture`).toBe(true)
     adapter.configureConcordAdapter({ runner: runnerWithContext(core) })
-    const hostResult: any = await exportedTool.execute({ operation, input: {} }, contextFor())
+    const hostResult: any = await exportedTool.execute(hostCall(operation, {}), contextFor())
     expect(hostResult).toMatchObject({ title: toolName, metadata: {} })
     expect(typeof hostResult.output).toBe("string")
     const envelope = JSON.parse(hostResult.output)
@@ -80,7 +102,7 @@ test("oversize core results become bounded ToolResult error envelopes", async ()
   expect(validateGeneratedEnvelope(oversized)).toBe(true)
   expect(Buffer.byteLength(JSON.stringify(oversized))).toBeGreaterThan(51_200)
   adapter.configureConcordAdapter({ runner: runnerWithContext(oversized) })
-  const hostResult = await adapter.product_view.execute({ operation: "resolve", input: {} }, contextFor())
+  const hostResult = await adapter.product_view.execute(hostCall("resolve", {}), contextFor())
   expect(typeof hostResult).not.toBe("string")
   if (typeof hostResult === "string") throw new Error("adapter returned a string ToolResult")
   expect(Buffer.byteLength(hostResult.output)).toBeLessThanOrEqual(51_200)
@@ -93,10 +115,10 @@ test("oversize core results become bounded ToolResult error envelopes", async ()
 test("work transition keeps lane dispatch behind the host result encoder", async () => {
   let calls = 0
   adapter.configureConcordAdapter({ runner: { async run() { calls++; throw new Error("generic transport must not run") } } })
-  const envelope: any = await rawHostResult(adapter.work_transition.execute({
-    operation: "workflow_action",
-    input: { action_id: "dispatch_worker", fields: {} },
-  }, contextFor()))
+  const envelope: any = await rawHostResult(adapter.work_transition.execute(hostCall(
+    "workflow_action",
+    { action_id: "dispatch_worker", fields: {} },
+  ), contextFor()))
   expect(calls).toBe(0)
   expect(envelope.outcome).toBe("error")
   expect(envelope.error.message).toBe("dispatch_worker requires fields.lane_id naming the target lane")
@@ -159,7 +181,7 @@ const assertAdapterEnvelope = (value: any) => {
 }
 const runProduct = (runner: any, options: { ask?: () => Promise<void>; controller?: AbortController } = {}) => {
   adapter.configureConcordAdapter({ runner })
-  return rawHostResult(adapter.product_view.execute({ operation: "resolve", input: { product_id: "product-1" } }, contextFor(options.ask, options.controller)))
+  return rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor(options.ask, options.controller)))
 }
 const runnerWithContext = (invoke: any) => {
   let calls = 0
@@ -219,7 +241,7 @@ const approvalSuccess = () => ({
 })
 const runTransition = (runner: any, ask?: () => Promise<void>) => {
   adapter.configureConcordAdapter({ runner })
-  return rawHostResult(adapter.work_transition.execute({ operation: "lifecycle", input: { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" } }, contextFor(ask)))
+  return rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" }), contextFor(ask)))
 }
 
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
@@ -253,13 +275,13 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
   })
   expect(validateGeneratedEnvelope(success)).toBe(true)
   adapter.configureConcordAdapter({ runner: runnerWithContext(success) })
-  const resolved: any = await rawHostResult(adapter.work_relate.execute({ operation: "resolve_overlap", input: {
+  const resolved: any = await rawHostResult(adapter.work_relate.execute(hostCall("resolve_overlap", {
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 2,
     from_contract_version: 1, to_contract_version: 1,
     resolution_kind: "compatible_with", reason: "The approved contracts can proceed together.",
     idempotency_key: "resolve-overlap-1",
-  } }, contextFor()))
+  }), contextFor()))
   expect(resolved.outcome).toBe("ok")
 
   const refusal = coreEnvelope("concord_work_transition", "lifecycle", "error", {
@@ -329,13 +351,13 @@ test("overlap approval asks with exact direction and resolution consequence", as
   } }
   let askMetadata: any
   adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_relate.execute({ operation: "resolve_overlap", input: {
+  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("resolve_overlap", {
     from_work_id: "work-1", to_work_id: "work-2",
     from_expected_version: 2, to_expected_version: 3,
     from_contract_version: 1, to_contract_version: 1,
     resolution_kind: "depends_on", reason: "Work 2 must establish the shared law first.",
     idempotency_key: "resolve-overlap-approval-1",
-  } }, contextFor(async (request: any) => { askMetadata = request.metadata })))
+  }), contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
   expect(askMetadata).toEqual({
     approval_ref: "overlap-challenge-1", operation_digest: digest,
@@ -353,10 +375,10 @@ test("overlap approval asks with exact direction and resolution consequence", as
 
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
   const variants: Array<[string, any, any, any]> = [
-    ["ok", coreEnvelope("concord_product_view", "resolve", "ok", { items: [{}] }), adapter.product_view, { operation: "resolve", input: {} }],
-    ["pending", coreEnvelope("concord_work_compact", "publish", "pending", { operation_ref: { id: "op-1", kind: "publish", version: "1", state: "pending", current_step: "git", updated_at: "2026-08-08T12:00:00Z" }, next_action: { kind: "reconcile_operation" } }), adapter.work_compact, { operation: "publish", input: {} }],
-    ["partial", coreEnvelope("concord_work_compact", "publish", "partial", { operation_ref: { id: "op-1", kind: "publish", version: "1", state: "partial", current_step: "sqlite", updated_at: "2026-08-08T12:00:00Z" }, completed_steps: ["git"], error: { kind: "operation_conflict", retry_safe: true, recovery_action: { kind: "reconcile_operation" }, effect_state: "partial" } }), adapter.work_compact, { operation: "publish", input: {} }],
-    ["error", coreEnvelope("concord_work_transition", "lifecycle", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } }), adapter.work_transition, { operation: "lifecycle", input: {} }],
+    ["ok", coreEnvelope("concord_product_view", "resolve", "ok", { items: [{}] }), adapter.product_view, hostCall("resolve", {})],
+    ["pending", coreEnvelope("concord_work_compact", "publish", "pending", { operation_ref: { id: "op-1", kind: "publish", version: "1", state: "pending", current_step: "git", updated_at: "2026-08-08T12:00:00Z" }, next_action: { kind: "reconcile_operation" } }), adapter.work_compact, hostCall("publish", {})],
+    ["partial", coreEnvelope("concord_work_compact", "publish", "partial", { operation_ref: { id: "op-1", kind: "publish", version: "1", state: "partial", current_step: "sqlite", updated_at: "2026-08-08T12:00:00Z" }, completed_steps: ["git"], error: { kind: "operation_conflict", retry_safe: true, recovery_action: { kind: "reconcile_operation" }, effect_state: "partial" } }), adapter.work_compact, hostCall("publish", {})],
+    ["error", coreEnvelope("concord_work_transition", "lifecycle", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } }), adapter.work_transition, hostCall("lifecycle", {})],
   ]
   for (const [name, original, tool, args] of variants) {
     const unknown = { ...original, unknown_top_level: true }
@@ -428,7 +450,7 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   } }
   let askMetadata: any
   adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.work_transition.execute({ operation: "workflow_action", input: { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" } }, contextFor(async (request: any) => { askMetadata = request.metadata })))
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
   expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
   expect(requests[1].call_envelope.host_approval_assertion.operator_principal_ref).toBeUndefined()
@@ -442,7 +464,7 @@ test("fake seams exercise context resolution and malformed-response handling", a
     runner: { async run(argv: string[], _input: string, _signal: AbortSignal) { calls.push(argv); return calls.length === 1 ? { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" } : { exitCode: 0, stdout: "not-json", stderr: "diagnostic" } } },
   })
   const context: any = { sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} }
-  const result: any = await rawHostResult(adapter.product_view.execute({ operation: "resolve", input: {} }, context))
+  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), context))
   expect(calls).toEqual([["concord", "project-resolve"], ["concord", "invoke"]])
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("malformed_response")

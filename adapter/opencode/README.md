@@ -4,9 +4,13 @@ The release installer owns adapter placement and version registration. Follow
 the [installation guide](../../docs/installation.md) for release artifacts,
 Secret Service prerequisites, upgrade, and uninstall behavior.
 
-Install `concord.ts` as a global OpenCode custom tool under
-`~/.config/opencode/tools/concord.ts` (or project-local `.opencode/tools/`). Keep
-the generated contract files beside it.
+The release installer places the adapter under `~/.config/opencode/tools/` and
+registers the plugin entry module `concord-plugin.ts` in the host `plugin`
+array so OpenCode loads the typed tools. Keep the generated contract files
+beside the entry module. OpenCode invokes every function-valued export of a
+plugin entry module as a factory, so `concord-plugin.ts` exports exactly one
+default factory and re-exports the tool definitions from `concord.ts`; the tool
+modules are never used as entry points directly.
 
 Worker evidence requires the OS Secret Service and `secret-tool`, with the
 registered Ed25519 private key stored under the Concord credential identity.

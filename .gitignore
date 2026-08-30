@@ -17,3 +17,9 @@ __pycache__/
 # Predecessor tooling artifact. Advance may write project.json into a working
 # copy; Concord never reads it and must never commit it (CD-0010).
 /project.json
+
+# Host agent tooling writes package manifests, dependencies, and plugin
+# configuration into .opencode/. Only the generated lane agent definitions are
+# Concord-owned, so the directory is ignored except for those.
+/.opencode/*
+!/.opencode/agents/

@@ -1,0 +1,15 @@
+{
+  "archived_at": "2026-08-30T23:26:51.706Z",
+  "capabilities": [],
+  "change_hash": "1012d1478c20ca1450b0451411900257c3b078440823b46c5d30f73a766ee487",
+  "change_id": "addOrchestratorContinuityHook",
+  "completed_tasks": 6,
+  "created_at": "2026-08-30T21:50:39.132Z",
+  "current_gate": "release",
+  "last_activity_at": "2026-08-30T23:03:34.049Z",
+  "status": "archived",
+  "summary_hash": "6a46278995ab73f5c9982171939b2eca4f11aba18c577889b3622e42900e251b",
+  "task_count": 6,
+  "title": "Add orchestrator continuity hook",
+  "version": "1"
+}

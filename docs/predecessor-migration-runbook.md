@@ -18,12 +18,28 @@ fixes forward in Concord and does not roll back.
 
 ## Harvest
 
-A harvest is a host-side read of the predecessor's sanctioned tool surface
-(`adv_change_list` with `includeArchived`/`includeClosed`, `adv_wisdom_list`
-with `project_only`, `adv_reflection_list`, each with `target_path` set to the
-Project root). Nothing parses predecessor state files. Any agent session can
-execute a harvest by following this procedure; the output must validate
-fail-closed against `contracts/predecessor-snapshot.schema.json`.
+[`scripts/predecessor-harvest.py`](../scripts/predecessor-harvest.py) performs
+the harvest without an agent session:
+
+```sh
+python3 scripts/predecessor-harvest.py \
+  --project <project_id>=<absolute Project path> \
+  --out <absolute snapshot path>
+```
+
+It reads two sanctioned surfaces and parses no predecessor state files. Changes
+and terminal counts come from the predecessor's status CLI, run with the Project
+directory as the working directory. Wisdom comes from the predecessor's
+read-only MCP server, spawned over stdio with the same working directory, which
+is what pins Project identity. Both scale past the host tool output budget that
+truncated the v1 capture.
+
+Reflections are not captured. The two sanctioned reads disagree on the count, so
+the reader records the gap in `producer` and refuses to write until
+`--accept-gaps` is given.
+
+An agent-transcribed harvest remains possible for a Product small enough to
+transit whole, but it is no longer the procedure.
 
 Harvest the Projects of the Product being migrated, at migration time — not
 the whole predecessor. A snapshot needs only the Projects in scope; the
@@ -31,26 +47,19 @@ contract requires at least one.
 
 Derivation rules, pinned by the v1 capture and reused unchanged:
 
-- **Active changes** are in-flight entries whose phase is non-terminal
-  (planning or earlier). An in-flight entry at a terminal phase counts as
-  history, not active work.
-- **completed_gates** derive from the phase per the predecessor's gate
-  sequencing (proposal, discovery, design, planning, execution, acceptance,
-  release).
-- **archived/closed totals** derive as the `includeArchived`/`includeClosed`
-  totals minus the in-flight total.
+- **Active changes** are open in-flight entries that have not completed every
+  gate. Work in execution migrates; an entry with all gates complete is history.
+- **completed_gates** derive from the first incomplete gate against the
+  predecessor's gate sequencing (proposal, discovery, design, planning,
+  execution, acceptance, release). The reader refuses when the entry's gate
+  progress and its first incomplete gate disagree.
+- **archived/closed totals** come from the status CLI's terminal counts.
 - **Wisdom entries** carry `recorded_at` from the predecessor's promotion
   timestamp; `change_id` is the originating change, empty for none.
 - **Reflections** carry per-entry friction and suggestion counts.
 
-Record every capture gap in the snapshot's `producer` field. The v1 capture
-proved the limits of this path: host tool output budgets truncated large
-listings (wisdom partial for `advance`, `pokeedge`, `pokeedge-web`;
-reflections counted but not enumerated; one project's totals lost to a
-timeout). Per-Product harvests of small Projects transit completely. A
-Product whose listings exceed the transit budget needs a scripted sanctioned
-reader before it can migrate — build it when that Product's migration is
-demanded, not before.
+Record every capture gap in the snapshot's `producer` field. The reader does
+this, and refuses to write a gapped snapshot unless `--accept-gaps` is given.
 
 Validate before use:
 

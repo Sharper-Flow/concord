@@ -454,8 +454,8 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		}
 		defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
 	}
-	if _, err := runner.Run(ctx, repoRoot, "merge-base", "--is-ancestor", entry.Branch, defaultRef); err != nil {
-		return out, newFailure(KindInvalidOperation, "worktree_reclaim", "worktree head is not merged into "+defaultRef, false, "merge the branch before reclaiming")
+	if err := branchIsMergedInto(ctx, runner, repoRoot, entry.Branch, defaultRef); err != nil {
+		return out, err
 	}
 
 	if err := appendReclaimedTx(ctx, tx, req, setID, now, jsonMustMarshal(map[string]any{"clean_tree": true, "head_reachable": true, "default_ref": defaultRef})); err != nil {
@@ -570,6 +570,46 @@ func probeWorktree(ctx context.Context, runner GitRunner, repoRoot, path, branch
 		return false, worktreeFacts{}, nil
 	}
 	return true, worktreeFacts{branch: branch, headSHA: head, repositoryID: canonicalRoot}, nil
+}
+
+// branchIsMergedInto reports whether branch is already contained in defaultRef,
+// answering by tree identity rather than commit reachability.
+//
+// Commit reachability is the wrong question under a squash merge. Squashing
+// rewrites a branch's commits into one new commit on the default branch, so the
+// original branch tip never becomes an ancestor of it. A repository that permits
+// squash merge only — as GitHub's merge queue commonly enforces — therefore makes
+// `merge-base --is-ancestor` refuse every branch that actually merged.
+//
+// Merging a contained branch adds nothing, so the merged tree equals the default
+// ref's own tree. That equality holds for squash, rebase, and fast-forward alike,
+// because all three land the same content.
+func branchIsMergedInto(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef string) error {
+	mergedTree, mergeErr := runner.Run(ctx, repoRoot, "merge-tree", "--write-tree", defaultRef, branch)
+	if mergeErr != nil {
+		// A non-zero exit means the merge conflicts, so the branch carries
+		// content the default ref does not hold. It is not merged.
+		return newFailure(KindInvalidOperation, "worktree_reclaim", "worktree branch does not merge cleanly into "+defaultRef, false, "merge the branch before reclaiming")
+	}
+	defaultTree, treeErr := runner.Run(ctx, repoRoot, "rev-parse", defaultRef+"^{tree}")
+	if treeErr != nil {
+		return newFailure(KindGitUnreachable, "worktree_reclaim", "cannot resolve the tree of "+defaultRef, false, "retry once the repository is reachable")
+	}
+	if firstLine(mergedTree) != firstLine(defaultTree) {
+		return newFailure(KindInvalidOperation, "worktree_reclaim", "worktree head is not merged into "+defaultRef, false, "merge the branch before reclaiming")
+	}
+	return nil
+}
+
+// firstLine returns the first line of git output with surrounding space removed.
+// `merge-tree --write-tree` prints the tree object id on its own first line and
+// may print more after it.
+func firstLine(out []byte) string {
+	text := strings.TrimSpace(string(out))
+	if index := strings.IndexByte(text, '\n'); index >= 0 {
+		return strings.TrimSpace(text[:index])
+	}
+	return text
 }
 
 func jsonMustMarshal(v any) json.RawMessage {

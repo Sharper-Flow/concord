@@ -127,6 +127,36 @@ state, so issue #46 owns its probe scope and evidence. lgrep and vision index an
 host general-purpose data. A measured need against one tool is not evidence about
 the others.
 
+## Promotion receiving contract (episode → Concord knowledge)
+
+Issue #46 Item 2. episode may graduate a memory to `Promoted { target }`, where
+`target` names a Concord record and stays opaque to episode. Concord owns the
+destination, so this section defines what receiving that promotion means. The
+emitter does not exist yet — episode's own spec 0010 defers promotion — so the
+contract waits for it.
+
+- **Target identity.** A promotion target is a formalized knowledge record of
+  kind `spec` or `decision`, resolved through the knowledge manifest. A target
+  that does not resolve is `knowledge_missing`, and the promotion is not
+  receivable. Resolution is by manifest path plus sha256, so a promotion names
+  a record version, not a moving document.
+- **Back-link.** When a promotion contributes content, the receiving record
+  cites the originating episode memory by its episode identity in the record's
+  sources. The back-link is recorded provenance in the document, not new
+  runtime state.
+- **Acknowledgement.** Acknowledgement is structural: the target resolves at
+  the version the promotion named. Concord records no runtime event, because
+  knowledge records carry no runtime write surface. If a write surface is ever
+  accepted, acknowledgement binds there under its own decision.
+- **Recall exclusion.** Excluding a promoted memory from recall is episode's
+  own behavior. Concord's side of the boundary is already law: a promoted
+  memory reaches Product law only through the formalization procedure, and an
+  unprocessed document carries no authority regardless of origin.
+
+This contract defines the seam only. It adds no runtime surface, no event, and
+no validation, and it changes no direction: the ownership lean stays
+product-scoping first until the #46 probe evidence says otherwise.
+
 ---
 
 ## Relationship to other docs

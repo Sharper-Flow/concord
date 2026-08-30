@@ -301,6 +301,27 @@ esac''',
             self.assertTrue(placed.is_file(), f"{name} was not placed by the upgrade")
             self.assertIn("new", placed.read_text(encoding="utf-8"))
 
+    def test_upgrade_from_a_pre_plugin_entry_manifest(self) -> None:
+        """An installation before the plugin entry module upgrades cleanly."""
+        added = "concord-plugin.ts"
+        self.assertIn(added, installer.ADAPTER_FILES)
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        del manifest["adapter_files"][added]
+        del manifest["version_files"][f"adapter/opencode/{added}"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / added).unlink()
+        (self.root / "config" / "opencode" / "tools" / added).unlink()
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertTrue((self.root / "config" / "opencode" / "tools" / added).is_file())
+
     def test_upgrade_from_a_pre_agents_manifest_refuses_with_the_remedy(self) -> None:
         """An installation predating central agents refuses with instructions.
 

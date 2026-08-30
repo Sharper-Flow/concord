@@ -4065,7 +4065,8 @@
       "date": "2026-08-30T00:00:00Z",
       "evidence": [
         "cmd/concord/predecessor_import.go",
-        "contracts/predecessor-snapshot.schema.json"
+        "contracts/predecessor-snapshot.schema.json",
+        "scripts/predecessor-harvest.py"
       ],
       "id": "predecessor-migration-runbook",
       "kind": "reference",
@@ -4077,7 +4078,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:65f515747acb15cfdb6615a01907990ee00e271741ae374b17768ddb8e1edc62",
+      "sha256": "sha256:3cf73b3b4d69a073d1c134b6e8cf53e441a558a3db77227a0b40dd77ca8b6c19",
       "status": "published",
       "summary": "Operational procedure for migrating one Product from the predecessor through the delivered importer: a per-Product harvest of the sanctioned read surface with pinned derivation rules and fail-closed inventory validation, a rehearsed import with declared Product identity, full project set, and deliberately selected active work, followed by predecessor freeze for that Product, fix-forward, wisdom curation through the formalization procedure, and frozen snapshots as the historical record. Guidance for a correct operation under CD-0082, not a mandated gate.",
       "tags": [

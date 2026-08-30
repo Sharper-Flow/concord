@@ -118,12 +118,12 @@ def main() -> int:
             findings.append(f"law coverage drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
     # Knowledge closure (issue #295): files-to-records inverse coverage. Runs
-    # in warn mode by design — unprocessed documents are not yet a hard fail;
-    # the cutover criterion is unprocessed count zero, gated by the operator
-    # running the script in --strict mode. The current run is informational.
+    # --strict, so a document under a declared knowledge_root with no manifest
+    # record fails the check. Warn mode cannot fail, and a check that cannot
+    # fail states an invariant without holding it.
     knowledge_closure_checker = ROOT / "scripts/check-knowledge-closure.py"
     if knowledge_closure_checker.is_file():
-        checked = subprocess.run([sys.executable, str(knowledge_closure_checker)], cwd=ROOT, capture_output=True, text=True)
+        checked = subprocess.run([sys.executable, str(knowledge_closure_checker), "--strict"], cwd=ROOT, capture_output=True, text=True)
         if checked.returncode:
             findings.append(f"knowledge closure drift: {checked.stdout.strip() or checked.stderr.strip()}")
 

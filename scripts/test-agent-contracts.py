@@ -37,6 +37,40 @@ class ManifestTamperTests(unittest.TestCase):
         value=copy.deepcopy(manifest); value["tools"][0]["operations"].append("concord_product_view.missing")
         with self.assertRaises(ValueError): generator.validate(value)
 
+class EnvelopeOperationCoverageTests(unittest.TestCase):
+    """The manifest is the source of truth for what `toolOperation` must pair.
+
+    The sibling check proves a declared pair stays satisfiable. This proves the
+    other direction, which nothing held: an operation the surface declares but
+    the envelope never enumerates has no satisfiable branch, so the adapter
+    answers malformed_core_response for a well-formed core result.
+    """
+    def test_the_shipped_contracts_cover_every_declared_operation(self):
+        self.assertEqual(lane_checker.envelope_operation_coverage_findings(envelope_schema, manifest), [])
+
+    def test_an_unenumerated_operation_is_rejected(self):
+        value = copy.deepcopy(envelope_schema)
+        removed = None
+        for index, branch in enumerate(value["$defs"]["toolOperation"]["oneOf"]):
+            properties = branch.get("properties", {})
+            if properties.get("query_id", {}).get("const") == "PM1.Q1":
+                removed = value["$defs"]["toolOperation"]["oneOf"].pop(index)
+                break
+        self.assertIsNotNone(removed, "fixture lost the branch this test removes")
+        findings = lane_checker.envelope_operation_coverage_findings(value, manifest)
+        self.assertTrue(findings)
+        self.assertIn("concord_product_view.resolve", findings[0])
+
+    def test_a_query_id_that_disagrees_with_the_manifest_is_rejected(self):
+        value = copy.deepcopy(envelope_schema)
+        for branch in value["$defs"]["toolOperation"]["oneOf"]:
+            if branch.get("properties", {}).get("query_id", {}).get("const") == "PM1.Q1":
+                branch["properties"]["query_id"]["const"] = "PM1.Q99"
+                break
+        findings = lane_checker.envelope_operation_coverage_findings(value, manifest)
+        self.assertTrue(findings)
+        self.assertIn("PM1.Q99", " ".join(findings))
+
 class Ts2BudgetTests(unittest.TestCase):
     """TS2's tool budget is law in the document and in the manifest; CI joins them."""
 

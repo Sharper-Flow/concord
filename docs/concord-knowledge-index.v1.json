@@ -2646,6 +2646,36 @@
       "title": "Assistive-technology validation is an obligation, not a deferral"
     },
     {
+      "date": "2026-08-29T00:00:00Z",
+      "evidence": [
+        "adapter/opencode/concord.ts",
+        "adapter/opencode/concord.test.ts",
+        "docs/adapter-host-pin.v1.json",
+        "scripts/probe-adapter-host-result.py"
+      ],
+      "home_domain_id": "agent-surface",
+      "id": "CD-0084",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0084-tool-results-are-host-tool-results.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:6222ce0bbea2176ededc5e0807c3690b5f90a61d47ba70d92ff128d55c7f8d58",
+      "status": "accepted",
+      "summary": "Every Concord tool export returns the ToolResult the host declares. The pinned host reads a string output and splits it without a guard, so returning the raw envelope threw a TypeError and no tool call could succeed. The envelope now travels as JSON text in output as its only carrier, an oversize result becomes a bounded error envelope, the execute boundary drops the concealing any, and the spent TS2322 allowance is removed.",
+      "tags": [
+        "adapter",
+        "agent-surface",
+        "host-contract",
+        "ts6"
+      ],
+      "title": "Concord tool results are host ToolResults"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

@@ -1,7 +1,7 @@
 {
   "$schema": "contracts/adapter-continuity-scenarios.schema.json",
   "schema_version": "1.0",
-  "contract": "CD-0088",
+  "contract": "CD-0090",
   "contract_status": "accepted",
   "fixtures": {
     "work_id": "work_repin_fixture",

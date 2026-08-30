@@ -126,6 +126,9 @@ func TestContinuityBlockPrintsDeterministicPacket(t *testing.T) {
 	if packets[0] == "" || packets[0] != packets[1] {
 		t.Fatalf("continuity-block packets differ: %q vs %q", packets[0], packets[1])
 	}
+	if !strings.Contains(packets[0], `"pending_messages":3`) {
+		t.Fatalf("continuity-block omitted pending messages: %q", packets[0])
+	}
 	if err := sessionboot.Validate([]byte(packets[0])); err != nil {
 		t.Fatalf("continuity-block packet invalid: %v", err)
 	}

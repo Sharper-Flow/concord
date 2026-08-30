@@ -8,7 +8,7 @@
   "properties": {
     "$schema": {"type": "string", "minLength": 1},
     "schema_version": {"const": "1.0"},
-    "contract": {"const": "CD-0088"},
+    "contract": {"const": "CD-0090"},
     "contract_status": {"const": "accepted"},
     "fixtures": {
       "type": "object",

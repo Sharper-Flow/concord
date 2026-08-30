@@ -58,8 +58,8 @@ The adapter plugin entry (`concord-plugin.ts`) registers
 2. spawns the internal read-only `continuity-block` verb, which runs
    `ReadWorkflowContinuity` and renders through `sessionboot.Build` — the same
    render path as session boot, so boot and re-pin bytes agree;
-3. replaces its previous sentinel-delimited block in `system[0]` in place;
-   it never appends;
+3. adds one sentinel-delimited block to `system[0]`, then replaces that block
+   in place on later state changes; it never duplicates the block;
 4. emits nothing and never throws on failure, empty work, or absent identity.
 
 The render path is pinned to `sessionboot.Build`. The envelope render stamps
@@ -94,7 +94,7 @@ version number.
    validation. It transports bytes the core derived.
 2. The re-pin render path is `sessionboot.Build`, never the envelope render.
 3. Injection is byte-stable across turns while the snapshot is unchanged.
-4. Failure degrades to absence: no block, no throw, session proceeds.
+4. Failure adds no block and never throws; existing system bytes stay unchanged.
 5. `concord.ts` stays transport-only (TS6); the hook lives in the plugin entry.
 
 ## Verification
@@ -105,7 +105,10 @@ version number.
   definition; empty when no workflow is in flight (`internal/store` tests).
 - Hook: determinism, sentinel-replacement-not-append, failure no-op, spawn-window gate
   (adapter tests).
-- Cache safety: repeated-turn measurement with the hook on vs off shows
-  `cache_creation` equal to baseline after the first turn (recorded as
-  verification evidence on the change).
+- Cache safety mechanism: adapter tests prove byte-stability for unchanged
+  state and sentinel replacement for changed state. Live cache-meter
+  measurement is deferred until after deployment and is not claimed here.
+  Procedure: run one orchestrator session for at least five turns without a
+  state change, then run `cache-stats summary`; pass when `cache_creation`
+  equals the baseline after turn one.
 - Scenario corpus: post-boundary re-pin entry under `scenarios/`.

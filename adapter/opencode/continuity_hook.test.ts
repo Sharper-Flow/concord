@@ -50,6 +50,20 @@ test("continuity transform keeps identical cached output byte-stable", async () 
   })
 })
 
+test("continuity transform carries pending messages from core output", async () => {
+  await withIdentity(async () => {
+    const packet = '{"continuity":{"pending_messages":1}}'
+    const transformed = output("system prefix")
+    const transform = createContinuityTransform({
+      runner: { run: async () => ({ exitCode: 0, stdout: packet, stderr: "" }) },
+    }) as Transform
+
+    await transform({}, transformed)
+
+    expect(transformed.system[0]).toContain(`${START}\n${packet}\n${END}`)
+  })
+})
+
 test("continuity transform replaces a sentinel block instead of appending", async () => {
   await withIdentity(async () => {
     let now = 1_000

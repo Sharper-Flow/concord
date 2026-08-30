@@ -47,6 +47,7 @@ type ContinuitySnapshot struct {
 	WorkID                  string                    `json:"work_id"`
 	ProductIdentity         []string                  `json:"product_identity"`
 	WorkflowStep            string                    `json:"workflow_step"`
+	StepActions             []string                  `json:"step_actions"`
 	Contract                *WorkflowReadContract     `json:"contract"`
 	SpecMandate             []string                  `json:"spec_mandate"`
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
@@ -107,6 +108,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	out.Boundaries = []ContextBoundary{}
 	out.ProductIdentity = []string{}
 	out.SpecMandate = []string{}
+	out.StepActions = []string{}
 	var currentStep string
 	var definition WorkflowReadDefinition
 	var workVersion int64
@@ -122,6 +124,9 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		return out, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	if step := workflowStep(registered.Definition, currentStep); step != nil {
+		out.StepActions = append(out.StepActions, step.Actions...)
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, req.Work)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read Product identity", true, "retry once the database is readable", err)

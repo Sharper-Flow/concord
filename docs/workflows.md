@@ -59,9 +59,8 @@ arbitrary inline workflow languages are out of scope.
   execution → acceptance → release. Everything is a "change."
 - **Problem:** implementation, operations, database work, break-fix, configuration,
   infrastructure, options research, evidence research, RCA, and static analysis
-  don't fit the 7-gate shape. They're either forced into it (wrong) or live as
-  ad-hoc skills outside the tracked lifecycle (`adv-tron`, `adv-slop-scan`,
-  `adv-arch-scan`, `adv-audit`, …).
+  do not fit the 7-gate shape. They are either forced into it or remain outside
+  the tracked lifecycle.
 - **Concord:** a **plurality of workflow types**. Each work shape maps to a
   purpose-built workflow with the right steps, artifacts, and completion criteria.
   Some are gateless; some are lightweight; the 7-gate remains the heaviest, for
@@ -203,31 +202,28 @@ implementation change.
 | **Implementation change** | Spec-driven code work | 7 gates, spec deltas, contract | The existing ADV workflow — kept as the heaviest type. |
 | **Research / investigation** | Open-ended; may never become a change | Lightweight; gateless or few steps; ordinary `kind=research` work owning a CD-0009 active research pack; produces findings and may conclude `no change` | Today forced into premature changes or lost. |
 | **Architecture spike** | Architectural decision / de-risking | Frame → research → options → optional throwaway POC → decision record → reviewer → user acceptance; flat (has tasks, no sub-spikes); no timebox | Peer to the implementation change. Distinct from research: research *may* resolve to "no change"; a spike *must* resolve to a decision, and that decision **binds until superseded**. Full model: [`architecture-spike.md`](./architecture-spike.md). |
-| **Static-analysis workflows** | Code-quality / architecture analysis | Purpose-built per analysis kind; produces a report | **Replaces `adv-tron`, `adv-slop-scan`, `adv-arch-scan`, `adv-audit`** as proper workflow types. |
+| **Static-analysis workflows** | Code-quality / architecture analysis | Coordinates an external analysis run and records its report and verdict | External analysis tools own scanner implementation; Concord owns the tracked workflow. |
 | **Ops runbook** | Operational procedure | Steps (plan/approval/execute/health/rollback/cleanup); evidence | inventory §2.4 / §3.5. |
 | **Break-fix workflow** | Defect / RCA | RCA → fix → verify; GitHub issue as canonical home | Builds on cross-project GH-issue integration. |
 | **Database workflow** | Schema/data migration | Ops-runbook shape with migration-specific rollback | Reuses ops runbook primitives. |
 | **Configuration workflow** | Infra/tooling config | Lightweight change or ops-runbook shape | Reproducible, auditable. |
 
-Static analysis deserves **variants** (the operator's point): architecture-
-inconsistency detection, AI-slop detection, spec/impl drift audit, arch-detection
-— each a purpose-built workflow, not one overloaded skill.
+Static analysis supports purpose-built variants, such as architecture-
+inconsistency detection, AI-slop detection, and spec/implementation drift audit.
+The host selects and runs an external tool. Concord records the declared scope,
+report, evidence, and verdict.
 
 ---
 
-## 5. Replacing the ad-hoc analysis skills
+## 5. Coordinating external analysis tools
 
-Today's `adv-tron` / `adv-slop-scan` / `adv-arch-scan` / `adv-audit` are skills —
-procedural methodology loaded on demand, outside the tracked lifecycle. Concord
-promotes each to a **first-class workflow type** with:
-
-- A defined shape (inputs, analysis steps, report artifact, completion).
-- Durable output (the report is tracked, queryable — not ephemeral).
-- Composability (a research workflow can spawn an analysis workflow; a change can
-  trigger a drift audit).
-
-The skills may remain as the *methodology* the workflow type loads, but the
-**workflow** is the tracked, durable thing.
+Analysis tooling is an external native authority. Concord does not implement or
+ship scanners. The `static_analysis` workflow commissions the external run and
+records its scope, report, evidence, and verdict. Host-owned methodology selects
+the tool and analysis procedure. This boundary follows
+[`predecessor-operational-coverage.md` §3](./predecessor-operational-coverage.md#3-implementation-changes),
+[CD-0043 D1](./decisions/CD-0043-host-owned-lane-methodology.md#d1-lane-methodology-is-never-concord-durable-state),
+and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).
 
 ---
 

@@ -4406,7 +4406,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:04e2bf7ff2ab235a0b8cf199f6333b217f257897ca5fdc0c7444c379d83d1d2a",
+      "sha256": "sha256:48e12b04fca85cb25dd74b78ecdc8fcf1a85d82a4fe9c2c48483ccc474861e08",
       "status": "accepted",
       "summary": "Defines the machine-readable workflow engine implementation contract.",
       "tags": [
@@ -4431,7 +4431,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f313c7f6a32cf73fb21d470f38680867387037ab0773ff043a5baecb7fb03567",
+      "sha256": "sha256:41a6d2dc48805aaed67052858f35b66aa0efa818418526be3de03dc896a8a1ba",
       "status": "published",
       "summary": "Describes the plurality of purpose-built workflow types and their taxonomy, aligned v5.",
       "tags": [

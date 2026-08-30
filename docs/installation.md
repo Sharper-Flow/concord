@@ -10,15 +10,26 @@ The installer performs all checks before changing the operator environment. It
 refuses to continue when any of these are missing:
 
 - Linux amd64;
-- `git`, `opencode`, `secret-tool`, and `gnome-keyring-daemon` commands;
+- `git`, `opencode`, `secret-tool`, `gnome-keyring-daemon`, `busctl`,
+  `dbus-run-session`, and `systemctl` commands;
 - a user-session D-Bus service named `org.freedesktop.secrets`; and
 - the installer's binary directory on `PATH`.
 
-The adapter reads its client signing key from Secret Service storage. Concord
-does not install a keyring, store a private key in a file, or invent a
-file-based fallback. If `secret-tool`, `gnome-keyring-daemon`, or
-`org.freedesktop.secrets` is unavailable, installation refuses and says that
-worker evidence signing will fail closed.
+The adapter reads its client signing key from Secret Service storage. If an
+unlocked compatible collection exists, the installer uses it without changing
+the provider. If no login collection exists, the installer creates an
+unencrypted `gnome-keyring-daemon` collection and a user service that unlocks it after
+the daemon starts. The keyring directory grants access only to its owner.
+
+Concord does not store a private key outside Secret Service or invent a general
+file-based fallback. Private keys do not enter process arguments, logs, stdout,
+temporary files, or a workspace. If setup cannot prove an unlocked collection,
+installation refuses and worker evidence signing fails closed.
+
+Credential state and its unlock service remain after uninstall. Client keys can
+outlive one installed release, and removing the unlock service would strand
+those credentials. Remove or revoke client keys before removing that host
+state.
 
 The installer also refuses to overwrite an existing user-authored adapter,
 launcher, version directory, or incompatible OpenCode configuration. When it

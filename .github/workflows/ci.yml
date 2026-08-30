@@ -146,10 +146,10 @@ jobs:
       - name: Test all packages
         run: go test -timeout=15m ./...
 
-  # Race detector on the concurrency-bearing surface. internal/store is the
-  # single-connection pool with typed transactions and WAL replay — that is
-  # where a data race is silent corruption rather than a flaky test, so race
-  # runs on every branch. The rest of the tree races in the nightly workflow.
+  # Race detector on store tests that use shared memory or concurrent database
+  # access. Migration-history tests replay SQLite schema changes sequentially,
+  # so the ordinary suite covers them without imposing race-detector cost on
+  # every pull request. The rest of the tree races in the nightly workflow.
   verify-race:
     name: verify-race
     runs-on: ubuntu-latest
@@ -169,8 +169,11 @@ jobs:
           path: ~/.cache/go-build
           key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
           restore-keys: go-build-${{ runner.os }}-
-      - name: Test the store under the race detector
-        run: go test -race -timeout=15m ./internal/store/...
+      - name: Test concurrent store access under the race detector
+        run: >-
+          go test -race -timeout=15m -run
+          '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance|TestMigrateOnCurrentDatabaseTakesNoWriteLock|TestMigrateWaitsOutALockHeldPastOneBusyTimeout|TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema)$'
+          ./internal/store
 
   # Production-like acceptance: the ten-process conformance run and the
   # packaged black-box suite.

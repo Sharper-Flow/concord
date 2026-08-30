@@ -31,7 +31,17 @@ class InstallerTests(unittest.TestCase):
         self.write_command("opencode", "exit 0")
         self.write_command("secret-tool", "exit 0")
         self.write_command("gnome-keyring-daemon", "exit 0")
-        self.write_command("busctl", "printf 'org.freedesktop.secrets\\n'")
+        self.write_command(
+            "busctl",
+            r'''case "$*" in
+  "--user --list") printf 'org.freedesktop.secrets\n' ;;
+  *"ReadAlias"*) printf 'o "/org/freedesktop/secrets/collection/login"\n' ;;
+  *" Locked") printf 'b false\n' ;;
+  *) exit 2 ;;
+esac''',
+        )
+        self.write_command("dbus-run-session", "exit 0")
+        self.write_command("systemctl", "exit 0")
         self.env = os.environ.copy()
         self.env["PATH"] = str(self.commands) + os.pathsep + os.defpath
         self.config.parent.mkdir(parents=True)
@@ -116,13 +126,107 @@ class InstallerTests(unittest.TestCase):
 
     def test_missing_prerequisite_refuses_without_installing(self) -> None:
         self.make_release("v1.0.0")
+        (self.commands / "secret-tool").unlink()
+        environment = self.env.copy()
+        environment["PATH"] = str(self.commands)
         result = self.run_installer(
-            "install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts), env={"PATH": "/usr/bin:/bin"}
+            "install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts), env=environment
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing command secret-tool", result.stderr)
         self.assertIn("worker evidence signing fails closed", result.stderr)
         self.assertFalse((self.root / "data").exists())
+
+    def test_headless_install_creates_noninteractive_persistent_credential_collection(self) -> None:
+        self.make_release("v1.0.0")
+        state = self.root / "credential-state"
+        command_log = self.root / "credential-commands.log"
+        keyrings = self.root / "data" / "keyrings"
+        self.env["TEST_CREDENTIAL_STATE"] = str(state)
+        self.env["TEST_CREDENTIAL_LOG"] = str(command_log)
+        self.env["TEST_KEYRINGS"] = str(keyrings)
+        self.write_command(
+            "busctl",
+            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+case "$*" in
+  "--user --list") printf 'org.freedesktop.secrets\n' ;;
+  *"ReadAlias"*)
+    if [ -f "$TEST_CREDENTIAL_STATE" ]; then
+      printf 'o "/org/freedesktop/secrets/collection/login"\n'
+    else
+      printf 'o "/"\n'
+    fi ;;
+  *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/session"\n' ;;
+  *" Items") printf 'ao 0\n' ;;
+  *" Locked")
+    if [ "$(cat "$TEST_CREDENTIAL_STATE" 2>/dev/null)" = ready ]; then printf 'b false\n'; else printf 'b true\n'; fi ;;
+  *"status org.freedesktop.secrets") printf 'PID=0\n' ;;
+  *) exit 2 ;;
+esac''',
+        )
+        self.write_command(
+            "dbus-run-session",
+            r'''printf 'dbus-run-session %s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+mkdir -p "$TEST_KEYRINGS"
+printf 'store' >"$TEST_KEYRINGS/user.keystore"
+printf 'login' >"$TEST_KEYRINGS/login.keyring"
+chmod 700 "$TEST_KEYRINGS"
+chmod 600 "$TEST_KEYRINGS/user.keystore" "$TEST_KEYRINGS/login.keyring"
+printf 'created\n' >"$TEST_CREDENTIAL_STATE"''',
+        )
+        self.write_command(
+            "systemctl",
+            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+case "$*" in
+  *"show"*) printf '0\n' ;;
+  *"enable --now concord-keyring-unlock.service"*) printf 'ready\n' >"$TEST_CREDENTIAL_STATE" ;;
+esac''',
+        )
+
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        unit = self.root / "config" / "systemd" / "user" / "concord-keyring-unlock.service"
+        self.assertTrue(unit.is_file())
+        self.assertEqual(unit.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(keyrings.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((keyrings / "login.keyring").stat().st_mode & 0o777, 0o600)
+        self.assertEqual((keyrings / "user.keystore").stat().st_mode & 0o777, 0o600)
+        combined = first.stdout + first.stderr + unit.read_text(encoding="utf-8")
+        self.assertNotIn("base64:", combined)
+        self.assertNotIn("private_key", combined)
+        self.assertEqual(state.read_text(encoding="utf-8").strip(), "ready")
+        commands = command_log.read_text(encoding="utf-8")
+        self.assertIn("dbus-run-session", commands)
+        self.assertIn("enable --now concord-keyring-unlock.service", commands)
+
+        second = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("already installed", second.stdout)
+
+    def test_install_keeps_an_existing_compatible_secret_service(self) -> None:
+        self.make_release("v1.0.0")
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        unit = self.root / "config" / "systemd" / "user" / "concord-keyring-unlock.service"
+        self.assertFalse(unit.exists())
+
+    def test_headless_install_refuses_to_discard_session_credentials(self) -> None:
+        self.make_release("v1.0.0")
+        self.write_command(
+            "busctl",
+            r'''case "$*" in
+  "--user --list") printf 'org.freedesktop.secrets\n' ;;
+  *"ReadAlias"*) printf 'o "/"\n' ;;
+  *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/session"\n' ;;
+  *" Items") printf 'ao 1 "/org/freedesktop/secrets/collection/session/1"\n' ;;
+  *) exit 2 ;;
+esac''',
+        )
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("session items", result.stderr)
+        self.assertFalse((self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME).exists())
+        self.assertFalse((self.root / "data" / "concord").exists())
 
     def test_install_is_idempotent(self) -> None:
         self.make_release("v1.0.0")

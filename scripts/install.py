@@ -13,7 +13,10 @@ import json
 import os
 import platform
 import re
+import select
+import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -56,6 +59,10 @@ AGENT_FILES = (
 )
 STABLE_ROOT_NAME = "current"
 AGENT_GLOB = "concord-*.md"
+CREDENTIAL_UNIT_NAME = "concord-keyring-unlock.service"
+SECRET_SERVICE_DESTINATION = "org.freedesktop.secrets"
+SECRET_SERVICE_PATH = "/org/freedesktop/secrets"
+SECRET_SERVICE_INTERFACE = "org.freedesktop.Secret.Service"
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,8 @@ class Paths:
     config_file: Path
     tools_dir: Path
     agents_dir: Path
+    systemd_user_dir: Path
+    credential_unit: Path
     launcher: Path
     stable_root: Path
 
@@ -104,6 +113,8 @@ def paths_for(root: Path | None) -> Paths:
         config_file=config_home / "opencode" / "opencode.jsonc",
         tools_dir=config_home / "opencode" / "tools",
         agents_dir=config_home / "opencode" / "agents",
+        systemd_user_dir=config_home / "systemd" / "user",
+        credential_unit=config_home / "systemd" / "user" / CREDENTIAL_UNIT_NAME,
         launcher=bin_dir / "concord",
         stable_root=data_home / "concord" / STABLE_ROOT_NAME,
     )
@@ -452,9 +463,217 @@ def secret_service_status() -> tuple[bool, str]:
     return False, "neither busctl nor gdbus is available to verify org.freedesktop.secrets"
 
 
+def run_checked(arguments: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(arguments, capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise InstallerError(f"command failed: {arguments[0]}: {detail}")
+    return result
+
+
+def busctl_words(arguments: list[str]) -> list[str]:
+    busctl = command_status("busctl")
+    if busctl is None:
+        raise InstallerError("busctl is required for noninteractive Secret Service setup")
+    return shlex.split(run_checked([busctl, "--user", *arguments]).stdout.strip())
+
+
+def secret_service_alias(alias: str) -> str | None:
+    words = busctl_words(
+        ["call", SECRET_SERVICE_DESTINATION, SECRET_SERVICE_PATH, SECRET_SERVICE_INTERFACE, "ReadAlias", "s", alias]
+    )
+    if len(words) != 2 or words[0] != "o":
+        raise InstallerError(f"Secret Service returned an invalid {alias!r} alias result")
+    return None if words[1] == "/" else words[1]
+
+
+def secret_service_property(path: str, interface: str, name: str) -> list[str]:
+    words = busctl_words(["get-property", SECRET_SERVICE_DESTINATION, path, interface, name])
+    if not words:
+        raise InstallerError(f"Secret Service returned no {name} property")
+    return words
+
+
+def secret_service_collections() -> list[str]:
+    words = secret_service_property(SECRET_SERVICE_PATH, SECRET_SERVICE_INTERFACE, "Collections")
+    if len(words) < 2 or words[0] != "ao" or not words[1].isdigit():
+        raise InstallerError("Secret Service returned an invalid Collections property")
+    count = int(words[1])
+    if len(words[2:]) != count:
+        raise InstallerError("Secret Service returned an inconsistent Collections property")
+    return words[2:]
+
+
+def secret_service_collection_locked(path: str) -> bool:
+    words = secret_service_property(path, "org.freedesktop.Secret.Collection", "Locked")
+    if words == ["b", "true"]:
+        return True
+    if words == ["b", "false"]:
+        return False
+    raise InstallerError("Secret Service returned an invalid Locked property")
+
+
+def secret_service_collection_has_items(path: str) -> bool:
+    words = secret_service_property(path, "org.freedesktop.Secret.Collection", "Items")
+    if len(words) < 2 or words[0] != "ao" or not words[1].isdigit():
+        raise InstallerError("Secret Service returned an invalid Items property")
+    count = int(words[1])
+    if len(words[2:]) != count:
+        raise InstallerError("Secret Service returned an inconsistent Items property")
+    return count != 0
+
+
+def secret_service_owner_pid() -> int:
+    busctl = command_status("busctl")
+    if busctl is None:
+        raise InstallerError("busctl is required for noninteractive Secret Service setup")
+    result = run_checked([busctl, "--user", "status", SECRET_SERVICE_DESTINATION])
+    for line in result.stdout.splitlines():
+        if line.startswith("PID=") and line[4:].isdigit():
+            return int(line[4:])
+    return 0
+
+
+def credential_unit_text(daemon: str) -> str:
+    if any(character.isspace() for character in daemon):
+        raise InstallerError(f"gnome-keyring-daemon path contains whitespace: {daemon}")
+    return f"""[Unit]
+Description=Unlock the user Secret Service collection for Concord
+Requires=gnome-keyring-daemon.service
+After=gnome-keyring-daemon.service
+PartOf=gnome-keyring-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'printf "\\n" | {daemon} --unlock --control-directory=%t/keyring'
+
+[Install]
+WantedBy=default.target gnome-keyring-daemon.service
+"""
+
+
+def verify_credential_permissions(keyrings: Path) -> None:
+    if keyrings.is_symlink() or not keyrings.is_dir():
+        raise InstallerError(f"Secret Service credential directory is missing or unsafe: {keyrings}")
+    for path in (keyrings, *keyrings.iterdir()):
+        if path.is_symlink() or path.stat().st_uid != os.getuid():
+            raise InstallerError(f"Secret Service credential path has unsafe ownership: {path}")
+        if stat.S_IMODE(path.stat().st_mode) & 0o077:
+            raise InstallerError(f"Secret Service credential path grants group or other access: {path}")
+
+
+def initialize_login_collection(paths: Paths, daemon: str) -> None:
+    keyrings = paths.data_home / "keyrings"
+    if keyrings.is_symlink():
+        raise InstallerError(f"refusing symlinked Secret Service credential directory {keyrings}")
+    if keyrings.exists() and any(keyrings.iterdir()):
+        allowed = {"login.keyring", "user.keystore"}
+        names = {path.name for path in keyrings.iterdir()}
+        if not names <= allowed or "login.keyring" not in names:
+            raise InstallerError(
+                f"Secret Service has no login alias but {keyrings} contains unknown state; refusing to replace it"
+            )
+        verify_credential_permissions(keyrings)
+        return
+    dbus_run_session = command_status("dbus-run-session")
+    if dbus_run_session is None:
+        raise InstallerError("dbus-run-session is required to initialize the headless Secret Service collection")
+    helper = (
+        "import subprocess,sys;"
+        "daemon,control=sys.argv[1:3];"
+        "subprocess.run([daemon,'--login','--control-directory='+control],input=b'\\n',check=True,"
+        "stdout=subprocess.DEVNULL,stderr=subprocess.PIPE);"
+        "subprocess.run([daemon,'--start','--components=secrets','--control-directory='+control],check=True,"
+        "stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)"
+    )
+    with tempfile.TemporaryDirectory(prefix="concord-keyring-") as runtime:
+        os.chmod(runtime, 0o700)
+        environment = os.environ.copy()
+        for name in ("DBUS_SESSION_BUS_ADDRESS", "DBUS_STARTER_ADDRESS", "DBUS_STARTER_BUS_TYPE", "GNOME_KEYRING_CONTROL"):
+            environment.pop(name, None)
+        environment["HOME"] = str(paths.home)
+        environment["XDG_DATA_HOME"] = str(paths.data_home)
+        environment["XDG_RUNTIME_DIR"] = runtime
+        run_checked(
+            [dbus_run_session, "--", sys.executable, "-c", helper, daemon, str(Path(runtime) / "keyring")],
+            env=environment,
+        )
+    verify_credential_permissions(keyrings)
+
+
+def stop_unmanaged_secret_service(systemctl: str, daemon: str) -> None:
+    run_checked([systemctl, "--user", "start", "gnome-keyring-daemon.socket"])
+    owner = secret_service_owner_pid()
+    main_result = run_checked(
+        [systemctl, "--user", "show", "--property=MainPID", "--value", "gnome-keyring-daemon.service"]
+    )
+    main_pid = int(main_result.stdout.strip() or "0")
+    if owner and owner != main_pid:
+        for collection in secret_service_collections():
+            if secret_service_collection_has_items(collection):
+                raise InstallerError(
+                    "the active non-systemd Secret Service contains session items; refusing to stop it during setup"
+                )
+        executable = (Path("/proc") / str(owner) / "exe").resolve()
+        if executable.name != Path(daemon).name or executable.stat().st_uid != os.getuid():
+            raise InstallerError("the active Secret Service is not the current user's gnome-keyring-daemon")
+        descriptor = os.pidfd_open(owner)
+        try:
+            os.kill(owner, signal.SIGTERM)
+            ready, _, _ = select.select([descriptor], [], [], 5)
+            if not ready:
+                raise InstallerError("the prior Secret Service did not stop within 5 seconds")
+        finally:
+            os.close(descriptor)
+    run_checked([systemctl, "--user", "restart", "gnome-keyring-daemon.service"])
+
+
+def ensure_secret_service_ready(paths: Paths) -> None:
+    daemon = command_status("gnome-keyring-daemon")
+    systemctl = command_status("systemctl")
+    if daemon is None or systemctl is None:
+        raise InstallerError("gnome-keyring-daemon and systemctl are required for credential setup")
+    login = secret_service_alias("login")
+    keyrings = paths.data_home / "keyrings"
+    if login is not None and not secret_service_collection_locked(login) and not keyrings.exists():
+        # A compatible provider such as KeePassXC can own Secret Service
+        # without GNOME Keyring files. It already satisfies the contract, so
+        # do not start a competing provider or install an unrelated unit.
+        return
+    if login is None:
+        for collection in secret_service_collections():
+            if secret_service_collection_has_items(collection):
+                raise InstallerError("Secret Service contains session items; refusing headless collection initialization")
+        initialize_login_collection(paths, daemon)
+    unit_text = credential_unit_text(daemon)
+    if paths.credential_unit.exists():
+        if not paths.credential_unit.is_file() or paths.credential_unit.read_text(encoding="utf-8") != unit_text:
+            raise InstallerError(f"refusing to overwrite user-authored credential unit {paths.credential_unit}")
+    else:
+        write_atomic(paths.credential_unit, unit_text.encode("utf-8"), 0o644)
+
+    if login is None:
+        stop_unmanaged_secret_service(systemctl, daemon)
+
+    run_checked([systemctl, "--user", "daemon-reload"])
+    run_checked([systemctl, "--user", "enable", "--now", CREDENTIAL_UNIT_NAME])
+    login = secret_service_alias("login")
+    if login is None or secret_service_collection_locked(login):
+        raise InstallerError("Secret Service login collection is unavailable after noninteractive setup")
+    if keyrings.exists():
+        verify_credential_permissions(keyrings)
+
+
 def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None) -> ConfigPlan:
     failures: list[str] = []
-    for managed_parent in (paths.data_root, paths.tools_dir, paths.agents_dir, paths.bin_dir, paths.config_file.parent):
+    for managed_parent in (
+        paths.data_root,
+        paths.tools_dir,
+        paths.agents_dir,
+        paths.systemd_user_dir,
+        paths.bin_dir,
+        paths.config_file.parent,
+    ):
         if managed_parent.is_symlink():
             failures.append(f"refusing symlinked managed path {managed_parent}")
     if paths.stable_root.exists() and not paths.stable_root.is_symlink():
@@ -470,6 +689,9 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         ("opencode", "the global Concord custom tool cannot be used without OpenCode"),
         ("secret-tool", "worker evidence signing fails closed because Concord cannot read the client signing key"),
         ("gnome-keyring-daemon", "the Secret Service provider holding the client signing key is missing"),
+        ("busctl", "noninteractive Secret Service inspection is unavailable"),
+        ("dbus-run-session", "the headless login collection cannot be initialized safely"),
+        ("systemctl", "the user Secret Service cannot be restarted or unlocked after login"),
     ):
         if command_status(command) is None:
             failures.append(f"missing command {command}; {consequence}")
@@ -488,6 +710,15 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         expected_launcher = old_manifest.get("launcher_target") if old_manifest else None
         if not old_manifest or not paths.launcher.is_symlink() or os.readlink(paths.launcher) != expected_launcher:
             failures.append(f"refusing to overwrite user-authored launcher {paths.launcher}")
+    daemon = command_status("gnome-keyring-daemon")
+    if daemon and (paths.credential_unit.exists() or paths.credential_unit.is_symlink()):
+        expected_unit = credential_unit_text(daemon)
+        if (
+            paths.credential_unit.is_symlink()
+            or not paths.credential_unit.is_file()
+            or paths.credential_unit.read_text(encoding="utf-8") != expected_unit
+        ):
+            failures.append(f"refusing to overwrite user-authored credential unit {paths.credential_unit}")
     adapter_records = managed_adapter_records(old_manifest)
     for name in ADAPTER_FILES:
         destination = paths.tools_dir / name
@@ -1529,6 +1760,7 @@ def install(args: argparse.Namespace) -> int:
         skill_path = str((paths.data_root / version / "skills").resolve())
         if config_plan.changed or manifest.get("skill_path") != skill_path:
             raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
+        ensure_secret_service_ready(paths)
         print(f"Concord {version} is already installed; no changes made.")
         return 0
 
@@ -1582,6 +1814,7 @@ def install(args: argparse.Namespace) -> int:
             "config_path": str(paths.config_file.resolve()),
         }
         new_manifest_bytes = (json.dumps(new_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        ensure_secret_service_ready(paths)
         transaction_root, journal = make_transaction(
             paths,
             "install",

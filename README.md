@@ -31,7 +31,8 @@ The installer requires:
 
 - Linux amd64;
 - Python 3;
-- `git`, `opencode`, `secret-tool`, and `gnome-keyring-daemon`;
+- `git`, `opencode`, `secret-tool`, `gnome-keyring-daemon`, `busctl`,
+  `dbus-run-session`, and `systemctl`;
 - a user-session Secret Service at `org.freedesktop.secrets`; and
 - `$HOME/.local/bin` on `PATH`.
 
@@ -47,6 +48,11 @@ The installer verifies the published checksum and bundle before changing the
 operator environment. It refuses to overwrite user-authored files and recovers
 interrupted install, upgrade, or uninstall operations. Restart OpenCode after
 installation or upgrade.
+
+On a headless host with no login collection, the installer creates an
+unencrypted, user-scoped `gnome-keyring-daemon` collection. The user-account boundary
+protects its files. No private key enters a file outside Secret Service,
+process arguments, logs, or installer output.
 
 Inspect or remove a managed installation with:
 

@@ -1,5 +1,18 @@
 {
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    }
+  ],
   "id": "knowledge-formalization-procedure",
-  "issue": 295,
-  "state": "outstanding"
+  "state": "satisfied"
 }

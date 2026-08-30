@@ -163,9 +163,10 @@ re-litigate them silently.
   `github.com/sharper-flow/concord`, default branch `main`, MIT, one Product
   version, GitHub Releases plus a Concord installer, and public-repository authority
   after the audited bootstrap tag.
-- **Execution status:** the contract was accepted on 2026-08-06; bootstrap execution
-  was explicitly authorized on 2026-08-07. Runtime self-hosting remains blocked until
-  replacement readiness.
+- **Execution status:** the contract was accepted on 2026-08-06, and bootstrap
+  execution was authorized on 2026-08-07. Issue #600 shipped through pull request
+  #605. CD-0089 now governs Concord development coordination; replacement readiness
+  remains an evidence claim.
 
 ### C2. Storage model for Concord-owned state
 - **✅ RESOLVED 2026-08-05 by [`CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3.**
@@ -178,10 +179,10 @@ re-litigate them silently.
   documented in CD-0002 §2 as upgrade/fallback paths. PM2 resolves one global
   local authority; PM3 replaces CD-0003 D1's generic materialized spine with typed
   projections while retaining its generic authoritative event log and D2/D3.
-- **Blocks (resolved):** PM1–PM5 authorize storage/core implementation; CD-0007
-  resolves repository/deploy packaging, while runtime self-hosting remains deferred
-  until replacement readiness. TS tracks govern later release
-  completeness rather than reopening the accepted storage authority.
+- **Blocks (resolved):** PM1–PM5 authorize storage/core implementation, and CD-0007
+  resolves repository and deploy packaging. CD-0089 permits Concord development
+  coordination after issue #600 without changing the accepted storage authority.
+  TS tracks govern release completeness rather than reopening that authority.
 
 ---
 
@@ -358,7 +359,7 @@ re-litigate them silently.
   durable to land.
 - **What it blocks:** nothing in the storage or tool-surface slices. It shapes any
   workflow expected to run longer than one window, and it should be settled before a
-  self-hosting readiness claim.
+  replacement-readiness claim. This does not block Concord development under CD-0089.
 - **Direction:** ✅ accepted under CD-0016 (2026-08-11). Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from
   SQLite on every call; summaries are advisory and summary-only boundaries are

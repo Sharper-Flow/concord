@@ -548,7 +548,7 @@
       },
       "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730",
       "status": "accepted",
-      "summary": "Defines GitHub-native development authority before replacement readiness.",
+      "summary": "Defines GitHub planning, review, and isolation authority. CD-0089 supersedes only its self-hosting prohibition.",
       "tags": [
         "authority",
         "github"
@@ -2763,6 +2763,45 @@
       "title": "Provider-specific provisioning may initialize OS custody"
     },
     {
+      "date": "2026-08-30T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0089",
+      "kind": "decision",
+      "law_relations": [
+        {
+          "kind": "refines",
+          "target_id": "CD-0010"
+        },
+        {
+          "kind": "refines",
+          "target_id": "CD-0007"
+        },
+        {
+          "kind": "refines",
+          "target_id": "CD-0082"
+        }
+      ],
+      "path": "docs/decisions/CD-0089-concord-development-coordination.md",
+      "product_wide_rationale": "Moves Concord development coordination into Concord after the issue #600 bootstrap release while preserving GitHub planning and merge authority, replacement-readiness evidence, and Advance reference-only status.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:9ca743c0abb1fbfdfe4d40f235af9255230abccc184659684b4267f106e1fc3a",
+      "status": "accepted",
+      "summary": "Concord owns its development workflow after issue #600 while GitHub retains planning, review, and merge authority. CD-0089 supersedes only CD-0010's self-hosting prohibition.",
+      "tags": [
+        "authority",
+        "coordination",
+        "github",
+        "replacement-readiness"
+      ],
+      "title": "Concord development coordination"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -3253,7 +3292,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:7304914ce260ef63690ee307869b7d8ce2056d98026a681e46366aed592a2c1d",
+      "sha256": "sha256:5080e4580c6570d07a8fa2f74866523cb574712803370b73fc228a3f2171877a",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -3804,7 +3843,7 @@
       "title": "capability placement"
     },
     {
-      "date": "2026-08-07T00:00:00Z",
+      "date": "2026-08-30T00:00:00Z",
       "evidence": [
         "docs/priorities.md"
       ],
@@ -3818,7 +3857,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f5d45c3f667418fd53467b19739af17a698c9731330b5192392b64915b3575da",
+      "sha256": "sha256:0889522a9dda05c47cc2a7f512b4da5706e7488684a92d3d6ea8f2ae61fec98d",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -3917,13 +3956,32 @@
         {
           "criterion": 4,
           "exemption": "Law-conflict surfacing is enforced by scripts/check-knowledge-closure.py --strict, which requires every document to carry an accepted record or explicit disposition."
+        },
+        {
+          "criterion": 5,
+          "exemption": "Session identity and authoritative issue linkage are enforced by the concord session boot contract, the capture external_ref contract, and their CLI and agent contract tests."
+        },
+        {
+          "criterion": 6,
+          "exemption": "Durable transition, evidence, and completion records are enforced by the generated agent contracts and store workflow tests."
+        },
+        {
+          "criterion": 7,
+          "exemption": "Replacement readiness is checked by scripts/check-floor-readiness.py against the accepted floor manifest and executable evidence anchors."
+        },
+        {
+          "criterion": 8,
+          "exemption": "The no-predecessor-write boundary is enforced by scripts/check-predecessor-independence.py."
         }
       ],
-      "date": "2026-08-07T00:00:00Z",
+      "date": "2026-08-30T00:00:00Z",
       "evidence": [
         "scripts/check-public-content.py",
         "scripts/check-commit-title.py",
         "scripts/check-knowledge-closure.py",
+        "scripts/check-agent-contracts.py",
+        "scripts/check-floor-readiness.py",
+        "scripts/check-predecessor-independence.py",
         ".github/workflows/ci.yml"
       ],
       "home_domain_id": "repository-verification",
@@ -3937,13 +3995,14 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bc3f5c04a3714c90289384aeae7fe4650f9c0247a428ee899ccaacd78697e813",
+      "sha256": "sha256:5f8eb9167e96b8064d14bb8894a8e3fc025f1158ebd8df4b1d1e34094f2f2d0e",
       "status": "accepted",
-      "summary": "Defines the interim GitHub-native development authority Concord uses before replacement readiness under CD-0010.",
+      "summary": "Defines Concord's development workflow after issue #600 while GitHub retains planning, review, and merge authority under CD-0089.",
       "tags": [
         "authority",
         "process",
-        "cd-0010"
+        "cd-0088",
+        "coordination"
       ],
       "title": "development authority"
     },
@@ -4128,7 +4187,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:083bc744c9cb3961f775d40e22c7d79eb7d1d73b543ff367f5c6bd5b46f0f994",
+      "sha256": "sha256:634fd941e1e0b5d87dad71c9d07d75b84fcc2a9e8b693e7ddc15b53eac20d45f",
       "status": "accepted",
       "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
       "tags": [
@@ -4167,6 +4226,7 @@
       "date": "2026-08-05T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0002-concord-state-authority.md",
+        "docs/decisions/CD-0089-concord-development-coordination.md",
         "README.md"
       ],
       "home_domain_id": "product-root:concord",
@@ -4181,7 +4241,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f41ebde77f0bbc9e3227a1bafbc75e8d79340555995585719f9af10cf075ded1",
+      "sha256": "sha256:608aef8956f2e2a07b30673e57df74de600d0a0da8f6bac7f68eb93d793b8bfc",
       "status": "accepted",
       "summary": "Records Concord's public origin, the private material excluded at bootstrap, and the transition of authority to this repository.",
       "tags": [
@@ -4191,10 +4251,11 @@
       "title": "provenance"
     },
     {
-      "date": "2026-08-07T00:00:00Z",
+      "date": "2026-08-30T00:00:00Z",
       "evidence": [
         "docs/decisions/CD-0007-concord-repository-bootstrap.md",
-        "docs/decisions/CD-0010-pre-readiness-development-authority.md"
+        "docs/decisions/CD-0010-pre-readiness-development-authority.md",
+        "docs/decisions/CD-0089-concord-development-coordination.md"
       ],
       "id": "rollout-plan",
       "kind": "reference",
@@ -4206,9 +4267,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:9e2e4ddd8285c70bf0539c05131d357f7ed921fcad6e0198cf4b3931d6efa9ac",
+      "sha256": "sha256:d77c0878d3967925f4776d7893a51c6159632c38e64b508adfa67e6ecdd3e2a5",
       "status": "published",
-      "summary": "Sequences the public bootstrap and the path to replacement readiness under CD-0007 and CD-0010.",
+      "summary": "Sequences the public bootstrap and Concord development coordination under CD-0007 and CD-0089 while retaining replacement-readiness evidence.",
       "tags": [
         "rollout",
         "sequencing"

@@ -7,10 +7,10 @@ OpenCode adapter with public contracts, scenarios, and repository validators.
 
 ## Status
 
-Concord is pre-replacement-readiness. Until the
-[accepted readiness floor](docs/floor-readiness.md) is proven, GitHub issues,
-pull requests, and worktrees remain the authority for Concord's own
-development; Concord must not coordinate its own development.
+Concord coordinates its own development under CD-0089. The
+[accepted readiness floor](docs/floor-readiness.md) remains an evidence claim,
+not a gate. GitHub issues remain authority for planning, and pull requests plus
+required checks remain authority for review and merge.
 
 Published releases support Linux amd64 only.
 
@@ -136,13 +136,14 @@ CI runs commands natively rather than through `bin/oc-test` and adds
 
 ## Development
 
-Development remains GitHub-native until Concord proves replacement readiness:
+Concord development uses its own workflow:
 
 1. Start from a public issue.
-2. Create an isolated branch and worktree from `main`.
-3. Follow accepted decisions and linked acceptance scenarios.
-4. Open a pull request with local evidence.
-5. Merge only after required checks pass.
+2. Start a Concord session with the issue link.
+3. Create an isolated branch and worktree from `main`.
+4. Follow accepted decisions and linked acceptance scenarios.
+5. Open a pull request with local evidence.
+6. Merge only after required checks pass.
 
 The first runtime milestone is the
 [storage-spine acceptance slice](docs/storage-spine-slice.md). Advance is

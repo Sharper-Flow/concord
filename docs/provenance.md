@@ -38,9 +38,10 @@ The public Concord repository is:
 - Constitutional authority start: annotated tag `constitutional-bootstrap`
 
 Before that tag, this candidate is a preparation artifact. At and after that tag,
-the public repository is the authority for the constitutional documents. Later
-changes require the accepted GitHub-native development authority described in
-[`development-authority.md`](./development-authority.md).
+the public repository is the authority for the constitutional documents. After
+issue #600 ships, later changes use Concord's development workflow under CD-0089.
+GitHub Issues, pull requests, and required checks retain their planning, review,
+and merge authority.
 
 ## Date record
 

@@ -1,5 +1,5 @@
 {
-  "date": "2026-08-07T00:00:00Z",
+  "date": "2026-08-30T00:00:00Z",
   "evidence": [
     "docs/priorities.md"
   ],
@@ -13,7 +13,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f5d45c3f667418fd53467b19739af17a698c9731330b5192392b64915b3575da",
+  "sha256": "sha256:0889522a9dda05c47cc2a7f512b4da5706e7488684a92d3d6ea8f2ae61fec98d",
   "status": "published",
   "summary": "Living index of resolved directions and the open questions still needing operator direction.",
   "tags": [

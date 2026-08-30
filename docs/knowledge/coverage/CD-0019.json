@@ -1,5 +1,10 @@
 {
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-predecessor-coverage.py"
+    }
+  ],
   "id": "CD-0019",
-  "issue": 295,
-  "state": "outstanding"
+  "state": "satisfied"
 }

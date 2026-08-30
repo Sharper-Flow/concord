@@ -1,32 +1,29 @@
-# Development authority before replacement readiness
+# Concord development authority
 
-**Status:** Accepted under CD-0010.
-**Approval date:** 2026-08-07.
-**Approval:** Operator plan approval.
+**Status:** Accepted under CD-0089.
+**Approval date:** 2026-08-30.
+**Approval:** Operator approval for issue #602.
 
-This is the interim authority model for public Concord development. It keeps the
-project GitHub-native while Concord is not yet ready to coordinate its own
-development.
+This is the authority model for Concord development under CD-0089. Concord owns
+its workflow records while GitHub retains planning, review, and merge authority.
 
 ## Context
 
-Concord is a public Go project that cannot yet coordinate its own
-development. The binding input is CD-0010's accepted rule: the project stays
-GitHub-native until replacement readiness is proven. This record fixes the
-interim authority model — which surface owns each fact type — and the six
-rules that keep public evidence authoritative while Concord is developed
-outside itself.
+Concord is a public Go project that coordinates its development through its own
+workflow after the issue #600 bootstrap release. CD-0089 supersedes only CD-0010's
+self-hosting prohibition. This record fixes which surface owns each fact type and
+keeps public evidence authoritative during Concord development.
 ## Contract
 
-The binding contract is the authority-by-fact-type table and the six
-rules: issues plan work, pull requests and checks own review and merge
-evidence, branches and worktrees isolate implementation, accepted documents
-are Product law, the predecessor is reference-only, and Concord does not
-self-host its development before replacement readiness.
+The binding contract is the authority-by-fact-type table and the six rules:
+Concord owns its workflow records, issues plan work, pull requests and checks own
+review and merge evidence, branches and worktrees isolate implementation, accepted
+documents are Product law, and the predecessor is reference-only.
 ## Authority by fact type
 
 | Fact or action | Authority | Evidence |
 |---|---|---|
+| Concord development workflow | Concord | Session identity, linked issue, transitions, evidence, and completion records |
 | Planned work and defects | GitHub Issues | Issue body, labels, links, and discussion history |
 | Review and merge | Pull requests and required checks | Review decisions, check results, merge record, and changed files |
 | Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits |
@@ -45,11 +42,11 @@ self-host its development before replacement readiness.
    with accepted law must surface the conflict rather than silently narrowing scope.
 5. Advance is reference-only. Concord does not dual-write predecessor state and does
    not treat predecessor runtime state as a second authority.
-6. Concord does not self-host Concord development before replacement readiness. The
-    public GitHub model remains authoritative until the accepted replacement-ready
-    floor is proven.
+6. Replacement readiness is an evidence claim defined by the accepted floor and
+   release evidence. It does not block Concord development or trigger migration.
 
-CD-0010 is the accepted pre-readiness rule. Any replacement of this model requires
+CD-0089 supersedes only CD-0010's self-hosting prohibition. The CD-0010 file and
+historical research records remain unchanged. Any later change to this model needs
 an accepted decision record and public review evidence.
 
 ## Acceptance criteria
@@ -73,6 +70,23 @@ an accepted decision record and public review evidence.
   When review runs
   Then the conflict is surfaced, never silently narrowed.
 
+- Given Concord development work
+  When an agent starts a session
+  Then Concord records the session identity and its authoritative GitHub issue.
+
+- Given a workflow transition, evidence verdict, or completion claim
+  When the operation succeeds
+  Then Concord records the operation in its durable authority.
+
+- Given a replacement-readiness claim
+  When the claim is checked
+  Then the accepted readiness floor supplies the evidence without blocking
+  Concord development.
+
+- Given Concord development work
+  When the workflow records its state
+  Then Concord writes no Advance state.
+
 ## Verification
 
 This record governs process authority, which is enforced by repository
@@ -95,3 +109,7 @@ typed exemption naming the enforcing mechanism.
 - Criterion 4 is enforced by `scripts/check-knowledge-closure.py --strict`,
   which requires every document under knowledge roots to carry an accepted
   record or explicit disposition before a change can pass validation.
+- Criteria 5 and 6 are enforced by the Concord session and transition contracts,
+  which require session identity, issue linkage, and durable operation records.
+- Criterion 7 uses the accepted floor manifest and release evidence.
+- Criterion 8 is enforced by `scripts/check-predecessor-independence.py`.

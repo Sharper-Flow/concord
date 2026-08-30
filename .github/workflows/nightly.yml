@@ -1,0 +1,43 @@
+name: Nightly
+
+# The per-branch CI races the store — the concurrency-bearing surface — on
+# every run. The full-tree race suite and the vulnerability scan change their
+# answers slowly, so they run on a schedule against main instead of costing
+# every pull request and every merge-group verification.
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    name: full-race-and-vulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Download Go modules
+        run: go mod download all
+      - name: Restore Go build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
+      - name: Test every package under the race detector
+        # internal/agent under -race runs at ~575-595s on 2-core runners.
+        # The 30m timeout leaves headroom for routine growth.
+        run: go test -race -timeout=30m ./...
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

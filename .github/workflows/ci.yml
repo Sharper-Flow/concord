@@ -3,9 +3,11 @@ name: CI
 on:
   pull_request:
   # A merge queue validates each pull request against the latest main plus the
-  # entries ahead of it, on a temporary `gh-readonly-queue/**` ref. `verify` is
-  # a required check, and a merge group that never reports one cannot merge, so
-  # this trigger is what lets the queue replace the up-to-date requirement.
+  # entries ahead of it, on a temporary `gh-readonly-queue/**` ref. The
+  # verify* checks below are required, and a merge group that never reports
+  # one cannot merge, so this trigger is what lets the queue replace the
+  # up-to-date requirement. The jobs run in parallel; wall time is the
+  # slowest job, not the sum of every step.
   merge_group:
   push:
     branches:
@@ -15,6 +17,8 @@ permissions:
   contents: read
 
 jobs:
+  # Validators and the Python script battery. No Go compilation here: the
+  # Go-dependent analysis checks live in verify-go.
   verify:
     name: verify
     runs-on: ubuntu-latest
@@ -23,15 +27,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version-file: go.mod
-      - name: Download Go modules
-        # `all` scope, not the default: the dependency-inventory generator
-        # resolves the full build list offline, including module-graph-only
-        # modules that building the main module never fetches.
-        run: go mod download all
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -70,7 +65,7 @@ jobs:
       - name: Validate storage vocabulary authority
         run: python3 scripts/check-vocabulary-authority.py
       - name: Check vocabulary generators
-        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check && python3 scripts/generate-dependency-inventory.py --check
+        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check
       - name: Validate work-item and native-run vocabularies
         run: python3 scripts/check-work-kinds.py && python3 scripts/check-native-run-statuses.py
       - name: Validate archived-work knowledge-kind vocabulary
@@ -80,7 +75,35 @@ jobs:
       - name: Validate approval consequence vocabulary
         run: python3 scripts/check-approval-consequence.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-generate-dependency-inventory.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-evidence-anchors.py && python3 scripts/test-reachability.py && python3 scripts/test-complexity.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py
+        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py
+
+  # Go static analysis: build hygiene, lint, and the callgraph/complexity
+  # planes. Cached module and build caches keep the pinned analysis tools
+  # from being recompiled on every run.
+  verify-go:
+    name: verify-go
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Download Go modules
+        # `all` scope, not the default: the dependency-inventory generator
+        # resolves the full build list offline, including module-graph-only
+        # modules that building the main module never fetches.
+        run: go mod download all
+      - name: Restore Go build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
       - name: Check Go formatting
         run: test -z "$(gofmt -l .)"
       - name: Tidy Go modules
@@ -95,11 +118,81 @@ jobs:
         run: python3 scripts/check-reachability.py
       - name: Validate cognitive-complexity budget
         run: python3 scripts/check-complexity.py
-      - name: Test with race detector
-        # internal/agent under -race runs at ~575-595s on 2-core runners —
-        # 96-99% of the 10m default. The suite outgrew the default timeout;
-        # raise it rather than let routine growth flake every branch.
-        run: go test -race -timeout=20m ./...
+      - name: Check dependency inventory generator
+        run: python3 scripts/generate-dependency-inventory.py --check
+      - name: Test reachability and complexity checkers
+        run: python3 scripts/test-reachability.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py && python3 scripts/test-generate-dependency-inventory.py
+
+  # Full suite without the race detector.
+  verify-tests:
+    name: verify-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Restore Go build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
+      - name: Test all packages
+        run: go test -timeout=15m ./...
+
+  # Race detector on the concurrency-bearing surface. internal/store is the
+  # single-connection pool with typed transactions and WAL replay — that is
+  # where a data race is silent corruption rather than a flaky test, so race
+  # runs on every branch. The rest of the tree races in the nightly workflow.
+  verify-race:
+    name: verify-race
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Restore Go build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
+      - name: Test the store under the race detector
+        run: go test -race -timeout=15m ./internal/store/...
+
+  # Production-like acceptance: the ten-process conformance run and the
+  # packaged black-box suite.
+  verify-acceptance:
+    name: verify-acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Restore Go build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
       - name: Run production-like ten-process acceptance conformance
         env:
           CONCORD_CONFORMANCE_LONG: "1"
@@ -107,5 +200,3 @@ jobs:
         run: go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
       - name: Run packaged black-box acceptance
         run: python3 scripts/test-blackbox-acceptance.py
-      - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

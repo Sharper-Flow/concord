@@ -867,6 +867,42 @@ esac''',
         self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
         self.assertEqual(target.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:v2.0.0\n")
 
+    def test_upgrade_removes_agent_retired_by_new_manifest(self) -> None:
+        retired = installer.AGENT_FILES[-1]
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / retired
+        self.make_release("v2.0.0", agent_names=installer.AGENT_FILES[:-1])
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertFalse(target.exists())
+
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertFalse(target.exists())
+
+    def test_upgrade_rollback_restores_agent_retired_by_new_manifest(self) -> None:
+        retired = installer.AGENT_FILES[-1]
+        self.make_release("v1.0.0", marker="old")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / retired
+        old_content = target.read_bytes()
+        self.make_release("v2.0.0", marker="new", agent_names=installer.AGENT_FILES[:-1])
+        stopped = self.run_after_phase(
+            "agents_swapped", "install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts)
+        )
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        self.assertFalse(target.exists())
+
+        recovered = self.run_installer("status")
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertEqual(target.read_bytes(), old_content)
+        self.assertIn('"version": "v1.0.0"', recovered.stdout)
+
     def test_uninstall_removes_central_agents_and_current_symlink(self) -> None:
         self.make_release("v1.0.0")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))

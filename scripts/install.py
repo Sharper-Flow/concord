@@ -1478,6 +1478,20 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
         new_agents = journal.get("new_agents") or {}
         if not isinstance(new_agents, dict):
             raise InstallerError("transaction has malformed agent targets")
+        old_agents = journal.get("old_agents") or {}
+        if not isinstance(old_agents, dict):
+            raise InstallerError("transaction has malformed agent records")
+        for name, state in old_agents.items():
+            if name in new_agents:
+                continue
+            if not isinstance(name, str) or not isinstance(state, dict):
+                raise InstallerError("transaction has malformed agent record")
+            target = paths.agents_dir / name
+            if not state_matches(target, state):
+                raise InstallerError(f"transaction conflict at agent {name}; refusing removal")
+            if target.exists() or target.is_symlink():
+                target.unlink()
+                touched = True
         version = journal["new_version"]
         if not isinstance(version, str):
             raise InstallerError("transaction has no new version")

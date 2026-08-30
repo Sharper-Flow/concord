@@ -125,6 +125,42 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 		}
 		return validateSchemaValue(value, target, root, path)
 	}
+	if err := validateValueKeywords(value, schema, path); err != nil {
+		return err
+	}
+	if object, ok := value.(map[string]any); ok {
+		if err := validateObjectKeywords(object, schema, root, path); err != nil {
+			return err
+		}
+	}
+	if array, ok := value.([]any); ok {
+		if err := validateArrayKeywords(array, schema, root, path); err != nil {
+			return err
+		}
+	}
+	if text, ok := value.(string); ok {
+		if err := validateStringKeywords(text, schema, path); err != nil {
+			return err
+		}
+	}
+	if number, ok := value.(json.Number); ok {
+		if err := validateNumberKeywords(number, schema, path); err != nil {
+			return err
+		}
+	}
+	if err := validateCompositionKeywords(value, schema, root, path); err != nil {
+		return err
+	}
+	if err := validateConditionalKeyword(value, schema, root, path); err != nil {
+		return err
+	}
+	if err := validateNegationKeyword(value, schema, root, path); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateValueKeywords(value any, schema map[string]any, path string) error {
 	if constant, ok := schema["const"]; ok && !reflect.DeepEqual(value, constant) {
 		return fmt.Errorf("const mismatch at %s", path)
 	}
@@ -142,105 +178,117 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 	if types, ok := schema["type"]; ok && !matchesAnyType(value, types) {
 		return fmt.Errorf("type mismatch at %s", path)
 	}
-	if object, ok := value.(map[string]any); ok {
-		properties, _ := schema["properties"].(map[string]any)
-		if required, ok := schema["required"].([]any); ok {
-			for _, raw := range required {
-				name, _ := raw.(string)
-				if _, exists := object[name]; !exists {
-					return fmt.Errorf("missing required %s.%s", path, name)
-				}
+	return nil
+}
+
+func validateObjectKeywords(object map[string]any, schema map[string]any, root map[string]any, path string) error {
+	properties, _ := schema["properties"].(map[string]any)
+	if required, ok := schema["required"].([]any); ok {
+		for _, raw := range required {
+			name, _ := raw.(string)
+			if _, exists := object[name]; !exists {
+				return fmt.Errorf("missing required %s.%s", path, name)
 			}
 		}
-		if additional, exists := schema["additionalProperties"]; exists {
-			if additionalPropertiesFalse, ok := additional.(bool); ok && !additionalPropertiesFalse {
-				for key := range object {
-					if _, exists := properties[key]; !exists {
-						return fmt.Errorf("unknown property %s.%s", path, key)
+	}
+	if additional, exists := schema["additionalProperties"]; exists {
+		if additionalPropertiesFalse, ok := additional.(bool); ok && !additionalPropertiesFalse {
+			for key := range object {
+				if _, exists := properties[key]; !exists {
+					return fmt.Errorf("unknown property %s.%s", path, key)
+				}
+			}
+		} else if child, ok := additional.(map[string]any); ok {
+			for key, entry := range object {
+				if _, exists := properties[key]; !exists {
+					if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
+						return err
 					}
 				}
-			} else if child, ok := additional.(map[string]any); ok {
-				for key, entry := range object {
-					if _, exists := properties[key]; !exists {
-						if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
-							return err
-						}
-					}
-				}
-			}
-		}
-		for key, raw := range properties {
-			if entry, exists := object[key]; exists {
-				child, ok := raw.(map[string]any)
-				if !ok {
-					return fmt.Errorf("invalid schema property %s", key)
-				}
-				if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
-					return err
-				}
-			}
-		}
-		if n, ok := schema["minProperties"].(json.Number); ok && len(object) < numberInt(n) {
-			return fmt.Errorf("minProperties at %s", path)
-		}
-		if n, ok := schema["maxProperties"].(json.Number); ok && len(object) > numberInt(n) {
-			return fmt.Errorf("maxProperties at %s", path)
-		}
-	}
-	if array, ok := value.([]any); ok {
-		if n, ok := schema["minItems"].(json.Number); ok && len(array) < numberInt(n) {
-			return fmt.Errorf("minItems at %s", path)
-		}
-		if n, ok := schema["maxItems"].(json.Number); ok && len(array) > numberInt(n) {
-			return fmt.Errorf("maxItems at %s", path)
-		}
-		if unique, ok := schema["uniqueItems"].(bool); ok && unique {
-			seen := map[string]bool{}
-			for _, entry := range array {
-				raw, _ := json.Marshal(entry)
-				if seen[string(raw)] {
-					return fmt.Errorf("uniqueItems at %s", path)
-				}
-				seen[string(raw)] = true
-			}
-		}
-		if child, ok := schema["items"].(map[string]any); ok {
-			for i, entry := range array {
-				if err := validateSchemaValue(entry, child, root, fmt.Sprintf("%s[%d]", path, i)); err != nil {
-					return err
-				}
 			}
 		}
 	}
-	if text, ok := value.(string); ok {
-		if n, ok := schema["minLength"].(json.Number); ok && len([]rune(text)) < numberInt(n) {
-			return fmt.Errorf("minLength at %s", path)
-		}
-		if n, ok := schema["maxLength"].(json.Number); ok && len([]rune(text)) > numberInt(n) {
-			return fmt.Errorf("maxLength at %s", path)
-		}
-		if pattern, ok := schema["pattern"].(string); ok {
-			matched, _ := regexp.MatchString(pattern, text)
-			if !matched {
-				return fmt.Errorf("pattern at %s", path)
+	for key, raw := range properties {
+		if entry, exists := object[key]; exists {
+			child, ok := raw.(map[string]any)
+			if !ok {
+				return fmt.Errorf("invalid schema property %s", key)
+			}
+			if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
+				return err
 			}
 		}
 	}
-	if number, ok := value.(json.Number); ok {
-		n, _ := strconv.ParseFloat(string(number), 64)
-		if min, ok := schema["minimum"].(json.Number); ok {
-			m, _ := strconv.ParseFloat(string(min), 64)
-			if n < m {
-				return fmt.Errorf("minimum at %s", path)
+	if n, ok := schema["minProperties"].(json.Number); ok && len(object) < numberInt(n) {
+		return fmt.Errorf("minProperties at %s", path)
+	}
+	if n, ok := schema["maxProperties"].(json.Number); ok && len(object) > numberInt(n) {
+		return fmt.Errorf("maxProperties at %s", path)
+	}
+	return nil
+}
+
+func validateArrayKeywords(array []any, schema map[string]any, root map[string]any, path string) error {
+	if n, ok := schema["minItems"].(json.Number); ok && len(array) < numberInt(n) {
+		return fmt.Errorf("minItems at %s", path)
+	}
+	if n, ok := schema["maxItems"].(json.Number); ok && len(array) > numberInt(n) {
+		return fmt.Errorf("maxItems at %s", path)
+	}
+	if unique, ok := schema["uniqueItems"].(bool); ok && unique {
+		seen := map[string]bool{}
+		for _, entry := range array {
+			raw, _ := json.Marshal(entry)
+			if seen[string(raw)] {
+				return fmt.Errorf("uniqueItems at %s", path)
 			}
+			seen[string(raw)] = true
 		}
-		if max, ok := schema["maximum"].(json.Number); ok {
-			m, _ := strconv.ParseFloat(string(max), 64)
-			if n > m {
-				return fmt.Errorf("maximum at %s", path)
+	}
+	if child, ok := schema["items"].(map[string]any); ok {
+		for i, entry := range array {
+			if err := validateSchemaValue(entry, child, root, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+				return err
 			}
 		}
 	}
+	return nil
+}
+
+func validateStringKeywords(text string, schema map[string]any, path string) error {
+	if n, ok := schema["minLength"].(json.Number); ok && len([]rune(text)) < numberInt(n) {
+		return fmt.Errorf("minLength at %s", path)
+	}
+	if n, ok := schema["maxLength"].(json.Number); ok && len([]rune(text)) > numberInt(n) {
+		return fmt.Errorf("maxLength at %s", path)
+	}
+	if pattern, ok := schema["pattern"].(string); ok {
+		matched, _ := regexp.MatchString(pattern, text)
+		if !matched {
+			return fmt.Errorf("pattern at %s", path)
+		}
+	}
+	return nil
+}
+
+func validateNumberKeywords(number json.Number, schema map[string]any, path string) error {
+	n, _ := strconv.ParseFloat(string(number), 64)
+	if min, ok := schema["minimum"].(json.Number); ok {
+		m, _ := strconv.ParseFloat(string(min), 64)
+		if n < m {
+			return fmt.Errorf("minimum at %s", path)
+		}
+	}
+	if max, ok := schema["maximum"].(json.Number); ok {
+		m, _ := strconv.ParseFloat(string(max), 64)
+		if n > m {
+			return fmt.Errorf("maximum at %s", path)
+		}
+	}
+	return nil
+}
+
+func validateCompositionKeywords(value any, schema map[string]any, root map[string]any, path string) error {
 	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
 		if branches, ok := schema[keyword].([]any); ok {
 			matches := 0
@@ -258,6 +306,10 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 			}
 		}
 	}
+	return nil
+}
+
+func validateConditionalKeyword(value any, schema map[string]any, root map[string]any, path string) error {
 	if condition, ok := schema["if"].(map[string]any); ok {
 		branch, _ := schema["else"].(map[string]any)
 		if validateSchemaValue(value, condition, root, path) == nil {
@@ -269,6 +321,10 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 			}
 		}
 	}
+	return nil
+}
+
+func validateNegationKeyword(value any, schema map[string]any, root map[string]any, path string) error {
 	if branch, ok := schema["not"].(map[string]any); ok && validateSchemaValue(value, branch, root, path) == nil {
 		return fmt.Errorf("not mismatch at %s", path)
 	}

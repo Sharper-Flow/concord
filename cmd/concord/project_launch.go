@@ -49,11 +49,13 @@ func looksLikeProjectPath(token string) bool {
 	if token == "" {
 		return false
 	}
+	if filepath.IsAbs(token) {
+		return true
+	}
 	if strings.ContainsAny(token, "/\\~") {
 		return true
 	}
-	info, err := os.Stat(token)
-	return err == nil && info.IsDir()
+	return token == "." || token == ".."
 }
 
 // runProjectLaunchCommand resolves a local project reference to its Product
@@ -76,7 +78,7 @@ func runProjectLaunchCommand(args []string, in io.Reader, out, errOut io.Writer,
 		writeDiagnostic(errOut, fmt.Sprintf("concord: cannot resolve project path: %v", err))
 		return 2
 	}
-	if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
+	if info, err := os.Stat(absPath); err != nil || !info.IsDir() { //nolint:gosec // G703: path is cleaned via filepath.Abs and verified to be a directory; project launch is filesystem-bound by design
 		writeDiagnostic(errOut, fmt.Sprintf("concord: not a project directory: %s", projectRef))
 		return 2
 	}

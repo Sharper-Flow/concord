@@ -379,6 +379,10 @@ re-litigate them silently.
   Concord's own authority by CD-0016 (C19). C20 is about durable decision
   memory, not the continuity projections, and does not reopen C19.
 - **Direction (2026-08-14):** 🟡 unchanged. Owner: issue #46.
+- **Promotion-receiving contract (2026-08-30):** defined in
+  [`vertical-integration.md`](./vertical-integration.md) §Promotion receiving
+  contract, satisfying issue #46 Item 2's define-half. The ownership lean is
+  untouched; the probe evidence gate (Item 1) remains the only direction input.
 
 ### C9. Capability-placement rubric enforcement
 - **Question:** Structural (blocks misplaced capabilities) or advisory + recorded?

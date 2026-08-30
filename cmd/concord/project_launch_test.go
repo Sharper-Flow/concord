@@ -22,12 +22,12 @@ func TestIsProjectLaunchSyntax(t *testing.T) {
 		{"no args", nil, false},
 		{"known json command", []string{"client-register"}, false},
 		{"explicit launcher", []string{"launcher"}, false},
-		{"absolute path", []string{"/home/jon/dev/concord", "--", "fix"}, true},
+		{"absolute path", []string{"/workspace/concord", "--", "fix"}, true},
 		{"relative path", []string{"./toolbox"}, true},
 		{"current directory", []string{"."}, true},
 		{"plain word", []string{"toolbox"}, false},
-		{"path without prompt", []string{"/home/jon/dev/concord"}, true},
-		{"invalid delimiter", []string{"/home/jon/dev/concord", "fix"}, false},
+		{"path without prompt", []string{"/workspace/concord"}, true},
+		{"invalid delimiter", []string{"/workspace/concord", "fix"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

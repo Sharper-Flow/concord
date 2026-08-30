@@ -33,8 +33,8 @@ surface versions, compatibility/deprecation paths, supported-model release gates
 and unreleased replay paths are not current policy. Deterministic PM1/TS1, strict
 schema, authority, transaction, negative, and conformance evidence remains required;
 the first go-live decision must define future compatibility and measurement law.
-Open clarifications remain open; acceptance of these records does not close C8–C10,
-C20, or other explicitly deferred questions.
+Open clarifications remain open; acceptance of these records does not close C8–C10
+or other explicitly deferred questions. C20 resolved separately on 2026-08-30.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -363,11 +363,9 @@ re-litigate them silently.
   cannot resolve, so they share one decision trigger. episode moved to C20
   because its evidence and trigger diverged; the split changes neither lean.
 
-### C20. episode ownership and the memory-territory boundary
+### C20. episode ownership and the memory-territory boundary ✅ Accepted 2026-08-30
 - **Question:** Does episode stay external and product-scoped, or does Concord
   own the agent-memory territory? (`vertical-integration.md`)
-- **Lean:** unchanged from C8 — product-scoping first; revisit only on measured
-  need.
 - **Why it is separate from C8:** episode's decision trigger is owned by issue
   #46, which fires on a specific product-scoping probe outcome and additionally
   requires a promotion-receiving contract. lgrep and vision have no analogue for
@@ -378,11 +376,23 @@ re-litigate them silently.
 - **Adjacent, already resolved:** agent context continuity is settled inside
   Concord's own authority by CD-0016 (C19). C20 is about durable decision
   memory, not the continuity projections, and does not reopen C19.
-- **Direction (2026-08-14):** 🟡 unchanged. Owner: issue #46.
 - **Promotion-receiving contract (2026-08-30):** defined in
   [`vertical-integration.md`](./vertical-integration.md) §Promotion receiving
-  contract, satisfying issue #46 Item 2's define-half. The ownership lean is
-  untouched; the probe evidence gate (Item 1) remains the only direction input.
+  contract, satisfying issue #46 Item 2.
+- **Direction:** ✅ accepted 2026-08-30 under issue #46. episode stays external,
+  optional, and Product-scoped when configured. Concord stays complete and
+  usable without episode. episode is not a build, installation, startup,
+  storage, authority, or core-workflow dependency. episode owns durable
+  agent-decision memory as an independent native authority. Concord owns Product
+  law, formalized specifications, decisions, and the promotion destination.
+  Caller-supplied Product filtering exists today, and automatic Product
+  derivation stays episode-side work.
+- **Reopen trigger:** exercise episode automatic Product scoping against real
+  multi-project Product work. Reopen the ownership question if that evidence
+  shows episode cannot join Product and work identity in a form Concord
+  orchestration resolves, or if maintaining the bridge costs more than
+  ownership. The probe is a reopen trigger, not an acceptance prerequisite. The
+  episode project owns the implementation and the probe.
 
 ### C9. Capability-placement rubric enforcement
 - **Question:** Structural (blocks misplaced capabilities) or advisory + recorded?

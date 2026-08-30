@@ -127,6 +127,10 @@ state, so issue #46 owns its probe scope and evidence. lgrep and vision index an
 host general-purpose data. A measured need against one tool is not evidence about
 the others.
 
+The split has since paid off. C20 resolved on 2026-08-30 as external, optional,
+and Product-scoped when configured. C8 stays open for lgrep and vision, and their
+lean is unchanged. Neither movement is evidence about the other.
+
 ## Promotion receiving contract (episode → Concord knowledge)
 
 Issue #46 Item 2. episode may graduate a memory to `Promoted { target }`, where
@@ -154,8 +158,18 @@ contract waits for it.
   unprocessed document carries no authority regardless of origin.
 
 This contract defines the seam only. It adds no runtime surface, no event, and
-no validation, and it changes no direction: the ownership lean stays
-product-scoping first until the #46 probe evidence says otherwise.
+no validation.
+
+### episode is optional
+
+Concord has no required dependency on episode. episode is not a build,
+installation, startup, storage, authority, or core-workflow dependency. An
+operator who does not configure episode keeps every Concord capability.
+
+The promotion seam stays dormant when episode is absent. Nothing in this contract
+runs without an emitter, because Concord records no runtime event and holds no
+write surface for it. A knowledge record reached through the formalization
+procedure carries the same authority whether or not episode ever existed.
 
 ---
 
@@ -164,7 +178,7 @@ product-scoping first until the #46 probe evidence says otherwise.
 | Doc | Link |
 |---|---|
 | [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the launcher/interface decision (R1). |
-| [`clarifications.md`](./clarifications.md) C20 | Open question about episode ownership; owned by issue #46. |
+| [`clarifications.md`](./clarifications.md) C20 | Resolved 2026-08-30: episode stays external, optional, and Product-scoped when configured. |
 | `clarifications.md` R1 | Resolved launcher/interface direction: terminal launcher primary; ZLauncher is bootstrap only. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |

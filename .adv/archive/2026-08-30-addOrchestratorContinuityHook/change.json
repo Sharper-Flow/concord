@@ -115,8 +115,8 @@
       "created_at": "2026-08-30T22:07:45.064Z",
       "started_at": "2026-08-30T22:34:01.799Z",
       "completed_at": "2026-08-30T22:34:06.619Z",
-      "verification": "Host artifact evidence: /home/jon/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
-      "summary": "Host artifact evidence: /home/jon/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
+      "verification": "Host artifact evidence: ~/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
+      "summary": "Host artifact evidence: ~/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
       "filesTouched": [
         "docs/decisions/CD-0016-context-continuity.md",
         "docs/decisions/CD-0031-core-derived-session-boot.md",
@@ -231,7 +231,7 @@
       "schema_version": "1.0",
       "change_id": "addOrchestratorContinuityHook",
       "attempt": 1,
-      "workdir_used": "/home/jon/dev/concord",
+      "workdir_used": "~/dev/concord",
       "scope": {
         "kind": "change",
         "scope_key": "researcher:orchestrator-continuity"
@@ -241,17 +241,17 @@
       "sources": [
         {
           "label": "Host plugin typings (installed)",
-          "locator": "/home/jon/.config/opencode/node_modules/@opencode-ai/plugin/dist/index.d.ts:265-270",
+          "locator": "~/.config/opencode/node_modules/@opencode-ai/plugin/dist/index.d.ts:265-270",
           "summary": "experimental.chat.system.transform declared: (input {sessionID?, model}, output {system: string[]})."
         },
         {
           "label": "Advance plugin (production usage)",
-          "locator": "/home/jon/dev/advance/plugin/src/index.ts:1305-1409",
+          "locator": "~/dev/advance/plugin/src/index.ts:1305-1409",
           "summary": "Hook writes one ordered block to output.system[0]; per-turn semantics proven by 'next turn' manifest reread (1326-1327), per-turn byte tracking (1378), compaction re-emit logic (1394-1405)."
         },
         {
           "label": "Advance system-block assembler",
-          "locator": "/home/jon/dev/advance/plugin/src/utils/system-block.ts:1-31",
+          "locator": "~/dev/advance/plugin/src/utils/system-block.ts:1-31",
           "summary": "Replace-not-append, sentinel-delimited single system entry per turn; internal-call guard precedent."
         },
         {
@@ -276,7 +276,7 @@
         },
         {
           "label": "Install-state facts (design premise false)",
-          "locator": "adapter/opencode/concord-plugin.ts:1-45; scripts/install.py:35-49,299-349; /home/jon/.local/share/concord/install-manifest.json:2-25; /home/jon/.config/opencode/opencode.jsonc:52-53",
+          "locator": "adapter/opencode/concord-plugin.ts:1-45; scripts/install.py:35-49,299-349; ~/.local/share/concord/install-manifest.json:2-25; ~/.config/opencode/opencode.jsonc:52-53",
           "summary": "Repo AND installed v4.10.3 (not v4.9.4) ship concord-plugin.ts; installer registers tools/concord-plugin.ts in the host plugin array (live line 53). ~/.config/opencode/concord-adapter.ts exists but is UNREGISTERED leftover."
         },
         {
@@ -341,7 +341,7 @@
       "schema_version": "1.0",
       "change_id": "addOrchestratorContinuityHook",
       "attempt": 1,
-      "workdir_used": "/home/jon/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
       "task_id": "tk-8ebab223285c",
       "scope": {
         "kind": "task",
@@ -410,7 +410,7 @@
       "schema_version": "1.0",
       "change_id": "addOrchestratorContinuityHook",
       "attempt": 1,
-      "workdir_used": "/home/jon/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
       "task_id": "tk-b40095d849d8",
       "scope": {
         "kind": "task",
@@ -501,7 +501,7 @@
       "schema_version": "1.0",
       "change_id": "addOrchestratorContinuityHook",
       "attempt": 1,
-      "workdir_used": "/home/jon/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
       "task_id": "tk-c92f126ae083",
       "scope": {
         "kind": "task",
@@ -567,7 +567,7 @@
       "schema_version": "1.0",
       "change_id": "addOrchestratorContinuityHook",
       "attempt": 1,
-      "workdir_used": "/home/jon/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
       "scope": {
         "kind": "change",
         "scope_key": "review:acceptance"
@@ -694,7 +694,7 @@
       "schema_version": "1.0",
       "change_id": "addOrchestratorContinuityHook",
       "attempt": 1,
-      "workdir_used": "/home/jon/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
       "task_id": "tk-c92f126ae083",
       "scope": {
         "kind": "task",
@@ -751,7 +751,7 @@
       "schema_version": "1.0",
       "change_id": "addOrchestratorContinuityHook",
       "attempt": 1,
-      "workdir_used": "/home/jon/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
+      "workdir_used": "~/.local/share/opencode/worktree/4a4f7cf2a19637e298492e655795946d03ddbfd9/change/addOrchestratorContinuityHook",
       "scope": {
         "kind": "change",
         "scope_key": "scanner-bundle:harden"
@@ -1079,7 +1079,7 @@
   },
   "cross_project_origin": {
     "source_project": "toolbox",
-    "source_path": "/home/jon/toolbox",
+    "source_path": "~/toolbox",
     "linked_at": "2026-08-30T21:50:38.992Z"
   },
   "same_project_dependencies": [],
@@ -1408,7 +1408,7 @@
       "mutation_kind": "task_checkpoint_completed",
       "authority_kind": "mutation",
       "authority_reason": "record task checkpoint completion",
-      "authority_evidence": "a06daff046375c239aaf5c62a3f357ee44cd31e1:Host artifact evidence: /home/jon/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
+      "authority_evidence": "a06daff046375c239aaf5c62a3f357ee44cd31e1:Host artifact evidence: ~/.config/opencode/concord-adapter.ts removed (rm exit 0); grep across ~/.config/opencode (*.jsonc/*.ts/*.json, node_modules excluded) returns no references; opencode.jsonc retains exactly 1 concord-plugin.ts entry. No repo files touched. User must restart OpenCode to drop the stale module from any live plugin cache.",
       "operation_id": "mutation:task_checkpoint_completed:addOrchestratorContinuityHook:f2fa6413-ba64-42e5-8d95-8ae9c7fcda2d",
       "payload_hash": "6e086613c8c523e5ea5de311ff13666093fe974c97c3303f1915aacaf8149ac5",
       "prior_revision": 36,

@@ -41,6 +41,8 @@ jobs:
         run: python3 scripts/check-predecessor-independence.py
       - name: Test predecessor independence
         run: python3 scripts/test-predecessor-independence.py
+      - name: Test predecessor harvest
+        run: python3 scripts/test-predecessor-harvest.py
       - name: Validate script test coverage
         run: python3 scripts/check-script-tests.py
       - name: Validate CD allocation

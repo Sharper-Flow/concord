@@ -726,9 +726,9 @@ def _check_envelope_operation_vocabulary() -> list[str]:
     dead on arrival: no envelope naming it can ever validate, and the adapter
     turns every core response for it into `malformed_response`.
     """
-    return envelope_operation_findings(
-        json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text(encoding="utf-8")),
-    )
+    envelope = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text(encoding="utf-8"))
+    manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text(encoding="utf-8"))
+    return envelope_operation_findings(envelope) + envelope_operation_coverage_findings(envelope, manifest)
 
 def _declared_tool_operations(envelope: object, findings: list[str]) -> list[tuple[str, str, str | None]] | None:
     """Flatten `$defs/toolOperation` into (tool, operation, query_id) triples."""
@@ -794,6 +794,43 @@ def envelope_operation_findings(envelope: object) -> list[str]:
                 f"{label}: $defs/{definition}/properties/query_id/pattern rejects query_id(s) that "
                 f"$defs/toolOperation declares, making them unsatisfiable: {rejected}"
             )
+    return findings
+
+def envelope_operation_coverage_findings(envelope: object, manifest: object) -> list[str]:
+    """Assert the other direction: every declared operation is enumerated.
+
+    `envelope_operation_findings` checks that what `toolOperation` pairs stays
+    satisfiable against the conjoined terms. Nothing checked that the manifest
+    is covered, so an operation added to the surface without a matching branch
+    left `$defs/toolOperation` with no satisfiable member. The adapter runs the
+    generated validator on every core response, so such an operation answers
+    `malformed_core_response` for a well-formed result and cannot be called.
+    """
+    findings: list[str] = []
+    label = "contracts/agent-tool-envelope.schema.json"
+    declared = _declared_tool_operations(envelope, findings)
+    if declared is None:
+        return findings
+    operations = manifest.get("operations") if isinstance(manifest, dict) else None
+    if not isinstance(operations, list) or not operations:
+        findings.append("contracts/agent-tool-surface.v1.json: missing operations")
+        return findings
+    paired = {(tool, operation): query_id for tool, operation, query_id in declared}
+    uncovered, mismatched = [], []
+    for operation in operations:
+        key = (operation.get("tool"), str(operation.get("id", "")).split(".", 1)[-1])
+        if key not in paired:
+            uncovered.append(f"{key[0]}.{key[1]}")
+            continue
+        if paired[key] != operation.get("query_id"):
+            mismatched.append(f"{key[0]}.{key[1]} pairs query_id {paired[key]!r}, the manifest declares {operation.get('query_id')!r}")
+    if uncovered:
+        findings.append(
+            f"{label}: $defs/toolOperation enumerates no branch for declared operation(s), "
+            f"so a core response for them cannot satisfy the envelope: {sorted(uncovered)}"
+        )
+    if mismatched:
+        findings.append(f"{label}: $defs/toolOperation disagrees with the manifest: {sorted(mismatched)}")
     return findings
 
 def main() -> int:

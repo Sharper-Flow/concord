@@ -211,6 +211,25 @@ const coreEnvelope = (tool: string, operation: string, outcome: string, fields: 
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
 })
 
+test("every declared query id passes the generated envelope contract", () => {
+  // The generated validator runs on every core response. A query_id pattern
+  // narrower than the manifest makes the adapter answer malformed_core_response
+  // for a well-formed result, so each declared id is checked against it here.
+  // An error outcome carries no result, so the only operation-specific field
+  // under test is the query id itself.
+  const error = { kind: "timeout", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "none" }
+  const declared = contractOperations.filter((candidate: any) => candidate.query_id) as any[]
+  expect(declared.length).toBeGreaterThan(0)
+  for (const operation of declared) {
+    const envelope: any = coreEnvelope(operation.tool, operation.id.split(".").slice(1).join("."), "error", { error })
+    expect(envelope.query_id, `${operation.id} lost its query id`).toBe(operation.query_id)
+    expect(
+      validateGeneratedEnvelope(envelope),
+      `${operation.id} carries query id ${operation.query_id}, which the envelope contract rejects`,
+    ).toBe(true)
+  }
+})
+
 test("overlap operation and refusal pass the generated adapter boundary", async () => {
   const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },

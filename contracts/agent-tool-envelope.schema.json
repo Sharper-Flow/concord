@@ -400,7 +400,13 @@
             "operation": {
               "enum": [
                 "capture",
-                "revise_intent"
+                "revise_intent",
+                "research_pack_create",
+                "research_revision_append",
+                "research_finding_record",
+                "research_source_record",
+                "research_freshness_set",
+                "observation_record"
               ]
             }
           }
@@ -466,7 +472,9 @@
             "operation": {
               "enum": [
                 "lifecycle",
-                "workflow_action"
+                "workflow_action",
+                "worktree_claim",
+                "worktree_reclaim"
               ]
             }
           }
@@ -492,7 +500,11 @@
                 "unlink",
                 "supersede",
                 "restore_superseded",
-                "resolve_overlap"
+                "resolve_overlap",
+                "resource_claim",
+                "resource_release",
+                "message_send",
+                "message_withdraw"
               ]
             }
           }
@@ -514,8 +526,99 @@
             "operation": {
               "enum": [
                 "publish",
-                "reconcile"
+                "reconcile",
+                "lesson_publish"
               ]
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_product_view"
+            },
+            "operation": {
+              "const": "portfolio"
+            },
+            "query_id": {
+              "const": "C14.ProductRows"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_product_view"
+            },
+            "operation": {
+              "const": "blocked_sessions"
+            },
+            "query_id": {
+              "const": "PM1.Q12"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "observations"
+            },
+            "query_id": {
+              "const": "CD-0030.R1"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "external_observations"
+            },
+            "query_id": {
+              "const": "CD-0040.R1"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_knowledge"
+            },
+            "operation": {
+              "const": "unprocessed"
+            },
+            "query_id": {
+              "const": "PM1.Q15"
             }
           }
         }
@@ -615,12 +718,29 @@
             "reorder_entry",
             "change_requiredness",
             "revise_narrative",
-            "entries"
+            "entries",
+            "blocked_sessions",
+            "external_observations",
+            "lesson_publish",
+            "message_send",
+            "message_withdraw",
+            "observations",
+            "portfolio",
+            "research_finding_record",
+            "research_freshness_set",
+            "research_pack_create",
+            "research_revision_append",
+            "research_source_record",
+            "resource_claim",
+            "resource_release",
+            "unprocessed",
+            "worktree_claim",
+            "worktree_reclaim"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14|15)|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "outcome": {
           "enum": [
@@ -1034,12 +1154,29 @@
             "reorder_entry",
             "change_requiredness",
             "revise_narrative",
-            "entries"
+            "entries",
+            "blocked_sessions",
+            "external_observations",
+            "lesson_publish",
+            "message_send",
+            "message_withdraw",
+            "observations",
+            "portfolio",
+            "research_finding_record",
+            "research_freshness_set",
+            "research_pack_create",
+            "research_revision_append",
+            "research_source_record",
+            "resource_claim",
+            "resource_release",
+            "unprocessed",
+            "worktree_claim",
+            "worktree_reclaim"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|10|11|13|14)|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14|15)|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "reason_code": {
           "type": "string",

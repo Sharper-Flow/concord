@@ -914,6 +914,19 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 	}
 }
 
+func TestMigration58MatchesIssuedBootstrapLedger(t *testing.T) {
+	latest := migrations[len(migrations)-1]
+	if latest.Version != 58 {
+		t.Fatalf("latest migration version = %d, want 58", latest.Version)
+	}
+	if latest.Name != "work_bootstrap_operations" {
+		t.Fatalf("migration 58 name = %q, want work_bootstrap_operations", latest.Name)
+	}
+	if got := latest.checksum(); got != "ecfc4b59eadf07db45659fd92bc4fcfd1a88894d97ba727e3bc1cc2418c0cc19" {
+		t.Fatalf("migration 58 checksum = %s, want issued checksum", got)
+	}
+}
+
 func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) {
 	s := openTemp(t)
 	db := s.DatabaseForTesting()

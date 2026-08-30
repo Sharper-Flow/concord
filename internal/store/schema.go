@@ -3170,6 +3170,27 @@ DROP INDEX agent_grants_lookup;
 DROP TABLE agent_grants;
 		`,
 	},
+	{
+		Version: 58,
+		Name:    "work_bootstrap_operations",
+		SQL: `
+CREATE TABLE bootstrap_operations (
+    idempotency_key TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    request_digest TEXT NOT NULL CHECK(length(request_digest) = 71),
+    request_json TEXT NOT NULL CHECK(json_valid(request_json) AND json_type(request_json)='object'),
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    work_id TEXT NOT NULL UNIQUE REFERENCES work_items(id) ON DELETE RESTRICT,
+    repo_path TEXT NOT NULL,
+    expected_version INTEGER NOT NULL CHECK(expected_version > 0),
+    state TEXT NOT NULL CHECK(state IN ('pending','creating','native_ready','completed')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX bootstrap_operations_state ON bootstrap_operations(state, updated_at);
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-30T00:00:00Z",
+  "evidence": [
+    "docs/clarifications.md",
+    "docs/vertical-integration.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0086",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0086-episode-is-an-optional-external-authority.md",
+  "product_wide_rationale": "Keeps episode optional for every Concord installation while defining the Product-scoped boundary for operators who configure it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:03aa7aab8b2d35b5bc38d4bc7f825875258c196005ab50178abb55dfa6b39a07",
+  "status": "accepted",
+  "summary": "episode remains an optional external authority. Configured integrations are Product-scoped, Concord owns only the formalized promotion destination, and the automatic-scoping probe is a future ownership reopen trigger.",
+  "tags": [
+    "episode",
+    "optional-integration",
+    "product-scope",
+    "product-law"
+  ],
+  "title": "episode is an optional external authority"
+}

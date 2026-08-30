@@ -2676,6 +2676,35 @@
       "title": "Concord tool results are host ToolResults"
     },
     {
+      "date": "2026-08-30T00:00:00Z",
+      "evidence": [
+        "docs/clarifications.md",
+        "docs/vertical-integration.md"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0086",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0086-episode-is-an-optional-external-authority.md",
+      "product_wide_rationale": "Keeps episode optional for every Concord installation while defining the Product-scoped boundary for operators who configure it.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:03aa7aab8b2d35b5bc38d4bc7f825875258c196005ab50178abb55dfa6b39a07",
+      "status": "accepted",
+      "summary": "episode remains an optional external authority. Configured integrations are Product-scoped, Concord owns only the formalized promotion destination, and the automatic-scoping probe is a future ownership reopen trigger.",
+      "tags": [
+        "episode",
+        "optional-integration",
+        "product-scope",
+        "product-law"
+      ],
+      "title": "episode is an optional external authority"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -3731,7 +3760,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:8d643c03799234779289db8daed87b59aa544cca26f80c02767aef8e2d399481",
+      "sha256": "sha256:f5d45c3f667418fd53467b19739af17a698c9731330b5192392b64915b3575da",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -4271,9 +4300,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:cb2817b7baca349b58c6c3c21cd358d2c573d93e385afae8b17aed84daa3ea72",
+      "sha256": "sha256:f6579a3d78bd0efd41a39963abc39f14bacc330f852cad9b992bf4c4e2b1f8d7",
       "status": "published",
-      "summary": "Investigates whether to own, absorb, or Product-scope the adjacent lgrep, vision, and episode tools.",
+      "summary": "Resolves episode as an optional external authority and tracks the ownership lean for lgrep and vision.",
       "tags": [
         "vertical-integration",
         "research"

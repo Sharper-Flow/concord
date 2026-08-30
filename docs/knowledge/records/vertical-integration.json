@@ -14,9 +14,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cb2817b7baca349b58c6c3c21cd358d2c573d93e385afae8b17aed84daa3ea72",
+  "sha256": "sha256:f6579a3d78bd0efd41a39963abc39f14bacc330f852cad9b992bf4c4e2b1f8d7",
   "status": "published",
-  "summary": "Investigates whether to own, absorb, or Product-scope the adjacent lgrep, vision, and episode tools.",
+  "summary": "Resolves episode as an optional external authority and tracks the ownership lean for lgrep and vision.",
   "tags": [
     "vertical-integration",
     "research"

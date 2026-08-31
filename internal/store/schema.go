@@ -3234,6 +3234,63 @@ CREATE INDEX bootstrap_operations_state ON bootstrap_operations(state, updated_a
 CREATE INDEX bootstrap_operations_launch_state ON bootstrap_operations(launch_state, updated_at);
 		`,
 	},
+	{
+		Version: 60,
+		Name:    "repair_in_place_edited_history",
+		SQL: `
+CREATE TABLE IF NOT EXISTS project_governing_requirements (
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    requirement_ref TEXT NOT NULL,
+    reason          TEXT NOT NULL,
+    declared_at     TEXT NOT NULL,
+    PRIMARY KEY (project_id, requirement_ref),
+    CHECK(length(requirement_ref) > 0 AND length(requirement_ref) <= 128),
+    CHECK(length(reason) > 0 AND length(reason) <= 1000)
+);
+CREATE INDEX IF NOT EXISTS project_governing_requirements_by_project ON project_governing_requirements(project_id, requirement_ref);
+CREATE TRIGGER IF NOT EXISTS project_governing_requirements_guard_insert
+BEFORE INSERT ON project_governing_requirements FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_governing_requirements is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER IF NOT EXISTS project_governing_requirements_guard_update
+BEFORE UPDATE ON project_governing_requirements FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_governing_requirements is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER IF NOT EXISTS project_governing_requirements_guard_delete
+BEFORE DELETE ON project_governing_requirements FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'project_governing_requirements is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TABLE IF NOT EXISTS epic_entries (
+    epic_work_id   TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    position       INTEGER NOT NULL CHECK(position >= 0),
+    required       INTEGER NOT NULL CHECK(required IN (0,1)),
+    PRIMARY KEY(epic_work_id, child_work_id),
+    UNIQUE(epic_work_id, position),
+    CHECK(epic_work_id <> child_work_id)
+);
+CREATE TABLE IF NOT EXISTS initiative_entries (
+    initiative_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    position       INTEGER NOT NULL CHECK(position >= 0),
+    required       INTEGER NOT NULL CHECK(required IN (0,1)),
+    PRIMARY KEY(initiative_work_id, child_work_id),
+    UNIQUE(initiative_work_id, position),
+    CHECK(initiative_work_id <> child_work_id)
+);
+CREATE INDEX IF NOT EXISTS initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id);
+INSERT OR IGNORE INTO initiative_entries (initiative_work_id, child_work_id, position, required)
+    SELECT epic_work_id, child_work_id, position, required FROM epic_entries;
+DROP INDEX IF EXISTS epic_entries_by_child;
+DROP TABLE epic_entries;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -91,7 +91,7 @@ func deadBootstrapOwner(t *testing.T) (int64, string) {
 	ownerPID := int64(owner.Process.Pid)
 	ownerStart, err := processStartIdentity(ownerPID)
 	if err != nil {
-		owner.Process.Kill()
+		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
 	if err := owner.Process.Kill(); err != nil {
@@ -362,16 +362,16 @@ func TestBootstrapLaunchOwnerRecoveryIsExclusive(t *testing.T) {
 	ownerPID := int64(owner.Process.Pid)
 	ownerStart, err := processStartIdentity(ownerPID)
 	if err != nil {
-		owner.Process.Kill()
+		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
 	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
 	if err != nil {
-		owner.Process.Kill()
+		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
 	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-recovery", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err != nil {
-		owner.Process.Kill()
+		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
 	if err := owner.Process.Kill(); err != nil {
@@ -409,11 +409,11 @@ func TestBootstrapLaunchOwnerRecoveryIsExclusive(t *testing.T) {
 	stalePID := int64(staleOwner.Process.Pid)
 	staleStart, err := processStartIdentity(stalePID)
 	if err != nil {
-		staleOwner.Process.Kill()
+		_ = staleOwner.Process.Kill()
 		t.Fatal(err)
 	}
 	if _, err := s.PrepareBootstrapLaunch(context.Background(), stale.ProductID, stale.WorkID, "concord-implement", stale.Entry.Path, stalePID, staleStart); err != nil {
-		staleOwner.Process.Kill()
+		_ = staleOwner.Process.Kill()
 		t.Fatal(err)
 	}
 	if err := staleOwner.Process.Kill(); err != nil {
@@ -512,16 +512,16 @@ func TestBootstrapLaunchRecoversAfterFencedProcessDiesWithoutSession(t *testing.
 		t.Fatal(err)
 	}
 	if err := s.StartBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, launch.Agent, launch.Directory, launch.Title, ownerPID, ownerStart, int64(process.Process.Pid)); err != nil {
-		process.Process.Kill()
+		_ = process.Process.Kill()
 		t.Fatal(err)
 	}
 	active, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
 	if err != nil {
-		process.Process.Kill()
+		_ = process.Process.Kill()
 		t.Fatal(err)
 	}
 	if active.SpawnPermitted || active.RollbackPermitted || active.RecoveryLookup {
-		process.Process.Kill()
+		_ = process.Process.Kill()
 		t.Fatalf("active process recovery=%+v", active)
 	}
 	if err := process.Process.Kill(); err != nil {
@@ -669,7 +669,7 @@ func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
 	ownerPID := int64(owner.Process.Pid)
 	ownerStart, err := processStartIdentity(ownerPID)
 	if err != nil {
-		owner.Process.Kill()
+		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
 	if err := owner.Process.Kill(); err != nil {

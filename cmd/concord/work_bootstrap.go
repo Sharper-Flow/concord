@@ -271,6 +271,7 @@ func runSessionExec(raw []byte, s *store.Store, errOut io.Writer) int {
 		args = append(args, "--agent", input.Agent, "--title", input.Title)
 	}
 	args = append(args, "--format", "json", "--dir", input.Directory, input.Prompt)
+	// #nosec G204,G702 -- executable comes from LookPath and Exec does not invoke a shell.
 	if err := syscall.Exec(executable, args, os.Environ()); err != nil {
 		writeOperatorDiagnostic(errOut, "session-exec", err.Error())
 		return 1

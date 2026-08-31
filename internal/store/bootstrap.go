@@ -384,15 +384,16 @@ func acquireBootstrapGitLock(lockPath string, ownerPID int64, ownerStart string)
 }
 
 func reclaimStaleBootstrapGitLock(lockPath string) (bool, error) {
+	// #nosec G304 -- lockPath is a Git metadata path derived by the bootstrap lock owner.
 	file, err := os.Open(lockPath)
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
 		return false, err
 	}
-	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	defer func() { _ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN) }()
 	openedInfo, err := file.Stat()
 	if err != nil {
 		return false, err
@@ -437,7 +438,7 @@ func deleteBootstrapBranch(ctx context.Context, runner GitRunner, repo, branch, 
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(hookDir)
+	defer func() { _ = os.RemoveAll(hookDir) }()
 	if err := os.WriteFile(filepath.Join(hookDir, "expected-sha"), []byte(expectedSHA+"\n"), 0o600); err != nil {
 		return err
 	}
@@ -460,6 +461,7 @@ while IFS= read -r line; do
 done < "$dir/worktrees"
 `
 	hookPath := filepath.Join(hookDir, "reference-transaction")
+	// #nosec G306 -- Git hooks must be executable by the repository owner.
 	if err := os.WriteFile(hookPath, []byte(hook), 0o700); err != nil {
 		return err
 	}

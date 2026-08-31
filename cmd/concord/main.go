@@ -300,15 +300,11 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	case "work-bootstrap":
 		return runWorkBootstrap(raw, s, out, errOut)
 	case "session-prepare":
-<<<<<<< HEAD
 		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostOrchestratorIdentity, DeriveSessionBoot)
-=======
-		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostOrchestratorIdentity, deriveSessionBoot)
 	case "session-record":
 		return runSessionRecord(raw, s, out, errOut)
 	case "work-bootstrap-rollback":
 		return runBootstrapRollback(raw, s, out, errOut)
->>>>>>> 1846ad0 (fix(work): make bootstrap launch recovery atomic)
 	default:
 		return runInternal(command, raw, service, s, clock, out, errOut)
 	}

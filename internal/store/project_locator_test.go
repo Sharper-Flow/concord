@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -184,4 +185,39 @@ func TestResolveProjectDistinguishesMainAndLinkedWorktrees(t *testing.T) {
 			t.Fatal("expected resolution to fail when git cannot report worktree topology")
 		}
 	})
+}
+
+func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-local"), locatorProjectEvent("project-local"), locatorMembershipEvent("product-local", "project-local")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-local"): 0, VersionRef(SubjectProject, "project-local"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	mainRoot := t.TempDir()
+	run := func(dir string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	run(mainRoot, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(mainRoot, "README.md"), []byte("local\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(mainRoot, "add", ".")
+	run(mainRoot, "commit", "-q", "-m", "base")
+	if err := s.AddProjectLocator(ctx, "project-local", ProjectLocator{ID: "path-local", Kind: LocatorCanonicalPath, Value: mainRoot}, 1); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(t.TempDir(), "linked")
+	run(mainRoot, "worktree", "add", "-q", "-b", "feature-local", linked, "main")
+
+	resolved, err := s.ResolveProject(ctx, linked, linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ProjectID != "project-local" || resolved.Repository.CanonicalPath != mainRoot || resolved.Repository.WorktreePath != linked || resolved.MainWorktree || resolved.Repository.GitRemote != "" {
+		t.Fatalf("linked local resolution=%+v", resolved)
+	}
 }

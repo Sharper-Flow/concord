@@ -15,6 +15,10 @@
     {
       "kind": "refines",
       "target_id": "CD-0082"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0088"
     }
   ],
   "path": "docs/decisions/CD-0089-concord-development-coordination.md",
@@ -26,9 +30,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9ca743c0abb1fbfdfe4d40f235af9255230abccc184659684b4267f106e1fc3a",
+  "sha256": "sha256:a451754f63170cc2b7b0340c386105b45dd99b2699feb35e07296e26ff93ddc1",
   "status": "accepted",
-  "summary": "Concord owns its development workflow after issue #600 while GitHub retains planning, review, and merge authority. CD-0089 supersedes only CD-0010's self-hosting prohibition.",
+  "summary": "Concord owns its development workflow after issue #600 while GitHub retains planning, review, and merge authority. It supersedes CD-0010's self-hosting prohibition and the equivalent CD-0088 D5 restatement.",
   "tags": [
     "authority",
     "coordination",

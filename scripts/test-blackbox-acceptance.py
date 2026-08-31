@@ -261,8 +261,8 @@ def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode('ascii')
 
 
-def _git_init(work: Path) -> Path:
-    """Build a git repository and return the linked-worktree path used in invocations.
+def _git_init(work: Path) -> tuple[Path, Path]:
+    """Build a git repository and return its canonical and linked-worktree paths.
 
     CD-0008 D1 forbids mutation authority on the main checkout; the binary
     refuses mutating invocations with non-``product_read`` capabilities when the resolved
@@ -300,7 +300,7 @@ def _git_init(work: Path) -> Path:
         ('commit.gpgsign', 'false'),
     ):
         subprocess.run(['git', '-C', str(linked), 'config', key, value], check=True)
-    return linked
+    return base, linked
 
 
 def _assert_envelope_ok(response: dict, where: str) -> None:
@@ -789,7 +789,7 @@ def main() -> int:
         env = _isolated_env(work)
         # Create a git base + linked worktree; the harness uses the worktree
         # path in every invocation so mutation capabilities clear CD-0008.
-        repo = _git_init(work)
+        canonical_repo, repo = _git_init(work)
         # Generate a deterministic Ed25519 seed so nonce behaviour is the only
         # randomness exercised; reruns are reproducible except for the nonce.
         seed = hashlib.sha256(b'harness-deterministic-seed-v1').digest()
@@ -804,7 +804,7 @@ def main() -> int:
             step_a_version(binary, env)
 
         def run_b():
-            step_b_bootstrap(binary, env, repo, public_key)
+            step_b_bootstrap(binary, env, canonical_repo, public_key)
 
         def run_c():
             nonlocal context

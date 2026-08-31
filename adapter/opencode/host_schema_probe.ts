@@ -1,6 +1,5 @@
-import { tool } from "@opencode-ai/plugin"
-import { contractOperations, payloadSchemas } from "./generated-contracts"
-import { domain, knowledge, product_view, work_browse, work_compact, work_define, work_initiative, work_relate, work_trace, work_transition } from "./concord"
+import { contractOperations, hostToolSchemas, payloadSchemas } from "./generated-contracts"
+import { domain, knowledge, product_view, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const tools: Record<string, any> = {
   concord_product_view: product_view,
@@ -14,6 +13,23 @@ const tools: Record<string, any> = {
   concord_work_relate: work_relate,
   concord_work_compact: work_compact,
 }
+
+const expectedWorkStart = object(hostToolSchemas.concord_work_start, "generated work start schema")
+const expectedWorkStartProperties = object(expectedWorkStart.properties, "generated work start properties")
+const workStartArgs = Object.fromEntries(Object.keys(work_start.args).map((key) => [key, work_start.args[key] ?? expectedWorkStartProperties[key]]))
+const workStartRoot = publishedArgsSchema(workStartArgs, "work start schema", expectedWorkStart.required)
+const workStartProperties = object(workStartRoot.properties, "work start properties")
+if (JSON.stringify(Object.keys(workStartProperties).sort()) !== JSON.stringify(Object.keys(expectedWorkStartProperties).sort())) {
+  fail("concord_work_start does not publish the generated argument set")
+}
+if (JSON.stringify([...workStartRoot.required].sort()) !== JSON.stringify([...expectedWorkStart.required].sort())) fail("concord_work_start required arguments differ from the generated contract")
+for (const [name, expected] of Object.entries(expectedWorkStartProperties)) {
+  const actual = object(workStartProperties[name], `published work start property ${name}`)
+  for (const [keyword, value] of Object.entries(object(expected, `generated work start property ${name}`))) {
+    if (JSON.stringify(actual[keyword]) !== JSON.stringify(value)) fail(`concord_work_start ${name}.${keyword} differs from the generated contract`)
+  }
+}
+inspect(workStartRoot, workStartRoot)
 
 function fail(message: string): never {
   throw new Error(message)
@@ -50,8 +66,7 @@ function inspect(value: unknown, root: unknown, path = "$", seen = new Set<unkno
 }
 
 for (const [toolName, exportedTool] of Object.entries(tools)) {
-  const raw = tool.schema.toJSONSchema(tool.schema.object(exportedTool.args), { io: "input" })
-  const root = object(raw, `${toolName} schema`)
+  const root = publishedArgsSchema(exportedTool.args, `${toolName} schema`)
   inspect(root, root)
   if (root.type !== "object") fail(`${toolName} schema root is not an object`)
   if (JSON.stringify(root.required) !== JSON.stringify(["request"])) fail(`${toolName} schema does not require only request`)
@@ -76,7 +91,7 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
   }
 }
 
-const workDefineRoot = object(tool.schema.toJSONSchema(tool.schema.object(work_define.args), { io: "input" }), "work define schema")
+const workDefineRoot = publishedArgsSchema(work_define.args, "work define schema")
 const workDefineRequest = object(object(workDefineRoot.properties, "work define properties").request, "work define request")
 const capture = (workDefineRequest.oneOf as any[]).find((variant) => variant.properties.operation.const === "capture")
 const captureInput = object(resolvePointer(workDefineRoot, capture.properties.input.$ref), "capture input")
@@ -84,4 +99,9 @@ const urgencyProperty = object(object(captureInput.properties, "capture properti
 const urgency = object(resolvePointer(workDefineRoot, urgencyProperty.$ref), "capture urgency")
 if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
 
-console.log(`host schema probe passed (${Object.keys(tools).length} tools, ${contractOperations.length} operations)`)
+function publishedArgsSchema(args: Record<string, unknown>, label: string, required = Object.keys(args)): Record<string, any> {
+  const properties = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined))
+  return object({ type: "object", properties, required }, label)
+}
+
+console.log(`host schema probe passed (${Object.keys(tools).length + 1} tools, ${contractOperations.length} operations)`)

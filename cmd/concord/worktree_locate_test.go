@@ -54,6 +54,8 @@ func initLocatorRepo(t *testing.T) string {
 	}
 	run("add", ".")
 	run("commit", "-q", "-m", "base")
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	return repo
 }
 
@@ -114,11 +116,11 @@ func TestWorktreeLocateOutputIsAcceptedByClaimOnFirstAttempt(t *testing.T) {
 func TestWorktreeLocateRefusesUnlocatableAuthorityAndBadRefs(t *testing.T) {
 	repo := initLocatorRepo(t)
 	for _, ref := range []string{"-help", "main branch", "main\x00suffix"} {
-		if _, err := resolveCommitSHA(context.Background(), repo, ref); err == nil {
+		if _, err := store.ResolveCommitSHA(context.Background(), repo, ref); err == nil {
 			t.Fatalf("hostile ref %q was accepted", ref)
 		}
 	}
-	if sha, err := resolveCommitSHA(context.Background(), repo, "refs/heads/main"); err != nil || len(sha) != 40 {
+	if sha, err := store.ResolveCommitSHA(context.Background(), repo, "refs/heads/main"); err != nil || len(sha) != 40 {
 		t.Fatalf("valid symbolic ref: sha=%q err=%v", sha, err)
 	}
 	dbPath := filepath.Join(t.TempDir(), "concord.db")

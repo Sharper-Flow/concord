@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/host-tool-surface.schema.json",
+  "title": "Concord host tool surface",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "tools"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0"]},
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description", "args"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^concord_[a-z][a-z0-9_]{1,63}$"},
+          "description": {"type": "string", "minLength": 1, "maxLength": 512},
+          "args": {"type": "object"}
+        }
+      }
+    }
+  }
+}

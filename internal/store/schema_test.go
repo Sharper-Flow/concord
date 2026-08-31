@@ -915,14 +915,20 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 }
 
 func TestMigration58MatchesIssuedBootstrapLedger(t *testing.T) {
-	latest := migrations[len(migrations)-1]
-	if latest.Version != 58 {
-		t.Fatalf("latest migration version = %d, want 58", latest.Version)
+	var migration58 migration
+	for _, candidate := range migrations {
+		if candidate.Version == 58 {
+			migration58 = candidate
+			break
+		}
 	}
-	if latest.Name != "work_bootstrap_operations" {
-		t.Fatalf("migration 58 name = %q, want work_bootstrap_operations", latest.Name)
+	if migration58.Version != 58 {
+		t.Fatal("migration 58 is missing")
 	}
-	if got := latest.checksum(); got != "ecfc4b59eadf07db45659fd92bc4fcfd1a88894d97ba727e3bc1cc2418c0cc19" {
+	if migration58.Name != "work_bootstrap_operations" {
+		t.Fatalf("migration 58 name = %q, want work_bootstrap_operations", migration58.Name)
+	}
+	if got := migration58.checksum(); got != "ecfc4b59eadf07db45659fd92bc4fcfd1a88894d97ba727e3bc1cc2418c0cc19" {
 		t.Fatalf("migration 58 checksum = %s, want issued checksum", got)
 	}
 }

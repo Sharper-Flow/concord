@@ -2,11 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -56,46 +52,10 @@ func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	ctx := context.Background()
 
-	repo, err := s.ProjectCanonicalPath(ctx, request.ProjectID)
+	location, err := s.LocateWorktree(ctx, request.ProjectID, request.WorkID, ref)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "worktree-locate", err.Error())
 		return 1
 	}
-
-	branch := "work/" + request.WorkID
-	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", request.ProjectID, request.WorkID)
-	sha, err := resolveCommitSHA(ctx, repo, ref)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, "worktree-locate", err.Error())
-		return 1
-	}
-	if err := store.ValidateWorktreeClaimIntent(branch, sha, path); err != nil {
-		writeOperatorDiagnostic(errOut, "worktree-locate", fmt.Sprintf("derived intent fails the claim's own validation: %v", err))
-		return 1
-	}
-	return writeJSON(out, map[string]string{
-		"branch":   branch,
-		"base_sha": sha,
-		"path":     path,
-		"repo":     repo,
-		"ref":      ref,
-	}, errOut)
-}
-
-// resolveCommitSHA pins a ref to its full commit SHA through the native git
-// executable. `rev-parse --verify <ref>^{commit}` refuses anything that does
-// not resolve to exactly one commit, including ambiguous or truncated input.
-func resolveCommitSHA(ctx context.Context, repo, ref string) (string, error) {
-	if strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n\r\x00") {
-		return "", fmt.Errorf("ref starts with a dash or contains whitespace or NUL")
-	}
-	output, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--verify", ref+"^{commit}").Output() //nolint:gosec // git is fixed, the ref rejects option and delimiter bytes, and no shell is invoked.
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve %s to a commit in %s", ref, repo)
-	}
-	sha := strings.TrimSpace(string(output))
-	if len(sha) != 40 || strings.Trim(sha, "0123456789abcdef") != "" {
-		return "", fmt.Errorf("resolved value is not a full 40-character SHA")
-	}
-	return sha, nil
+	return writeJSON(out, location, errOut)
 }

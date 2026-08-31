@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "tools": [
+    {
+      "name": "concord_work_start",
+      "description": "Use for implementation work requested from a default checkout. Capture or resume the work, claim its canonical worktree, and verify child execution there.",
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "value_statement", "kind", "task", "idempotency_key"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256},
+          "value_statement": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256},
+          "kind": {"type": "string", "enum": ["task", "bug", "decision", "research", "other"]},
+          "task": {"type": "string", "minLength": 1, "maxLength": 8192, "x-maxBytes": 8192},
+          "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "priority": {"type": "integer", "minimum": -100, "maximum": 100},
+          "urgency": {"type": "string", "enum": ["standard", "expedite"]},
+          "tags": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}},
+          "workflow_type_ref": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "external_ref": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256},
+          "governing_requirements": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}},
+          "ref": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
+    }
+  ]
+}

@@ -148,10 +148,10 @@ jobs:
       - name: Test all packages
         run: go test -timeout=15m ./...
 
-  # Race detector on store tests that use shared memory or concurrent database
-  # access. Migration-history tests replay SQLite schema changes sequentially,
-  # so the ordinary suite covers them without imposing race-detector cost on
-  # every pull request. The rest of the tree races in the nightly workflow.
+  # Race detector on store tests that coordinate concurrent Go callers.
+  # SQLite lock-wait tests coordinate through database locks and channels rather
+  # than unsynchronized mutable Go state. The ordinary suite covers them without
+  # multiplying fixed lock delays. The full tree races in the nightly workflow.
   verify-race:
     name: verify-race
     runs-on: ubuntu-latest
@@ -174,7 +174,7 @@ jobs:
       - name: Test concurrent store access under the race detector
         run: >-
           go test -race -timeout=15m -run
-          '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance|TestMigrateOnCurrentDatabaseTakesNoWriteLock|TestMigrateWaitsOutALockHeldPastOneBusyTimeout|TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema)$'
+          '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$'
           ./internal/store
 
   # Production-like acceptance: the ten-process conformance run and the

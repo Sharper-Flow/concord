@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { readExportSessionMetadata, readRunSessionMetadata } from "./dispatch"
+import { readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata } from "./dispatch"
 
 const runEvent = (type: string, sessionID: string, extra: Record<string, unknown> = {}) => JSON.stringify({
   type,
@@ -22,6 +22,13 @@ test("run metadata accepts only one typed session identity", () => {
   expect(readRunSessionMetadata(`${JSON.stringify({ ts: "2026-08-22T05:08:17.270Z", level: "info", plugin: "opencode-model-routing", event: "config.loaded" })}\n${output}`)).toEqual({ session_id: "session-1" })
   expect(readRunSessionMetadata(`${output}\n${JSON.stringify({ type: "unknown", sessionID: "session-2" })}`)).toEqual({ session_id: "session-1" })
   expect(readRunSessionMetadata(`${output}\nplain host chatter that is not JSON`)).toEqual({ session_id: "session-1" })
+})
+
+test("run line metadata exposes the session before run completion", () => {
+  expect(readRunLineMetadata(runEvent("step_start", "session-1"))).toEqual({ session_id: "session-1", official: true, completed: false })
+  expect(readRunLineMetadata(runEvent("step_finish", "session-1", { part: { type: "step-finish", reason: "stop" } }))).toEqual({ session_id: "session-1", official: true, completed: true })
+  expect(readRunLineMetadata("host chatter")).toBeNull()
+  expect(() => readRunLineMetadata(JSON.stringify({ type: "text", timestamp: 1 }))).toThrow()
 })
 
 test("export metadata reads the latest typed assistant and ignores nested model-shaped content", () => {

@@ -1,9 +1,21 @@
-import { tool, type ToolContext, type ToolResult } from "@opencode-ai/plugin"
 import { clientRef } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
-import { errorEnvelopeForLane, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, validateAgainstSchema, type AgentResultEnvelope } from "./dispatch"
+import { errorEnvelopeForLane, readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata, readRunTextParts, validateAgainstSchema, type AgentResultEnvelope } from "./dispatch"
+
+type ToolContext = {
+  sessionID: string
+  messageID: string
+  agent: string
+  directory: string
+  worktree: string
+  abort: AbortSignal
+  metadata: (input: { title?: string; metadata?: { [key: string]: any } }) => void
+  ask: (request: { permission: string; patterns: string[]; always: string[]; metadata: { [key: string]: any } }) => Promise<void>
+}
+type ToolResult = string | { output: string; title?: string; metadata?: Record<string, unknown>; attachments?: unknown[] }
+function tool<T>(definition: T): T { return definition }
 
 const MAX_STDERR = 8192
 const MAX_WORK_START_OUTPUT_BYTES = 16_384
@@ -14,8 +26,34 @@ type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>
 type HostConcordEnvelope = CoreConcordEnvelope | AgentResultEnvelope
 
-export interface ChildRunnerOptions { cwd?: string; env?: Record<string, string> }
+export interface ChildRunnerOptions { cwd?: string; env?: Record<string, string>; onStdoutLine?: (line: string) => Promise<void> }
 export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions): Promise<{ exitCode: number; stdout: string; stderr: string }> }
+
+async function readChildStdout(stream: ReadableStream<Uint8Array>, onLine?: (line: string) => Promise<void>): Promise<string> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let output = ""
+  let pending = ""
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const text = decoder.decode(value, { stream: true })
+    output += text
+    pending += text
+    for (;;) {
+      const newline = pending.indexOf("\n")
+      if (newline < 0) break
+      const line = pending.slice(0, newline)
+      pending = pending.slice(newline + 1)
+      if (onLine && line.trim()) await onLine(line)
+    }
+  }
+  const final = decoder.decode()
+  output += final
+  pending += final
+  if (onLine && pending.trim()) await onLine(pending)
+  return output
+}
 
 const defaultRunner: ChildRunner = {
   async run(argv, input, signal, options) {
@@ -31,9 +69,17 @@ const defaultRunner: ChildRunner = {
     signal.addEventListener("abort", abort, { once: true })
     await child.stdin.write(input)
     await child.stdin.end()
-    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-    signal.removeEventListener("abort", abort)
-    return { exitCode, stdout, stderr }
+    const stderrPromise = new Response(child.stderr).text()
+    try {
+      const [stdout, stderr, exitCode] = await Promise.all([readChildStdout(child.stdout, options?.onStdoutLine), stderrPromise, child.exited])
+      return { exitCode, stdout, stderr }
+    } catch (error) {
+      child.kill()
+      await child.exited
+      throw error
+    } finally {
+      signal.removeEventListener("abort", abort)
+    }
   },
 }
 
@@ -103,32 +149,13 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
 }
 
 function argsSchema(toolName: string): any {
-  const z = tool.schema
-  const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
-  const literals = operations.map((operation: any) => z.literal(operation.id.slice(operation.id.indexOf(".") + 1)))
-  if (literals.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
-  const operation = literals.length === 1 ? literals[0] : z.union(literals as any)
-  const request = z.object({ operation, input: z.record(z.string(), z.unknown()) }).strict()
-  return { request: request.meta(publishedRequestSchema(toolName)) }
-}
-
-function hostArgumentSchema(schema: any): any {
-  const z = tool.schema
-  let value: any
-  if (schema.type === "string") value = z.string()
-  else if (schema.type === "integer") value = z.number().int()
-  else if (schema.type === "array") value = z.array(hostArgumentSchema(schema.items))
-  else value = z.unknown()
-  return value.meta(schema)
+  return { request: publishedRequestSchema(toolName) }
 }
 
 function workStartArgsSchema() {
   const schema = (hostToolSchemas as Record<string, any>).concord_work_start
   const required = new Set(schema.required ?? [])
-  return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, child]) => {
-    const field = hostArgumentSchema(child)
-    return [key, required.has(key) ? field : field.optional()]
-  }))
+  return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, required.has(key) ? value : undefined]))
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {
@@ -150,6 +177,7 @@ function failureEnvelope(toolName: string, operation: string, requestID: string,
 }
 
 function runnerFailure(error: unknown, aborted: boolean) {
+  if (error instanceof AdapterFailure) return error
   const name = error instanceof Error ? error.name : ""
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as any).code) : ""
   if (aborted || name === "AbortError") return new AdapterFailure("cancelled", "cancelled_no_effect", String(error), "none", "retry_same_request")
@@ -314,7 +342,7 @@ type WorkStartBootstrap = {
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
 }
 
-type WorkStartLaunch = { schema_version: "1.0"; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
+type WorkStartLaunch = { schema_version: "1.0"; operation_id: string; attempt_id: string; launch_state: string; session_id: string | null; spawn_permitted: boolean; rollback_permitted: boolean; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
 
 type WorkStartEnvelope = {
   schema_version: "1.0"
@@ -377,8 +405,14 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
 }
 
 function validateWorkStartLaunch(value: unknown, bootstrap: WorkStartBootstrap): value is WorkStartLaunch {
-  if (!record(value) || !exactKeys(value, ["schema_version", "agent", "directory", "product_id", "work_id", "prompt"])) return false
+  if (!record(value) || !exactKeys(value, ["schema_version", "operation_id", "attempt_id", "launch_state", "session_id", "spawn_permitted", "rollback_permitted", "agent", "directory", "product_id", "work_id", "prompt"])) return false
   return value.schema_version === "1.0"
+    && nonEmptyString(value.operation_id)
+    && nonEmptyString(value.attempt_id)
+    && ["prepared", "running", "failed", "completed"].includes(String(value.launch_state))
+    && (value.session_id === null || (nonEmptyString(value.session_id) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.session_id)))
+    && typeof value.spawn_permitted === "boolean"
+    && typeof value.rollback_permitted === "boolean"
     && value.directory === bootstrap.worktree.path
     && value.product_id === bootstrap.product_id
     && value.work_id === bootstrap.work_id
@@ -391,15 +425,25 @@ function boundedUTF8(value: string, maxBytes: number): string {
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
 }
 
-function workStartError(kind: string, message: string, effect_state: "none" | "partial", identity: Partial<WorkStartEnvelope> = {}): WorkStartEnvelope {
+async function currentLaunchOwner(): Promise<{ owner_pid: number; owner_start: string }> {
+  const stat = await Bun.file("/proc/self/stat").text()
+  const closeParen = stat.lastIndexOf(")")
+  if (closeParen < 0) throw new AdapterFailure("unreachable", "process_identity_unavailable", "host process stat has no command boundary")
+  const fields = stat.slice(closeParen + 1).trim().split(/\s+/)
+  const ownerStart = fields[19]
+  if (!ownerStart || !/^\d+$/.test(ownerStart)) throw new AdapterFailure("unreachable", "process_identity_unavailable", "host process stat has no start identity")
+  return { owner_pid: process.pid, owner_start: ownerStart }
+}
+
+function workStartError(kind: string, message: string, effect_state: "none" | "partial", identity: Partial<WorkStartEnvelope> = {}, recovery = effect_state === "partial" ? "exact_replay" : "retry_same_request", retrySafe = effect_state === "none"): WorkStartEnvelope {
   return {
     schema_version: "1.0",
     outcome: effect_state === "partial" ? "partial" : "error",
     ...identity,
     error: {
       kind,
-      retry_safe: effect_state === "none",
-      recovery_action: { kind: effect_state === "partial" ? "exact_replay" : "retry_same_request" },
+      retry_safe: retrySafe,
+      recovery_action: { kind: recovery },
       effect_state,
       message: boundedUTF8(message, MAX_STDERR),
     },
@@ -409,8 +453,8 @@ function workStartError(kind: string, message: string, effect_state: "none" | "p
 function workStartFailure(error: unknown, bootstrap: WorkStartBootstrap | null, fallbackKind: string): WorkStartEnvelope {
   const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", fallbackKind, String(error))
   const identity = bootstrap ? { product_id: bootstrap.product_id, project_id: bootstrap.project_id, work_id: bootstrap.work_id, worktree_path: bootstrap.worktree.path } : {}
-  const effect = bootstrap ? "partial" : failure.effect === "partial" ? "partial" : "none"
-  return workStartError(failure.kind, failure.message, effect, identity)
+  const effect = bootstrap || failure.effect === "partial" || failure.effect === "possible" ? "partial" : "none"
+  return workStartError(failure.kind, failure.message, effect, identity, failure.recovery, effect === "none")
 }
 
 async function runWorkStartChild(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions) {
@@ -421,6 +465,13 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
   const concord = process.env.CONCORD_BIN ?? "concord"
   const opencode = process.env.OPENCODE_BIN ?? "opencode"
   let bootstrap: WorkStartBootstrap | null = null
+  let rolledBack = false
+  const rollbackBeforeLaunch = async (reason: string) => {
+    if (!bootstrap) return
+    const rollback = await runWorkStartChild([concord, "work-bootstrap-rollback"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, operation_id: bootstrap.operation_id, directory: bootstrap.worktree.path, reason: boundedUTF8(reason, MAX_STDERR) }), new AbortController().signal, { cwd: bootstrap.worktree.path })
+    if (rollback.exitCode !== 0) throw new AdapterFailure("rollback_failure", "rollback_failed", rollback.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
+    rolledBack = true
+  }
   try {
     if (!validateWorkStartArgs(args)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", "work_start arguments failed the host-tool contract")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", "work_start was cancelled before bootstrap")
@@ -435,25 +486,139 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract")
     bootstrap = bootValue
 
-    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", "work_start was cancelled after bootstrap")
-    const prepared = await runWorkStartChild([concord, "session-prepare"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, task: args.task }), context.abort, { cwd: bootstrap.worktree.path })
-    if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR))
+    if (context.abort.aborted) {
+      await rollbackBeforeLaunch("work_start was cancelled before the child launch")
+      throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", "work_start was cancelled after bootstrap")
+    }
+    let launchOwner
+    try {
+      launchOwner = await currentLaunchOwner()
+    } catch (error) {
+      await rollbackBeforeLaunch(error instanceof Error ? error.message : String(error))
+      throw error
+    }
+    const prepared = await runWorkStartChild([concord, "session-prepare"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, task: args.task, ...launchOwner }), context.abort, { cwd: bootstrap.worktree.path })
+    if (prepared.exitCode !== 0) {
+      await rollbackBeforeLaunch(prepared.stderr.slice(0, MAX_STDERR) || "session preparation failed")
+      throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR))
+    }
     let launchValue: unknown
-    try { launchValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_launch_contract", String(error)) }
-    if (!validateWorkStartLaunch(launchValue, bootstrap)) throw new AdapterFailure("malformed_response", "malformed_launch_contract", "session-prepare response failed the strict launch contract")
+    try {
+      launchValue = singleJSON(prepared.stdout)
+    } catch (error) {
+      await rollbackBeforeLaunch("session preparation returned malformed output")
+      throw new AdapterFailure("malformed_response", "malformed_launch_contract", String(error))
+    }
+    if (!validateWorkStartLaunch(launchValue, bootstrap)) {
+      await rollbackBeforeLaunch("session preparation returned a malformed launch contract")
+      throw new AdapterFailure("malformed_response", "malformed_launch_contract", "session-prepare response failed the strict launch contract")
+    }
     const launch = launchValue
-    const run = await runWorkStartChild([opencode, "run", "--agent", launch.agent, "--format", "json", "--dir", bootstrap.worktree.path, launch.prompt], "", context.abort, {
-      cwd: bootstrap.worktree.path,
-      env: { CONCORD_SELECTED_PRODUCT_ID: bootstrap.product_id, CONCORD_SELECTED_WORK_ID: bootstrap.work_id },
-    })
-    if (run.exitCode !== 0) throw new AdapterFailure("child_spawn_failure", "child_nonzero", run.stderr.slice(0, MAX_STDERR))
-    const runMetadata = readRunSessionMetadata(run.stdout)
-    if (!runMetadata) throw new AdapterFailure("malformed_response", "malformed_run_stream", "OpenCode run output did not contain one typed session identity")
+    if (!launch.spawn_permitted) {
+      if (launch.rollback_permitted) {
+        await rollbackBeforeLaunch("the prior host process ended before it recorded a session identity")
+        throw new AdapterFailure("cancelled", "stale_launch_rolled_back", "the stale launch had no recoverable session identity")
+      }
+      throw new AdapterFailure("operation_conflict", "launch_in_progress", "another host invocation owns this launch", "partial", "reconcile_operation")
+    }
+    const activeBootstrap = bootstrap
+    if (!activeBootstrap) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "bootstrap state was lost before launch")
+    let sessionID = launch.session_id ?? ""
+    let sessionIdentityRecorded = false
+    const recordLaunch = async (state: "running" | "completed" | "failed", reason: string, model = "", recordedSessionID = sessionID) => {
+      const record = await runWorkStartChild([concord, "session-record"], JSON.stringify({
+        operation_id: launch.operation_id,
+        attempt_id: launch.attempt_id,
+        product_id: activeBootstrap.product_id,
+        work_id: activeBootstrap.work_id,
+        agent: launch.agent,
+        directory: activeBootstrap.worktree.path,
+        session_id: recordedSessionID,
+        model,
+        state,
+        failure_reason: reason,
+        ...launchOwner,
+      }), context.abort, { cwd: activeBootstrap.worktree.path })
+      if (record.exitCode !== 0) throw new AdapterFailure("session_record_failure", "session_record_failed", record.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
+    }
+    if (context.abort.aborted) {
+      await rollbackBeforeLaunch("work_start was cancelled before the child launch")
+      throw new AdapterFailure("cancelled", "cancelled_after_prepare", "work_start was cancelled before the child launch")
+    }
+    try {
+      await recordLaunch("running", "")
+      sessionIdentityRecorded = sessionID !== ""
+    } catch (error) {
+      await rollbackBeforeLaunch(error instanceof Error ? error.message : String(error))
+      throw error
+    }
+    const observeRunLine = async (line: string) => {
+      let metadata
+      try { metadata = readRunLineMetadata(line) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_run_stream", String(error), sessionID ? "partial" : "none", sessionID ? "reconcile_operation" : "contact_operator") }
+      if (!metadata) return
+      if (sessionID && metadata.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
+      if (!sessionID) {
+        sessionID = metadata.session_id
+        await recordLaunch("running", "", "", metadata.session_id)
+        sessionIdentityRecorded = true
+      }
+    }
+    const runArgs = launch.session_id
+      ? [opencode, "run", "--session", launch.session_id, "--format", "json", "--dir", bootstrap.worktree.path, launch.prompt]
+      : [opencode, "run", "--agent", launch.agent, "--format", "json", "--dir", bootstrap.worktree.path, launch.prompt]
+    let run
+    try {
+      run = await runWorkStartChild(runArgs, "", context.abort, {
+        cwd: bootstrap.worktree.path,
+        env: { CONCORD_SELECTED_PRODUCT_ID: bootstrap.product_id, CONCORD_SELECTED_WORK_ID: bootstrap.work_id },
+        onStdoutLine: observeRunLine,
+      })
+    } catch (error) {
+      const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", "run_unknown_effect", String(error), "possible", "reconcile_operation")
+      if (failure.effect === "none") throw new AdapterFailure(failure.kind, `${failure.reason}_unknown_effect`, failure.message, "possible", "reconcile_operation")
+      throw failure
+    }
+    let runMetadata: ReturnType<typeof readRunSessionMetadata>
+    try {
+      runMetadata = readRunSessionMetadata(run.stdout)
+    } catch (error) {
+      throw new AdapterFailure("malformed_response", "malformed_run_stream", String(error), "possible", "reconcile_operation")
+    }
+    if (runMetadata && sessionID && runMetadata.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
+    if (runMetadata && !sessionID) sessionID = runMetadata.session_id
+    if (run.exitCode !== 0) {
+      if (runMetadata && launch.session_id && runMetadata.session_id !== launch.session_id) {
+        await recordLaunch("failed", "OpenCode resumed a different session", "", launch.session_id)
+        throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode resumed a different session")
+      }
+      if (sessionID) await recordLaunch("failed", run.stderr.slice(0, MAX_STDERR))
+      throw new AdapterFailure("child_spawn_failure", "child_nonzero", run.stderr.slice(0, MAX_STDERR), "partial", sessionID ? "exact_replay" : "reconcile_operation")
+    }
+    if (!runMetadata) {
+      if (sessionID) await recordLaunch("failed", "OpenCode run output did not contain one typed session identity")
+      throw new AdapterFailure("malformed_response", "malformed_run_stream", "OpenCode run output did not contain one typed session identity", "partial", sessionID ? "exact_replay" : "reconcile_operation")
+    }
+    if (launch.session_id && runMetadata.session_id !== launch.session_id) {
+      await recordLaunch("failed", "OpenCode resumed a different session", "", launch.session_id)
+      throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode resumed a different session")
+    }
+    if (!sessionIdentityRecorded) await recordLaunch("running", "")
     const exported = await runWorkStartChild([opencode, "export", runMetadata.session_id, "--sanitize"], "", context.abort, { cwd: bootstrap.worktree.path })
-    if (exported.exitCode !== 0) throw new AdapterFailure("session_export_failure", "export_failed", exported.stderr.slice(0, MAX_STDERR))
+    if (exported.exitCode !== 0) {
+      await recordLaunch("failed", exported.stderr.slice(0, MAX_STDERR))
+      throw new AdapterFailure("session_export_failure", "export_failed", exported.stderr.slice(0, MAX_STDERR))
+    }
     const readback = readExportSessionMetadata(exported.stdout, runMetadata.session_id)
-    if (!readback) throw new AdapterFailure("malformed_response", "malformed_session_export", "OpenCode export did not contain one typed session readback")
-    if (readback.readback_agent !== launch.agent) throw new AdapterFailure("agent_identity_mismatch", "executing_agent_mismatch", `executing agent ${JSON.stringify(readback.readback_agent)} does not match launch agent ${JSON.stringify(launch.agent)}`)
+    if (!readback) {
+      await recordLaunch("failed", "OpenCode export did not contain one typed session readback")
+      throw new AdapterFailure("malformed_response", "malformed_session_export", "OpenCode export did not contain one typed session readback")
+    }
+    if (readback.readback_agent !== launch.agent) {
+      const reason = `executing agent ${JSON.stringify(readback.readback_agent)} does not match launch agent ${JSON.stringify(launch.agent)}`
+      await recordLaunch("failed", reason)
+      throw new AdapterFailure("agent_identity_mismatch", "executing_agent_mismatch", reason)
+    }
+    await recordLaunch("completed", "", readback.readback_model ?? "unknown/unknown")
     const output = boundedUTF8(readRunTextParts(run.stdout).join(""), MAX_WORK_START_OUTPUT_BYTES)
     return {
       schema_version: "1.0",
@@ -469,6 +634,10 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       output,
     }
   } catch (error) {
+    if (rolledBack && bootstrap) {
+      const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", "work_start_failed", String(error))
+      return workStartError(failure.kind, `${failure.message}; bootstrap state was rolled back, so use a new idempotency_key`, "partial", { product_id: bootstrap.product_id, project_id: bootstrap.project_id, work_id: bootstrap.work_id, worktree_path: bootstrap.worktree.path }, "contact_operator", false)
+    }
     return workStartFailure(error, bootstrap, "work_start_failed")
   }
 }

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope } from "./generated-contract-tests"
+import type { ChildRunnerOptions } from "./concord"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -507,8 +508,14 @@ const bootstrapSuccess = (path = "/data/worktrees/project-1/work-1") => ({
   worktree: { set_id: "worktree-set-1", path, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" },
 })
 
-const launchContract = (agent = "concord-implement", prompt = "Implement the task.") => ({
+const launchContract = (agent = "concord-implement", prompt = "Implement the task.", sessionID: string | null = null) => ({
   schema_version: "1.0",
+  operation_id: "bootstrap-1",
+  attempt_id: "bootstrap-1:launch",
+  launch_state: "prepared",
+  session_id: sessionID,
+  spawn_permitted: true,
+  rollback_permitted: false,
   directory: "/data/worktrees/project-1/work-1",
   product_id: "product-1",
   work_id: "work-1",
@@ -534,23 +541,32 @@ test("work_start orders bootstrap, session preparation, launch, and export with 
     if (calls.length === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (calls.length === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (calls.length === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
-    if (calls.length === 4) return { exitCode: 0, stdout: runOutput(), stderr: "" }
-    return { exitCode: 0, stdout: exportOutput(), stderr: "" }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: exportOutput(), stderr: "" }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
   } } })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(calls.map(({ argv }) => argv)).toEqual([
     ["concord", "project-resolve"],
     ["concord", "work-bootstrap"],
     ["concord", "session-prepare"],
+    ["concord", "session-record"],
     ["opencode", "run", "--agent", "concord-implement", "--format", "json", "--dir", "/data/worktrees/project-1/work-1", "Implement the task."],
+    ["concord", "session-record"],
     ["opencode", "export", "session-run-1", "--sanitize"],
+    ["concord", "session-record"],
   ])
   expect(JSON.parse(calls[0].input)).toEqual({ directory: "/worktree", worktree: "/worktree" })
   expect(calls[1].options.cwd).toBe("/worktree")
   expect(calls[2].options.cwd).toBe("/data/worktrees/project-1/work-1")
-  expect(calls[3].options).toMatchObject({ cwd: "/data/worktrees/project-1/work-1", env: { CONCORD_SELECTED_PRODUCT_ID: "product-1", CONCORD_SELECTED_WORK_ID: "work-1" } })
+  expect(calls[4].options).toMatchObject({ cwd: "/data/worktrees/project-1/work-1", env: { CONCORD_SELECTED_PRODUCT_ID: "product-1", CONCORD_SELECTED_WORK_ID: "work-1" } })
+  expect(JSON.parse(calls[3].input)).toMatchObject({ operation_id: "bootstrap-1", attempt_id: "bootstrap-1:launch", session_id: "", state: "running" })
+  expect(JSON.parse(calls[5].input)).toMatchObject({ operation_id: "bootstrap-1", attempt_id: "bootstrap-1:launch", session_id: "session-run-1", state: "running" })
+  expect(JSON.parse(calls[7].input)).toMatchObject({ operation_id: "bootstrap-1", attempt_id: "bootstrap-1:launch", session_id: "session-run-1", model: "openai/gpt-5.6-luna", state: "completed" })
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", ...bootstrapArgs })
-  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task })
+  expect(JSON.parse(calls[2].input)).toMatchObject({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task, owner_pid: process.pid })
+  expect(JSON.parse(calls[2].input).owner_start).toMatch(/^\d+$/)
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: "/data/worktrees/project-1/work-1", session_id: "session-run-1", agent: "concord-implement", readback_agent: "concord-implement", readback_model: "openai/gpt-5.6-luna", output: "done" })
 })
 
@@ -574,7 +590,38 @@ test("work_start rejects malformed core contracts and path mismatches before lau
   const mismatch: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(mismatch.outcome).toBe("partial")
   expect(mismatch.error.kind).toBe("malformed_response")
-  expect(calls).toBe(3)
+  expect(mismatch.error.recovery_action.kind).toBe("contact_operator")
+   expect(calls).toBe(4)
+})
+
+test("work_start does not duplicate a launch owned by another invocation", async () => {
+  const calls: string[][] = []
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {
+    calls.push(argv)
+    if (calls.length === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls.length === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify({ ...launchContract(), spawn_permitted: false }), stderr: "" }
+  } } })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.error.kind).toBe("operation_conflict")
+  expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  expect(calls).toHaveLength(3)
+  expect(calls.some((argv) => argv[1] === "run" || argv[1] === "work-bootstrap-rollback")).toBe(false)
+})
+
+test("work_start rolls back a stale owner that recorded no session", async () => {
+  const calls: string[][] = []
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {
+    calls.push(argv)
+    if (calls.length === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls.length === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    if (calls.length === 3) return { exitCode: 0, stdout: JSON.stringify({ ...launchContract(), spawn_permitted: false, rollback_permitted: true }), stderr: "" }
+    if (argv[1] === "work-bootstrap-rollback") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", state: "rolled_back" }), stderr: "" }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
+  } } })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.error.kind).toBe("cancelled")
+  expect(calls.map((argv) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "work-bootstrap-rollback"])
 })
 
 test("work_start reports a partial effect for child failure and stops on abort", async () => {
@@ -584,13 +631,15 @@ test("work_start reports a partial effect for child failure and stops on abort",
     if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    if (argv[1] === "work-bootstrap-rollback") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", state: "rolled_back" }), stderr: "" }
     expect(argv[0]).toBe("opencode")
     return { exitCode: 7, stdout: "", stderr: "child failed" }
   } } })
   const partial: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(partial.outcome).toBe("partial")
   expect(partial.error.effect_state).toBe("partial")
-  expect(partial.error.recovery_action.kind).toBe("exact_replay")
+  expect(partial.error.recovery_action.kind).toBe("reconcile_operation")
 
   const controller = new AbortController()
   controller.abort()
@@ -600,12 +649,13 @@ test("work_start reports a partial effect for child failure and stops on abort",
   expect(aborted.error.kind).toBe("cancelled")
 
   const activeController = new AbortController()
-  calls = 0
+  const activeCalls: Array<{ argv: string[]; input: string }> = []
   adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, signal: AbortSignal) {
-    calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
-    if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
+    activeCalls.push({ argv, input: _input })
+    if (activeCalls.length === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (activeCalls.length === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    if (activeCalls.length === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
     expect(argv[0]).toBe("opencode")
     activeController.abort()
     expect(signal.aborted).toBe(true)
@@ -614,6 +664,60 @@ test("work_start reports a partial effect for child failure and stops on abort",
   const activeAbort: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor(() => {}, activeController)))
   expect(activeAbort.outcome).toBe("partial")
   expect(activeAbort.error.kind).toBe("cancelled")
+  expect(activeAbort.error.recovery_action.kind).toBe("reconcile_operation")
+  expect(activeCalls.filter((call) => call.argv[1] === "session-record").map((call) => JSON.parse(call.input).session_id)).toEqual([""])
+  expect(activeCalls.some((call) => call.argv[1] === "work-bootstrap-rollback")).toBe(false)
+})
+
+test("work_start records a streamed session identity before the child returns", async () => {
+  const calls: Array<{ argv: string[]; input: string }> = []
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
+    calls.push({ argv, input })
+    if (calls.length === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls.length === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    if (calls.length === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    if (argv[1] === "run") {
+      await options?.onStdoutLine?.(JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-streamed" }))
+      throw new Error("child transport ended after session creation")
+    }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
+  } } })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("partial")
+  const records = calls.filter((call) => call.argv[1] === "session-record").map((call) => JSON.parse(call.input))
+  expect(records).toEqual([
+    expect.objectContaining({ session_id: "", state: "running" }),
+    expect.objectContaining({ session_id: "session-streamed", state: "running" }),
+  ])
+  expect(calls.some((call) => call.argv[1] === "work-bootstrap-rollback")).toBe(false)
+})
+
+test("work_start preserves streamed identity when its durable record fails", async () => {
+  const calls: Array<{ argv: string[]; input: string }> = []
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
+    calls.push({ argv, input })
+    if (calls.length === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls.length === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    if (calls.length === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
+    if (argv[1] === "session-record") {
+      const record = JSON.parse(input)
+      if (record.session_id) return { exitCode: 1, stdout: "", stderr: "record unavailable" }
+      return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    }
+    if (argv[1] === "run") {
+      await options?.onStdoutLine?.(JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-record-failed" }))
+      throw new Error("run should stop after the record failure")
+    }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
+  } } })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("partial")
+  expect(result.error.kind).toBe("session_record_failure")
+  expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  const records = calls.filter((call) => call.argv[1] === "session-record").map((call) => JSON.parse(call.input))
+  expect(records.map((record) => record.session_id)).toEqual(["", "session-record-failed"])
+  expect(calls.some((call) => call.argv[1] === "work-bootstrap-rollback")).toBe(false)
 })
 
 test("work_start fails closed on session identity and bounded output violations", async () => {
@@ -693,30 +797,35 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
     if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
-    if (calls === 4) return { exitCode: 0, stdout: runOutput(), stderr: "" }
-    return { exitCode: 0, stdout: exportOutput(), stderr: "" }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: exportOutput(), stderr: "" }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
   } } })
   const result: any = await rawHostResult(adapter.work_start.execute(validTask as any, contextFor()))
   expect(result.outcome).toBe("ok")
 })
 
-test("work_start exact replay repeats core bootstrap and gets a fresh session packet", async () => {
+test("work_start exact replay resumes the durable session", async () => {
   const calls: Array<{ argv: string[]; input: string }> = []
+  let prepares = 0
   adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string) {
     calls.push({ argv, input })
-    const phase = (calls.length - 1) % 5
-    if (phase === 0) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (phase === 1) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
-    if (phase === 2) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
-    if (phase === 3) return { exitCode: 0, stdout: runOutput(`session-run-${calls.length}`), stderr: "" }
-    return { exitCode: 0, stdout: exportOutput(`session-run-${calls.length - 1}`), stderr: "" }
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (argv[1] === "work-bootstrap") return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    if (argv[1] === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(launchContract("concord-implement", "Implement the task.", prepares++ > 0 ? "session-run-1" : null)), stderr: "" }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    if (argv[1] === "run") return { exitCode: 0, stdout: runOutput("session-run-1"), stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: exportOutput("session-run-1"), stderr: "" }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
   } } })
   const first: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   const second: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(first.work_id).toBe(second.work_id)
+  expect(first.work_id, JSON.stringify({ first, second, calls })).toBe(second.work_id)
   expect(calls.filter((call) => call.argv.join(" ") === "concord work-bootstrap")).toHaveLength(2)
   expect(calls.filter((call) => call.argv.join(" ") === "concord session-prepare")).toHaveLength(2)
-  expect(JSON.parse(calls[1].input)).toEqual(JSON.parse(calls[6].input))
+  expect(calls.filter((call) => call.argv.join(" ") === "concord session-record")).toHaveLength(5)
+  expect(calls.filter((call) => call.argv[1] === "run")[1].argv).toEqual(["opencode", "run", "--session", "session-run-1", "--format", "json", "--dir", "/data/worktrees/project-1/work-1", "Implement the task."])
 })
 
 test("work_start integrates with a real Concord binary and a fake OpenCode child", async () => {
@@ -775,7 +884,7 @@ if (args[0] === "debug" && args[1] === "config") {
 } else if (args[0] === "export") {
   console.log(JSON.stringify({ info: { id: args[1] }, messages: [{ info: { id: "message-integration", sessionID: args[1], role: "assistant", agent: "concord-orchestrator", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] }] }))
 }
-`)
+    `)
     await chmod(fakeOpenCode, 0o755)
     await run(["go", "build", "-o", concordBinary, "./cmd/concord"], "", {}, root)
     await Bun.write(adapterConcord, `#!/bin/sh
@@ -818,4 +927,4 @@ exec "${concordBinary}" "$@"
     adapter.configureConcordAdapter({ reset: true })
     await rm(fixture, { recursive: true, force: true })
   }
-})
+}, 30_000)

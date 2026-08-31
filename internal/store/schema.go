@@ -3191,6 +3191,47 @@ CREATE TABLE bootstrap_operations (
 CREATE INDEX bootstrap_operations_state ON bootstrap_operations(state, updated_at);
 		`,
 	},
+	{
+		Version: 59,
+		Name:    "work_bootstrap_launch_recovery",
+		SQL: `
+DROP INDEX bootstrap_operations_state;
+ALTER TABLE bootstrap_operations RENAME TO bootstrap_operations_v58;
+CREATE TABLE bootstrap_operations (
+    idempotency_key TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    request_digest TEXT NOT NULL CHECK(length(request_digest) = 71),
+    request_json TEXT NOT NULL CHECK(json_valid(request_json) AND json_type(request_json)='object'),
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    work_id TEXT NOT NULL UNIQUE REFERENCES work_items(id) ON DELETE RESTRICT,
+    repo_path TEXT NOT NULL,
+    expected_version INTEGER NOT NULL CHECK(expected_version > 0),
+    state TEXT NOT NULL CHECK(state IN ('pending','creating','native_ready','completed','rolling_back','rolled_back')),
+    launch_state TEXT NOT NULL DEFAULT 'not_started' CHECK(launch_state IN ('not_started','prepared','running','completed','failed')),
+    launch_attempt_id TEXT UNIQUE,
+    launch_session_id TEXT UNIQUE,
+    launch_owner_pid INTEGER,
+    launch_owner_start TEXT,
+    launch_agent TEXT,
+    launch_directory TEXT,
+    launch_model TEXT,
+    launch_error TEXT,
+    launch_started_at TEXT,
+    launch_finished_at TEXT,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+INSERT INTO bootstrap_operations
+    (idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at)
+    SELECT idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at
+    FROM bootstrap_operations_v58;
+DROP TABLE bootstrap_operations_v58;
+CREATE INDEX bootstrap_operations_state ON bootstrap_operations(state, updated_at);
+CREATE INDEX bootstrap_operations_launch_state ON bootstrap_operations(launch_state, updated_at);
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -24,6 +24,27 @@ func bootstrapRequest() store.BootstrapRequest {
 	}
 }
 
+func commandSessionPrepareInput(t *testing.T, workID, task string) []byte {
+	t.Helper()
+	stat, err := os.ReadFile("/proc/self/stat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeParen := strings.LastIndex(string(stat), ")")
+	if closeParen < 0 {
+		t.Fatal("process stat has no command boundary")
+	}
+	fields := strings.Fields(string(stat)[closeParen+1:])
+	if len(fields) < 20 {
+		t.Fatal("process stat lacks a start identity")
+	}
+	raw, err := json.Marshal(sessionPrepareInput{ProductID: "product-wl", WorkID: workID, Task: task, OwnerPID: int64(os.Getpid()), OwnerStart: fields[19]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func gitOutput(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 	out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
@@ -386,7 +407,7 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 	t.Chdir(repo)
 	identityCalls := 0
 	var out, errOut bytes.Buffer
-	code := runSessionPrepare([]byte(`{"product_id":"product-wl","work_id":"`+result.WorkID+`","task":"run the task"}`), mustOpenStore(t, dbPath), &out, &errOut,
+	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), mustOpenStore(t, dbPath), &out, &errOut,
 		func() error { return nil },
 		func(context.Context, string, string) (string, error) { identityCalls++; return "agent", nil },
 		func(context.Context, string, string, string) ([]byte, error) {
@@ -394,6 +415,40 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 		})
 	if code == 0 || identityCalls != 0 || !strings.Contains(errOut.String(), "claimed worktree") {
 		t.Fatalf("wrong-directory code=%d identity_calls=%d stderr=%q", code, identityCalls, errOut.String())
+	}
+}
+
+func TestBootstrapRollbackRequiresTheRecordedLinkedWorktree(t *testing.T) {
+	repo := initLocatorRepo(t)
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	s := mustOpenStore(t, dbPath)
+	seedLocatorAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]string{"product_id": result.ProductID, "work_id": result.WorkID, "operation_id": result.OperationID, "directory": result.Entry.Path, "reason": "session preparation failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	var out, errOut bytes.Buffer
+	if code := runBootstrapRollback(raw, s, &out, &errOut); code == 0 {
+		t.Fatal("rollback accepted the default checkout")
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, result.OperationID).Scan(&state); err != nil || state != "completed" {
+		t.Fatalf("wrong-directory state=%s err=%v", state, err)
+	}
+	t.Chdir(result.Entry.Path)
+	out.Reset()
+	errOut.Reset()
+	if code := runBootstrapRollback(raw, s, &out, &errOut); code != 0 {
+		t.Fatalf("rollback code=%d stderr=%q", code, errOut.String())
+	}
+	t.Chdir(repo)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, result.OperationID).Scan(&state); err != nil || state != "rolled_back" {
+		t.Fatalf("linked-worktree state=%s err=%v", state, err)
 	}
 }
 
@@ -414,7 +469,7 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	}
 	laneCalls, identityCalls, bootCalls := 0, 0, 0
 	var out, errOut bytes.Buffer
-	code := runSessionPrepare([]byte(`{"product_id":"product-wl","work_id":"`+result.WorkID+`","task":"use UTF-8 ✓"}`), s, &out, &errOut,
+	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "use UTF-8 ✓"), s, &out, &errOut,
 		func() error { laneCalls++; return nil },
 		func(ctx context.Context, productID, workID string) (string, error) {
 			identityCalls++
@@ -443,7 +498,7 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	before = after
 	laneCalls, identityCalls, bootCalls = 0, 0, 0
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
-	code = runSessionPrepare([]byte(`{"product_id":"product-wl","work_id":"`+result.WorkID+`","task":"run"}`), s, &out, &errOut,
+	code = runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
 		func() error { laneCalls++; return errors.New("lane definition is missing") },
 		func(context.Context, string, string) (string, error) { identityCalls++; return "orchestrator", nil },
 		func(context.Context, string, string, string) ([]byte, error) {

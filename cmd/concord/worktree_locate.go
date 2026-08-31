@@ -59,10 +59,3 @@ func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	return writeJSON(out, location, errOut)
 }
-
-// resolveCommitSHA pins a ref to its full commit SHA through the native git
-// executable. `rev-parse --verify <ref>^{commit}` refuses anything that does
-// not resolve to exactly one commit, including ambiguous or truncated input.
-func resolveCommitSHA(ctx context.Context, repo, ref string) (string, error) {
-	return store.ResolveCommitSHA(ctx, repo, ref)
-}

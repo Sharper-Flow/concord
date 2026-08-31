@@ -2,11 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,40 @@ type branchProbeFailureRunner struct{}
 func (branchProbeFailureRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if len(args) > 0 && args[0] == "show-ref" {
 		return nil, errors.New("injected branch probe failure")
+	}
+	return (ExecGitRunner{}).Run(ctx, dir, args...)
+}
+
+type branchMoveBeforeDeleteRunner struct {
+	branch string
+	sha    string
+}
+
+func (r branchMoveBeforeDeleteRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "branch -d -- ") {
+		if _, err := (ExecGitRunner{}).Run(ctx, dir, "update-ref", "refs/heads/"+r.branch, r.sha); err != nil {
+			return nil, err
+		}
+	}
+	return (ExecGitRunner{}).Run(ctx, dir, args...)
+}
+
+type branchMoveBeforeWorktreeRemovalRunner struct {
+	branch    string
+	sha       string
+	attempted bool
+	blocked   bool
+}
+
+func (r *branchMoveBeforeWorktreeRemovalRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+		r.attempted = true
+		_, err := (ExecGitRunner{}).Run(ctx, dir, "update-ref", "refs/heads/"+r.branch, r.sha)
+		r.blocked = err != nil
+		if err == nil {
+			return nil, errors.New("concurrent branch movement bypassed rollback locks")
+		}
 	}
 	return (ExecGitRunner{}).Run(ctx, dir, args...)
 }
@@ -46,6 +82,27 @@ func runBootstrapGit(t *testing.T, repo string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func deadBootstrapOwner(t *testing.T) (int64, string) {
+	t.Helper()
+	owner := exec.Command("sleep", "60")
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ownerPID := int64(owner.Process.Pid)
+	ownerStart, err := processStartIdentity(ownerPID)
+	if err != nil {
+		owner.Process.Kill()
+		t.Fatal(err)
+	}
+	if err := owner.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Wait(); err == nil {
+		t.Fatal("killed lock owner exited successfully")
+	}
+	return ownerPID, ownerStart
+}
+
 func seedBootstrapStoreAuthority(t *testing.T, s *Store, repo string) {
 	t.Helper()
 	ctx := context.Background()
@@ -63,6 +120,16 @@ func seedBootstrapStoreAuthority(t *testing.T, s *Store, repo string) {
 
 func bootstrapStoreRequest() BootstrapRequest {
 	return BootstrapRequest{ProductID: "product-bootstrap", ProjectID: "project-bootstrap", Title: "Bootstrap", ValueStatement: "Work starts in one worktree", Kind: "task", Task: "run", IdempotencyKey: "bootstrap-store", Priority: 1, Urgency: "standard", Ref: "HEAD"}
+}
+
+func bootstrapTestOwner(t *testing.T) (int64, string) {
+	t.Helper()
+	pid := int64(os.Getpid())
+	start, err := processStartIdentity(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pid, start
 }
 
 func TestValidateBootstrapTaskUsesUTF8ByteLimit(t *testing.T) {
@@ -159,5 +226,523 @@ func TestBootstrapBranchProbeFailureCreatesNoReplayAuthority(t *testing.T) {
 	}
 	if err := s.db.QueryRow("SELECT count(*) FROM bootstrap_operations").Scan(&journals); err != nil || journals != 0 {
 		t.Fatalf("planted branch journal count=%d err=%v", journals, err)
+	}
+}
+
+func TestBootstrapLaunchReplayPreservesSessionIdentity(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapStoreRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerPID, ownerStart := bootstrapTestOwner(t)
+	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launch.State != "prepared" || launch.SessionID != nil || !launch.SpawnPermitted {
+		t.Fatalf("initial launch=%+v", launch)
+	}
+	contender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contender.SpawnPermitted {
+		t.Fatalf("concurrent launch was permitted: %+v", contender)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err == nil {
+		t.Fatal("prepared launch moved directly to completed")
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "child transport failed"); err == nil {
+		t.Fatal("rollback removed a worktree after the child launch fence")
+	}
+	if _, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart); err == nil {
+		t.Fatal("running launch without a session allowed a duplicate launch")
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err == nil {
+		t.Fatal("rollback removed a worktree with a recorded session")
+	}
+	replay, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.State != "running" || replay.SessionID == nil || *replay.SessionID != "session-1" || replay.SpawnPermitted {
+		t.Fatalf("running replay=%+v", replay)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "failed", "late failure", ownerPID, ownerStart); err == nil {
+		t.Fatal("completed launch moved to failed")
+	}
+	completed, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.State != "prepared" || completed.SessionID == nil || *completed.SessionID != "session-1" || completed.Model != "openai/model-1" || !completed.SpawnPermitted {
+		t.Fatalf("completed replay=%+v", completed)
+	}
+	terminalContender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminalContender.SpawnPermitted {
+		t.Fatalf("concurrent terminal replay was permitted: %+v", terminalContender)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-2", launch.Agent, launch.Directory, "openai/model-1", "running", "", ownerPID, ownerStart); err == nil {
+		t.Fatal("launch accepted a different session identity")
+	}
+}
+
+func TestBootstrapLaunchFailureWithoutSessionRefusesDuplicateLaunch(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-launch-failure"
+	result, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerPID, ownerStart := bootstrapTestOwner(t)
+	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "", launch.Agent, launch.Directory, "", "failed", "child process did not report a session", ownerPID, ownerStart); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-new", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err == nil {
+		t.Fatal("failed launch without a session accepted a new running session")
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-new", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err == nil {
+		t.Fatal("failed launch moved directly to completed")
+	}
+	if _, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart); err == nil {
+		t.Fatal("failed launch without a session allowed a duplicate launch")
+	}
+}
+
+func TestBootstrapLaunchOwnerRecoveryIsExclusive(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapStoreRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := exec.Command("sleep", "60")
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ownerPID := int64(owner.Process.Pid)
+	ownerStart, err := processStartIdentity(ownerPID)
+	if err != nil {
+		owner.Process.Kill()
+		t.Fatal(err)
+	}
+	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
+	if err != nil {
+		owner.Process.Kill()
+		t.Fatal(err)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-recovery", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err != nil {
+		owner.Process.Kill()
+		t.Fatal(err)
+	}
+	if err := owner.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Wait(); err == nil {
+		t.Fatal("killed launch owner exited successfully")
+	}
+	currentPID, currentStart := bootstrapTestOwner(t)
+	recovery, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, currentPID, currentStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovery.SpawnPermitted || recovery.RollbackPermitted || recovery.SessionID == nil || *recovery.SessionID != "session-recovery" {
+		t.Fatalf("recovery=%+v", recovery)
+	}
+	contender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, currentPID, currentStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contender.SpawnPermitted || contender.RollbackPermitted {
+		t.Fatalf("recovery contender=%+v", contender)
+	}
+
+	staleReq := bootstrapStoreRequest()
+	staleReq.IdempotencyKey = "bootstrap-stale-owner"
+	stale, err := s.BootstrapWorktree(context.Background(), staleReq, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleOwner := exec.Command("sleep", "60")
+	if err := staleOwner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stalePID := int64(staleOwner.Process.Pid)
+	staleStart, err := processStartIdentity(stalePID)
+	if err != nil {
+		staleOwner.Process.Kill()
+		t.Fatal(err)
+	}
+	if _, err := s.PrepareBootstrapLaunch(context.Background(), stale.ProductID, stale.WorkID, "concord-implement", stale.Entry.Path, stalePID, staleStart); err != nil {
+		staleOwner.Process.Kill()
+		t.Fatal(err)
+	}
+	if err := staleOwner.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := staleOwner.Wait(); err == nil {
+		t.Fatal("killed stale owner exited successfully")
+	}
+	staleRecovery, err := s.PrepareBootstrapLaunch(context.Background(), stale.ProductID, stale.WorkID, "concord-implement", stale.Entry.Path, currentPID, currentStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staleRecovery.SpawnPermitted || !staleRecovery.RollbackPermitted || staleRecovery.SessionID != nil {
+		t.Fatalf("stale recovery=%+v", staleRecovery)
+	}
+}
+
+func TestRollbackBootstrapOperationRemovesOnlyCleanUnlaunchedState(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-clean-rollback"
+	result, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, repo, "session preparation failed"); err == nil {
+		t.Fatal("rollback accepted the default checkout")
+	}
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(result.Entry.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rolled-back worktree still exists: %v", err)
+	}
+	if _, exists, err := bootstrapBranchHead(context.Background(), ExecGitRunner{}, repo, result.Entry.Branch); err != nil || exists {
+		t.Fatalf("rolled-back branch exists=%v err=%v", exists, err)
+	}
+	var operationState, claimState, lifecycle string
+	if err := s.db.QueryRow(`SELECT b.state,c.state,w.lifecycle FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id JOIN work_items w ON w.id=b.work_id WHERE b.operation_id=?`, result.OperationID).Scan(&operationState, &claimState, &lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "rolled_back" || claimState != "reclaimed" || lifecycle != "cancelled" {
+		t.Fatalf("operation=%s claim=%s lifecycle=%s", operationState, claimState, lifecycle)
+	}
+	if _, err := s.BootstrapWorktree(context.Background(), req, nil); err == nil {
+		t.Fatal("rolled-back idempotency key was replayed")
+	}
+
+	dirtyReq := bootstrapStoreRequest()
+	dirtyReq.IdempotencyKey = "bootstrap-dirty-rollback"
+	dirty, err := s.BootstrapWorktree(context.Background(), dirtyReq, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirty.Entry.Path, "operator.txt"), []byte("preserve\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RollbackBootstrapOperation(context.Background(), dirty.ProductID, dirty.WorkID, dirty.OperationID, dirty.Entry.Path, "session preparation failed"); err == nil {
+		t.Fatal("dirty worktree was removed")
+	}
+	if _, err := os.Stat(filepath.Join(dirty.Entry.Path, "operator.txt")); err != nil {
+		t.Fatalf("dirty worktree was not preserved: %v", err)
+	}
+	if err := s.db.QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, dirty.OperationID).Scan(&operationState); err != nil || operationState != "rolling_back" {
+		t.Fatalf("dirty operation state=%s err=%v", operationState, err)
+	}
+}
+
+func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord-v58.db")
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:len(migrations)-1] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-30T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ensureInstallationKey(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{db: db, path: path}
+	repo := initBootstrapStoreRepo(t)
+	seedBootstrapStoreAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(ctx, bootstrapStoreRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var operationID, state, launchState string
+	var attemptID, sessionID, ownerStart sql.NullString
+	var ownerPID sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT operation_id,state,launch_state,launch_attempt_id,launch_session_id,launch_owner_pid,launch_owner_start FROM bootstrap_operations WHERE work_id=?`, result.WorkID).Scan(&operationID, &state, &launchState, &attemptID, &sessionID, &ownerPID, &ownerStart); err != nil {
+		t.Fatal(err)
+	}
+	if operationID != result.OperationID || state != "completed" || launchState != "not_started" || attemptID.Valid || sessionID.Valid || ownerPID.Valid || ownerStart.Valid {
+		t.Fatalf("operation=%s state=%s launch=%s attempt=%v session=%v owner_pid=%v owner_start=%v", operationID, state, launchState, attemptID, sessionID, ownerPID, ownerStart)
+	}
+}
+
+func TestRollbackBootstrapDoesNotDeleteConcurrentlyMovedBranch(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-branch-race"
+	result, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("concurrent branch target\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runBootstrapGit(t, repo, "add", "README.md")
+	runBootstrapGit(t, repo, "commit", "-q", "-m", "concurrent target")
+	newSHA := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
+	err = s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, branchMoveBeforeDeleteRunner{branch: result.Entry.Branch, sha: newSHA}, true, errors.New("session preparation failed"))
+	if err == nil {
+		t.Fatal("concurrently moved branch was deleted")
+	}
+	branchSHA, exists, err := bootstrapBranchHead(context.Background(), ExecGitRunner{}, repo, result.Entry.Branch)
+	if err != nil || !exists || branchSHA != newSHA {
+		t.Fatalf("branch sha=%s exists=%v err=%v", branchSHA, exists, err)
+	}
+	var state string
+	if err := s.db.QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, result.OperationID).Scan(&state); err != nil || state != "rolling_back" {
+		t.Fatalf("operation state=%s err=%v", state, err)
+	}
+}
+
+func TestRollbackBootstrapLocksWorktreeHeadBeforeRemoval(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-worktree-race"
+	result, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseTree := runBootstrapGit(t, repo, "rev-parse", result.Entry.BaseSHA+"^{tree}")
+	newSHA := runBootstrapGit(t, repo, "commit-tree", baseTree, "-p", result.Entry.BaseSHA, "-m", "concurrent target")
+	runner := &branchMoveBeforeWorktreeRemovalRunner{branch: result.Entry.Branch, sha: newSHA}
+	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
+	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, runner, true, errors.New("session preparation failed")); err != nil {
+		t.Fatal(err)
+	}
+	if !runner.attempted || !runner.blocked {
+		t.Fatalf("concurrent movement attempted=%v blocked=%v", runner.attempted, runner.blocked)
+	}
+	if _, err := os.Stat(result.Entry.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rolled-back worktree still exists: %v", err)
+	}
+}
+
+func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapStoreRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := exec.Command("sleep", "60")
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ownerPID := int64(owner.Process.Pid)
+	ownerStart, err := processStartIdentity(ownerPID)
+	if err != nil {
+		owner.Process.Kill()
+		t.Fatal(err)
+	}
+	if err := owner.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Wait(); err == nil {
+		t.Fatal("killed Git lock owner exited successfully")
+	}
+	refPath := runBootstrapGit(t, repo, "rev-parse", "--git-path", "refs/heads/"+result.Entry.Branch)
+	if !filepath.IsAbs(refPath) {
+		refPath = filepath.Join(repo, refPath)
+	}
+	lockPath := filepath.Clean(refPath) + ".lock"
+	marker := "concord-bootstrap-lock-v1\n" + strconv.FormatInt(ownerPID, 10) + "\n" + ownerStart + "\n"
+	if err := os.WriteFile(lockPath, []byte(marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale Git lock still exists: %v", err)
+	}
+}
+
+func TestRollbackBootstrapExcludesConcurrentSessionRecord(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-rollback-session-race"
+	result, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerPID, ownerStart := bootstrapTestOwner(t)
+	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := s.now()
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		done := false
+		return beginBootstrapRollbackTx(context.Background(), transaction, result.OperationID, result.WorkID, now, "session preparation failed", &done)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-race", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err == nil {
+		t.Fatal("session record entered a rollback-owned operation")
+	}
+	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
+	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, ExecGitRunner{}, true, errors.New("session preparation failed")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBootstrapReplayFinishesInterruptedNativeRollback(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-interrupted-rollback"
+	result, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		done := false
+		return beginBootstrapRollbackTx(context.Background(), transaction, result.OperationID, result.WorkID, s.now(), "session preparation failed", &done)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runBootstrapGit(t, repo, "worktree", "remove", result.Entry.Path)
+	ownerPID, ownerStart := deadBootstrapOwner(t)
+	refPath := runBootstrapGit(t, repo, "rev-parse", "--git-path", "refs/heads/"+result.Entry.Branch)
+	if !filepath.IsAbs(refPath) {
+		refPath = filepath.Join(repo, refPath)
+	}
+	lockPath := filepath.Clean(refPath) + ".lock"
+	marker := "concord-bootstrap-lock-v1\n" + strconv.FormatInt(ownerPID, 10) + "\n" + ownerStart + "\n"
+	if err := os.WriteFile(lockPath, []byte(marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BootstrapWorktree(context.Background(), req, nil); err == nil {
+		t.Fatal("replay accepted an interrupted rollback")
+	}
+	var state, claimState string
+	if err := s.db.QueryRow(`SELECT b.state,c.state FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, result.OperationID).Scan(&state, &claimState); err != nil {
+		t.Fatal(err)
+	}
+	if state != "rolled_back" || claimState != "reclaimed" {
+		t.Fatalf("operation=%s claim=%s", state, claimState)
+	}
+	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted rollback lock still exists: %v", err)
+	}
+}
+
+func TestBootstrapGitLockRecoveryExcludesConcurrentReclaimers(t *testing.T) {
+	directory := t.TempDir()
+	lockPath := filepath.Join(directory, "branch.lock")
+	stalePID, staleStart := deadBootstrapOwner(t)
+	marker := "concord-bootstrap-lock-v1\n" + strconv.FormatInt(stalePID, 10) + "\n" + staleStart + "\n"
+	if err := os.WriteFile(lockPath, []byte(marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ownerPID, ownerStart := bootstrapTestOwner(t)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			results <- acquireBootstrapGitLock(lockPath, ownerPID, ownerStart)
+		}()
+	}
+	close(start)
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful lock reclaimers=%d", successes)
 	}
 }

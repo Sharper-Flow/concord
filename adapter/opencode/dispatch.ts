@@ -56,6 +56,11 @@ export interface RunSessionMetadata {
   session_id: string
 }
 
+export interface RunLineMetadata extends RunSessionMetadata {
+  official: boolean
+  completed: boolean
+}
+
 // DispatchAuthorizer asks the core to authorize one dispatch_worker action and
 // returns the core response envelope. The caller owns the transport, so the
 // adapter never holds the authorization decision (CD-0017 D2, CD-0059 D1).
@@ -208,6 +213,20 @@ function hostStatusMetadata(value: Record<string, unknown>): string | null {
   return null
 }
 
+// readRunLineMetadata extracts the first durable session identity that the
+// OpenCode stream makes observable. Invalid official events fail closed.
+export function readRunLineMetadata(line: string): RunLineMetadata | null {
+  let value: unknown
+  try { value = JSON.parse(line) } catch { return null }
+  if (!isRecord(value) || typeof value.type !== "string") return null
+  if (RUN_EVENT_TYPES.has(value.type)) {
+    if (typeof value.timestamp !== "number" || typeof value.sessionID !== "string" || value.sessionID.length === 0) throw new Error("official run event lacks a typed session identity")
+    return { session_id: value.sessionID, official: true, completed: value.type === "step_finish" && isRecord(value.part) && value.part.reason === "stop" }
+  }
+  const sessionID = hostStatusMetadata(value)
+  return sessionID ? { session_id: sessionID, official: false, completed: false } : null
+}
+
 export function readRunSessionMetadata(stdout: string): RunSessionMetadata | null {
   if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
   const sessions = new Set<string>()
@@ -215,22 +234,12 @@ export function readRunSessionMetadata(stdout: string): RunSessionMetadata | nul
   let completed = false
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue
-    let value: unknown
-    // Host plugins log their own JSON lines to the same stdout, so a line that
-    // is not a typed run event carries no session identity and is ignored. The
-    // identity invariant is enforced below over the run events themselves.
-    try { value = JSON.parse(line) } catch { continue }
-    if (!isRecord(value) || typeof value.type !== "string") continue
-    if (RUN_EVENT_TYPES.has(value.type)) {
-      if (typeof value.timestamp !== "number" || typeof value.sessionID !== "string" || value.sessionID.length === 0) return null
-      officialEvents++
-      sessions.add(value.sessionID)
-      if (value.type === "step_finish" && isRecord(value.part) && value.part.reason === "stop") completed = true
-      continue
-    }
-    const sessionID = hostStatusMetadata(value)
-    if (!sessionID) continue
-    sessions.add(sessionID)
+    let metadata: RunLineMetadata | null
+    try { metadata = readRunLineMetadata(line) } catch { return null }
+    if (!metadata) continue
+    if (metadata.official) officialEvents++
+    if (metadata.completed) completed = true
+    sessions.add(metadata.session_id)
   }
   if (officialEvents === 0 || !completed || sessions.size !== 1) return null
   return { session_id: [...sessions][0] }

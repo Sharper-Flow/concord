@@ -1424,6 +1424,32 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestWorkBootstrapExactReplayAndPendingRecovery"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestWorkBootstrapConcurrentExactReplayHasOneNativeResult"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestWorkBootstrapRefusesNonDefaultMainCheckoutBeforeJournal"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestWorkBootstrapRefusesPlantedCanonicalWorktreeWithCommits"
+        },
+        {
+          "kind": "validator",
+          "value": "scripts/check-agent-contracts.py"
+        }
+      ],
+      "id": "CD-0088",
+      "state": "satisfied"
+    },
+    {
       "id": "CD-0089",
       "issue": 611,
       "state": "outstanding"
@@ -1452,32 +1478,6 @@
         }
       ],
       "id": "CD-0090",
-      "state": "satisfied"
-    },
-    {
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestWorkBootstrapExactReplayAndPendingRecovery"
-        },
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestWorkBootstrapConcurrentExactReplayHasOneNativeResult"
-        },
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestWorkBootstrapRefusesNonDefaultMainCheckoutBeforeJournal"
-        },
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestWorkBootstrapRefusesPlantedCanonicalWorktreeWithCommits"
-        },
-        {
-          "kind": "validator",
-          "value": "scripts/check-agent-contracts.py"
-        }
-      ],
-      "id": "CD-0088",
       "state": "satisfied"
     },
     {

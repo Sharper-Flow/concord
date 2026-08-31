@@ -3213,6 +3213,8 @@ CREATE TABLE bootstrap_operations (
     launch_session_id TEXT UNIQUE,
     launch_owner_pid INTEGER,
     launch_owner_start TEXT,
+    launch_process_pid INTEGER,
+    launch_process_start TEXT,
     launch_agent TEXT,
     launch_directory TEXT,
     launch_model TEXT,

@@ -6,7 +6,7 @@
   evidence, and completion after the bootstrap exception; issue #602
 - **Approval:** The operator approved the decision contract in issue #602 on
   2026-08-30.
-- **Related:** CD-0007, CD-0010, CD-0017, CD-0082, issue #600, and pull request #605
+- **Related:** CD-0007, CD-0010, CD-0017, CD-0082, CD-0088, issue #600, and pull request #605
 - **Supersedes:** CD-0010's prohibition on Concord coordinating its own
   development before replacement readiness, and only that prohibition
 - **Preserves:** GitHub Issues as planning authority; pull requests and required
@@ -66,6 +66,10 @@ CD-0021's consequences, CD-0047's context and consequences, CD-0082 D2, and
 CD-0084's context. Those records retain their historical text. CD-0010's
 planning, review, merge, isolation, Product-law, and Advance rules remain
 current. The CD-0010 file and historical research records remain unchanged.
+
+CD-0088 D5 records the same self-hosting prohibition for the host-owned work
+bootstrap. This decision supersedes that prohibition after the issue #600 release.
+CD-0088's authority boundaries and bootstrap contract remain current.
 
 Current instructions and living law cite this decision where they describe
 Concord development authority. Historical decisions retain their original text

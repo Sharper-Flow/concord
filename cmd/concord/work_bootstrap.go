@@ -4,9 +4,11 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agent"
@@ -100,6 +102,8 @@ type sessionPrepareOutput struct {
 	SessionID         *string `json:"session_id"`
 	SpawnPermitted    bool    `json:"spawn_permitted"`
 	RollbackPermitted bool    `json:"rollback_permitted"`
+	RecoveryLookup    bool    `json:"recovery_lookup_permitted"`
+	Title             string  `json:"title"`
 	Agent             string  `json:"agent"`
 	Directory         string  `json:"directory"`
 	ProductID         string  `json:"product_id"`
@@ -203,7 +207,75 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1
 	}
-	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", OperationID: launch.OperationID, AttemptID: launch.AttemptID, LaunchState: launch.State, SessionID: launch.SessionID, SpawnPermitted: launch.SpawnPermitted, RollbackPermitted: launch.RollbackPermitted, Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Prompt: prompt}, errOut)
+	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", OperationID: launch.OperationID, AttemptID: launch.AttemptID, LaunchState: launch.State, SessionID: launch.SessionID, SpawnPermitted: launch.SpawnPermitted, RollbackPermitted: launch.RollbackPermitted, RecoveryLookup: launch.RecoveryLookup, Title: launch.Title, Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Prompt: prompt}, errOut)
+}
+
+type sessionExecInput struct {
+	OperationID string  `json:"operation_id"`
+	AttemptID   string  `json:"attempt_id"`
+	ProductID   string  `json:"product_id"`
+	WorkID      string  `json:"work_id"`
+	Agent       string  `json:"agent"`
+	Directory   string  `json:"directory"`
+	SessionID   *string `json:"session_id"`
+	Title       string  `json:"title"`
+	Prompt      string  `json:"prompt"`
+	OwnerPID    int64   `json:"owner_pid"`
+	OwnerStart  string  `json:"owner_start"`
+}
+
+func runSessionExec(raw []byte, s *store.Store, errOut io.Writer) int {
+	var input sessionExecInput
+	if err := decodeObject(raw, &input); err != nil {
+		writeOperatorDiagnostic(errOut, "session-exec", err.Error())
+		return 1
+	}
+	if !sessionPrepareID.MatchString(input.OperationID) || !sessionPrepareID.MatchString(input.AttemptID) || !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || !sessionPrepareID.MatchString(input.Agent) || input.Directory == "" || len(input.Directory) > 4096 || input.Title == "" || len(input.Title) > 256 || input.Prompt == "" || len(input.Prompt) > agent.MaxEnvelopeBytes || input.OwnerPID <= 1 || input.OwnerStart == "" || len(input.OwnerStart) > 32 || input.SessionID != nil && !sessionPrepareID.MatchString(*input.SessionID) {
+		writeOperatorDiagnostic(errOut, "session-exec", "launch execution fields are invalid")
+		return 1
+	}
+	cwd, err := os.Getwd()
+	if err != nil || !samePath(cwd, input.Directory) || int64(os.Getppid()) != input.OwnerPID {
+		writeOperatorDiagnostic(errOut, "session-exec", "launch process is not the prepared host child in the claimed worktree")
+		return 1
+	}
+	if _, _, errno := syscall.Syscall6(syscall.SYS_PRCTL, 1, uintptr(syscall.SIGKILL), 0, 0, 0, 0); errno != 0 {
+		writeOperatorDiagnostic(errOut, "session-exec", errno.Error())
+		return 1
+	}
+	if int64(os.Getppid()) != input.OwnerPID {
+		writeOperatorDiagnostic(errOut, "session-exec", "launch owner ended before the child fence")
+		return 1
+	}
+	if err := s.StartBootstrapLaunch(context.Background(), input.OperationID, input.AttemptID, input.ProductID, input.WorkID, input.Agent, input.Directory, input.Title, input.OwnerPID, input.OwnerStart, int64(os.Getpid())); err != nil {
+		writeOperatorDiagnostic(errOut, "session-exec", err.Error())
+		return 1
+	}
+	if err := s.Close(); err != nil {
+		writeOperatorDiagnostic(errOut, "session-exec", err.Error())
+		return 1
+	}
+	opencode := os.Getenv("OPENCODE_BIN")
+	if opencode == "" {
+		opencode = "opencode"
+	}
+	executable, err := exec.LookPath(opencode)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "session-exec", err.Error())
+		return 1
+	}
+	args := []string{opencode, "run"}
+	if input.SessionID != nil {
+		args = append(args, "--session", *input.SessionID)
+	} else {
+		args = append(args, "--agent", input.Agent, "--title", input.Title)
+	}
+	args = append(args, "--format", "json", "--dir", input.Directory, input.Prompt)
+	if err := syscall.Exec(executable, args, os.Environ()); err != nil {
+		writeOperatorDiagnostic(errOut, "session-exec", err.Error())
+		return 1
+	}
+	return 0
 }
 
 type sessionRecordInput struct {
@@ -222,11 +294,12 @@ type sessionRecordInput struct {
 }
 
 type bootstrapRollbackInput struct {
-	ProductID   string `json:"product_id"`
-	WorkID      string `json:"work_id"`
-	OperationID string `json:"operation_id"`
-	Directory   string `json:"directory"`
-	Reason      string `json:"reason"`
+	ProductID          string `json:"product_id"`
+	WorkID             string `json:"work_id"`
+	OperationID        string `json:"operation_id"`
+	Directory          string `json:"directory"`
+	Reason             string `json:"reason"`
+	SessionLookupEmpty bool   `json:"session_lookup_empty"`
 }
 
 func runBootstrapRollback(raw []byte, s *store.Store, out, errOut io.Writer) int {
@@ -249,7 +322,7 @@ func runBootstrapRollback(raw []byte, s *store.Store, out, errOut io.Writer) int
 		writeOperatorDiagnostic(errOut, "work-bootstrap-rollback", "invocation directory is not a registered linked worktree")
 		return 1
 	}
-	if err := s.RollbackBootstrapOperation(context.Background(), input.ProductID, input.WorkID, input.OperationID, input.Directory, input.Reason); err != nil {
+	if err := s.RollbackBootstrapOperation(context.Background(), input.ProductID, input.WorkID, input.OperationID, input.Directory, input.Reason, input.SessionLookupEmpty); err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap-rollback", err.Error())
 		return 1
 	}

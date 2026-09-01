@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuthorizeAllowsWorkDefineOnMainWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
+    }
+  ],
+  "id": "CD-0092",
+  "state": "satisfied"
+}

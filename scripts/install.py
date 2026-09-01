@@ -108,6 +108,18 @@ def paths_for(root: Path | None) -> Paths:
     else:
         home = Path.home()
         data_home = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
+        # A per-project session shard (the `oc` wrapper sets XDG_DATA_HOME to
+        # one) is not a durable data home: an install there scatters versioned
+        # assets and the install manifest where no later run looks, and the
+        # next install outside the session then classifies every installed
+        # file as user-authored. Refuse by name instead (#648).
+        if "/opencode-projects/" in str(data_home):
+            raise InstallerError(
+                "refusing installer data root under a per-project session shard: "
+                f"XDG_DATA_HOME={data_home} would install under {data_home / 'concord'} "
+                f"instead of the durable {home / '.local' / 'share' / 'concord'}; "
+                "rerun with `env -u XDG_DATA_HOME` or a durable XDG_DATA_HOME"
+            )
         config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
         bin_dir = home / ".local" / "bin"
     return Paths(
@@ -752,6 +764,14 @@ def ensure_secret_service_ready(paths: Paths) -> None:
         verify_credential_permissions(keyrings)
 
 
+
+def unmanaged_manifest_note(old_manifest: dict[str, object] | None, paths: Paths) -> str:
+    """Name the manifest a preflight refusal consulted, so an install run from
+    a redirected data root explains why it sees no managed files (#648)."""
+    if old_manifest:
+        return ""
+    return f" (no install manifest at {paths.data_root / MANIFEST_NAME})"
+
 def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None) -> ConfigPlan:
     failures: list[str] = []
     for managed_parent in (
@@ -808,11 +828,12 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         ):
             failures.append(f"refusing to overwrite user-authored credential unit {paths.credential_unit}")
     adapter_records = managed_adapter_records(old_manifest)
+    manifest_note = unmanaged_manifest_note(old_manifest, paths)
     for name in ADAPTER_FILES:
         destination = paths.tools_dir / name
         if destination.exists() or destination.is_symlink():
             if not old_manifest or name not in adapter_records:
-                failures.append(f"refusing to overwrite user-authored adapter file {destination}")
+                failures.append(f"refusing to overwrite user-authored adapter file {destination}{manifest_note}")
     agent_records = managed_agent_records(old_manifest)
     for name in agent_records:
         destination = paths.agents_dir / name

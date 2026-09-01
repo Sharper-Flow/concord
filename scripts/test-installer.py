@@ -642,6 +642,32 @@ esac''',
             installer.cleanup_transaction(transaction_root, {"cleanup_version": None}, paths)
         self.assertEqual(events[:2], [("rmtree", transaction_root), ("fsync", transaction_root.parent)])
 
+
+    # --- #648: per-project session shards are not durable data homes ----
+
+    def test_paths_for_refuses_opencode_projects_shard(self) -> None:
+        shard = self.root / ".local" / "share" / "opencode-projects" / "abc123"
+        with mock.patch.dict(installer.os.environ, {"XDG_DATA_HOME": str(shard)}, clear=False), mock.patch.object(
+            installer.Path, "home", return_value=self.root
+        ):
+            with self.assertRaises(installer.InstallerError) as raised:
+                installer.paths_for(None)
+        message = str(raised.exception)
+        self.assertIn("per-project session shard", message)
+        self.assertIn(str(shard / "concord"), message)
+        self.assertIn("env -u XDG_DATA_HOME", message)
+
+    def test_paths_for_honors_a_durable_xdg_override(self) -> None:
+        durable = self.root / "data"
+        with mock.patch.dict(installer.os.environ, {"XDG_DATA_HOME": str(durable)}, clear=False):
+            paths = installer.paths_for(None)
+        self.assertEqual(paths.data_root, durable / "concord")
+
+    def test_unmanaged_note_names_the_manifest(self) -> None:
+        paths = installer.paths_for(self.root / "operator-note")
+        self.assertIn(str(paths.data_root / installer.MANIFEST_NAME), installer.unmanaged_manifest_note(None, paths))
+        self.assertEqual(installer.unmanaged_manifest_note({"version": "v"}, paths), "")
+
     # --- CD-0063: shipped operator conduct rules -----------------------
 
     def test_install_places_instructions_and_agents_in_version_tree_and_manifest(self) -> None:

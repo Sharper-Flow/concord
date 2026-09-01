@@ -1,5 +1,5 @@
 {
   "id": "CD-0089",
-  "issue": 611,
-  "state": "outstanding"
+  "reason": "Concord development coordination is process law about which authority owns planning, merge, and session evidence. Like CD-0010, it governs how humans and agents work rather than runtime behaviour, so no executable surface exists to bind. Issue #611 closed with the worktree bootstrap it tracked; the decision is declared prose-only rather than left outstanding.",
+  "state": "out_of_scope"
 }

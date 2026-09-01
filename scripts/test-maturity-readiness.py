@@ -139,6 +139,19 @@ def test_real_manifest_validates() -> None:
     assert findings == [], findings
 
 
+
+def test_real_manifests_validate_with_unique_rungs() -> None:
+    paths = sorted(checker.ROOT.glob("docs/" + checker.MANIFEST_GLOB))
+    assert paths, "no rung manifests found"
+    rungs = []
+    for path in paths:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        findings, _ = checker.validate(manifest)
+        assert findings == [], f"{path.name}: {findings}"
+        rungs.append(manifest["rung"])
+    assert len(rungs) == len(set(rungs)), "a rung is measured twice"
+    assert "alpha" in rungs and "beta" in rungs
+
 def main() -> int:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:

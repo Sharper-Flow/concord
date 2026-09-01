@@ -76,8 +76,8 @@
     },
     "scenarios": {
       "type": "array",
-      "minItems": 53,
-      "maxItems": 53,
+      "minItems": 55,
+      "maxItems": 55,
       "items": {
         "$ref": "#/$defs/scenario"
       }
@@ -2495,7 +2495,7 @@
         "scenario_number": {
           "type": "integer",
           "minimum": 1,
-            "maximum": 53
+            "maximum": 55
         },
         "mechanism": {
           "$ref": "#/$defs/short"

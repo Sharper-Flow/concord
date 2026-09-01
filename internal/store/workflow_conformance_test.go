@@ -718,8 +718,8 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	if len(corpus.Scenarios) != 53 {
-		t.Fatalf("scenario count=%d, want 53", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 55 {
+		t.Fatalf("scenario count=%d, want 55", len(corpus.Scenarios))
 	}
 	return corpus
 }
@@ -727,6 +727,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 func workflowScenarioIDs() []string {
 	return []string{
 		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-closed-condition-resolvers", "WF27-condition-block-relation", "WF28-no-polling-authority", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF52-vacuous-conjunct", "WF53-unapproved-delivered",
+		"WF54-verification-obligation-discharged", "WF55-verification-obligation-missing",
 	}
 }
 
@@ -1034,7 +1035,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		}
 	}
 	if action == "complete" && corpusHasCompletionPrerequisiteMarker(request) && !corpusHasDeclaredCompletionHistory(setup) && !hasCorpusFault(setup, "mismatched_commit") && !corpusHasBlockingStaleness(request) {
-		if err := advanceCorpusWorkflowToRelease(ctx, s, workID, fixtureActor, corpusRequestedPredicates(request)); err != nil {
+		if err := advanceCorpusWorkflowToRelease(ctx, s, workID, fixtureActor, corpusRequestedPredicates(request), request); err != nil {
 			return workflowObservation{}, err
 		}
 		if err := seedCorpusCompletionPrerequisites(ctx, s, workID, fixtureActor, request); err != nil {
@@ -1403,6 +1404,14 @@ func seedCorpusArchitectureScope(ctx context.Context, s *Store, workID string, f
 			return rollback(err)
 		}
 	}
+	if lawID, _ := corpusCompletionVerificationObligationFromFields(fields); lawID != "" {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator',?,'spec','accepted','docs/spec.md','Synthetic corpus law','sha256:`+strings.Repeat("a", 64)+`','corpus')`, lawID); err != nil {
+			return rollback(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator',?,?,?,?, 'corpus')`, lawID, productID, rootDomain, "sha256:"+strings.Repeat("a", 64)); err != nil {
+			return rollback(err)
+		}
+	}
 	if err := leaveFold(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -1412,6 +1421,16 @@ func seedCorpusArchitectureScope(ctx context.Context, s *Store, workID string, f
 
 func corpusArchitectureBinding() map[string]any {
 	return map[string]any{"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64), "home_domain_id": "domain/corpus-main", "affected_domain_ids": []string{"domain/corpus-main"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
+}
+
+func corpusCompletionVerificationObligationFromFields(fields map[string]any) (string, string) {
+	prerequisites, _ := fields["complete_gate_prerequisites"].(map[string]any)
+	if nested, ok := prerequisites["payload"].(map[string]any); ok {
+		prerequisites = nested
+	}
+	law, _ := prerequisites["verification_obligation_law"].(string)
+	subject, _ := prerequisites["verification_obligation_subject"].(string)
+	return law, subject
 }
 
 func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any, request workflowCorpusRequest, definition WorkflowDefinition) error {
@@ -1662,7 +1681,16 @@ func seedCorpusCompletionPrerequisites(ctx context.Context, s *Store, workID str
 	if contracts != 0 {
 		return seedCorpusCompletionEvidenceAndVerdicts(ctx, s, workID, actor, request)
 	}
-	contractPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "corpus premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []any{}, "law_boundary_version": 1, "architecture_binding": corpusArchitectureBinding(), "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "outcome_predicates": corpusRequestedPredicates(request)}
+	specMandate := []any{}
+	lawRevisions := []any{}
+	architectureBinding := corpusArchitectureBinding()
+	obligationLaw, _ := corpusCompletionVerificationObligation(request)
+	if obligationLaw != "" {
+		specMandate = []any{obligationLaw}
+		lawRevisions = []any{map[string]any{"law_id": obligationLaw, "content_hash": "sha256:" + strings.Repeat("a", 64)}}
+		architectureBinding["verification_obligations"] = []any{map[string]any{"law_id": obligationLaw, "obligation_id": "verification"}}
+	}
+	contractPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "corpus premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": specMandate, "law_modifies": []string{}, "law_revisions": lawRevisions, "law_boundary_version": 1, "architecture_binding": architectureBinding, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "outcome_predicates": corpusRequestedPredicates(request)}
 	contractEvent := workflowEventWithActor(workID+":contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contractPayload)
 	contractEvent.PayloadVersion = 3
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
@@ -1670,6 +1698,10 @@ func seedCorpusCompletionPrerequisites(ctx context.Context, s *Store, workID str
 	}
 	version++
 	return seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx, s, workID, actor, request, version, true, true)
+}
+
+func corpusCompletionVerificationObligation(request workflowCorpusRequest) (string, string) {
+	return corpusCompletionVerificationObligationFromFields(request.Fields)
 }
 
 func seedCorpusCompletionEvidenceAndVerdicts(ctx context.Context, s *Store, workID string, actor WorkflowActor, request workflowCorpusRequest) error {
@@ -1684,6 +1716,12 @@ func seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx context.Context, s *St
 	for _, kind := range []string{"verification", "review"} {
 		opID := workID + ":corpus-evidence:" + kind
 		immutable := "evidence:" + kind
+		if kind == "verification" {
+			_, subject := corpusCompletionVerificationObligation(request)
+			if subject != "" {
+				immutable = subject
+			}
+		}
 		if err := replayWorkflowAuthority(ctx, s, opID, workID, actor.PrincipalRef, opID+":request", []string{immutable}); err != nil {
 			return err
 		}
@@ -1875,7 +1913,7 @@ func advanceCorpusWorkflowToAcceptance(ctx context.Context, s *Store, workID str
 	return applyProjectionCorruptionFault(ctx, s, projectionCorruptionFaultInput{WorkID: workID, Target: "workflow_instances", Field: "current_step", Value: "acceptance"})
 }
 
-func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string, actor WorkflowActor, predicates []map[string]any) error {
+func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string, actor WorkflowActor, predicates []map[string]any, request workflowCorpusRequest) error {
 	var step string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		return err
@@ -1913,7 +1951,16 @@ func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string
 			if contractErr != nil {
 				return contractErr
 			}
-			contractPayload := map[string]any{"work_id": workID, "expected_version": contractVersion, "resulting_version": contractVersion + 1, "contract_version": 1, "premise": "corpus premise", "outcome_predicates": predicates, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []any{}, "law_boundary_version": 1, "architecture_binding": corpusArchitectureBinding(), "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
+			specMandate := []any{}
+			lawRevisions := []any{}
+			architectureBinding := corpusArchitectureBinding()
+			obligationLaw, _ := corpusCompletionVerificationObligation(request)
+			if obligationLaw != "" {
+				specMandate = []any{obligationLaw}
+				lawRevisions = []any{map[string]any{"law_id": obligationLaw, "content_hash": "sha256:" + strings.Repeat("a", 64)}}
+				architectureBinding["verification_obligations"] = []any{map[string]any{"law_id": obligationLaw, "obligation_id": "verification"}}
+			}
+			contractPayload := map[string]any{"work_id": workID, "expected_version": contractVersion, "resulting_version": contractVersion + 1, "contract_version": 1, "premise": "corpus premise", "outcome_predicates": predicates, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": specMandate, "law_modifies": []string{}, "law_revisions": lawRevisions, "law_boundary_version": 1, "architecture_binding": architectureBinding, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
 			contractEvent := workflowEventWithActor(workID+":fixture-contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contractPayload)
 			contractEvent.PayloadVersion = 3
 			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): contractVersion}}); err != nil {

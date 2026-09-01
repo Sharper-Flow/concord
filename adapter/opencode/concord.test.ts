@@ -804,6 +804,11 @@ test("work_start fails closed on session identity and bounded output violations"
   } } })
   const oversized: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(oversized.error.kind).toBe("malformed_response")
+  // The operator is told the stream overran its bound, not that it carried no
+  // session identity: it carried one, and the launch was recorded from it.
+  expect(oversized.error.message).toContain("exceeded the bounded adapter limit")
+  // exact_replay would reproduce the same overrun, so it is not offered here.
+  expect(oversized.error.recovery_action.kind).toBe("adjust_budget")
 
   calls = 0
   adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {

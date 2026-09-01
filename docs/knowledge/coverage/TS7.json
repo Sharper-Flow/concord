@@ -3,6 +3,10 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestEnvelopeGoldenOutcomes"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a read answered by a newer core contract is typed as version skew"
     }
   ],
   "id": "TS7",

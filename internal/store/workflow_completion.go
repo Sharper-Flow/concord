@@ -292,7 +292,7 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
 	var result workflowCompletionContractData
 	var required, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,required_evidence,spec_mandate,law_modifies,law_boundary_version,outcome_kind,outcome_payload FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&result.Version, &required, &mandates, &modifies, &result.LawBoundaryVersion, &result.OutcomeKind, &result.OutcomePayload); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT c.contract_version,c.required_evidence,c.spec_mandate,c.law_modifies,c.law_boundary_version,p.outcome_kind,p.outcome_payload FROM workflow_contracts c JOIN workflow_contract_predicates p ON p.work_id=c.work_id AND p.contract_version=c.contract_version AND p.ordinal=0 WHERE c.work_id=? AND c.superseded_by IS NULL ORDER BY c.contract_version DESC LIMIT 1`, workID).Scan(&result.Version, &required, &mandates, &modifies, &result.LawBoundaryVersion, &result.OutcomeKind, &result.OutcomePayload); err != nil {
 		if err == sql.ErrNoRows {
 			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}

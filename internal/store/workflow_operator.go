@@ -98,7 +98,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	if err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT c.contract_version,c.premise,p.outcome_kind,p.outcome_payload,c.required_evidence,c.route_conventions,c.spec_mandate,c.law_modifies FROM workflow_contracts c JOIN workflow_contract_predicates p ON p.work_id=c.work_id AND p.contract_version=c.contract_version AND p.ordinal=0 WHERE c.work_id=? AND c.superseded_by IS NULL ORDER BY c.contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -245,7 +245,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT c.contract_version,c.premise,p.outcome_kind,p.outcome_payload,c.required_evidence,c.route_conventions,c.spec_mandate,c.law_modifies FROM workflow_contracts c JOIN workflow_contract_predicates p ON p.work_id=c.work_id AND p.contract_version=c.contract_version AND p.ordinal=0 WHERE c.work_id=? AND c.superseded_by IS NULL ORDER BY c.contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies); err != nil {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question contract is no longer available", false, "refresh_context")
 	}
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {

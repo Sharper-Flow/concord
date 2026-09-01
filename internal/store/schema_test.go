@@ -42,6 +42,91 @@ func TestOpenAppliesSchemaManifest(t *testing.T) {
 	}
 }
 
+func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concord-v60.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:60] {
+		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-20T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hash := "sha256:" + strings.Repeat("a", 64)
+	actorRef := DeriveWorkflowActorRef("principal:migration", "client:migration", "agent:migration", "session:migration")
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-v61','Product','prototype','operator_only',1,'now','now')`, nil},
+		{`INSERT INTO work_items(id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at,intent_json) VALUES('work-v61','task','Work','needed',0,'standard',1,'now','now','{}')`, nil},
+		{`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal:migration','client:migration','agent:migration','session:migration','operator','now')`, []any{actorRef}},
+		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-v61',1,'migration','check','{"kind":"check","check_ref":"check:migration"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal')`, []any{actorRef}},
+		{`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('work-v61',1,'product-v61',?,'root',?)`, []any{hash, hash}},
+		{`INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES('work-v61',1,'root')`, nil},
+		{`INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('work-v61',1,'root')`, nil},
+		{`INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) VALUES('product-v61','law:migration','work-v61',1,'root')`, nil},
+		{`INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES('work-v61',1,'product-v61','law:migration','root','work-v61',1)`, nil},
+		{`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES('work-v61',1,'law:migration','obligation:migration')`, nil},
+		{`INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES('work-v61',1,'law:migration')`, nil},
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatalf("seed v60: %v", err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	var kind, payload string
+	if err := db.QueryRowContext(ctx, `SELECT outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id='work-v61' AND contract_version=1 AND predicate_id='predicate:primary'`).Scan(&kind, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "check" || payload != `{"kind":"check","check_ref":"check:migration"}` {
+		t.Fatalf("predicate kind=%q payload=%q", kind, payload)
+	}
+	for _, table := range []string{
+		"workflow_architecture_bindings",
+		"workflow_contract_affected_domains",
+		"workflow_contract_domain_modifications",
+		"workflow_contract_law_additions",
+		"workflow_contract_verification_obligations",
+		"workflow_contract_law_modifications",
+	} {
+		var count int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE work_id='work-v61' AND contract_version=1").Scan(&count); err != nil || count != 1 {
+			t.Fatalf("%s rows=%d err=%v", table, count, err)
+		}
+	}
+	var fkViolations int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&fkViolations); err != nil || fkViolations != 0 {
+		t.Fatalf("foreign_key_check rows=%d err=%v", fkViolations, err)
+	}
+	for _, column := range []string{"outcome_kind", "outcome_payload"} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name=?`, column).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("workflow_contracts.%s count=%d err=%v", column, count, err)
+		}
+	}
+}
+
 func TestMigrateV39ToV40BackfillsLawModificationsAndGuardsOverlapAuthority(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concord-v39.db")
 	ctx := context.Background()
@@ -1429,7 +1514,26 @@ func seedRigorClassPrerequisites(t *testing.T, db *sql.DB) string {
 }
 
 func insertRigorClassContract(ctx context.Context, db *sql.DB, actorRef, rigorClass string) (sql.Result, error) {
-	return db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
+	var legacyOutcomeColumns int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='outcome_kind'`).Scan(&legacyOutcomeColumns); err != nil {
+		return nil, err
+	}
+	if legacyOutcomeColumns == 1 {
+		return db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
+	}
+	result, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
+	if err != nil {
+		return result, err
+	}
+	var predicatesTable int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workflow_contract_predicates'`).Scan(&predicatesTable); err != nil {
+		return result, err
+	}
+	if predicatesTable == 0 {
+		return result, nil
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('rigor-class-work',1,'predicate:primary',0,'check','{"kind":"check"}')`)
+	return result, err
 }
 
 func seedV49NativeRun(t *testing.T, db *sql.DB, verificationState string) {

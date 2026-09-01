@@ -44,8 +44,11 @@
       "condition": "a2",
       "title": "An adapter and core version skew fails typed, not opaque",
       "requirement": "An adapter running against a newer core returns a typed version-skew result with a restart recovery action, not an opaque malformed-core-response, proven by a passing test.",
-      "state": "outstanding",
-      "issue": 645
+      "state": "satisfied",
+      "evidence": [
+        { "kind": "adapter_test", "value": "adapter/opencode/concord.test.ts#a read answered by a newer core contract is typed as version skew" },
+        { "kind": "adapter_test", "value": "adapter/opencode/concord.test.ts#a mutation answered by a newer core contract reports unknown effect and names the remedy" }
+      ]
     },
     {
       "id": "a2-main-checkout-scope",

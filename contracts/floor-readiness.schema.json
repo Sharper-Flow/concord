@@ -119,7 +119,7 @@
               "properties": {
                 "kind": {
                   "type": "string",
-                  "enum": ["go_test", "scenario", "validator", "generated"]
+                  "enum": ["go_test", "scenario", "validator", "generated", "adapter_test"]
                 },
                 "value": {
                   "type": "string",

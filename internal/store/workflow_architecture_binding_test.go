@@ -549,7 +549,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "contract_version": int64(1), "premise": "bind verification to law",
 		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture-obligation", "immutable_subject_ref": "commit:architecture-obligation", "expected_result": "pass"},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:architecture-obligation", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture-obligation", "immutable_subject_ref": "commit:architecture-obligation", "expected_result": "pass"}}},
-		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_revisions": revisions,
+		"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_revisions": revisions,
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	approval.PayloadVersion = 3

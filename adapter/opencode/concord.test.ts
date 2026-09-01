@@ -957,6 +957,28 @@ test("work_start accepts an oversized valid run stream after observing its ident
   expect(result.outcome).toBe("ok")
 })
 
+test("child stdout keeps a bounded tail while retaining run decisions", async () => {
+  const source = [
+    JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-tail" }),
+    ...Array.from({ length: 20_000 }, () => "host filler"),
+    JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-tail", part: { type: "text", text: "tail" } }),
+    JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-tail", part: { type: "step-finish", reason: "stop" } }),
+  ].join("\n")
+  expect(Buffer.byteLength(source)).toBeGreaterThan(65_536)
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let offset = 0; offset < source.length; offset += 1_024) controller.enqueue(encoder.encode(source.slice(offset, offset + 1_024)))
+      controller.close()
+    },
+  })
+  const captured = await adapter.readChildStdout(stream)
+  expect(Buffer.byteLength(captured.stdout)).toBeLessThanOrEqual(65_536)
+  expect(captured.runSessionObservation.sessions).toEqual(new Set(["session-tail"]))
+  expect(captured.runSessionObservation.officialEvents).toBe(3)
+  expect(captured.runSessionObservation.completed).toBe(true)
+})
+
 test("work_start derives one Project and Product from project-resolve before mutation", async () => {
   const previous = process.env.CONCORD_SELECTED_PRODUCT_ID
   const calls: string[][] = []

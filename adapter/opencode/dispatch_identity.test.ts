@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata } from "./dispatch"
+import { readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata, runStreamRefusalMessage } from "./dispatch"
 
 const runEvent = (type: string, sessionID: string, extra: Record<string, unknown> = {}) => JSON.stringify({
   type,
@@ -56,6 +56,20 @@ test("the output bound outranks every parse refusal", () => {
   const oversizedAndUnidentified = JSON.stringify({ type: "text", timestamp: 1, part: { type: "text", text: "x".repeat(70_000) } })
   expect(Buffer.byteLength(oversizedAndUnidentified)).toBeGreaterThan(65_536)
   expect(readRunSessionMetadata(oversizedAndUnidentified)).toEqual({ ok: false, refusal: "output_exceeded_bound" })
+})
+
+test("bounded run streams preserve every refusal name and message", () => {
+  const cases = [
+    { refusal: "malformed_event" as const, message: "carried an official run event with no typed session identity", output: `${completeRun}\n${JSON.stringify({ type: "text", part: { type: "text", text: "x" } })}` },
+    { refusal: "no_official_events" as const, message: "carried no official run event", output: "host chatter" },
+    { refusal: "no_completion_event" as const, message: "ended before a step completed", output: JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1" }) },
+    { refusal: "multiple_session_identities" as const, message: "carried more than one session identity", output: `${completeRun}\n${runEvent("text", "session-2", { part: { type: "text", text: "x" } })}` },
+  ]
+  for (const { refusal, message, output } of cases) {
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(65_536)
+    expect(readRunSessionMetadata(output)).toEqual({ ok: false, refusal })
+    expect(runStreamRefusalMessage[refusal]).toBe(message)
+  }
 })
 
 test("run line metadata exposes the session before run completion", () => {

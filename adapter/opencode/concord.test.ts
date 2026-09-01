@@ -689,6 +689,10 @@ const runOutput = (sessionID = "session-run-1", text = "done") => [
   JSON.stringify({ type: "step_finish", timestamp: 3, sessionID, part: { type: "step-finish", reason: "stop" } }),
 ].join("\n")
 
+const emitRunOutput = async (options: ChildRunnerOptions | undefined, output: string) => {
+  for (const line of output.split("\n")) await options?.onStdoutLine?.(line)
+}
+
 const exportOutput = (sessionID = "session-run-1", agent = "concord-implement") => JSON.stringify({
   info: { id: sessionID },
   messages: [{ info: { id: "message-1", sessionID, role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] }],
@@ -702,7 +706,7 @@ test("work_start orders bootstrap, session preparation, launch, and export with 
     if (calls.length === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (calls.length === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
     if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
-    if (argv[1] === "session-exec") return { exitCode: 0, stdout: runOutput(), stderr: "" }
+    if (argv[1] === "session-exec") { await emitRunOutput(options, runOutput()); return { exitCode: 0, stdout: runOutput(), stderr: "" } }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportOutput(), stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   } } })
@@ -913,38 +917,66 @@ test("work_start preserves streamed identity when its durable record fails", asy
   expect(calls.some((call) => call.argv[1] === "work-bootstrap-rollback")).toBe(false)
 })
 
-test("work_start fails closed on session identity and bounded output violations", async () => {
+test("work_start fails closed on a launch session mismatch", async () => {
   let calls = 0
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
     calls++
     if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
-    if (argv[1] === "session-exec") return { exitCode: 0, stdout: runOutput("session-run-1", "x".repeat(70_000)), stderr: "" }
-    if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "session-run-1", title: "concord-work-start-bootstrap-1", directory: "/data/worktrees/project-1/work-1" }]), stderr: "" }
-    if (argv[1] === "session-record") return { exitCode: 0, stdout: "{}", stderr: "" }
-    return { exitCode: 0, stdout: exportOutput(), stderr: "" }
-  } } })
-  const oversized: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(oversized.error.kind).toBe("malformed_response")
-  // The operator is told the stream overran its bound, not that it carried no
-  // session identity: it carried one, and the launch was recorded from it.
-  expect(oversized.error.message).toContain("exceeded the bounded adapter limit")
-  // exact_replay would reproduce the same overrun, so it is not offered here.
-  expect(oversized.error.recovery_action.kind).toBe("adjust_budget")
-
-  calls = 0
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {
-    calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
-    if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
-    if (argv[1] === "session-exec") return { exitCode: 0, stdout: runOutput(), stderr: "" }
+    if (argv[1] === "session-exec") { await emitRunOutput(options, runOutput()); return { exitCode: 0, stdout: runOutput(), stderr: "" } }
     if (argv[1] === "session-record") return { exitCode: 0, stdout: "{}", stderr: "" }
     return { exitCode: 0, stdout: exportOutput("session-run-1", "concord-research"), stderr: "" }
   } } })
   const mismatch: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(mismatch.error.kind).toBe("agent_identity_mismatch")
+})
+
+test("work_start accepts an oversized valid run stream after observing its identity", async () => {
+  let calls = 0
+  const stdout = [
+    JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-large" }),
+    ...Array.from({ length: 1_000 }, (_, index) => JSON.stringify({ ts: index, level: "info", event: "filler".repeat(12) })),
+    JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-large", part: { type: "text", text: "done" } }),
+    JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-large", part: { type: "step-finish", reason: "stop" } }),
+  ].join("\n")
+  expect(Buffer.byteLength(stdout)).toBeGreaterThan(65_536)
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
+    if (argv[1] === "session-exec") {
+      for (const line of stdout.split("\n")) await options?.onStdoutLine?.(line)
+      return { exitCode: 0, stdout, stderr: "" }
+    }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    return { exitCode: 0, stdout: exportOutput("session-large"), stderr: "" }
+  } } })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("ok")
+})
+
+test("child stdout keeps a bounded tail while retaining run decisions", async () => {
+  const source = [
+    JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-tail" }),
+    ...Array.from({ length: 20_000 }, () => "host filler"),
+    JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-tail", part: { type: "text", text: "tail" } }),
+    JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-tail", part: { type: "step-finish", reason: "stop" } }),
+  ].join("\n")
+  expect(Buffer.byteLength(source)).toBeGreaterThan(65_536)
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let offset = 0; offset < source.length; offset += 1_024) controller.enqueue(encoder.encode(source.slice(offset, offset + 1_024)))
+      controller.close()
+    },
+  })
+  const captured = await adapter.readChildStdout(stream)
+  expect(Buffer.byteLength(captured.stdout)).toBeLessThanOrEqual(65_536)
+  expect(captured.runSessionObservation.sessions).toEqual(new Set(["session-tail"]))
+  expect(captured.runSessionObservation.officialEvents).toBe(3)
+  expect(captured.runSessionObservation.completed).toBe(true)
 })
 
 test("work_start derives one Project and Product from project-resolve before mutation", async () => {
@@ -993,13 +1025,13 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
   }
   const validTask = { ...bootstrapArgs, task: "🙂".repeat(2048) }
   let calls = 0
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string) {
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
     calls++
     if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
     if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
-    if (argv[1] === "session-exec") return { exitCode: 0, stdout: runOutput(), stderr: "" }
+    if (argv[1] === "session-exec") { await emitRunOutput(options, runOutput()); return { exitCode: 0, stdout: runOutput(), stderr: "" } }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportOutput(), stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   } } })
@@ -1010,13 +1042,13 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
 test("work_start exact replay resumes the durable session", async () => {
   const calls: Array<{ argv: string[]; input: string }> = []
   let prepares = 0
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string) {
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
     calls.push({ argv, input })
     if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (argv[1] === "work-bootstrap") return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (argv[1] === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(launchContract("concord-implement", "Implement the task.", prepares++ > 0 ? "session-run-1" : null)), stderr: "" }
     if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
-    if (argv[1] === "session-exec") return { exitCode: 0, stdout: runOutput("session-run-1"), stderr: "" }
+    if (argv[1] === "session-exec") { await emitRunOutput(options, runOutput("session-run-1")); return { exitCode: 0, stdout: runOutput("session-run-1"), stderr: "" } }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportOutput("session-run-1"), stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   } } })

@@ -3,7 +3,7 @@ import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLan
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 
-const MAX_OUTPUT_BYTES = 65_536
+export const MAX_OUTPUT_BYTES = 65_536
 const MAX_ERROR_BYTES = 8_192
 const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
@@ -59,6 +59,13 @@ export interface RunSessionMetadata {
 export interface RunLineMetadata extends RunSessionMetadata {
   official: boolean
   completed: boolean
+}
+
+export interface RunSessionObservation {
+  sessions: Set<string>
+  officialEvents: number
+  completed: boolean
+  refusal?: RunStreamRefusal
 }
 
 // RunStreamRefusal names why a run stream yielded no single completed session
@@ -262,26 +269,41 @@ export function readRunLineMetadata(line: string): RunLineMetadata | null {
   return sessionID ? { session_id: sessionID, official: false, completed: false } : null
 }
 
-export function readRunSessionMetadata(stdout: string): RunSessionRead {
-  if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return { ok: false, refusal: "output_exceeded_bound" }
-  const sessions = new Set<string>()
-  let officialEvents = 0
-  let completed = false
-  for (const line of stdout.split("\n")) {
-    if (!line.trim()) continue
-    let metadata: RunLineMetadata | null
-    try { metadata = readRunLineMetadata(line) } catch { return { ok: false, refusal: "malformed_event" } }
-    if (!metadata) continue
-    if (metadata.official) officialEvents++
-    if (metadata.completed) completed = true
-    sessions.add(metadata.session_id)
+export function createRunSessionObservation(): RunSessionObservation {
+  return { sessions: new Set(), officialEvents: 0, completed: false }
+}
+
+export function observeRunSessionLine(observation: RunSessionObservation, line: string): RunLineMetadata | null {
+  if (observation.refusal) return null
+  let metadata: RunLineMetadata | null
+  try { metadata = readRunLineMetadata(line) } catch {
+    observation.refusal = "malformed_event"
+    return null
   }
-  if (sessions.size > 1) return { ok: false, refusal: "multiple_session_identities" }
-  if (officialEvents === 0) return { ok: false, refusal: "no_official_events" }
-  if (!completed) return { ok: false, refusal: "no_completion_event" }
+  if (!metadata) return null
+  if (metadata.official) observation.officialEvents++
+  if (metadata.completed) observation.completed = true
+  observation.sessions.add(metadata.session_id)
+  if (observation.sessions.size > 1) observation.refusal = "multiple_session_identities"
+  return metadata
+}
+
+export function readRunSessionMetadata(observation: RunSessionObservation): RunSessionRead
+export function readRunSessionMetadata(stdout: string): RunSessionRead
+export function readRunSessionMetadata(input: string | RunSessionObservation): RunSessionRead {
+  if (typeof input === "string") {
+    if (Buffer.byteLength(input) > MAX_OUTPUT_BYTES) return { ok: false, refusal: "output_exceeded_bound" }
+    const observation = createRunSessionObservation()
+    for (const line of input.split("\n")) if (line.trim()) observeRunSessionLine(observation, line)
+    return readRunSessionMetadata(observation)
+  }
+  if (input.refusal) return { ok: false, refusal: input.refusal }
+  if (input.sessions.size > 1) return { ok: false, refusal: "multiple_session_identities" }
+  if (input.officialEvents === 0) return { ok: false, refusal: "no_official_events" }
+  if (!input.completed) return { ok: false, refusal: "no_completion_event" }
   // An official event always carries a typed identity, so officialEvents > 0
   // with no second identity leaves exactly one.
-  return { ok: true, metadata: { session_id: [...sessions][0] } }
+  return { ok: true, metadata: { session_id: [...input.sessions][0] } }
 }
 
 export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {

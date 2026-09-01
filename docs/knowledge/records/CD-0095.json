@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-01T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0095",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0095-terminal-work-main-checkout-reclaim.md",
+  "product_wide_rationale": "Amends the product-wide main-checkout authority boundary for one operation without assigning ownership to a runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:f1f7cdf66a357d11646be8a0d9bd45d11a7b8e779c55dfa853a62d7789ff07cd",
+  "status": "accepted",
+  "summary": "Allows work_transition.worktree_reclaim from a registered Project default checkout when the addressed work item is terminal, because a terminal item holds no live implementation surface. Non-terminal work keeps the CD-0092 refusal.",
+  "tags": [
+    "authority",
+    "worktree-isolation",
+    "reclamation"
+  ],
+  "title": "Terminal-work main-checkout reclamation"
+}

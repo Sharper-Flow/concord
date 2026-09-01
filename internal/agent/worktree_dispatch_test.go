@@ -131,3 +131,130 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 		t.Fatal("native worktree still present after reclaim")
 	}
 }
+
+// seedWorkTransition appends one work.transitioned event so a fixture work
+// item reaches an exact lifecycle without driving the approval flow.
+func seedWorkTransition(t *testing.T, s *store.Store, workID, from, to string, expected int64) {
+	t.Helper()
+	payload, _ := json.Marshal(map[string]any{"from": from, "to": to, "reason": "fixture transition to " + to, "evidence_refs": []string{"fixture-evidence"}, "expected_version": expected, "resulting_version": expected + 1})
+	event := store.Event{EventID: workID + "-" + to + "-transition", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): expected}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// claimLinkedWorktree claims a worktree for work-1 through the tool surface
+// from a linked-worktree resolution.
+func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant Authority, worktreePath, baseSHA, branch, key string) {
+	t.Helper()
+	claimInput, _ := json.Marshal(map[string]any{
+		"work_id": "work-1", "project_id": "project-1",
+		"branch": branch, "base_sha": baseSHA, "path": worktreePath,
+		"expected_version": 2, "idempotency_key": key,
+	})
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
+	if err != nil || claim.Outcome != OutcomeOK {
+		t.Fatalf("claim response=%+v err=%v", claim, err)
+	}
+}
+
+// issue #674: worktree_reclaim from the main checkout is conditional. The
+// authorization boundary admits the operation and records the main-checkout
+// grant; the planner refuses it unless the addressed work item is terminal
+// (completed or cancelled), because only terminal work holds no live
+// implementation surface. A linked worktree keeps reclaiming for every
+// lifecycle (TestWorktreeClaimAndReclaimThroughToolSurface).
+func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
+	dispatchReclaim := func(t *testing.T, s *store.Store, service *Service, grant Authority, key string, expected int64) Envelope {
+		t.Helper()
+		reclaimInput, _ := json.Marshal(map[string]any{
+			"work_id": "work-1", "project_id": "project-1",
+			"default_ref": "main", "expected_version": expected, "idempotency_key": key,
+		})
+		scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}, mutationEnvelope(grant, scopeVersion))
+		if err != nil {
+			t.Fatalf("dispatch err=%v", err)
+		}
+		return response
+	}
+	mainCheckoutResolver := func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+	}
+
+	t.Run("non-terminal work refuses", func(t *testing.T) {
+		ctx := context.Background()
+		s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+		worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-inprogress", "claim-inprogress")
+		seedWorkTransition(t, s, "work-1", "needed", "in_progress", 3)
+		service.ProjectResolver = mainCheckoutResolver
+
+		refused := dispatchReclaim(t, s, service, grant, "main-reclaim-inprogress", 4)
+		if refused.Outcome != OutcomeError || refused.Error == nil {
+			t.Fatalf("response=%+v, want typed refusal", refused)
+		}
+		if refused.Error.Kind != "unauthorized" {
+			t.Fatalf("error.kind=%q, want unauthorized", refused.Error.Kind)
+		}
+		if !strings.Contains(refused.Error.Message, "CD-0092 D2") {
+			t.Fatalf("error.message=%q, want CD-0092 D2 refusal", refused.Error.Message)
+		}
+		entries, err := s.WorktreeEntries(ctx, "work-1")
+		if err != nil || len(entries) != 1 || entries[0].State != "active" {
+			t.Fatalf("entries after refusal=%+v err=%v, want the active claim untouched", entries, err)
+		}
+		if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+			t.Fatal("native worktree missing after a refused reclaim")
+		}
+	})
+
+	t.Run("terminal work reclaims", func(t *testing.T) {
+		ctx := context.Background()
+		s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+		worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-terminal", "claim-terminal")
+		seedWorkTransition(t, s, "work-1", "needed", "completed", 3)
+		service.ProjectResolver = mainCheckoutResolver
+
+		response := dispatchReclaim(t, s, service, grant, "main-reclaim-terminal", 4)
+		if response.Outcome != OutcomeOK {
+			t.Fatalf("reclaim response=%+v err=%v", response, response.Error)
+		}
+		entries, err := s.WorktreeEntries(ctx, "work-1")
+		if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {
+			t.Fatalf("entries after reclaim=%+v err=%v", entries, err)
+		}
+		if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+			t.Fatal("native worktree still present after reclaim")
+		}
+		if _, statErr := os.Stat(worktreePath); !os.IsNotExist(statErr) {
+			t.Fatalf("worktree path still exists after reclaim: %v", statErr)
+		}
+	})
+
+	t.Run("cancelled work reclaims", func(t *testing.T) {
+		ctx := context.Background()
+		s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
+		worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-cancelled", "claim-cancelled")
+		seedWorkTransition(t, s, "work-1", "needed", "cancelled", 3)
+		service.ProjectResolver = mainCheckoutResolver
+
+		response := dispatchReclaim(t, s, service, grant, "main-reclaim-cancelled", 4)
+		if response.Outcome != OutcomeOK {
+			t.Fatalf("reclaim response=%+v err=%v", response, response.Error)
+		}
+		entries, err := s.WorktreeEntries(ctx, "work-1")
+		if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {
+			t.Fatalf("entries after reclaim=%+v err=%v", entries, err)
+		}
+	})
+}

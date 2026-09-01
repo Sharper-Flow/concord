@@ -177,6 +177,9 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 	})
 }
 
+// The main checkout refuses implementation-bearing operations. worktree_reclaim
+// stays refused here because work-1 is non-terminal (needed); issue #674 admits
+// it from the main checkout only for terminal work items.
 func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 	cases := []struct {
 		operation string
@@ -226,5 +229,12 @@ func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	}
 	if _, ok := operations["lifecycle"]; !ok || len(operations) != 1 {
 		t.Fatalf("work_transition operation allowlist=%v, want lifecycle only", operations)
+	}
+	terminalWork, ok := mainCheckoutTerminalWorkOperations[Capability("work_transition")]
+	if !ok {
+		t.Fatal("work_transition terminal-work operation set is missing")
+	}
+	if _, ok := terminalWork["worktree_reclaim"]; !ok || len(terminalWork) != 1 {
+		t.Fatalf("work_transition terminal-work operations=%v, want worktree_reclaim only", terminalWork)
 	}
 }

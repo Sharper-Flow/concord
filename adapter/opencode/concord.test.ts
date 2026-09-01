@@ -177,6 +177,41 @@ test("single core response rejects invalid trailing content", async () => {
   }
 })
 
+// A core response whose manifest digest differs from the adapter's generated
+// contract is version skew: the adapter files on disk were replaced by a newer
+// release while this session still runs the old module. It is deterministic,
+// so it must be typed and name the remedy, not fold into malformed_core_response.
+const foreignDigest = (envelope: Record<string, unknown>) => ({ ...envelope, manifest_digest: "sha256:" + "0".repeat(63) + "1" })
+
+test("a read answered by a newer core contract is typed as version skew", async () => {
+  const result: any = await runProduct(runnerWithContext((argv: string[]) => foreignDigest(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } }))))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("transport_failure")
+  expect(result.error.adapter_reason).toBe("manifest_mismatch")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.recovery_action.kind).toBe("contact_operator")
+  expect(result.error.message).toContain("restart")
+})
+
+test("a mutation answered by a newer core contract reports unknown effect and names the remedy", async () => {
+  adapter.configureConcordAdapter({ runner: runnerWithContext(foreignDigest(coreEnvelope("concord_work_define", "capture", "ok", { changed_refs: [] }))) })
+  const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", { title: "t", value_statement: "v", kind: "task", project_ids: ["p"], idempotency_key: "k" }), contextFor()))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("operation_conflict")
+  expect(result.error.adapter_reason).toBe("unknown_effect")
+  expect(result.error.effect_state).toBe("possible")
+  expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  expect(result.error.message).toContain("restart")
+})
+
+test("a same-generation malformed response is still malformed_core_response", async () => {
+  const result: any = await runProduct(runnerWithContext(coreEnvelope("concord_product_view", "resolve", "ok", { result: { unexpected: true } })))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("malformed_response")
+  expect(result.error.adapter_reason).toBe("malformed_core_response")
+  expect(result.error.effect_state).toBe("possible")
+})
+
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
 const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory, abort: controller.signal, ask })
 const rawHostResult = async (result: Promise<string | { output: string }>) => {

@@ -5,9 +5,10 @@
 **Approval:** Operator-approved architecture spike under GitHub issue #39
 **Supersedes:** The rendering-dependency and query-scope sub-questions in C18
 **Implementation status:** S1 shipped through issue #45 and PR #48. S2 Product
-coordination, S3 Work detail, scoped search/knowledge, and identity-only OpenCode
-handoff shipped through issue #51 and PR #52. Replacement readiness remains
-unclaimed.
+coordination including the Domain section, S3 Work detail, scoped
+search/knowledge, and identity-only OpenCode handoff shipped through issue #51,
+PR #52, and 5e3b900 (issue #373). The replacement-ready floor is satisfied; see
+[`floor-readiness.v1.json`](../floor-readiness.v1.json).
 
 ## Decision
 

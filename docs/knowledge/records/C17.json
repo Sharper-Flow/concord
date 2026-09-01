@@ -39,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ac59d08ea80d2e324cb2dc07a4a0506a38f9ed32c03bc7badfad64ecb5696c41",
+  "sha256": "sha256:88a59717c511600cbb5d9b0caff9d66da72433098d4fa15dfae880ac20cc3acf",
   "status": "accepted",
   "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
   "tags": [

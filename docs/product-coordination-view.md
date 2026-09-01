@@ -2,7 +2,8 @@
 
 **Status:** Accepted C17 contract, amended by CD-0041.
 **Implementation status:** Issue #51 wires the bounded S2 relation tree and ranked
-work projection; replacement readiness remains unclaimed.
+work projection. The replacement-ready floor is satisfied; see
+[`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 This document binds the Product coordination view required by Priority 5 and launcher
 S2. It preserves the previously reviewed candidate behavior: two bounded modes over

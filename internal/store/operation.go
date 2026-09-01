@@ -238,7 +238,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowActionCompleted:                   workflowRegistration[workflowActionCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowActionCompletedV1}, foldWorkflowActionCompleted),
 	WorkflowActionFailed:                      workflowRegistration[workflowActionFailedPayload](1, nil, foldWorkflowActionFailed),
 	WorkflowEvidenceBound:                     workflowRegistration[workflowEvidenceBoundPayload](1, nil, foldWorkflowEvidenceBound),
-	WorkflowVerdictRecorded:                   workflowRegistration[workflowVerdictRecordedPayload](1, nil, foldWorkflowVerdictRecorded),
+	WorkflowVerdictRecorded:                   workflowRegistration[workflowVerdictRecordedPayload](2, map[int]Upcaster{1: upcastWorkflowVerdictRecordedV1}, foldWorkflowVerdictRecorded),
 	WorkflowPremiseConfirmed:                  workflowRegistration[workflowPremiseConfirmedPayload](1, nil, foldWorkflowPremiseConfirmed),
 	WorkflowSuccessorLinked:                   workflowRegistration[workflowSuccessorLinkedPayload](2, map[int]Upcaster{1: upcastWorkflowSuccessorLinkedV1}, foldWorkflowSuccessorLinked),
 	WorkflowImpactDeclared:                    workflowRegistration[workflowImpactDeclaredPayload](1, nil, foldWorkflowImpactDeclared),

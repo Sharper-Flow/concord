@@ -53,13 +53,19 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 		workflowEvent("conjunctive-review", WorkflowEvidenceBound, "conjunctive-work", map[string]any{
 			"work_id": "conjunctive-work", "expected_version": version + 6, "resulting_version": version + 7, "evidence_kind": "review", "immutable_subject_ref": "evidence:review", "producer_id": "principal/review", "producer_run_ref": "conjunctive-review", "producer_watermark": "request/review", "observed_at": "2026-08-09T00:00:00Z",
 		}),
-		workflowEventWithActor("conjunctive-verdict", WorkflowVerdictRecorded, "conjunctive-work", operator, map[string]any{
-			"work_id": "conjunctive-work", "expected_version": version + 7, "resulting_version": version + 8, "contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:verification"}, "incomparable_with_approved": false,
+		workflowEventWithActor("conjunctive-present-verdict", WorkflowVerdictRecorded, "conjunctive-work", operator, map[string]any{
+			"work_id": "conjunctive-work", "expected_version": version + 7, "resulting_version": version + 8, "contract_version": 1, "predicate_id": "predicate:present", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:verification"}, "incomparable_with_approved": false,
+		}),
+		workflowEventWithActor("conjunctive-absent-verdict", WorkflowVerdictRecorded, "conjunctive-work", operator, map[string]any{
+			"work_id": "conjunctive-work", "expected_version": version + 8, "resulting_version": version + 9, "contract_version": 1, "predicate_id": "predicate:absent", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:review"}, "incomparable_with_approved": false,
 		}),
 		workflowEventWithActor("conjunctive-premise", WorkflowPremiseConfirmed, "conjunctive-work", operator, map[string]any{
-			"work_id": "conjunctive-work", "expected_version": version + 8, "resulting_version": version + 9, "contract_version": 1, "confirming_actor_ref": operator,
+			"work_id": "conjunctive-work", "expected_version": version + 9, "resulting_version": version + 10, "contract_version": 1, "confirming_actor_ref": operator,
 		}),
 	)
+	events[7].PayloadVersion = 2
+	events[8].PayloadVersion = 2
+	events[3].PayloadVersion = 3
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "conjunctive-work"): 2}}); err != nil {
 		t.Fatal(err)
 	}

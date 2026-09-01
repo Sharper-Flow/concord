@@ -73,6 +73,7 @@ type Event struct {
 	// replaySourcePayloadVersion records the stored version when an upcaster
 	// changes the in-memory event. Folds use it only for versioned replay rules.
 	replaySourcePayloadVersion int
+	legacyVerdictPredicate     bool
 	// Payload is a JSON object.
 	Payload []byte
 }

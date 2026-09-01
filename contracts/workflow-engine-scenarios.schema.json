@@ -897,6 +897,35 @@
         "outcome_payload": {
           "$ref": "#/$defs/jsonObject"
         },
+        "outcome_predicates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"],
+            "properties": {
+              "predicate_id": {
+                "type": "string",
+                "pattern": "^predicate:.+$",
+                "minLength": 11,
+                "maxLength": 128
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7
+              },
+              "outcome_kind": {
+                "enum": ["exists", "absent", "outcome", "check"]
+              },
+              "outcome_payload": {
+                "$ref": "#/$defs/jsonObject"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
         "required_evidence": {
           "type": "array",
           "minItems": 0,

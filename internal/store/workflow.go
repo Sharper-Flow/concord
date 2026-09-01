@@ -68,21 +68,29 @@ type workflowDefinitionSelectedPayload struct {
 
 type workflowContractApprovedPayload struct {
 	WorkflowVersionFields
-	ContractVersion     int64                        `json:"contract_version"`
-	Premise             string                       `json:"premise"`
-	OutcomeKind         string                       `json:"outcome_kind"`
-	OutcomePayload      json.RawMessage              `json:"outcome_payload"`
-	RequiredEvidence    []string                     `json:"required_evidence"`
-	RouteConventions    []string                     `json:"route_conventions"`
-	SpecMandate         []string                     `json:"spec_mandate"`
-	LawModifies         []string                     `json:"law_modifies"`
-	LawRevisions        []WorkflowLawRevision        `json:"law_revisions"`
-	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	LawBoundaryVersion  int                          `json:"law_boundary_version,omitempty"`
-	RigorClass          string                       `json:"rigor_class"`
-	ConsequenceClass    string                       `json:"consequence_class,omitempty"`
-	PremiseHash         string                       `json:"premise_hash,omitempty"`
-	OutcomeHash         string                       `json:"outcome_hash,omitempty"`
+	ContractVersion     int64                              `json:"contract_version"`
+	Premise             string                             `json:"premise"`
+	OutcomePredicates   []workflowContractPredicatePayload `json:"outcome_predicates,omitempty"`
+	OutcomeKind         string                             `json:"outcome_kind"`
+	OutcomePayload      json.RawMessage                    `json:"outcome_payload"`
+	RequiredEvidence    []string                           `json:"required_evidence"`
+	RouteConventions    []string                           `json:"route_conventions"`
+	SpecMandate         []string                           `json:"spec_mandate"`
+	LawModifies         []string                           `json:"law_modifies"`
+	LawRevisions        []WorkflowLawRevision              `json:"law_revisions"`
+	ArchitectureBinding *WorkflowArchitectureBinding       `json:"architecture_binding,omitempty"`
+	LawBoundaryVersion  int                                `json:"law_boundary_version,omitempty"`
+	RigorClass          string                             `json:"rigor_class"`
+	ConsequenceClass    string                             `json:"consequence_class,omitempty"`
+	PremiseHash         string                             `json:"premise_hash,omitempty"`
+	OutcomeHash         string                             `json:"outcome_hash,omitempty"`
+}
+
+type workflowContractPredicatePayload struct {
+	PredicateID    string          `json:"predicate_id"`
+	Ordinal        int             `json:"ordinal,omitempty"`
+	OutcomeKind    string          `json:"outcome_kind"`
+	OutcomePayload json.RawMessage `json:"outcome_payload"`
 }
 
 type workflowOverlapResolvedPayload struct {
@@ -550,8 +558,27 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if p.ContractVersion <= 0 || !workflowString(p.Premise, 4096) || !workflowList(p.RequiredEvidence, 7, 0) || !workflowList(p.RouteConventions, 16, 0) || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) || !validateWorkflowOutcome(p.OutcomePayload, p.OutcomeKind) {
+	if p.ContractVersion <= 0 || !workflowString(p.Premise, 4096) || !workflowList(p.RequiredEvidence, 7, 0) || !workflowList(p.RouteConventions, 16, 0) || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains invalid contract fields", false, "supply a strict closed workflow outcome and bounded contract fields")
+	}
+	if p.OutcomePredicates == nil {
+		if !validateWorkflowOutcome(p.OutcomePayload, p.OutcomeKind) {
+			return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains invalid contract fields", false, "supply a strict closed workflow outcome and bounded contract fields")
+		}
+		p.OutcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: p.OutcomeKind, OutcomePayload: p.OutcomePayload}}
+	}
+	if len(p.OutcomePredicates) < 1 || len(p.OutcomePredicates) > 8 {
+		return newFailure(KindInvalidPayload, "fold_event", "contract_approved requires 1-8 outcome predicates", false, "supply 1-8 uniquely named outcome predicates")
+	}
+	seenPredicateIDs := make(map[string]bool, len(p.OutcomePredicates))
+	for ordinal, predicate := range p.OutcomePredicates {
+		if len(predicate.PredicateID) < 11 || len(predicate.PredicateID) > 128 || !strings.HasPrefix(predicate.PredicateID, "predicate:") || seenPredicateIDs[predicate.PredicateID] || predicate.Ordinal != ordinal || predicate.OutcomeKind == "" || len(predicate.OutcomePayload) == 0 {
+			return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains an invalid outcome predicate set", false, "supply unique predicate IDs and strict outcome predicates")
+		}
+		seenPredicateIDs[predicate.PredicateID] = true
+		if ordinal > 7 {
+			return newFailure(KindInvalidPayload, "fold_event", "contract_approved requires 1-8 outcome predicates", false, "supply 1-8 uniquely named outcome predicates")
+		}
 	}
 	if p.LawBoundaryVersion != 0 && p.LawBoundaryVersion != 1 {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved law boundary version is invalid", false, "use the supported law boundary version")
@@ -630,12 +657,14 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {
 		return err
 	} else {
-		var predicate OutcomePredicate
-		if err := json.Unmarshal(p.OutcomePayload, &predicate); err != nil {
-			return newFailure(KindInvalidPayload, "fold_event", "contract outcome payload is malformed", false, "supply the strict registered outcome predicate")
-		}
-		if err := ValidateWorkflowPredicateForDefinition(registered.Definition, predicate); err != nil {
-			return err
+		for _, entry := range p.OutcomePredicates {
+			predicate, err := DecodeWorkflowPredicate(entry.OutcomePayload)
+			if err != nil || string(predicate.Kind) != entry.OutcomeKind {
+				return newFailure(KindInvalidPayload, "fold_event", "contract outcome predicate is malformed or mismatched", false, "supply the strict registered outcome predicate")
+			}
+			if err := ValidateWorkflowPredicateForDefinition(registered.Definition, predicate); err != nil {
+				return err
+			}
 		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -648,8 +677,10 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,?,? ,0,?,?)`, event.SubjectID, p.ContractVersion, "predicate:primary", p.OutcomeKind, string(p.OutcomePayload)); err != nil {
-		return workflowProjectionError(err, "cannot record primary workflow contract predicate")
+	for ordinal, predicate := range p.OutcomePredicates {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, predicate.PredicateID, ordinal, predicate.OutcomeKind, string(predicate.OutcomePayload)); err != nil {
+			return workflowProjectionError(err, "cannot record workflow contract predicate")
+		}
 	}
 	if p.LawRevisions != nil {
 		for _, revision := range p.LawRevisions {
@@ -1489,6 +1520,26 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 			return err
 		}
 	}
+	var approvedPredicate, contractPredicateCount int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, event.SubjectID).Scan(&contractPredicateCount); err != nil {
+		return workflowProjectionError(err, "cannot inspect workflow contract")
+	}
+	if contractPredicateCount != 0 {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND predicate_id=?`, event.SubjectID, p.ContractVersion, p.PredicateID).Scan(&approvedPredicate); err != nil {
+			return workflowProjectionError(err, "cannot inspect approved workflow predicate")
+		}
+		if approvedPredicate != 1 {
+			if event.legacyVerdictPredicate {
+				p.PredicateID = "predicate:primary"
+				if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND predicate_id=?`, event.SubjectID, p.ContractVersion, p.PredicateID).Scan(&approvedPredicate); err != nil {
+					return workflowProjectionError(err, "cannot inspect legacy approved workflow predicate")
+				}
+			}
+			if approvedPredicate != 1 {
+				return newFailure(KindInvalidPayload, "fold_event", "verdict predicate_id is not approved for the contract version", false, "name an approved contract predicate")
+			}
+		}
+	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
@@ -1691,6 +1742,24 @@ func upcastWorkflowContractApprovedV1(event Event) (Event, error) {
 	}
 	event.Payload = payload
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+func upcastWorkflowVerdictRecordedV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.verdict_recorded v1 payload is not a JSON object", false, "repair the stored workflow verdict")
+	}
+	// V1 verdicts predate the approved predicate join. Their predicate name
+	// was derived from the operation and therefore has no contract referent.
+	fields["predicate_id"] = json.RawMessage(`"predicate:primary"`)
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.verdict_recorded v1 payload", false, "repair the stored workflow verdict", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 2
+	event.legacyVerdictPredicate = true
 	return event, nil
 }
 

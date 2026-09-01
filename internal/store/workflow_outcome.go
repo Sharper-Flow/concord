@@ -547,6 +547,75 @@ func evaluateWorkflowOutcomePredicateCore(approved, delivered OutcomePredicate, 
 	return result, nil
 }
 
+type WorkflowNamedOutcomePredicate struct {
+	PredicateID string
+	Predicate   OutcomePredicate
+}
+
+func EvaluateWorkflowOutcomePredicateSet(approved, delivered []WorkflowNamedOutcomePredicate, context WorkflowOutcomeEvaluationContext) (WorkflowOutcomeEvaluation, error) {
+	if len(approved) == 0 || len(delivered) == 0 {
+		return WorkflowOutcomeEvaluation{}, workflowOutcomeFailure("predicate set cannot be empty")
+	}
+	definition, err := workflowOutcomeDefinition(context)
+	if err != nil {
+		return WorkflowOutcomeEvaluation{}, err
+	}
+	deliveredByID := make(map[string]OutcomePredicate, len(delivered))
+	for _, item := range delivered {
+		if item.PredicateID == "" || deliveredByID[item.PredicateID].Kind != "" {
+			return WorkflowOutcomeEvaluation{}, workflowOutcomeFailure("predicate set contains duplicate or empty predicate IDs")
+		}
+		deliveredByID[item.PredicateID] = item.Predicate
+	}
+	aggregate := WorkflowOutcomeEvaluation{Satisfied: true, VerdictKind: "ok", Strength: StrengthStrongerOrEqual}
+	for _, item := range approved {
+		deliveredPredicate, ok := deliveredByID[item.PredicateID]
+		if !ok {
+			return WorkflowOutcomeEvaluation{}, newFailure(KindMissingEvidence, "workflow_outcome", "delivered predicate set does not cover approved predicate", false, "supply one verdict for each approved predicate")
+		}
+		result, err := evaluateWorkflowOutcomePredicateCore(item.Predicate, deliveredPredicate, context, definition)
+		if err != nil {
+			return WorkflowOutcomeEvaluation{}, err
+		}
+		if result.IncomparableWithApproved {
+			aggregate.Satisfied = false
+			aggregate.VerdictKind = "outcome_mismatch"
+			aggregate.IncomparableWithApproved = true
+			aggregate.Strength = StrengthIncomparable
+		} else if result.Strength != StrengthStrongerOrEqual {
+			aggregate.Satisfied = false
+			if aggregate.Strength != StrengthIncomparable {
+				aggregate.Strength = StrengthWeaker
+			}
+			aggregate.VerdictKind = "outcome_mismatch"
+		}
+	}
+	for _, item := range delivered {
+		found := false
+		for _, approvedItem := range approved {
+			if approvedItem.PredicateID == item.PredicateID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return WorkflowOutcomeEvaluation{}, newFailure(KindOutcomeMismatch, "workflow_outcome", "delivered predicate set contains an unapproved predicate", false, "supply only approved contract predicates")
+		}
+	}
+	return aggregate, nil
+}
+
+func workflowOutcomeDefinition(context WorkflowOutcomeEvaluationContext) (WorkflowDefinition, error) {
+	if context.Registry == nil {
+		return WorkflowDefinition{}, workflowPinFailure("workflow definition registry is required for outcome evaluation")
+	}
+	registered, err := VerifyWorkflowDefinitionPin(context.Registry, context.DefinitionPin)
+	if err != nil {
+		return WorkflowDefinition{}, err
+	}
+	return registered.Definition, nil
+}
+
 // CompareCheckResults adapts a registered check's closed result to the
 // engine's strength vocabulary without coercing incomparable outcomes.
 func CompareCheckResults(strength WorkflowStrength) error {

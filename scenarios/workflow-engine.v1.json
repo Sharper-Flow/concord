@@ -527,12 +527,27 @@
           "architecture_binding": {
             "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "home_domain_id": "domain/corpus-main",
-            "affected_domain_ids": ["domain/corpus-main"],
+            "affected_domain_ids": [
+              "domain/corpus-main"
+            ],
             "domain_modifies": [],
             "domain_relation_modifies": [],
             "law_additions": [],
             "verification_obligations": []
-          }
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:wf02",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              }
+            }
+          ]
         },
         "idempotency": {
           "key": "wf02-planning-requires-outcome-key",
@@ -805,12 +820,27 @@
           "architecture_binding": {
             "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "home_domain_id": "domain/corpus-main",
-            "affected_domain_ids": ["domain/corpus-main"],
+            "affected_domain_ids": [
+              "domain/corpus-main"
+            ],
             "domain_modifies": [],
             "domain_relation_modifies": [],
             "law_additions": [],
             "verification_obligations": []
-          }
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "exists",
+              "outcome_payload": {
+                "kind": "exists",
+                "subjects": [
+                  "artifact-existing"
+                ]
+              }
+            }
+          ]
         },
         "idempotency": {
           "key": "wf03-vacuous-end-state-key",
@@ -3782,7 +3812,7 @@
             }
           },
           {
-              "event_id": "wf12-self-authored-check-created-step",
+            "event_id": "wf12-self-authored-check-created-step",
             "kind": "workflow.action_started",
             "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
@@ -3790,7 +3820,7 @@
             "payload_version": 1,
             "payload": {
               "step_id": "acceptance",
-                "action_id": "record_verdict",
+              "action_id": "record_verdict",
               "attempt_epoch": 1,
               "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
               "idempotency_identity": "wf12-self-authored-check-key",
@@ -5163,12 +5193,27 @@
           "architecture_binding": {
             "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "home_domain_id": "domain/corpus-main",
-            "affected_domain_ids": ["domain/corpus-main"],
+            "affected_domain_ids": [
+              "domain/corpus-main"
+            ],
             "domain_modifies": [],
             "domain_relation_modifies": [],
             "law_additions": [],
             "verification_obligations": []
-          }
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:wf14",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              }
+            }
+          ]
         },
         "idempotency": {
           "key": "wf14-undeclared-route-convention-key",
@@ -5438,12 +5483,27 @@
           "architecture_binding": {
             "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "home_domain_id": "domain/corpus-main",
-            "affected_domain_ids": ["domain/corpus-main"],
+            "affected_domain_ids": [
+              "domain/corpus-main"
+            ],
             "domain_modifies": [],
             "domain_relation_modifies": [],
             "law_additions": [],
             "verification_obligations": []
-          }
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:wf15",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              }
+            }
+          ]
         },
         "idempotency": {
           "key": "wf15-lowest-rigor-floor-key",
@@ -7522,7 +7582,9 @@
           "architecture_binding": {
             "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "home_domain_id": "domain/corpus-main",
-            "affected_domain_ids": ["domain/corpus-main"],
+            "affected_domain_ids": [
+              "domain/corpus-main"
+            ],
             "domain_modifies": [],
             "domain_relation_modifies": [],
             "law_additions": [],
@@ -7544,7 +7606,20 @@
             "expected_version": 4,
             "operation_id": "wf20-internal-inline-operation",
             "atomic": true
-          }
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:wf20",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              }
+            }
+          ]
         },
         "idempotency": {
           "key": "wf20-internal-inline-key",
@@ -8072,7 +8147,7 @@
             }
           },
           {
-              "event_id": "work-ops-checkpoint",
+            "event_id": "work-ops-checkpoint",
             "kind": "workflow.action_checkpointed",
             "work_id": "work-ops",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
@@ -8080,11 +8155,11 @@
             "payload_version": 1,
             "payload": {
               "step_id": "complete",
-                "step_kind": "internal_sqlite",
+              "step_kind": "internal_sqlite",
               "attempt_epoch": 1,
               "checkpoint_payload": {
                 "checkpoint": {
-                    "action_id": "checkpoint_context",
+                  "action_id": "checkpoint_context",
                   "cursor": "step-2"
                 }
               },

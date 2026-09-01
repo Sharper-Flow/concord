@@ -397,16 +397,45 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 				return nil, newFailure(KindInvariantViolation, "workflow_action", "required route convention is not declared by the contract", false, "declare every required route convention")
 			}
 		}
-		outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
-		if outcome := workflowFieldRaw(fields, "outcome"); len(outcome) != 0 && string(outcome) != "null" {
-			var predicate map[string]any
-			if json.Unmarshal(outcome, &predicate) == nil {
-				outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
+		var actionGroundTruth map[string]any
+		if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
+			_ = json.Unmarshal(payload, &actionGroundTruth)
+		}
+		var outcomePredicates []workflowContractPredicatePayload
+		if rawPredicates := workflowFieldRaw(fields, "outcome_predicates"); len(rawPredicates) != 0 {
+			_ = json.Unmarshal(rawPredicates, &outcomePredicates)
+		} else {
+			_, hasLegacyOutcomeKind := fields["outcome_kind"]
+			_, hasLegacyOutcomePayload := fields["outcome_payload"]
+			_, hasLegacyOutcome := fields["outcome"]
+			if !hasLegacyOutcomeKind && !hasLegacyOutcomePayload && !hasLegacyOutcome {
+				outcomePredicates = nil
+			} else {
+				outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
+				outcome := workflowFieldRaw(fields, "outcome")
+				if len(outcome) != 0 && string(outcome) != "null" {
+					var predicate map[string]any
+					if json.Unmarshal(outcome, &predicate) == nil {
+						outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
+					}
+				}
+				outcomePayload := workflowFieldRaw(fields, "outcome_payload")
+				if len(outcomePayload) == 0 {
+					outcomePayload = defaultWorkflowOutcome(definition, fields)
+				}
+				outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKindForVacuity, OutcomePayload: outcomePayload}}
 			}
 		}
-		if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
+		for _, predicate := range outcomePredicates {
 			var groundTruth map[string]any
-			if json.Unmarshal(payload, &groundTruth) == nil && strings.HasSuffix(workflowFieldStringDefaultMap(groundTruth, "ground_truth", ""), "-present") && outcomeKindForVacuity == "exists" {
+			groundTruthValue := ""
+			if json.Unmarshal(predicate.OutcomePayload, &groundTruth) == nil {
+				groundTruthValue = workflowFieldStringDefaultMap(groundTruth, "ground_truth", "")
+			}
+			if groundTruthValue == "" {
+				groundTruthValue = workflowFieldStringDefaultMap(actionGroundTruth, "ground_truth", "")
+			}
+			if (predicate.OutcomeKind == "exists" && strings.HasSuffix(groundTruthValue, "-present")) || (predicate.OutcomeKind == "absent" && strings.HasSuffix(groundTruthValue, "-absent")) {
 				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
 			}
 		}
@@ -436,7 +465,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			lawModifies = append([]string(nil), request.LawModifies...)
 		}
 		rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
-		contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_kind": outcomeKind, "outcome_payload": outcome, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+		contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "outcome_kind": outcomeKind, "outcome_payload": outcome, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
 		productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
 		bindingRaw, bindingPresent := fields["architecture_binding"]
 		binding, bindingErr := parseWorkflowArchitectureBinding(bindingRaw)
@@ -535,7 +564,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			return nil, revisionErr
 		}
 		successor := map[string]any{
-			"contract_version": next, "premise": workflowFieldStringDefault(fields, "premise", ""), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
+			"contract_version": next, "premise": workflowFieldStringDefault(fields, "premise", ""), "outcome_predicates": workflowFieldRaw(fields, "outcome_predicates"), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
 			"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
 			"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
 			"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
@@ -565,7 +594,11 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if len(evidence) == 0 {
 			evidence = []string{"evidence:" + request.OperationID}
 		}
-		return []Event{workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "predicate_id": workflowFieldStringDefault(fields, "predicate_id", "predicate:"+request.OperationID), "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")})}, nil
+		predicateID, predicatePresent := workflowFieldString(fields, "predicate_id")
+		if !predicatePresent || predicateID == "" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict requires predicate_id", false, "name an approved contract predicate")
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "predicate_id": predicateID, "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")})}, nil
 	case "confirm_premise":
 		if request.OperatorActor == nil || request.OperatorActor.ActorClass != ActorOperator {
 			return nil, newFailure(KindApprovalRequired, "workflow_action", "premise confirmation requires the verified operator approval identity", false, "request_approval")

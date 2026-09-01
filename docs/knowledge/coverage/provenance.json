@@ -1,5 +1,5 @@
 {
   "id": "provenance",
-  "reason": "Constitutional origin record. It names what the public bootstrap excluded and when authority transferred. A running system cannot falsify a historical exclusion.",
-  "state": "unmeasured"
+  "reason": "Constitutional origin record. It names what the public bootstrap excluded and when authority transferred. A running system cannot falsify a historical exclusion, so it is declared prose-only rather than left unmeasured.",
+  "state": "out_of_scope"
 }

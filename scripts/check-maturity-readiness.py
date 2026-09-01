@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from evidence_anchors import check_anchor  # noqa: E402
 
+MANIFEST_GLOB = "maturity-readiness*.json"
 MANIFEST = ROOT / "docs/maturity-readiness.v1.json"
 SCHEMA_VERSION = "1.0"
 RUNGS = {"alpha": "a", "beta": "b", "production": "p"}
@@ -205,23 +206,39 @@ def validate(data: object) -> tuple[list[str], dict[str, int]]:
 
 
 def main() -> int:
-    try:
-        data = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"maturity readiness manifest is missing or unreadable: {exc}", file=sys.stderr)
+    # One file measures one rung (the schema says so); every file under the
+    # glob is validated, and a rung may appear at most once across them.
+    paths = sorted((ROOT / "docs").glob(MANIFEST_GLOB))
+    if not paths:
+        print("maturity readiness manifest is missing", file=sys.stderr)
         return 1
-    findings, tally = validate(data)
-    if findings:
-        for finding in findings:
-            print(finding, file=sys.stderr)
-        return 1
-    total = sum(tally.values())
-    rung = data.get("rung", "unknown")
-    print(
-        f"maturity readiness ({rung}) check passed: {total} item(s) — "
-        + ", ".join(f"{count} {state}" for state, count in tally.items())
-    )
-    return 0
+    seen_rungs: set[str] = set()
+    failed = False
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"{path.name}: unreadable: {exc}", file=sys.stderr)
+            failed = True
+            continue
+        rung = data.get("rung", "unknown") if isinstance(data, dict) else "unknown"
+        if rung in seen_rungs:
+            print(f"{path.name}: rung {rung} is already measured by another manifest", file=sys.stderr)
+            failed = True
+            continue
+        seen_rungs.add(rung)
+        findings, tally = validate(data)
+        if findings:
+            failed = True
+            for finding in findings:
+                print(f"{path.name}: {finding}", file=sys.stderr)
+            continue
+        total = sum(tally.values())
+        print(
+            f"maturity readiness ({rung}, {path.name}) check passed: {total} item(s) — "
+            + ", ".join(f"{count} {state}" for state, count in tally.items())
+        )
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -1451,8 +1451,8 @@
     },
     {
       "id": "CD-0089",
-      "issue": 611,
-      "state": "outstanding"
+      "reason": "Concord development coordination is process law about which authority owns planning, merge, and session evidence. Like CD-0010, it governs how humans and agents work rather than runtime behaviour, so no executable surface exists to bind. Issue #611 closed with the worktree bootstrap it tracked; the decision is declared prose-only rather than left outstanding.",
+      "state": "out_of_scope"
     },
     {
       "evidence": [
@@ -1924,8 +1924,8 @@
     },
     {
       "id": "priorities",
-      "reason": "The ranked priority order and the operating envelope govern how a design tradeoff is resolved and which capabilities belong in Concord at all. Both are judgements applied by a reader to a proposed change, not propositions about a running system, so no executable anchor can decide whether a given decision honoured the order. Coverage would have to be assessed per companion document rather than against this record, and that assessment has not been made.",
-      "state": "unmeasured"
+      "reason": "The ranked priority order and the operating envelope govern how a design tradeoff is resolved and which capabilities belong in Concord at all. Both are judgements applied by a reader to a proposed change, not propositions about a running system, so no executable anchor can decide whether a given decision honoured the order. Declared prose-only rather than left unmeasured.",
+      "state": "out_of_scope"
     },
     {
       "id": "product-data-model",
@@ -1934,8 +1934,8 @@
     },
     {
       "id": "provenance",
-      "reason": "Constitutional origin record. It names what the public bootstrap excluded and when authority transferred. A running system cannot falsify a historical exclusion.",
-      "state": "unmeasured"
+      "reason": "Constitutional origin record. It names what the public bootstrap excluded and when authority transferred. A running system cannot falsify a historical exclusion, so it is declared prose-only rather than left unmeasured.",
+      "state": "out_of_scope"
     },
     {
       "id": "rollout-plan",

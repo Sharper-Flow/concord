@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "rung": "beta",
+  "source": {
+    "path": "docs/decisions/CD-0091-maturity-promotion-ladder.md",
+    "section": "Decision"
+  },
+  "conditions": [
+    {
+      "id": "b1",
+      "ordinal": 1,
+      "title": "The alpha rung is met."
+    },
+    {
+      "id": "b2",
+      "ordinal": 2,
+      "title": "Every law-coverage entry is proved or declared, with none outstanding or unmeasured."
+    },
+    {
+      "id": "b3",
+      "ordinal": 3,
+      "title": "Migration is forward-verified across at least one released schema change."
+    },
+    {
+      "id": "b4",
+      "ordinal": 4,
+      "title": "A documented crash-recovery procedure has a passing test."
+    }
+  ],
+  "items": [
+    {
+      "id": "b1-alpha-met",
+      "condition": "b1",
+      "title": "The alpha manifest is satisfied",
+      "requirement": "The alpha rung manifest carries no outstanding item, checked by the rung validator.",
+      "state": "satisfied",
+      "evidence": [
+        { "kind": "validator", "value": "scripts/check-maturity-readiness.py" }
+      ]
+    },
+    {
+      "id": "b2-law-coverage-proved",
+      "condition": "b2",
+      "title": "Law coverage holds with no outstanding or unmeasured record",
+      "requirement": "check-law-coverage passes and the aggregate contains no record in the outstanding or unmeasured state; process law whose nature excludes executable anchors is declared out of scope with its reason, never left unmeasured.",
+      "state": "satisfied",
+      "evidence": [
+        { "kind": "validator", "value": "scripts/check-law-coverage.py" }
+      ]
+    },
+    {
+      "id": "b3-migration-forward-verified",
+      "condition": "b3",
+      "title": "A released upgrade runs the new binary against old data",
+      "requirement": "The packaged black-box suite downloads a real release and runs the new binary against data the old binary wrote, across a released schema change. Migration 60 crossed release v5.2.3 and repaired a live store of exactly this shape.",
+      "state": "satisfied",
+      "evidence": [
+        { "kind": "validator", "value": "scripts/test-blackbox-acceptance.py" },
+        { "kind": "go_test", "value": "internal/store.TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory" }
+      ]
+    },
+    {
+      "id": "b4-crash-recovery-tested",
+      "condition": "b4",
+      "title": "Installer crash recovery is documented and tested at every phase",
+      "requirement": "The documented journal and recovery procedure in installation.md is proved by tests that kill install, uninstall, and upgrade at every transaction phase and assert coherent recovery of old or new state.",
+      "state": "satisfied",
+      "evidence": [
+        { "kind": "validator", "value": "scripts/test-installer.py" }
+      ]
+    }
+  ]
+}

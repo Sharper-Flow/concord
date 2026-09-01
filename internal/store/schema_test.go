@@ -82,6 +82,13 @@ func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
 		{`INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES('work-v61',1,'product-v61','law:migration','root','work-v61',1)`, nil},
 		{`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES('work-v61',1,'law:migration','obligation:migration')`, nil},
 		{`INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES('work-v61',1,'law:migration')`, nil},
+		{`INSERT INTO workflow_candidate_sets(work_id,contract_version,candidate_kind,candidate_ref,candidate_role,candidate_scope,recorded_at,recorded_by) VALUES('work-v61',1,'work_item','candidate:v61','include','migration fixture','now',?)`, []any{actorRef}},
+		{`INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES('work-v61',1,?,'now')`, []any{actorRef}},
+		{`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('work-v61',1,'law:migration',?)`, []any{hash}},
+		{`INSERT INTO work_items(id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at,intent_json) VALUES('work-v61b','task','Overlap peer','needed',0,'standard',1,'now','now','{}')`, nil},
+		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-v61b',1,'migration peer','check','{"kind":"check","check_ref":"check:migration-peer"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal')`, []any{actorRef}},
+		{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('evt-v61','workflow.overlap_resolved','work_item','work-v61',?,'now',1,'{}')`, []any{actorRef}},
+		{`INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,approval_ref,created_at) VALUES('resolution-v61',1,'product-v61','work-v61','work-v61b',1,1,'compatible_with','migration fixture','approval:migration','now')`, nil},
 	}
 	for _, statement := range statements {
 		if _, err := db.ExecContext(ctx, statement.query, statement.args...); err != nil {
@@ -109,11 +116,22 @@ func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
 		"workflow_contract_law_additions",
 		"workflow_contract_verification_obligations",
 		"workflow_contract_law_modifications",
+		"workflow_candidate_sets",
+		"workflow_premise_confirmations",
+		"workflow_contract_law_revisions",
 	} {
 		var count int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE work_id='work-v61' AND contract_version=1").Scan(&count); err != nil || count != 1 {
 			t.Fatalf("%s rows=%d err=%v", table, count, err)
 		}
+	}
+	var overlaps int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_overlap_resolutions WHERE from_work_id='work-v61' AND to_work_id='work-v61b' AND from_contract_version=1 AND to_contract_version=1`).Scan(&overlaps); err != nil || overlaps != 1 {
+		t.Fatalf("workflow_overlap_resolutions rows=%d err=%v", overlaps, err)
+	}
+	var peerPredicates int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_predicates WHERE work_id='work-v61b' AND contract_version=1 AND predicate_id='predicate:primary'`).Scan(&peerPredicates); err != nil || peerPredicates != 1 {
+		t.Fatalf("peer contract predicate rows=%d err=%v", peerPredicates, err)
 	}
 	var fkViolations int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&fkViolations); err != nil || fkViolations != 0 {

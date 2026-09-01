@@ -207,6 +207,19 @@ function validateCoreResponse(response: any, toolName: string, operation: string
   return true
 }
 
+// A core response shaped like an envelope but stamped with a manifest digest
+// this adapter was not generated from is version skew: the adapter files on
+// disk were replaced by a newer release while this session still runs the old
+// module. The condition is deterministic, so it is classified instead of
+// folded into malformed_core_response.
+function isVersionSkew(response: any): boolean {
+  return !!response && typeof response === "object" && response.schema_version === "1.0" && response.origin === "core" && typeof response.manifest_digest === "string" && response.manifest_digest !== manifestDigest
+}
+
+function operationIsMutation(toolName: string, operation: string): boolean {
+  return contractOperations.some((item: any) => item.tool === toolName && item.id.endsWith(`.${operation}`) && item.kind === "mutation")
+}
+
 
 function selectedProductID() {
   const value = process.env.CONCORD_SELECTED_PRODUCT_ID ?? ""
@@ -253,7 +266,14 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
   if (result.exitCode !== 0 && !result.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", result.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
   let response: any
   try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation") }
-  if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core response failed the generated TS7 contract", "possible", "reconcile_operation")
+  if (!validateCoreResponse(response, toolName, operation)) {
+    if (isVersionSkew(response)) {
+      const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${manifestDigest}; the adapter files were replaced on disk by a newer release while this session runs; restart the OpenCode session to load them`
+      if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
+      return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
+    }
+    return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core response failed the generated TS7 contract", "possible", "reconcile_operation")
+  }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
     const requiredChallengeFields = ["approval_ref", "operation_digest"]

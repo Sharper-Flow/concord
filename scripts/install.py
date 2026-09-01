@@ -32,22 +32,43 @@ from pathlib import Path
 VERSION_RE = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MANIFEST_NAME = "install-manifest.json"
-ADAPTER_FILES = (
-    "concord.ts",
-    "concord-plugin.ts",
-    "credentials.ts",
-    "continuity-hook.ts",
-    "dispatch.ts",
-    "generated-agent-lanes.ts",
-    "generated-contract-tests.ts",
-    "generated-contracts.ts",
-    "lane_dispatch.ts",
-    "packet.ts",
-)
-# The OpenCode plugin entry module, shipped in ADAPTER_FILES and installed into
-# the tools directory. Unlike the tool modules it is registered by path in the
-# host `plugin` array so OpenCode loads it as the adapter's plugin factory.
+# The shipped adapter set follows the plugin entry's module import graph, not
+# a hand list: an entry import referencing an unshipped module is a
+# new-session outage, not a packaging choice (issue #681).
+RELATIVE_IMPORT_RE = re.compile(r'(?:from\s+|import\(\s*)([\'"])(\.[^\'"]+)\1')
+# The OpenCode plugin entry module, installed into the tools directory and
+# registered by path in the host `plugin` array so OpenCode loads it as the
+# adapter's plugin factory. The import walk starts here.
 PLUGIN_ENTRY_FILE = "concord-plugin.ts"
+
+
+def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
+    """Derive the deployable adapter set from the entry's import graph.
+
+    Every relative import must resolve to a TypeScript module inside the
+    adapter directory. An unresolvable or escaping import refuses rather
+    than shipping a set that breaks at module load.
+    """
+    shipped: set[str] = set()
+    pending = [PLUGIN_ENTRY_FILE]
+    while pending:
+        name = pending.pop()
+        if name in shipped:
+            continue
+        path = adapter_dir / name
+        if not path.is_file():
+            raise InstallerError(f"adapter module graph references missing file {name!r}")
+        shipped.add(name)
+        for match in RELATIVE_IMPORT_RE.finditer(path.read_text(encoding="utf-8")):
+            target = match.group(2)
+            if target.startswith("../"):
+                raise InstallerError(f"adapter module graph leaves the adapter directory at {target!r}")
+            module = target[2:]
+            pending.append(f"{module}.ts")
+    return tuple(sorted(shipped))
+
+
+ADAPTER_FILES = derive_adapter_files(Path(__file__).resolve().parent.parent / "adapter" / "opencode")
 INSTRUCTION_FILES = (
     "README.md",
     "asking.md",

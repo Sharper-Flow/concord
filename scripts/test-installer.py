@@ -961,5 +961,43 @@ esac''',
         self.assertEqual(target.read_text(encoding="utf-8"), "operator-tampered\n")
 
 
+class DeriveAdapterFilesTest(unittest.TestCase):
+    def test_shipped_set_follows_the_entry_import_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { a } from "./concord"\nimport { b } from "./agent-switch-hook"\n',
+                encoding="utf-8",
+            )
+            (root / "concord.ts").write_text('import { c } from "./credentials"\n', encoding="utf-8")
+            (root / "agent-switch-hook.ts").write_text("export const b = 2\n", encoding="utf-8")
+            (root / "credentials.ts").write_text("export const c = 3\n", encoding="utf-8")
+            (root / "unreferenced.test.ts").write_text("", encoding="utf-8")
+            self.assertEqual(
+                installer.derive_adapter_files(root),
+                ("agent-switch-hook.ts", "concord-plugin.ts", "concord.ts", "credentials.ts"),
+            )
+
+    def test_unresolvable_entry_import_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text('import { a } from "./missing"\n', encoding="utf-8")
+            with self.assertRaises(installer.InstallerError):
+                installer.derive_adapter_files(root)
+
+    def test_import_escaping_the_adapter_directory_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text('import { a } from "../escape"\n', encoding="utf-8")
+            with self.assertRaises(installer.InstallerError):
+                installer.derive_adapter_files(root)
+
+    def test_real_checkout_derivation_includes_the_plugin_entry(self) -> None:
+        repo_adapter = SCRIPT.parent.parent / "adapter" / "opencode"
+        derived = installer.derive_adapter_files(repo_adapter)
+        self.assertIn(installer.PLUGIN_ENTRY_FILE, derived)
+        self.assertEqual(derived, installer.ADAPTER_FILES)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -85,5 +86,19 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 	}
 	if predicateCount != 2 {
 		t.Fatalf("conjunctive predicate count = %d, want 2", predicateCount)
+	}
+}
+
+func TestWorkflowOutcomePredicateSetRejectsUnapprovedDeliveredPredicate(t *testing.T) {
+	definition := workflowFixtureDefinition(t, 1)
+	check := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"completed"}}
+	_, err := EvaluateWorkflowOutcomePredicateSet(
+		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}},
+		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}, {PredicateID: "predicate:extra", Predicate: check}},
+		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}},
+	)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindOutcomeMismatch {
+		t.Fatalf("unapproved delivered predicate error = %v, want %s", err, KindOutcomeMismatch)
 	}
 }

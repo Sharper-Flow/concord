@@ -79,8 +79,8 @@ func refuseSessionWithAuthority(t *testing.T, dbPath string) (int, string, int, 
 			runs++
 			return nil
 		},
-		func() error { identityCalls++; return nil },
-		func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil })
+		func(string) error { identityCalls++; return nil },
+		func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil })
 	return code, errOut.String(), identityCalls, runs, bootstrapCalls
 }
 
@@ -282,5 +282,55 @@ func TestSessionOpensInTheSelectedWorkProjectDirectory(t *testing.T) {
 	}
 	if invocations[0].Agent != orchestratorAgentName || invocations[0].Executed != orchestratorAgentName {
 		t.Fatalf("host ran agent=%q executed=%q, want %q", invocations[0].Agent, invocations[0].Executed, orchestratorAgentName)
+	}
+}
+
+// TestSessionRefusesWhenTheResolvedDirectoryRegistryDoesNotRegisterTheHandle
+// covers CD-0093 D2 and issue #664: Concord may assert an agent identity only
+// against the registry the host resolves where it runs, so the probe runs in
+// the resolved Project directory, not the launcher's. The test drives the
+// real host-selection and tool-context path through the PATH-installed host
+// double, whose registry resolves per working directory and which substitutes
+// its default agent on an unregistered --agent name and exits zero. A build
+// that verified the launcher's registry and started anyway would run the host
+// in the Project directory, where that registry substitutes the default
+// executor — the witness would record it and this test would fail.
+func TestSessionRefusesWhenTheResolvedDirectoryRegistryDoesNotRegisterTheHandle(t *testing.T) {
+	home := t.TempDir()
+	launcherDir, projectDir := t.TempDir(), t.TempDir()
+	for _, lane := range store.BuiltinLaneDefinitions() {
+		writeAgentDefinition(t, filepath.Join(home, ".config", "opencode", "agents"), laneAgentFileName(lane.ID))
+	}
+	writeAgentDefinition(t, filepath.Join(home, ".config", "opencode", "agents"), orchestratorAgentFileName)
+	dbPath := filepath.Join(t.TempDir(), "concord-substituted-executor.db")
+	seedSessionAuthority(t, dbPath, projectDir)
+	t.Setenv("CONCORD_DB_PATH", dbPath)
+	t.Setenv("HOME", home)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-661")
+	witness := filepath.Join(t.TempDir(), "host-witness")
+	writeHostDouble(t, witness)
+	// The launcher's directory registers the asserted handle — a probe that
+	// reads this registry passes and the substitution starts silently. The
+	// resolved Project directory's registry does not, which is the state
+	// #664 reports: verified in one place, executed in another.
+	writeHostRegistry(t, launcherDir, orchestratorAgentName)
+	writeHostRegistry(t, projectDir, "unrelated-agent")
+	t.Chdir(launcherDir)
+	var out, errOut bytes.Buffer
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		resolveSessionDirectory,
+		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
+		runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+	if code == 0 {
+		t.Fatal("session started as an agent the resolved directory's registry does not register")
+	}
+	if invocations := readHostWitness(t, witness); len(invocations) != 0 {
+		t.Fatalf("host executed %+v; a substituted executor must never start the interactive session", invocations)
+	}
+	for _, fragment := range []string{orchestratorAgentName, "not registered"} {
+		if !strings.Contains(errOut.String(), fragment) {
+			t.Fatalf("diagnostic %q omits %q", errOut.String(), fragment)
+		}
 	}
 }

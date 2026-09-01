@@ -23,7 +23,12 @@ var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
 
 type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
 type sessionRunnerFunc func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error
-type sessionAgentIdentityFunc func() error
+
+// sessionAgentIdentityFunc asserts the registered lanes against the host the
+// session will start on, in the directory the session resolved (CD-0093 D2:
+// definition resolution, registry verification, and execution share one
+// directory, and none of them reads the process working directory).
+type sessionAgentIdentityFunc func(dir string) error
 
 // sessionDirectoryFunc resolves the directory the session runs in from the
 // selected work's Project (CD-0093 D1). It is a parameter so tests can point
@@ -87,31 +92,29 @@ func resolveSessionDirectory(ctx context.Context, workID string) (string, error)
 // assertion recorded.
 //
 // The function is a parameter so tests can inject an isolated temp store;
-// production wiring is hostOrchestratorIdentity below.
-type sessionOrchestratorFunc func(ctx context.Context, productID, workID string) (string, error)
+// production wiring is hostOrchestratorIdentity below. It receives the
+// resolved session directory (CD-0093 D2) so the definition it verifies and
+// the registry it probes are the ones the host resolves where it runs.
+type sessionOrchestratorFunc func(ctx context.Context, productID, workID, dir string) (string, error)
 
 // hostLaneAgentIdentity asserts the registered lanes against the host the
-// session will start on.
-func hostLaneAgentIdentity() error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = ""
-	}
-	return verifyLaneAgentIdentity(os.Getenv("HOME"), cwd, store.BuiltinLaneDefinitions())
+// session will start on, resolving definitions against the session directory.
+func hostLaneAgentIdentity(dir string) error {
+	return verifyLaneAgentIdentity(os.Getenv("HOME"), dir, store.BuiltinLaneDefinitions())
 }
 
 // hostOrchestratorIdentity is the production wiring for the session's
 // orchestrator assertion. It runs the file/digest verification against
-// HOME/cwd, opens the authority store, and records the assertion in a single
-// transaction. The verification runs before any store interaction so a
+// HOME and the resolved session directory, probes the host registry in that
+// same directory, opens the authority store, and records the assertion in a
+// single transaction. The verification runs before any store interaction so a
 // missing definition fails closed without touching the database — the
-// session either records the assertion it required or refuses.
-func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (handleResult string, errResult error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = ""
-	}
-	assertion, handle, err := verifyOrchestratorIdentity(os.Getenv("HOME"), cwd)
+// session either records the assertion it required or refuses. CD-0093 D2:
+// the registry probed here is the one the host resolves in the directory it
+// runs in, because verifying any other registry asserts a property that never
+// governs the session.
+func hostOrchestratorIdentity(ctx context.Context, productID, workID, dir string) (handleResult string, errResult error) {
+	assertion, handle, err := verifyOrchestratorIdentity(os.Getenv("HOME"), dir)
 	if err != nil {
 		return "", err
 	}
@@ -119,7 +122,7 @@ func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (ha
 	// derived handle. Establish that before the store is touched, so a
 	// session that cannot run as the agent it asserts records nothing and
 	// refuses (issue #430).
-	if err := verifyHostRegistersHandle(ctx, probeHostAgentRegistry, cwd, handle); err != nil {
+	if err := verifyHostRegistersHandle(ctx, probeHostAgentRegistry, dir, handle); err != nil {
 		return "", err
 	}
 	assertion.ProductID = productID
@@ -264,11 +267,14 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
-	if err := identity(); err != nil {
+	// CD-0093 D2: the resolved directory is the only directory the session
+	// uses. Agent definition resolution, the host registry probe, and host
+	// execution all receive it; none reads the process working directory.
+	if err := identity(sessionDir); err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
-	handle, err := orchestrator(context.Background(), productID, workID)
+	handle, err := orchestrator(context.Background(), productID, workID, sessionDir)
 	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2

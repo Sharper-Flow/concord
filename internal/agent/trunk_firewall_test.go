@@ -90,3 +90,26 @@ func TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked(t *testing.T) {
 		t.Fatalf("mutating authority on linked worktree should pass, got %v", err)
 	}
 }
+
+func TestLifecycleTransitionAllowsMainCheckout(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := Dispatch(ctx, s, service, InvokeRequest{
+		Tool:      "concord_work_transition",
+		Operation: "lifecycle",
+		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"target":"in_progress","reason":"start work","idempotency_key":"main-lifecycle"}`),
+	}, mutationEnvelope(grant, scopeVersion))
+	if err != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("main-checkout lifecycle response=%+v err=%v", response, err)
+	}
+	if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "in_progress" {
+		t.Fatalf("work lifecycle=%q, want in_progress", lifecycle)
+	}
+}

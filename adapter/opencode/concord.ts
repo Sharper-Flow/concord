@@ -2,7 +2,7 @@ import { clientRef } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
-import { errorEnvelopeForLane, readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata, readRunTextParts, validateAgainstSchema, type AgentResultEnvelope } from "./dispatch"
+import { errorEnvelopeForLane, readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope } from "./dispatch"
 
 type ToolContext = {
   sessionID: string
@@ -647,12 +647,13 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       if (failure.effect === "none") throw new AdapterFailure(failure.kind, `${failure.reason}_unknown_effect`, failure.message, "possible", "reconcile_operation")
       throw failure
     }
-    let runMetadata: ReturnType<typeof readRunSessionMetadata>
+    let runRead: ReturnType<typeof readRunSessionMetadata>
     try {
-      runMetadata = readRunSessionMetadata(run.stdout)
+      runRead = readRunSessionMetadata(run.stdout)
     } catch (error) {
       throw new AdapterFailure("malformed_response", "malformed_run_stream", String(error), "possible", "reconcile_operation")
     }
+    const runMetadata = runRead.ok ? runRead.metadata : null
     if (runMetadata && sessionID && runMetadata.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
     if (runMetadata && !sessionID) sessionID = runMetadata.session_id
     if (run.exitCode !== 0) {
@@ -665,23 +666,29 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       else await rollbackBeforeLaunch(run.stderr.slice(0, MAX_STDERR) || "OpenCode exited before it created a session", true)
       throw new AdapterFailure("child_spawn_failure", "child_nonzero", run.stderr.slice(0, MAX_STDERR), "partial", sessionID ? "exact_replay" : "contact_operator")
     }
-    if (!runMetadata) {
+    if (!runRead.ok) {
+      // The refusal names which predicate fired, so an operator can tell an
+      // oversized stream from one that never identified a session. exact_replay
+      // is withheld for a cause a replay reproduces: a recovery that cannot
+      // succeed sends the operator around the same loop.
+      const cause = `OpenCode run output ${runStreamRefusalMessage[runRead.refusal]}`
       if (!sessionID) sessionID = await findRecoverableSession() ?? ""
-      if (sessionID) await recordLaunch("failed", "OpenCode run output did not contain one typed session identity")
-      else await rollbackBeforeLaunch("OpenCode exited without a typed or recoverable session identity", true)
-      throw new AdapterFailure("malformed_response", "malformed_run_stream", "OpenCode run output did not contain one typed session identity", "partial", sessionID ? "exact_replay" : "contact_operator")
+      if (sessionID) await recordLaunch("failed", cause)
+      else await rollbackBeforeLaunch(`OpenCode exited without a typed or recoverable session identity: ${cause}`, true)
+      throw new AdapterFailure("malformed_response", `malformed_run_stream_${runRead.refusal}`, cause, "partial", sessionID ? runStreamRefusalRecovery[runRead.refusal] : "contact_operator")
     }
-    if (launch.session_id && runMetadata.session_id !== launch.session_id) {
+    const runSession = runRead.metadata
+    if (launch.session_id && runSession.session_id !== launch.session_id) {
       await recordLaunch("failed", "OpenCode resumed a different session", "", launch.session_id)
       throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode resumed a different session")
     }
     if (!sessionIdentityRecorded) await recordLaunch("running", "")
-    const exported = await runWorkStartChild([opencode, "export", runMetadata.session_id, "--sanitize"], "", context.abort, { cwd: bootstrap.worktree.path })
+    const exported = await runWorkStartChild([opencode, "export", runSession.session_id, "--sanitize"], "", context.abort, { cwd: bootstrap.worktree.path })
     if (exported.exitCode !== 0) {
       await recordLaunch("failed", exported.stderr.slice(0, MAX_STDERR))
       throw new AdapterFailure("session_export_failure", "export_failed", exported.stderr.slice(0, MAX_STDERR))
     }
-    const readback = readExportSessionMetadata(exported.stdout, runMetadata.session_id)
+    const readback = readExportSessionMetadata(exported.stdout, runSession.session_id)
     if (!readback) {
       await recordLaunch("failed", "OpenCode export did not contain one typed session readback")
       throw new AdapterFailure("malformed_response", "malformed_session_export", "OpenCode export did not contain one typed session readback")

@@ -512,7 +512,7 @@ const realRunCaptureEnvelope = (text: string) => [
 
 test("a real opencode run --format json capture drives worker-complete, plugin log line and all", async () => {
   const stdout = realRunCaptureEnvelope(JSON.stringify(report()))
-  expect(readRunSessionMetadata(stdout)).toEqual({ session_id: "session-1" })
+  expect(readRunSessionMetadata(stdout)).toEqual({ ok: true, metadata: { session_id: "session-1" } })
   expect(readWorkerReport(stdout).report).toEqual(report())
   const { result, verbs, payloads } = await terminalEvidence(stdout)
   expect(result.outcome).toBe("ok")

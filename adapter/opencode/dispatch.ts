@@ -61,6 +61,41 @@ export interface RunLineMetadata extends RunSessionMetadata {
   completed: boolean
 }
 
+// RunStreamRefusal names why a run stream yielded no single completed session
+// identity. Each cause carries a different operator response, so they stay
+// distinct: an oversized stream ran to completion and overran a bound, while
+// no_official_events means the stream never identified a session at all.
+export type RunStreamRefusal =
+  | "output_exceeded_bound"
+  | "malformed_event"
+  | "no_official_events"
+  | "no_completion_event"
+  | "multiple_session_identities"
+
+export type RunSessionRead =
+  | { ok: true; metadata: RunSessionMetadata }
+  | { ok: false; refusal: RunStreamRefusal }
+
+// One phrase per refusal, so the run path and the worker path name the same
+// cause identically and an operator reading either can tell them apart.
+export const runStreamRefusalMessage: Record<RunStreamRefusal, string> = {
+  output_exceeded_bound: "exceeded the bounded adapter limit",
+  malformed_event: "carried an official run event with no typed session identity",
+  no_official_events: "carried no official run event",
+  no_completion_event: "ended before a step completed",
+  multiple_session_identities: "carried more than one session identity",
+}
+
+// An oversized stream is a budget problem and replaying it reproduces the
+// overrun, so only that refusal routes to adjust_budget.
+export const runStreamRefusalRecovery: Record<RunStreamRefusal, NonNullable<AgentResultEnvelope["error"]>["recovery_action"]> = {
+  output_exceeded_bound: "adjust_budget",
+  malformed_event: "reconcile_operation",
+  no_official_events: "reconcile_operation",
+  no_completion_event: "reconcile_operation",
+  multiple_session_identities: "reconcile_operation",
+}
+
 // DispatchAuthorizer asks the core to authorize one dispatch_worker action and
 // returns the core response envelope. The caller owns the transport, so the
 // adapter never holds the authorization decision (CD-0017 D2, CD-0059 D1).
@@ -227,22 +262,26 @@ export function readRunLineMetadata(line: string): RunLineMetadata | null {
   return sessionID ? { session_id: sessionID, official: false, completed: false } : null
 }
 
-export function readRunSessionMetadata(stdout: string): RunSessionMetadata | null {
-  if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
+export function readRunSessionMetadata(stdout: string): RunSessionRead {
+  if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return { ok: false, refusal: "output_exceeded_bound" }
   const sessions = new Set<string>()
   let officialEvents = 0
   let completed = false
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue
     let metadata: RunLineMetadata | null
-    try { metadata = readRunLineMetadata(line) } catch { return null }
+    try { metadata = readRunLineMetadata(line) } catch { return { ok: false, refusal: "malformed_event" } }
     if (!metadata) continue
     if (metadata.official) officialEvents++
     if (metadata.completed) completed = true
     sessions.add(metadata.session_id)
   }
-  if (officialEvents === 0 || !completed || sessions.size !== 1) return null
-  return { session_id: [...sessions][0] }
+  if (sessions.size > 1) return { ok: false, refusal: "multiple_session_identities" }
+  if (officialEvents === 0) return { ok: false, refusal: "no_official_events" }
+  if (!completed) return { ok: false, refusal: "no_completion_event" }
+  // An official event always carries a typed identity, so officialEvents > 0
+  // with no second identity leaves exactly one.
+  return { ok: true, metadata: { session_id: [...sessions][0] } }
 }
 
 export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
@@ -690,10 +729,10 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   try { result = await childRunner.run(argv, "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "blocked", "blocked", String(error), "retry_same_request")
   }
-  if (Buffer.byteLength(result.stdout) > MAX_OUTPUT_BYTES) return errorEnvelope(lane, packet, "error", "error", "worker output exceeded the bounded adapter limit", "adjust_budget")
   if (result.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", result.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode worker spawn returned a non-zero exit code", "reconcile_operation")
-  const runMetadata = readRunSessionMetadata(result.stdout)
-  if (!runMetadata) return errorEnvelope(lane, packet, "error", "error", "worker output did not contain one typed session identity", "reconcile_operation")
+  const runRead = readRunSessionMetadata(result.stdout)
+  if (!runRead.ok) return errorEnvelope(lane, packet, "error", "error", `worker output ${runStreamRefusalMessage[runRead.refusal]}`, runStreamRefusalRecovery[runRead.refusal])
+  const runMetadata = runRead.metadata
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultRunner
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", runMetadata.session_id, "--sanitize"], "", signal) } catch (error) {

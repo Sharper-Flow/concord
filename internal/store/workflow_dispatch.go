@@ -409,7 +409,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			_, hasLegacyOutcomePayload := fields["outcome_payload"]
 			_, hasLegacyOutcome := fields["outcome"]
 			if !hasLegacyOutcomeKind && !hasLegacyOutcomePayload && !hasLegacyOutcome {
-				outcomePredicates = nil
+				outcomePredicates = []workflowContractPredicatePayload{}
 			} else {
 				outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
 				outcome := workflowFieldRaw(fields, "outcome")
@@ -435,7 +435,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			if groundTruthValue == "" {
 				groundTruthValue = workflowFieldStringDefaultMap(actionGroundTruth, "ground_truth", "")
 			}
-			if (predicate.OutcomeKind == "exists" && strings.HasSuffix(groundTruthValue, "-present")) || (predicate.OutcomeKind == "absent" && strings.HasSuffix(groundTruthValue, "-absent")) {
+			if workflowOutcomePredicateVacuous(predicate.OutcomeKind, groundTruthValue) {
 				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
 			}
 		}
@@ -500,7 +500,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		contract["law_revisions"] = revisions
 		contract["law_boundary_version"] = 1
-		return []Event{workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)}, nil
+		approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
+		approvalEvent.PayloadVersion = 2
+		return []Event{approvalEvent}, nil
 	case "revise_candidates":
 		added := workflowFieldStrings(fields, "added")
 		if len(added) == 0 {
@@ -823,6 +825,10 @@ func defaultWorkflowOutcome(definition WorkflowDefinition, fields map[string]jso
 		return json.RawMessage(`{"kind":"outcome","allowed":["completed"]}`)
 	}
 	return json.RawMessage(`{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_result":"pass"}`)
+}
+
+func workflowOutcomePredicateVacuous(kind, groundTruth string) bool {
+	return (kind == "exists" && strings.HasSuffix(groundTruth, "-present")) || (kind == "absent" && strings.HasSuffix(groundTruth, "-absent"))
 }
 
 func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {

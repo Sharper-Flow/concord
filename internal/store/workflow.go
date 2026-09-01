@@ -1768,7 +1768,8 @@ func upcastWorkflowContractApprovedV2(event Event) (Event, error) {
 	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
 		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v2 payload is not a JSON object", false, "repair the stored workflow contract")
 	}
-	if binding, present := fields["architecture_binding"]; present && string(binding) != "null" {
+	_, predicatesPresent := fields["outcome_predicates"]
+	if binding, present := fields["architecture_binding"]; present && string(binding) != "null" && !predicatesPresent {
 		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v2 cannot carry Product-changing authority", false, "keep historical v2 contracts explicitly non-Product-changing")
 	}
 	if _, present := fields["architecture_binding"]; !present {

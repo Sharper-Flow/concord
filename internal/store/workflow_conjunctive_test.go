@@ -91,11 +91,11 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 
 func TestWorkflowOutcomePredicateSetRejectsUnapprovedDeliveredPredicate(t *testing.T) {
 	definition := workflowFixtureDefinition(t, 1)
-	check := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"completed"}}
+	check := OutcomePredicate{Kind: PredicateExists, Surface: "surface:one", Subjects: []string{"subject:one"}}
 	_, err := EvaluateWorkflowOutcomePredicateSet(
 		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}},
 		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}, {PredicateID: "predicate:extra", Predicate: check}},
-		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}},
+		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}, GroundTruth: conjunctiveGroundTruth{}},
 	)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindOutcomeMismatch {
@@ -105,14 +105,29 @@ func TestWorkflowOutcomePredicateSetRejectsUnapprovedDeliveredPredicate(t *testi
 
 func TestWorkflowOutcomePredicateSetRejectsMissingApprovedPredicate(t *testing.T) {
 	definition := workflowFixtureDefinition(t, 1)
-	check := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"completed"}}
+	check := OutcomePredicate{Kind: PredicateExists, Surface: "surface:one", Subjects: []string{"subject:one"}}
 	_, err := EvaluateWorkflowOutcomePredicateSet(
 		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}, {PredicateID: "predicate:required", Predicate: check}},
 		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}},
-		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}},
+		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}, GroundTruth: conjunctiveGroundTruth{}},
 	)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("uncovered approved predicate error = %v, want %s", err, KindMissingEvidence)
+	}
+}
+
+type conjunctiveGroundTruth struct{}
+
+func (conjunctiveGroundTruth) Resolve(string, string) (WorkflowGroundTruth, error) {
+	return GroundTruthPresent, nil
+}
+
+func TestWorkflowOutcomePredicateVacuityChecksAbsentConjunct(t *testing.T) {
+	if !workflowOutcomePredicateVacuous("absent", "scope-absent") {
+		t.Fatal("an already absent conjunct must be vacuous")
+	}
+	if workflowOutcomePredicateVacuous("exists", "scope-absent") {
+		t.Fatal("an absent ground truth must not make an exists conjunct vacuous")
 	}
 }

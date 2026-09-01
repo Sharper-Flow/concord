@@ -75,6 +75,7 @@ func dispatchOpsRunbookAction(t *testing.T, s *Store, workID string, version int
 
 func dispatchOpsRunbookActionResult(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor, payload json.RawMessage) (WorkflowActionExecutionResult, error) {
 	t.Helper()
+	payload = testApprovalPayload(actionID, payload)
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

@@ -1669,7 +1669,11 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 			_ = tx.Rollback()
 			return err
 		}
-		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(`{}`), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
+		actionPayload := map[string]any{}
+		if action == "approve_contract" {
+			actionPayload["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
+		}
+		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(mustJSON(actionPayload)), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
 		_ = leaveFold(ctx, tx)
 		if err != nil {
 			_ = tx.Rollback()

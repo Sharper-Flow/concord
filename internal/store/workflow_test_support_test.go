@@ -67,6 +67,21 @@ func workflowFixtureDigest(t *testing.T) string {
 	return workflowFixtureDefinition(t, 1).Digest
 }
 
+func testApprovalPayload(actionID string, payload json.RawMessage) json.RawMessage {
+	if actionID != "approve_contract" {
+		return payload
+	}
+	var fields map[string]any
+	if json.Unmarshal(payload, &fields) != nil || fields == nil {
+		return payload
+	}
+	if _, present := fields["outcome_predicates"]; !present {
+		fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:test", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
+	}
+	encoded, _ := json.Marshal(fields)
+	return encoded
+}
+
 // applyWorkflowTestOperation models the owning workflow route for white-box
 // fold tests. Production callers must use the dispatcher or initialization and
 // completion entry points; generic ApplyOperation intentionally rejects the

@@ -297,7 +297,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		// principal_ref, which CD-0080 D1 derives rather than accepts. Identity
 		// authorization therefore precedes the preflight; Product and Project
 		// scope stay out of it, because scope is validated after the budget.
-		actorInv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability}
+		actorInv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation}
 		actor, actorErr := authority.Authorize(ctx, actorInv)
 		if actorErr != nil {
 			return coreError(base, "unauthorized", actorErr.Error(), "contact_operator", false), nil
@@ -335,7 +335,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
-	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, ProductID: env.SelectedProductID}
+	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation, ProductID: env.SelectedProductID}
 	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		identity, identityExtractErr := extractMutationWorkIdentity(request.Input)
 		if identityExtractErr != nil {

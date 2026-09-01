@@ -30,6 +30,17 @@ var mainCheckoutAllowedCapabilities = map[Capability]struct{}{
 	Capability("work_define"):  {},
 }
 
+// mainCheckoutAllowedOperations names the operation-scoped extension to the
+// capability allowlist. lifecycle writes one Product-state work.transitioned
+// event and never touches a checkout path or claims a worktree (CD-0094 D1/D2).
+// The boundary remains declared once so each new operation requires a decision
+// naming its write surface (CD-0094 D3).
+var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
+	Capability("work_transition"): {
+		"lifecycle": {},
+	},
+}
+
 type Clock func() time.Time
 type Service struct {
 	Store          *store.Store
@@ -194,6 +205,7 @@ type Invocation struct {
 	ClientRef, PrincipalRef, SessionRef, AgentRef, Directory, Worktree, ManifestDigest string
 	HostAssertionDigest                                                                string
 	RequiredCapability                                                                 Capability
+	RequiredOperation                                                                  string
 	ProductID, ProjectID                                                               string
 }
 
@@ -261,7 +273,9 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		return Authority{}, authorityRefusal("resolved Project is outside trusted client policy")
 	}
 	if resolved.MainWorktree {
-		if _, ok := mainCheckoutAllowedCapabilities[in.RequiredCapability]; !ok {
+		_, capabilityAllowed := mainCheckoutAllowedCapabilities[in.RequiredCapability]
+		_, operationAllowed := mainCheckoutAllowedOperations[in.RequiredCapability][in.RequiredOperation]
+		if !capabilityAllowed && !operationAllowed {
 			return Authority{}, authorityRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)")
 		}
 	}

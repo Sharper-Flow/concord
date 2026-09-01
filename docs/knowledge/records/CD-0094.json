@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-01T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0094",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0094-operation-scoped-main-checkout-authority.md",
+  "product_wide_rationale": "Defines operation-scoped main-checkout authority for Product-state lifecycle transitions. It amends the product-wide authority boundary without assigning ownership to a runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:60edfa9ca840d1f6ab8ba2831aa2947270fcb4eed69c0236148bf0da3689756b",
+  "status": "accepted",
+  "summary": "Allows work_transition.lifecycle from a registered Project's default checkout because it writes one Product-state event, while terminal gates and implementation-bearing refusals remain unchanged.",
+  "tags": [
+    "authority",
+    "worktree-isolation",
+    "lifecycle"
+  ],
+  "title": "Operation-scoped main-checkout authority"
+}

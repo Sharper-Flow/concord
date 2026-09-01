@@ -15,7 +15,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d77c0878d3967925f4776d7893a51c6159632c38e64b508adfa67e6ecdd3e2a5",
+  "sha256": "sha256:8e8f6886b5b254edf04f61c2c4134a9a209fa08883a75d14bca2c99adaa0c951",
   "status": "published",
   "summary": "Sequences the public bootstrap and Concord development coordination under CD-0007 and CD-0089 while retaining replacement-readiness evidence.",
   "tags": [

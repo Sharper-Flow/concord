@@ -22,11 +22,24 @@ const (
 var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
 
 type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
-type sessionRunnerFunc func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
-type sessionAgentIdentityFunc func() error
+
+// sessionDirectoryFunc resolves the directory the session runs in from the
+// selected work's Project (CD-0093 D1). It is a parameter so tests can
+// inject an isolated resolution; production wiring is hostSessionDirectory
+// below.
+type sessionDirectoryFunc func(ctx context.Context, workID string) (string, error)
+
+// sessionRunnerFunc starts the host in dir. The directory is a parameter so
+// the executor it stands in for observes the same resolved directory the
+// identity and registry steps used (CD-0093 D2).
+type sessionRunnerFunc func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error
+
+// sessionAgentIdentityFunc asserts the registered lanes against the host the
+// session will start on, in the resolved session directory.
+type sessionAgentIdentityFunc func(dir string) error
 
 // sessionOrchestratorFunc verifies the orchestrator identity the session
-// requires and records the assertion as a domain event. CD-0061 D4 and D5
+// requires in dir and records the assertion as a domain event. CD-0061 D4 and D5
 // bind the two steps: the verification proves the host has the required
 // definition; the record is the evidence Concord later has if anyone asks
 // what the session asserted. Both run inside the session command so a
@@ -38,38 +51,102 @@ type sessionAgentIdentityFunc func() error
 //
 // The function is a parameter so tests can inject an isolated temp store;
 // production wiring is hostOrchestratorIdentity below.
-type sessionOrchestratorFunc func(ctx context.Context, productID, workID string) (string, error)
+type sessionOrchestratorFunc func(ctx context.Context, dir, productID, workID string) (string, error)
 
-// hostLaneAgentIdentity asserts the registered lanes against the host the
-// session will start on.
-func hostLaneAgentIdentity() error {
+// sessionDirectoryUnresolvedError reports a canonical path that does not
+// resolve to a directory on this machine. CD-0093 D3 admits no fallback
+// directory, so the diagnostic names the path that failed to resolve.
+type sessionDirectoryUnresolvedError struct {
+	Path  string
+	Cause error
+}
+
+func (e *sessionDirectoryUnresolvedError) Error() string {
+	message := fmt.Sprintf("resolved Project directory is not a usable directory: %s", e.Path)
+	if e.Cause != nil {
+		message += fmt.Sprintf("; cause: %v", e.Cause)
+	}
+	return message
+}
+
+func (e *sessionDirectoryUnresolvedError) Unwrap() error { return e.Cause }
+
+// hostSessionDirectory is the production wiring for the session's directory
+// resolution. It opens the authority store, resolves the canonical path of
+// the primary Project that owns the selected work, and requires that path
+// to resolve to a directory on this machine. Every failure is typed and
+// refuses the launch (CD-0093 D3).
+func hostSessionDirectory(ctx context.Context, workID string) (dirResult string, errResult error) {
+	path, err := databasePath()
+	if err != nil {
+		return "", err
+	}
+	s, err := store.Open(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if closeErr := s.Close(); closeErr != nil && errResult == nil {
+			dirResult = ""
+			errResult = closeErr
+		}
+	}()
+	dir, err := s.ResolveSessionDirectory(ctx, workID)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", &sessionDirectoryUnresolvedError{Path: dir, Cause: err}
+	}
+	if !info.IsDir() {
+		return "", &sessionDirectoryUnresolvedError{Path: dir}
+	}
+	return dir, nil
+}
+
+// sessionDirectory resolves the one directory the session uses. Work-selected
+// sessions take the owning Project's canonical path (CD-0093 D1). A
+// Product-only session has no work-derived Project, so it keeps the launcher's
+// directory; the value is still resolved once here, which is what CD-0093 D2
+// requires of the identity, registry, and execution steps that follow.
+func sessionDirectory(ctx context.Context, resolve sessionDirectoryFunc, workID string) (string, error) {
+	if workID != "" {
+		return resolve(ctx, workID)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		cwd = ""
+		return "", fmt.Errorf("cannot resolve the launcher directory for a Product-only session: %w", err)
 	}
-	return verifyLaneAgentIdentity(os.Getenv("HOME"), cwd, store.BuiltinLaneDefinitions())
+	return cwd, nil
+}
+
+// hostLaneAgentIdentity asserts the registered lanes against the host the
+// session will start on, in the directory the session resolved. It reads no
+// working directory of its own (CD-0093 D2).
+func hostLaneAgentIdentity(dir string) error {
+	return verifyLaneAgentIdentity(os.Getenv("HOME"), dir, store.BuiltinLaneDefinitions())
 }
 
 // hostOrchestratorIdentity is the production wiring for the session's
-// orchestrator assertion. It runs the file/digest verification against
-// HOME/cwd, opens the authority store, and records the assertion in a single
-// transaction. The verification runs before any store interaction so a
-// missing definition fails closed without touching the database — the
-// session either records the assertion it required or refuses.
-func hostOrchestratorIdentity(ctx context.Context, productID, workID string) (handleResult string, errResult error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = ""
-	}
-	assertion, handle, err := verifyOrchestratorIdentity(os.Getenv("HOME"), cwd)
+// orchestrator assertion. It runs the file/digest verification in the
+// directory the session resolved, opens the authority store, and records
+// the assertion in a single transaction. The verification runs before any
+// store interaction so a missing definition fails closed without touching
+// the database — the session either records the assertion it required or
+// refuses.
+func hostOrchestratorIdentity(ctx context.Context, dir, productID, workID string) (handleResult string, errResult error) {
+	assertion, handle, err := verifyOrchestratorIdentity(os.Getenv("HOME"), dir)
 	if err != nil {
 		return "", err
 	}
 	// A resolvable definition is not proof the host will start it under the
 	// derived handle. Establish that before the store is touched, so a
 	// session that cannot run as the agent it asserts records nothing and
-	// refuses (issue #430).
-	if err := verifyHostRegistersHandle(ctx, probeHostAgentRegistry, cwd, handle); err != nil {
+	// refuses (issue #430). The registry probed is the one the host
+	// resolves in dir, the directory the session itself runs in
+	// (CD-0093 D2).
+	if err := verifyHostRegistersHandle(ctx, probeHostAgentRegistry, dir, handle); err != nil {
 		return "", err
 	}
 	assertion.ProductID = productID
@@ -166,20 +243,25 @@ func runContinuityBlockCommandWithBootstrap(args []string, out, errOut io.Writer
 	return 0
 }
 
-func runOpenCode(ctx context.Context, argv, env []string, in io.Reader, out, errOut io.Writer) error {
+func runOpenCode(ctx context.Context, dir string, argv, env []string, in io.Reader, out, errOut io.Writer) error {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the sole caller builds fixed opencode argv values and this call does not invoke a shell.
+	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
 	return cmd.Run()
 }
 
-// runSessionCommand is the entry point for `concord session`. The three
-// injected callbacks (bootstrap, runner, identity) make the command
-// observable for tests; the orchestrator callback adds the durable
-// orchestrator assertion CD-0061 D4 requires. Production wiring is
-// hostLaneAgentIdentity and hostOrchestratorIdentity.
+// runSessionCommand is the entry point for `concord session`. The injected
+// callbacks (directory, bootstrap, runner, identity, orchestrator) make the
+// command observable for tests. Production wiring is hostSessionDirectory,
+// DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, and
+// hostOrchestratorIdentity. CD-0093 D2 fixes the order: the Project
+// directory resolves before identity verification, never after, and the one
+// resolved directory governs agent definition resolution, the host registry
+// probe, and host execution. None of them reads the process working
+// directory.
 func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool,
-	bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
+	directory sessionDirectoryFunc, bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
 	identity sessionAgentIdentityFunc, orchestrator sessionOrchestratorFunc) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, "concord session: unsupported arguments")
@@ -194,11 +276,26 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: launcher identity is missing or invalid")
 		return 2
 	}
-	if err := identity(); err != nil {
+	// CD-0093 D2: the session directory resolves once, before identity
+	// verification, because a verification that runs first constrains the
+	// wrong registry. Every later step takes this one value.
+	//
+	// With work selected, it is the canonical path of the Project that owns
+	// that work (D1). A Product-only session selects no work, and a Product
+	// spans Projects, so no work-derived Project exists to resolve; the
+	// session keeps the directory the launcher was given. D2 binds the three
+	// steps to one directory and is satisfied either way, because the value
+	// is resolved once here rather than read separately by each step.
+	dir, err := sessionDirectory(context.Background(), directory, workID)
+	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
-	handle, err := orchestrator(context.Background(), productID, workID)
+	if err := identity(dir); err != nil {
+		writeDiagnostic(errOut, "concord session: "+err.Error())
+		return 2
+	}
+	handle, err := orchestrator(context.Background(), dir, productID, workID)
 	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
@@ -211,6 +308,9 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: orchestrator definition resolved without an invocation handle")
 		return 2
 	}
+	// A Product-only session carries identity and no continuity packet:
+	// CD-0031 derives continuity from a selected work item, and there is
+	// none to derive from.
 	prompt := "Concord identity: product_id=" + productID
 	if workID != "" {
 		path, err := databasePath()
@@ -230,9 +330,12 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// the resolved definition under. Omitting the selection — or selecting
 	// any other string — records evidence for an agent that never ran,
 	// because the host answers an unselected name with the operator's
-	// default agent and exits zero (CD-0049 D2).
+	// default agent and exits zero (CD-0049 D2). The child working
+	// directory is the resolved Project directory: the host defaults its
+	// project to it and every relative path the session resolves starts
+	// there (CD-0093 D1).
 	argv := []string{"opencode", "--agent", handle, "--prompt", prompt}
-	if err := runner(context.Background(), argv, os.Environ(), in, out, errOut); err != nil {
+	if err := runner(context.Background(), dir, argv, os.Environ(), in, out, errOut); err != nil {
 		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
 		return 1
 	}

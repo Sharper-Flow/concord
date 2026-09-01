@@ -408,8 +408,8 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 	identityCalls := 0
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), mustOpenStore(t, dbPath), &out, &errOut,
-		func() error { return nil },
-		func(context.Context, string, string) (string, error) { identityCalls++; return "agent", nil },
+		func(string) error { return nil },
+		func(context.Context, string, string, string) (string, error) { identityCalls++; return "agent", nil },
 		func(context.Context, string, string, string) ([]byte, error) {
 			return json.RawMessage(`{"watermark":"test"}`), nil
 		})
@@ -470,8 +470,8 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	laneCalls, identityCalls, bootCalls := 0, 0, 0
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "use UTF-8 ✓"), s, &out, &errOut,
-		func() error { laneCalls++; return nil },
-		func(ctx context.Context, productID, workID string) (string, error) {
+		func(string) error { laneCalls++; return nil },
+		func(ctx context.Context, dir, productID, workID string) (string, error) {
 			identityCalls++
 			_, err := s.RecordOrchestratorIdentityAssertion(ctx, "prepare-success-identity", s.Now(), store.OrchestratorIdentityAssertion{
 				Type: "orchestrator", Version: "1", RulesetDigest: "sha256:" + strings.Repeat("a", 64),
@@ -499,8 +499,11 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	laneCalls, identityCalls, bootCalls = 0, 0, 0
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
 	code = runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-		func() error { laneCalls++; return errors.New("lane definition is missing") },
-		func(context.Context, string, string) (string, error) { identityCalls++; return "orchestrator", nil },
+		func(string) error { laneCalls++; return errors.New("lane definition is missing") },
+		func(context.Context, string, string, string) (string, error) {
+			identityCalls++
+			return "orchestrator", nil
+		},
 		func(context.Context, string, string, string) ([]byte, error) {
 			bootCalls++
 			return []byte(`{"watermark":"test"}`), nil

@@ -106,15 +106,17 @@ func (e *agentIdentityAbsentError) Error() string {
 }
 
 // agentSearchDirectories lists the directories a definition may resolve from,
-// nearest last, skipping any the caller cannot supply. An empty result is
+// nearest last, skipping any the caller cannot supply. dir is the session
+// directory (CD-0093 D2): the resolved Project directory for `concord
+// session`, the verified worktree for session-prepare. An empty result is
 // legal and resolves nothing, which is the fail-closed outcome.
-func agentSearchDirectories(home, cwd string) []string {
+func agentSearchDirectories(home, dir string) []string {
 	dirs := make([]string, 0, 2)
 	if home != "" {
 		dirs = append(dirs, filepath.Join(home, ".config", "opencode", "agents"))
 	}
-	if cwd != "" {
-		dirs = append(dirs, filepath.Join(cwd, ".opencode", "agents"))
+	if dir != "" {
+		dirs = append(dirs, filepath.Join(dir, ".opencode", "agents"))
 	}
 	return dirs
 }
@@ -124,8 +126,8 @@ func agentSearchDirectories(home, cwd string) []string {
 // Concord because `opencode run --agent` answers an unknown name by falling
 // back to the operator's default agent and exiting zero, so the host cannot
 // report the absence. CD-0049 D4 admits no degraded start.
-func verifyLaneAgentIdentity(home, cwd string, lanes []store.LaneDefinition) error {
-	dirs := agentSearchDirectories(home, cwd)
+func verifyLaneAgentIdentity(home, dir string, lanes []store.LaneDefinition) error {
+	dirs := agentSearchDirectories(home, dir)
 	required := make([]string, 0, len(lanes))
 	missing := make([]string, 0, len(lanes))
 	for _, lane := range lanes {
@@ -169,14 +171,14 @@ const manifestSeparator = "\n---\n"
 // CD-0049 D4 admits no degraded start. The returned handle is the name the
 // host registers the resolved definition under; the session must select
 // exactly it (CD-0049 D2).
-func verifyOrchestratorIdentity(home, cwd string) (store.OrchestratorIdentityAssertion, string, error) {
-	dirs := agentSearchDirectories(home, cwd)
+func verifyOrchestratorIdentity(home, dir string) (store.OrchestratorIdentityAssertion, string, error) {
+	dirs := agentSearchDirectories(home, dir)
 	resolved, err := firstOrchestratorDefinition(dirs)
 	if err != nil {
 		return store.OrchestratorIdentityAssertion{}, "", err
 	}
 	handle := orchestratorInvocationHandle(resolved)
-	sources := collectOrchestratorArtifactSources(resolved, cwd)
+	sources := collectOrchestratorArtifactSources(resolved, dir)
 	digest := computeOrchestratorRulesetDigest(sources)
 	return store.OrchestratorIdentityAssertion{
 		Type:          OrchestratorIdentityType,
@@ -212,7 +214,8 @@ func firstOrchestratorDefinition(dirs []string) (string, error) {
 
 // collectOrchestratorArtifactSources enumerates the host artifacts the
 // orchestrator assertion actually resolved: the orchestrator definition
-// file first, then the AGENTS.md chain at cwd (up to 4 deep), then any paths
+// file first, then the AGENTS.md chain at the session directory dir
+// (up to 4 deep), then any paths
 // declared via the CONCORD_HOST_INSTRUCTIONS environment variable (up to
 // 16). Every entry contributes its filesystem path and content hash to the
 // ruleset digest manifest.
@@ -222,22 +225,22 @@ func firstOrchestratorDefinition(dirs []string) (string, error) {
 // difference required by CD-0061 Invariant 4: dispatch records unenumerated
 // surfaces by name, the orchestrator does not — its digest derives only from
 // artifacts it actually opened and hashed.
-func collectOrchestratorArtifactSources(definition, cwd string) []store.OrchestratorArtifactSource {
+func collectOrchestratorArtifactSources(definition, dir string) []store.OrchestratorArtifactSource {
 	sources := make([]store.OrchestratorArtifactSource, 0, 4)
 	if src, ok := hashOrchestratorSource("orchestrator_definition", definition); ok {
 		sources = append(sources, src)
 	}
-	dir := cwd
+	walk := dir
 	for depth := 0; depth < 8 && countKind(sources, "agents_md") < 4; depth++ {
-		candidate := filepath.Join(dir, "AGENTS.md")
+		candidate := filepath.Join(walk, "AGENTS.md")
 		if src, ok := hashOrchestratorSource("agents_md", candidate); ok {
 			sources = append(sources, src)
 		}
-		parent := filepath.Dir(dir)
-		if parent == "" || parent == dir {
+		parent := filepath.Dir(walk)
+		if parent == "" || parent == walk {
 			break
 		}
-		dir = parent
+		walk = parent
 	}
 	declared := os.Getenv("CONCORD_HOST_INSTRUCTIONS")
 	for _, p := range strings.Split(declared, ":") {

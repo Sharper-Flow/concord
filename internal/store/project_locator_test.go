@@ -221,3 +221,60 @@ func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.
 		t.Fatalf("linked local resolution=%+v", resolved)
 	}
 }
+
+// TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput covers CD-0093 D1
+// and D3 at the read seam: the session directory is the canonical path of the
+// primary Project that owns the work, and a missing work, a missing primary
+// Project, or a missing canonical_path locator is a typed refusal rather than
+// a fallback directory.
+func TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+
+	if _, err := s.ResolveSessionDirectory(ctx, ""); err == nil {
+		t.Fatal("empty work ID resolved a session directory")
+	} else {
+		assertFailureKind(t, err, KindInvalidOperation)
+	}
+	if _, err := s.ResolveSessionDirectory(ctx, "work-unknown"); err == nil {
+		t.Fatal("work with no primary Project resolved a session directory")
+	} else {
+		assertFailureKind(t, err, KindUnknownScope)
+		if !strings.Contains(err.Error(), "no primary Project") {
+			t.Fatalf("unknown-work diagnostic=%q", err.Error())
+		}
+	}
+
+	createProductProject(t, s, "product-session", "project-session")
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		workCreatedEvent("work-session", "create-work-session"),
+		membershipEvent("membership-work-session", "work_project.added", SubjectWorkItem, "work-session", map[string]any{
+			"work_id": "work-session", "project_id": "project-session", "role": "primary", "reason": "test",
+			"expected_version": 1, "resulting_version": 2,
+		}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-session"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The primary Project exists but registers no canonical_path locator.
+	if _, err := s.ResolveSessionDirectory(ctx, "work-session"); err == nil {
+		t.Fatal("Project without a canonical_path locator resolved a session directory")
+	} else {
+		assertFailureKind(t, err, KindUnknownScope)
+		if !strings.Contains(err.Error(), "no canonical_path locator") {
+			t.Fatalf("missing-locator diagnostic=%q", err.Error())
+		}
+	}
+
+	repo := t.TempDir()
+	if err := s.AddProjectLocator(ctx, "project-session", ProjectLocator{ID: "path-session", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := s.ResolveSessionDirectory(ctx, "work-session")
+	if err != nil {
+		t.Fatalf("registered locator did not resolve: %v", err)
+	}
+	if dir != repo {
+		t.Fatalf("session directory=%q want the primary Project canonical path %q", dir, repo)
+	}
+}

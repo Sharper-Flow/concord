@@ -178,11 +178,14 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", "claimed Project is not in the requested Product scope")
 		return 1
 	}
-	if err := laneIdentity(); err != nil {
+	// cwd is the claimed worktree this command verified above. The identity
+	// callbacks receive it as their directory: the definitions and registry
+	// they verify are the ones that directory resolves (CD-0093 D2).
+	if err := laneIdentity(cwd); err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1
 	}
-	handle, err := identity(context.Background(), input.ProductID, input.WorkID)
+	handle, err := identity(context.Background(), cwd, input.ProductID, input.WorkID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1

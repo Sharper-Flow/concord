@@ -269,7 +269,9 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)
 	}
-	if len(response.ChangedRefs) != 1 || response.ChangedRefs[0].Version != "2" {
+	// Every capture pins a workflow instance (#650), so the changed version
+	// reflects the definition-selected events, not the bare creation pair.
+	if len(response.ChangedRefs) != 1 || response.ChangedRefs[0].Version != "4" {
 		t.Fatalf("changed refs=%#v", response.ChangedRefs)
 	}
 	var count int
@@ -281,7 +283,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("capture replay=%+v err=%v", replay, err)
 	}
-	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + replay.ChangedRefs[0].ID[len("work-"):] + `","expected_version":2,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","idempotency_key":"revise-idem-1"}`)}
+	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + replay.ChangedRefs[0].ID[len("work-"):] + `","expected_version":4,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","idempotency_key":"revise-idem-1"}`)}
 	env.RequestID = "revise-request-1"
 	revised, err := Dispatch(ctx, s, service, revise, env)
 	if err != nil || revised.Outcome != OutcomeOK {

@@ -675,18 +675,23 @@ func (s *Store) prepareBootstrap(ctx context.Context, req BootstrapRequest, oper
 		if _, err := applyOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, true, false); err != nil {
 			return out, err
 		}
-		expectedVersion := int64(2)
-		if req.WorkflowTypeRef != "" {
-			definition, definitionErr := BuiltinWorkflowDefinitionForRef(req.WorkflowTypeRef)
-			if definitionErr != nil {
-				return out, definitionErr
-			}
-			actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/" + operationID, ActorClass: ActorOperator}
-			if err := InitializeWorkflowTx(ctx, &Transaction{tx: tx, clock: s.Clock}, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
-				return out, err
-			}
-			expectedVersion = 4
+		// C19 continuity is unconditional: session-prepare reads a workflow
+		// instance for every captured work item. A capture that names no
+		// workflow_type_ref (the common case, CD-0035) pins the kind-driven
+		// default instead of skipping initialization (#650).
+		workflowRef := req.WorkflowTypeRef
+		if workflowRef == "" {
+			workflowRef = DefaultWorkflowRefForKind(req.Kind)
 		}
+		definition, definitionErr := BuiltinWorkflowDefinitionForRef(workflowRef)
+		if definitionErr != nil {
+			return out, definitionErr
+		}
+		actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/" + operationID, ActorClass: ActorOperator}
+		if err := InitializeWorkflowTx(ctx, &Transaction{tx: tx, clock: s.Clock}, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
+			return out, err
+		}
+		expectedVersion := int64(4)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, req.IdempotencyKey, operationID, digest, bootstrapJSON(req), req.ProductID, req.ProjectID, workID, location.Repo, expectedVersion, "pending", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
 			return out, err
 		}

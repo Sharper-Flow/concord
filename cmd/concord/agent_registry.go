@@ -11,7 +11,7 @@ import (
 )
 
 // hostRegistryProbeFunc returns the host's resolved configuration document for
-// a working directory. It is a parameter so tests can supply a registry
+// a session directory. It is a parameter so tests can supply a registry
 // without starting a host process.
 type hostRegistryProbeFunc func(ctx context.Context, cwd string) ([]byte, error)
 
@@ -66,7 +66,7 @@ func (e *hostRegistrationError) Unwrap() error { return e.Cause }
 // visible here and nowhere else on disk.
 var hostRegistryProbeCommand = []string{"opencode", "debug", "config"}
 
-// probeHostAgentRegistry runs the host's configuration dump in cwd and returns
+// probeHostAgentRegistry runs the host's configuration dump in dir and returns
 // its raw document. The host is not asked to interpret anything: it prints
 // what it resolved, and Concord reads the agent map out of it.
 //
@@ -76,7 +76,7 @@ var hostRegistryProbeCommand = []string{"opencode", "debug", "config"}
 // JSON parse error rather than as a short read. A regular file has no such
 // boundary, and the parse failure would be indistinguishable from a host that
 // genuinely printed nothing.
-func probeHostAgentRegistry(ctx context.Context, cwd string) ([]byte, error) {
+func probeHostAgentRegistry(ctx context.Context, dir string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostRegistryProbeTimeout)
 	defer cancel()
 	sink, err := os.CreateTemp("", "concord-host-config-*.json")
@@ -88,7 +88,7 @@ func probeHostAgentRegistry(ctx context.Context, cwd string) ([]byte, error) {
 		_ = os.Remove(sink.Name())
 	}()
 	cmd := exec.CommandContext(ctx, hostRegistryProbeCommand[0], hostRegistryProbeCommand[1:]...)
-	cmd.Dir = cwd
+	cmd.Dir = dir
 	// Only stdout carries the document. Host plugins log to stderr, and
 	// mixing the two would corrupt the JSON.
 	cmd.Stdout = sink
@@ -113,9 +113,9 @@ func probeHostAgentRegistry(ctx context.Context, cwd string) ([]byte, error) {
 //
 // Every failure refuses. CD-0049 D4 admits no degraded start, and a probe that
 // cannot be read leaves the property unestablished rather than satisfied.
-func verifyHostRegistersHandle(ctx context.Context, probe hostRegistryProbeFunc, cwd, handle string) error {
+func verifyHostRegistersHandle(ctx context.Context, probe hostRegistryProbeFunc, dir, handle string) error {
 	printed := strings.Join(hostRegistryProbeCommand, " ")
-	document, err := probe(ctx, cwd)
+	document, err := probe(ctx, dir)
 	if err != nil {
 		return &hostRegistrationError{Handle: handle, Observed: "registry unreadable", Probe: printed, Cause: err}
 	}

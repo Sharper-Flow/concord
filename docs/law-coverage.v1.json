@@ -1500,9 +1500,30 @@
       "state": "satisfied"
     },
     {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionRunsInTheResolvedProjectDirectory"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionRefusesWhenTheProjectDirectoryDoesNotResolve"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestSessionRefusesWithoutAResolvableProject"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestProductOnlySessionRemainsIdentityOnly"
+        }
+      ],
       "id": "CD-0093",
-      "issue": 661,
-      "state": "outstanding"
+      "state": "satisfied"
     },
     {
       "evidence": [

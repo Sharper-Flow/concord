@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -95,6 +96,13 @@ func hostSessionDirectory(ctx context.Context, workID string) (dirResult string,
 	if err != nil {
 		return "", err
 	}
+	// CD-0093 D3: a canonical path that is not absolute and clean resolves
+	// differently depending on where the process started, which is the
+	// ambiguity this decision removes. Refuse it rather than stat it.
+	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
+		return "", &sessionDirectoryUnresolvedError{Path: dir}
+	}
+	dir = filepath.Clean(dir)
 	info, err := os.Stat(dir)
 	if err != nil {
 		return "", &sessionDirectoryUnresolvedError{Path: dir, Cause: err}

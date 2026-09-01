@@ -93,6 +93,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"floor readiness drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    maturity_checker = ROOT / "scripts/check-maturity-readiness.py"
+    if maturity_checker.is_file():
+        checked = subprocess.run([sys.executable, str(maturity_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"maturity readiness drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     agent_jobs_checker = ROOT / "scripts/check-agent-jobs.py"
     if agent_jobs_checker.is_file():
         checked = subprocess.run([sys.executable, str(agent_jobs_checker)], cwd=ROOT, capture_output=True, text=True)

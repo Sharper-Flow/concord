@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "rung": "alpha",
+  "source": {
+    "path": "docs/decisions/CD-0091-maturity-promotion-ladder.md",
+    "section": "Decision"
+  },
+  "conditions": [
+    {
+      "id": "a1",
+      "ordinal": 1,
+      "title": "The replacement-ready floor is met."
+    },
+    {
+      "id": "a2",
+      "ordinal": 2,
+      "title": "The core mutation and migration path carries no open bootstrap-blocking defect."
+    }
+  ],
+  "items": [
+    {
+      "id": "a1-floor-met",
+      "condition": "a1",
+      "title": "The first-usable floor validator passes",
+      "requirement": "check-floor-readiness.py passes, which is true only when every first-usable floor condition is satisfied or explicitly out of scope.",
+      "state": "satisfied",
+      "evidence": [
+        { "kind": "validator", "value": "scripts/check-floor-readiness.py" }
+      ]
+    },
+    {
+      "id": "a2-migration-old-stores",
+      "condition": "a2",
+      "title": "A released binary opens a database migrated by a newer worktree",
+      "requirement": "A released binary opens a store whose schema a newer worktree migrated, proven by a passing test. Tracked by the linked issue until the fix and its test land.",
+      "state": "outstanding",
+      "issue": 637
+    },
+    {
+      "id": "a2-adapter-version-skew",
+      "condition": "a2",
+      "title": "An adapter and core version skew fails typed, not opaque",
+      "requirement": "An adapter running against a newer core returns a typed version-skew result with a restart recovery action, not an opaque malformed-core-response, proven by a passing test.",
+      "state": "outstanding",
+      "issue": 641
+    },
+    {
+      "id": "a2-main-checkout-scope",
+      "condition": "a2",
+      "title": "The main-checkout refusal scope is not a bootstrap blocker",
+      "requirement": "The main-checkout mutation refusal is an accepted authority boundary under CD-0008, not a bootstrap defect. Its refinement is tracked separately and does not block alpha, so it is recorded out of scope for this rung. See issue 627.",
+      "state": "out_of_scope",
+      "reason": "The main-checkout refusal is an accepted CD-0008 authority boundary, not a defect. Issue 627 refines its scoping by capability, which is an ergonomic improvement rather than a bootstrap blocker, so it does not gate alpha."
+    }
+  ]
+}

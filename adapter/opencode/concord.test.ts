@@ -212,6 +212,22 @@ test("a same-generation malformed response is still malformed_core_response", as
   expect(result.error.effect_state).toBe("possible")
 })
 
+test("unknown-effect mutation errors do not expose failed response data", async () => {
+  const committed = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [], next_valid_intents: [], work_id: "work-1", unexpected_field: true,
+  })
+  const invalidResponse: any = await runTransition(runnerWithContext(committed))
+  expect(invalidResponse.error.kind).toBe("operation_conflict")
+  expect(invalidResponse.error.effect_state).toBe("possible")
+  expect(invalidResponse.error.details).toBeUndefined()
+
+  const malformedResponse: any = await runTransition(runnerWithContext({ exitCode: 0, stdout: "not-json", stderr: "" }))
+  expect(malformedResponse.error.kind).toBe("malformed_response")
+  expect(malformedResponse.error.effect_state).toBe("possible")
+  expect(malformedResponse.error.details).toBeUndefined()
+})
+
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
 const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory, abort: controller.signal, ask })
 const rawHostResult = async (result: Promise<string | { output: string }>) => {

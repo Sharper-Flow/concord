@@ -913,13 +913,16 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil, true
 	}
 	workID := "work-" + digest[7:31]
-	var registeredDefinition store.RegisteredDefinition
-	if in.WorkflowTypeRef != "" {
-		var definitionErr error
-		registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
-		if definitionErr != nil {
-			return failureEnvelope(base, definitionErr), nil, true
-		}
+	// C19 continuity is unconditional, so a capture that names no workflow pins
+	// the kind-driven default rather than leaving the work item without a
+	// workflow instance (#650).
+	workflowRef := in.WorkflowTypeRef
+	if workflowRef == "" {
+		workflowRef = store.DefaultWorkflowRefForKind(in.Kind)
+	}
+	registeredDefinition, definitionErr := store.BuiltinWorkflowDefinitionForRef(workflowRef)
+	if definitionErr != nil {
+		return failureEnvelope(base, definitionErr), nil, true
 	}
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
@@ -980,17 +983,11 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if in.WorkflowTypeRef != "" {
-			actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-			if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
-				return nil, nil, nil, err
-			}
+		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
+			return nil, nil, nil, err
 		}
-		changedVersion := int64(2)
-		if in.WorkflowTypeRef != "" {
-			changedVersion = 4
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(changedVersion, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
 		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
 	}
 	return Envelope{}, nil, false

@@ -21,6 +21,23 @@ type WorkflowInitializationRequest struct {
 // definition pin for an already-created work item. It is intentionally a
 // workflow-specific transaction seam, not a generic event append operation.
 // Capture and revise call it before their owning transaction commits.
+
+// DefaultWorkflowRefForKind names the workflow a captured work item pins when
+// the capture names none. Session-prepare reads C19 continuity unconditionally,
+// so there is no valid capture without a workflow instance (#650).
+func DefaultWorkflowRefForKind(kind string) string {
+	switch kind {
+	case "task":
+		return "workflow.implementation"
+	case "bug":
+		return "workflow.break_fix"
+	case "research":
+		return "workflow.research"
+	default:
+		return "workflow.generic_one_off"
+	}
+}
+
 func InitializeWorkflowTx(ctx context.Context, transaction *Transaction, request WorkflowInitializationRequest) error {
 	tx, err := transactionSQL(transaction, "workflow_initialize")
 	if err != nil {

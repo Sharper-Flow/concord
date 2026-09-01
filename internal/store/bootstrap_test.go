@@ -804,3 +804,39 @@ func TestBootstrapGitLockRecoveryExcludesConcurrentReclaimers(t *testing.T) {
 		t.Fatalf("successful lock reclaimers=%d", successes)
 	}
 }
+
+
+// #650: session-prepare reads C19 continuity unconditionally, so every
+// captured work item needs a workflow instance. Captures usually carry no
+// workflow_type_ref (CD-0035), so the bootstrap derives a kind-driven default
+// instead of skipping initialization.
+func TestBootstrapWithoutWorkflowTypeRefStillInitializesContinuity(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.WorkflowTypeRef = ""
+	req.IdempotencyKey = "bootstrap-continuity"
+	operationID, workID, digest, err := CanonicalBootstrapIdentity(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	location, err := s.LocateWorktree(context.Background(), req.ProjectID, workID, req.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.prepareBootstrap(context.Background(), req, operationID, workID, digest, location, ExecGitRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	continuity, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: workID, Limit: 1})
+	if err != nil {
+		t.Fatalf("a captured work item must carry workflow continuity: %v", err)
+	}
+	if continuity.WorkflowStep == "" {
+		t.Fatalf("continuity carries no workflow step: %+v", continuity)
+	}
+}

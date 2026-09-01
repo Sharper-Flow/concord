@@ -947,6 +947,31 @@ test("work_start fails closed on session identity and bounded output violations"
   expect(mismatch.error.kind).toBe("agent_identity_mismatch")
 })
 
+test("work_start accepts an oversized valid run stream after observing its identity", async () => {
+  let calls = 0
+  const stdout = [
+    JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-large" }),
+    ...Array.from({ length: 1_000 }, (_, index) => JSON.stringify({ ts: index, level: "info", event: "filler".repeat(12) })),
+    JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-large", part: { type: "text", text: "done" } }),
+    JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-large", part: { type: "step-finish", reason: "stop" } }),
+  ].join("\n")
+  expect(Buffer.byteLength(stdout)).toBeGreaterThan(65_536)
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
+    if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
+    if (argv[1] === "session-exec") {
+      for (const line of stdout.split("\n")) await options?.onStdoutLine?.(line)
+      return { exitCode: 0, stdout, stderr: "" }
+    }
+    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    return { exitCode: 0, stdout: exportOutput("session-large"), stderr: "" }
+  } } })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("ok")
+})
+
 test("work_start derives one Project and Product from project-resolve before mutation", async () => {
   const previous = process.env.CONCORD_SELECTED_PRODUCT_ID
   const calls: string[][] = []

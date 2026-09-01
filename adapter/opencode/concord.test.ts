@@ -225,7 +225,7 @@ test("unknown-effect mutation errors do not expose failed response data", async 
   const malformedResponse: any = await runTransition(runnerWithContext({ exitCode: 0, stdout: "not-json", stderr: "" }))
   expect(malformedResponse.error.kind).toBe("malformed_response")
   expect(malformedResponse.error.effect_state).toBe("possible")
-  expect(malformedResponse.error.details).toBeUndefined()
+  expect(malformedResponse.error.details.reconcile_attempted).toBe(true)
 })
 
 test("strict response failures salvage bounded entity identifiers", async () => {
@@ -242,6 +242,46 @@ test("strict response failures salvage bounded entity identifiers", async () => 
     changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }],
   })
   expect(result.outcome).toBe("error")
+})
+
+test("possible mutation failures reconcile by the request work ID", async () => {
+  const committed = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [], next_valid_intents: [], work_id: "work-1", unexpected_field: true,
+  })
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [{ id: "work-1", kind: "task", title: "Task", lifecycle: "completed", version: 3 }] },
+  })
+  let calls = 0
+  let reconciliationInput: any
+  const result: any = await runTransition({ async run(_argv: string[], input: string) {
+    calls++
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 4) reconciliationInput = JSON.parse(input).input
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? committed : readback), stderr: "" }
+  } })
+  expect(calls).toBe(4)
+  expect(reconciliationInput.work_ids).toEqual(["work-1"])
+  expect(result.error.details.reconciled).toEqual({ found: true, lifecycle: "completed", version: 3 })
+})
+
+test("post-approval possible failures use the same reconciliation wrapper", async () => {
+  const invalid = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [], next_valid_intents: [], unexpected_field: true,
+  })
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [] },
+  })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 4) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 3 ? invalid : readback), stderr: "" }
+  } })
+  expect(calls).toBe(5)
+  expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
 })
 
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })

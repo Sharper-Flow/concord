@@ -282,7 +282,7 @@ async function resolveAmbientContext(context: ToolContext): Promise<AmbientConte
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
 // contract check, and the approval_required resubmission.
-export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
+async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
   if (toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise") {
@@ -352,6 +352,37 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
     if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", "post-approval response failed the TS7 contract", "possible", "reconcile_operation", salvageDetails(result.stdout))
   }
   return response as CoreConcordEnvelope;
+}
+
+function requestWorkID(args: HostToolArgs): string | undefined {
+  const input = args.input
+  return record(input) && saneWorkID(input.work_id) ? input.work_id : undefined
+}
+
+function addErrorDetails(response: CoreConcordEnvelope, details: Record<string, unknown>): CoreConcordEnvelope {
+  if (!record(response.error)) return response
+  return { ...response, error: { ...response.error, details: { ...(record(response.error.details) ? response.error.details : {}), ...details } } }
+}
+
+async function reconcileUnknownEffect(toolName: string, args: HostToolArgs, context: ToolContext, response: CoreConcordEnvelope): Promise<CoreConcordEnvelope> {
+  if (!operationIsMutation(toolName, args.operation) || !record(response.error) || response.error.effect_state !== "possible") return response
+  const workID = requestWorkID(args)
+  if (!workID) return response
+  try {
+    const readback = await invokeConcordOperation("concord_work_browse", {
+      operation: "list",
+      input: { page: { cursor: null, limit: 1 }, work_ids: [workID] },
+    }, context)
+    if (readback.outcome !== "ok" || !record(readback.result) || !Array.isArray(readback.result.items)) throw new Error("reconcile read failed")
+    const item = readback.result.items.find((candidate: unknown) => record(candidate) && candidate.id === workID)
+    return addErrorDetails(response, { reconciled: { found: !!item, lifecycle: item?.lifecycle ?? null, version: item?.version ?? null } })
+  } catch {
+    return addErrorDetails(response, { reconcile_attempted: true })
+  }
+}
+
+export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
+  return reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context))
 }
 
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {

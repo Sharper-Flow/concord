@@ -212,6 +212,129 @@ test("a same-generation malformed response is still malformed_core_response", as
   expect(result.error.effect_state).toBe("possible")
 })
 
+test("unknown-effect mutation errors do not expose failed response data", async () => {
+  const committed = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [], next_valid_intents: [], work_id: "work-1", unexpected_field: true,
+  })
+  const invalidResponse: any = await runTransition(runnerWithContext(committed))
+  expect(invalidResponse.error.kind).toBe("operation_conflict")
+  expect(invalidResponse.error.effect_state).toBe("possible")
+  expect(invalidResponse.error.details.salvaged).toMatchObject({ work_id: "work-1", changed_refs: [] })
+
+  const malformedResponse: any = await runTransition(runnerWithContext({ exitCode: 0, stdout: "not-json", stderr: "" }))
+  expect(malformedResponse.error.kind).toBe("malformed_response")
+  expect(malformedResponse.error.effect_state).toBe("possible")
+  expect(malformedResponse.error.details.reconcile_attempted).toBe(true)
+})
+
+test("strict response failures salvage bounded entity identifiers", async () => {
+  const committed = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }],
+    next_valid_intents: [], work_id: "work-1", worktree_path: "/worktrees/work-1", unexpected_field: true,
+  })
+  const result: any = await runTransition(runnerWithContext(committed))
+  assertAdapterEnvelope(result)
+  expect(result.error.details.salvaged).toEqual({
+    work_id: "work-1",
+    worktree_path: "/worktrees/work-1",
+    changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }],
+  })
+  expect(result.outcome).toBe("error")
+})
+
+test("possible mutation failures reconcile by the request work ID", async () => {
+  const committed = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [], next_valid_intents: [], work_id: "work-1", unexpected_field: true,
+  })
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [{ id: "work-1", kind: "task", title: "Task", lifecycle: "completed", version: 3 }] },
+  })
+  let calls = 0
+  let reconciliationInput: any
+  const result: any = await runTransition({ async run(_argv: string[], input: string) {
+    calls++
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 4) reconciliationInput = JSON.parse(input).input
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? committed : readback), stderr: "" }
+  } })
+  expect(calls).toBe(4)
+  expect(reconciliationInput.work_ids).toEqual(["work-1"])
+  expect(result.error.details.reconciled).toEqual({ found: true, lifecycle: "completed", version: 3 })
+})
+
+test("post-approval possible failures use the same reconciliation wrapper", async () => {
+  const invalid = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [], next_valid_intents: [], unexpected_field: true,
+  })
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [] },
+  })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 4) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 3 ? invalid : readback), stderr: "" }
+  } })
+  expect(calls).toBe(5)
+  expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
+})
+
+test("transport failures reconcile the request work ID", async () => {
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [{ id: "work-1", kind: "task", title: "Task", lifecycle: "in_progress", version: 2 }] },
+  })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return calls === 2 ? { exitCode: 1, stdout: "", stderr: "broken pipe" } : { exitCode: 0, stdout: JSON.stringify(readback), stderr: "" }
+  } })
+  expect(calls).toBe(4)
+  expect(result.error.details.reconciled).toEqual({ found: true, lifecycle: "in_progress", version: 2 })
+  expect(result.error.details.salvaged).toBeUndefined()
+})
+
+test("post-approval runner failures reconcile the request work ID", async () => {
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 4) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
+    if (calls === 3) throw new Error("runner failed after approval")
+    return { exitCode: 0, stdout: JSON.stringify(readback), stderr: "" }
+  } })
+  expect(calls).toBe(5)
+  expect(result.error.effect_state).toBe("possible")
+  expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
+})
+
+test("oversized mutation envelopes reconcile the request work ID", async () => {
+  const oversized = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
+    evidence_refs: Array.from({ length: 32 }, (_, index) => ({
+      kind: "artifact", authority: "core", locator_kind: "id", locator: `${index}-${"x".repeat(2040)}`,
+    })),
+  })
+  expect(validateGeneratedEnvelope(oversized)).toBe(true)
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? oversized : readback), stderr: "" }
+  } })
+  expect(calls).toBe(4)
+  expect(result.error.kind).toBe("malformed_response")
+  expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
+})
+
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
 const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory, abort: controller.signal, ask })
 const rawHostResult = async (result: Promise<string | { output: string }>) => {
@@ -432,8 +555,8 @@ test("generated and adapter validators reject unknown top-level fields for every
     adapter.configureConcordAdapter({ runner: runnerWithContext(unknown) })
     const result: any = await rawHostResult(tool.execute(args, contextFor()))
     assertAdapterEnvelope(result)
-    expect(result.error.kind).toBe("malformed_response")
-    expect(result.error.adapter_reason).toBe("malformed_core_response")
+    expect(result.error.kind).toBe(name === "ok" ? "malformed_response" : "operation_conflict")
+    expect(result.error.adapter_reason).toBe(name === "ok" ? "malformed_core_response" : "unknown_effect")
   }
 })
 

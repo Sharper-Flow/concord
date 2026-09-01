@@ -1246,6 +1246,60 @@
         }
       }
     },
+    "adapterSalvaged": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 3,
+      "properties": {
+        "work_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "worktree_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "changed_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/changedRef"
+          }
+        }
+      }
+    },
+    "adapterReconciled": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "found",
+        "lifecycle",
+        "version"
+      ],
+      "properties": {
+        "found": {
+          "type": "boolean"
+        },
+        "lifecycle": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
     "recoveryAction": {
       "type": "object",
       "additionalProperties": false,
@@ -1677,6 +1731,12 @@
                     "null"
                   ]
                 }
+              },
+              {
+                "$ref": "#/$defs/adapterSalvaged"
+              },
+              {
+                "$ref": "#/$defs/adapterReconciled"
               },
               {
                 "type": "object",

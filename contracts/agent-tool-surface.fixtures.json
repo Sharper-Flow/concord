@@ -554,8 +554,14 @@
           "pinned": {
             "contract": {
               "changes_product_truth": false,
-              "outcome_kind": "id-1",
-              "outcome_payload": "id-1",
+              "outcome_predicates": [
+                {
+                  "ordinal": 0,
+                  "outcome_kind": "id-1",
+                  "outcome_payload": "id-1",
+                  "predicate_id": "id-1"
+                }
+              ],
               "premise": "id-1",
               "required_evidence": [],
               "route_conventions": [],
@@ -640,8 +646,14 @@
           "pinned": {
             "contract": {
               "changes_product_truth": false,
-              "outcome_kind": "id-1",
-              "outcome_payload": "id-1",
+              "outcome_predicates": [
+                {
+                  "ordinal": 0,
+                  "outcome_kind": "id-1",
+                  "outcome_payload": "id-1",
+                  "predicate_id": "id-1"
+                }
+              ],
               "premise": "id-1",
               "required_evidence": [],
               "route_conventions": [],
@@ -726,8 +738,14 @@
           "pinned": {
             "contract": {
               "changes_product_truth": false,
-              "outcome_kind": "id-1",
-              "outcome_payload": "id-1",
+              "outcome_predicates": [
+                {
+                  "ordinal": 0,
+                  "outcome_kind": "id-1",
+                  "outcome_payload": "id-1",
+                  "predicate_id": "id-1"
+                }
+              ],
               "premise": "id-1",
               "required_evidence": [],
               "route_conventions": [],
@@ -813,8 +831,14 @@
         "pinned": {
           "contract": {
             "changes_product_truth": false,
-            "outcome_kind": "id-1",
-            "outcome_payload": "id-1",
+            "outcome_predicates": [
+              {
+                "ordinal": 0,
+                "outcome_kind": "id-1",
+                "outcome_payload": "id-1",
+                "predicate_id": "id-1"
+              }
+            ],
             "premise": "id-1",
             "required_evidence": [],
             "route_conventions": [],
@@ -2952,5 +2976,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:3003ec4809442cb3d406cf982477d2565d805ad2571ef11aeddf9e3f652deab6"
+  "manifest_digest": "sha256:b2bb38b198ef78f3ccc7e2e17d8eb1a854392ff046f654dd5e4013122e6e7648"
 }

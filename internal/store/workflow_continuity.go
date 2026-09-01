@@ -163,10 +163,6 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		if err != nil {
 			return out, err
 		}
-		if len(contract.OutcomePredicates) != 0 {
-			contract.OutcomeKind = contract.OutcomePredicates[0].OutcomeKind
-			contract.OutcomePayload = contract.OutcomePredicates[0].OutcomePayload
-		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, req.Work, contract.Version)
 		if err != nil {

@@ -99,7 +99,7 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 	statements := []domainStatement{
 		{"workflow actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
 	}
-	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'populated domain payload','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','["` + PayloadLawID + `"]',1,'prototype_internal')`
+	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'populated domain payload','internal_sqlite','[]','[]','now',?,'[]','["` + PayloadLawID + `"]',1,'prototype_internal')`
 	const binding = `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,?,content_hash,?,content_hash FROM domain_registries WHERE product_id=?`
 	for _, workID := range opts.WorkIDs {
 		statements = append(statements,

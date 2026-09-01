@@ -94,10 +94,9 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	record("record_reproduction")
 	record("record_root_cause")
 	contractFields := workflowContractFieldsFixture()
-	contractFields["outcome_kind"] = "absent"
-	contractFields["outcome_payload"] = map[string]any{
+	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
-	}
+	}}}
 	engineAction(6, "approve_contract", contractFields)
 	engineAction(8, "start_repair", map[string]any{"payload": map[string]any{"work": "work-1", "outcome": nil}})
 	seedVerdictEvent(t, s.DatabaseForTesting(), execRef)

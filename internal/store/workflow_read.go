@@ -29,8 +29,6 @@ type WorkflowReadContract struct {
 	Version             int64                        `json:"version"`
 	Premise             string                       `json:"premise"`
 	OutcomePredicates   []WorkflowReadPredicate      `json:"outcome_predicates"`
-	OutcomeKind         string                       `json:"outcome_kind"`
-	OutcomePayload      string                       `json:"outcome_payload"`
 	RequiredEvidence    []string                     `json:"required_evidence"`
 	RouteConventions    []string                     `json:"route_conventions"`
 	SpecMandate         []string                     `json:"spec_mandate"`
@@ -193,10 +191,6 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, s.db, request.WorkID, contract.Version)
 		if err != nil {
 			return out, err
-		}
-		if len(contract.OutcomePredicates) != 0 {
-			contract.OutcomeKind = contract.OutcomePredicates[0].OutcomeKind
-			contract.OutcomePayload = contract.OutcomePredicates[0].OutcomePayload
 		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, s.db, request.WorkID, contract.Version)
@@ -428,10 +422,6 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
 		if err != nil {
 			return nil, err
-		}
-		if len(contract.OutcomePredicates) != 0 {
-			contract.OutcomeKind = contract.OutcomePredicates[0].OutcomeKind
-			contract.OutcomePayload = contract.OutcomePredicates[0].OutcomePayload
 		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, workID, contract.Version)

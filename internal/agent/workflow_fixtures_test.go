@@ -36,6 +36,7 @@ func addWorkflowContractApprovalFields(input map[string]any) {
 func workflowContractFieldsFixture() map[string]any {
 	return map[string]any{
 		"architecture_binding": workflowArchitectureBindingFixture(),
+		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
 	}

@@ -59,8 +59,7 @@ function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD) {
   return {
     version: 1,
     premise: "Dispatch inputs are retyped rather than projected.",
-    outcome_kind: OUTCOME_KIND,
-    outcome_payload: outcomePayload,
+    outcome_predicates: [{ predicate_id: "predicate:primary", ordinal: 0, outcome_kind: OUTCOME_KIND, outcome_payload: outcomePayload }],
     required_evidence: [],
     route_conventions: [],
     spec_mandate: [],
@@ -244,11 +243,11 @@ test("a scope read that returns no work item is a typed missing-work failure", a
   expect(built.failure!.kind).toBe("missing_work_item")
 })
 
-test("a pinned contract without typed outcome fields is a typed transport failure", async () => {
-  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope({ version: 1, premise: "p", outcome_kind: 7, outcome_payload: OUTCOME_PAYLOAD, required_evidence: [], route_conventions: [], spec_mandate: [] }) })
+test("a pinned contract without typed outcome predicates is a typed transport failure", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope({ version: 1, premise: "p", outcome_predicates: 7, required_evidence: [], route_conventions: [], spec_mandate: [] }) })
   expect(built.packet).toBeUndefined()
   expect(built.failure!.kind).toBe("transport_failure")
-  expect(built.failure!.message).toContain("outcome_kind")
+  expect(built.failure!.message).toContain("outcome_predicates")
 })
 
 test("the default transport is the adapter transport, and its refusals stay typed", async () => {

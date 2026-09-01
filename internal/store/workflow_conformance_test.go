@@ -718,15 +718,15 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	if len(corpus.Scenarios) != 48 {
-		t.Fatalf("scenario count=%d, want 48", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 53 {
+		t.Fatalf("scenario count=%d, want 53", len(corpus.Scenarios))
 	}
 	return corpus
 }
 
 func workflowScenarioIDs() []string {
 	return []string{
-		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-closed-condition-resolvers", "WF27-condition-block-relation", "WF28-no-polling-authority", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence",
+		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-closed-condition-resolvers", "WF27-condition-block-relation", "WF28-no-polling-authority", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF52-vacuous-conjunct", "WF53-unapproved-delivered",
 	}
 }
 
@@ -972,7 +972,8 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	s := openTemp(t)
 	ctx := context.Background()
 	actor := WorkflowActor{PrincipalRef: request.Grant.PrincipalRef, ClientRef: request.Grant.ClientRef, AgentRef: request.Grant.AgentRef, SessionRef: request.Grant.SessionRef, ActorClass: ActorAgent}
-	if action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 1 {
+	fixtureActor := actor
+	if (action == string(corpusActionComplete) || (action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true)) && len(setup.FixtureRefs.Actors) > 1 {
 		actor.AgentRef = "agent-reviewer"
 		actor.SessionRef = "session-reviewer"
 		actor.ActorClass = ActorOperator
@@ -984,7 +985,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	if request.ActorRef != "" && request.ActorRef != actorRef && !(action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) {
+	if request.ActorRef != "" && request.ActorRef != actorRef && !(action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) && !(action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) {
 		return workflowObservation{}, fmt.Errorf("%s actor_ref does not match authenticated fixture actor", name)
 	}
 	registry := BuiltinWorkflowRegistry()
@@ -996,8 +997,18 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		return workflowObservation{}, err
 	}
 	definition := registered.Definition
+	if definition.ChangesProductTruth != nil && *definition.ChangesProductTruth && (action == string(corpusActionComplete) || (action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true)) {
+		if _, present := request.Fields["architecture_binding"]; !present {
+			request.Fields["architecture_binding"] = corpusArchitectureBinding()
+		}
+	}
 	if err := replayWorkflowCorpusSetup(ctx, s, setup, registered, actorRef, action != string(corpusActionCapture)); err != nil {
 		return workflowObservation{}, err
+	}
+	if actor.ActorClass == ActorOperator && (request.Fields["complete_gate_prerequisites"] != nil || request.Fields["record_verdict_prerequisites"] == true) {
+		if err := recordCorpusActor(ctx, s, workID, actor); err != nil {
+			return workflowObservation{}, err
+		}
 	}
 	if definition.ChangesProductTruth != nil && *definition.ChangesProductTruth && (action == string(corpusActionApproveContract) || request.Fields["architecture_binding"] != nil) {
 		if err := seedCorpusArchitectureScope(ctx, s, workID, request.Fields); err != nil {
@@ -1023,13 +1034,36 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		}
 	}
 	if action == "complete" && corpusHasCompletionPrerequisiteMarker(request) && !corpusHasDeclaredCompletionHistory(setup) && !hasCorpusFault(setup, "mismatched_commit") && !corpusHasBlockingStaleness(request) {
-		if err := advanceCorpusWorkflowToRelease(ctx, s, workID, actor); err != nil {
+		if err := advanceCorpusWorkflowToRelease(ctx, s, workID, fixtureActor, corpusRequestedPredicates(request)); err != nil {
 			return workflowObservation{}, err
 		}
-		if err := seedCorpusCompletionPrerequisites(ctx, s, workID, actor, request); err != nil {
+		if err := seedCorpusCompletionPrerequisites(ctx, s, workID, fixtureActor, request); err != nil {
 			return workflowObservation{}, err
 		}
 		if version, versionErr := workflowCurrentVersion(ctx, s, workID); versionErr == nil {
+			request.ExpectedVersion = version
+		}
+	}
+	if action == "approve_contract" && request.Fields["approval_prerequisites"] == true {
+		if err := advanceCorpusWorkflowToPlanning(ctx, s, workID, fixtureActor); err != nil {
+			return workflowObservation{}, err
+		}
+		if version, versionErr := workflowCurrentVersion(ctx, s, workID); versionErr == nil {
+			request.ExpectedVersion = version
+		}
+	}
+	if action == "record_verdict" && request.Fields["record_verdict_prerequisites"] == true {
+		if err := advanceCorpusWorkflowToAcceptance(ctx, s, workID, fixtureActor, corpusRequestedPredicates(request)); err != nil {
+			return workflowObservation{}, err
+		}
+		version, versionErr := workflowCurrentVersion(ctx, s, workID)
+		if versionErr != nil {
+			return workflowObservation{}, versionErr
+		}
+		if err := seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx, s, workID, fixtureActor, request, version, false, false); err != nil {
+			return workflowObservation{}, err
+		}
+		if version, versionErr = workflowCurrentVersion(ctx, s, workID); versionErr == nil {
 			request.ExpectedVersion = version
 		}
 	}
@@ -1376,6 +1410,10 @@ func seedCorpusArchitectureScope(ctx context.Context, s *Store, workID string, f
 	return tx.Commit()
 }
 
+func corpusArchitectureBinding() map[string]any {
+	return map[string]any{"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64), "home_domain_id": "domain/corpus-main", "affected_domain_ids": []string{"domain/corpus-main"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
+}
+
 func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any, request workflowCorpusRequest, definition WorkflowDefinition) error {
 	if request.Operation.OpID == "" || (request.ActionID != string(corpusActionCompleteExternal) && request.ActionID != string(corpusActionRetry) && request.ActionID != string(corpusActionTakeover)) {
 		return nil
@@ -1413,6 +1451,26 @@ func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64
 	var version int64
 	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version)
 	return version, err
+}
+
+func recordCorpusActor(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		return err
+	}
+	var recorded int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recorded); err != nil {
+		return err
+	}
+	if recorded != 0 {
+		return nil
+	}
+	version, err := workflowCurrentVersion(ctx, s, workID)
+	if err != nil {
+		return err
+	}
+	payload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": string(actor.ActorClass)}
+	return applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":fixture-actor", WorkflowActorRecorded, workID, actorRef, payload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
 }
 
 type workflowReplayEvidence struct {
@@ -1602,13 +1660,27 @@ func seedCorpusCompletionPrerequisites(ctx context.Context, s *Store, workID str
 		return err
 	}
 	if contracts != 0 {
-		return nil
+		return seedCorpusCompletionEvidenceAndVerdicts(ctx, s, workID, actor, request)
 	}
-	contractPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "corpus premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contractPayload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+	contractPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "corpus premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []any{}, "law_boundary_version": 1, "architecture_binding": corpusArchitectureBinding(), "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "outcome_predicates": corpusRequestedPredicates(request)}
+	contractEvent := workflowEventWithActor(workID+":contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contractPayload)
+	contractEvent.PayloadVersion = 3
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		return err
 	}
 	version++
+	return seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx, s, workID, actor, request, version, true, true)
+}
+
+func seedCorpusCompletionEvidenceAndVerdicts(ctx context.Context, s *Store, workID string, actor WorkflowActor, request workflowCorpusRequest) error {
+	version, err := workflowCurrentVersion(ctx, s, workID)
+	if err != nil {
+		return err
+	}
+	return seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx, s, workID, actor, request, version, true, true)
+}
+
+func seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx context.Context, s *Store, workID string, actor WorkflowActor, request workflowCorpusRequest, version int64, seedVerdicts, seedPremise bool) error {
 	for _, kind := range []string{"verification", "review"} {
 		opID := workID + ":corpus-evidence:" + kind
 		immutable := "evidence:" + kind
@@ -1631,13 +1703,68 @@ func seedCorpusCompletionPrerequisites(ctx context.Context, s *Store, workID str
 		return err
 	}
 	version++
-	verdictPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": "predicate:corpus", "verdict_kind": "ok", "verdict_actor_ref": operatorRef, "evaluation_evidence": []string{"evidence:review"}, "incomparable_with_approved": false}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":verdict", WorkflowVerdictRecorded, workID, operatorRef, verdictPayload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return err
+	if seedVerdicts {
+		for index, verdict := range corpusRequestedVerdicts(request) {
+			verdictPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": verdict.PredicateID, "verdict_kind": verdict.VerdictKind, "verdict_actor_ref": operatorRef, "evaluation_evidence": []string{"evidence:review"}, "incomparable_with_approved": verdict.Incomparable}
+			verdictEvent := workflowEventWithActor(workID+":verdict:"+strconv.Itoa(index), WorkflowVerdictRecorded, workID, operatorRef, verdictPayload)
+			verdictEvent.PayloadVersion = 2
+			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{verdictEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+				return err
+			}
+			version++
+		}
 	}
-	version++
+	if !seedPremise {
+		return nil
+	}
 	premisePayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "confirming_actor_ref": operatorRef}
 	return applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":premise", WorkflowPremiseConfirmed, workID, operatorRef, premisePayload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
+}
+
+type corpusRequestedVerdict struct {
+	PredicateID  string
+	VerdictKind  string
+	Incomparable bool
+}
+
+func corpusRequestedPredicates(request workflowCorpusRequest) []map[string]any {
+	if raw, ok := request.Fields["outcome_predicates"].([]any); ok && len(raw) != 0 {
+		predicates := make([]map[string]any, 0, len(raw))
+		for _, value := range raw {
+			if predicate, ok := value.(map[string]any); ok {
+				predicates = append(predicates, predicate)
+			}
+		}
+		if len(predicates) != 0 {
+			return predicates
+		}
+	}
+	return []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
+}
+
+func corpusRequestedVerdicts(request workflowCorpusRequest) []corpusRequestedVerdict {
+	if raw, ok := request.Fields["verdicts"].([]any); ok {
+		verdicts := make([]corpusRequestedVerdict, 0, len(raw))
+		for _, value := range raw {
+			entry, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			predicateID, _ := entry["predicate_id"].(string)
+			verdictKind, _ := entry["verdict_kind"].(string)
+			incomparable, _ := entry["incomparable_with_approved"].(bool)
+			verdicts = append(verdicts, corpusRequestedVerdict{PredicateID: predicateID, VerdictKind: verdictKind, Incomparable: incomparable})
+		}
+		if len(verdicts) != 0 {
+			return verdicts
+		}
+	}
+	verdicts := make([]corpusRequestedVerdict, 0)
+	for _, predicate := range corpusRequestedPredicates(request) {
+		predicateID, _ := predicate["predicate_id"].(string)
+		verdicts = append(verdicts, corpusRequestedVerdict{PredicateID: predicateID, VerdictKind: "ok"})
+	}
+	return verdicts
 }
 
 func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
@@ -1686,7 +1813,69 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 	return nil
 }
 
-func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
+func advanceCorpusWorkflowToPlanning(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
+	var step string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		return err
+	}
+	if step != "start" {
+		return nil
+	}
+	for _, action := range []string{"record_proposal", "record_discovery", "record_design"} {
+		version, err := workflowCurrentVersion(ctx, s, workID)
+		if err != nil {
+			return err
+		}
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if err := enterFold(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(`{}`), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
+		_ = leaveFold(ctx, tx)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func advanceCorpusWorkflowToAcceptance(ctx context.Context, s *Store, workID string, actor WorkflowActor, predicates []map[string]any) error {
+	if err := advanceCorpusWorkflowToPlanning(ctx, s, workID, actor); err != nil {
+		return err
+	}
+	version, err := workflowCurrentVersion(ctx, s, workID)
+	if err != nil {
+		return err
+	}
+	planning := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "planning", "action_id": "approve_contract", "attempt_epoch": 1, "result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRefForCorpus(actor)}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":fixture-planning", WorkflowActionCompleted, workID, actorRefForCorpus(actor), planning)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		return err
+	}
+	version++
+	contract := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "corpus premise", "outcome_predicates": predicates, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []any{}, "law_boundary_version": 1, "architecture_binding": corpusArchitectureBinding(), "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
+	contractEvent := workflowEventWithActor(workID+":fixture-contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contract)
+	contractEvent.PayloadVersion = 3
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		return err
+	}
+	version++
+	started := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": workID + ":fixture:start", "actor_ref": actorRefForCorpus(actor)}
+	completed := map[string]any{"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "execution", "action_id": "checkpoint_execution", "attempt_epoch": 1, "result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRefForCorpus(actor)}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":fixture-started", WorkflowActionStarted, workID, actorRefForCorpus(actor), started), workflowEventWithActor(workID+":fixture-execution", WorkflowActionCompleted, workID, actorRefForCorpus(actor), completed)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		return err
+	}
+	return applyProjectionCorruptionFault(ctx, s, projectionCorruptionFaultInput{WorkID: workID, Target: "workflow_instances", Field: "current_step", Value: "acceptance"})
+}
+
+func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string, actor WorkflowActor, predicates []map[string]any) error {
 	var step string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		return err
@@ -1697,8 +1886,13 @@ func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string
 	// These are retained, typed action-completed boundaries from the owning
 	// workflow fold. They establish the prior step history without writing the
 	// projection directly; completion prerequisites are added separately below.
-	steps := []struct{ id, action string }{{"proposal", "record_proposal"}, {"discovery", "record_discovery"}, {"design", "record_design"}, {"planning", "approve_contract"}, {"execution", "record_report"}, {"acceptance", "confirm_premise"}}
+	steps := []struct{ id, action string }{{"proposal", "record_proposal"}, {"discovery", "record_discovery"}, {"design", "record_design"}, {"planning", "approve_contract"}, {"execution", "checkpoint_execution"}, {"acceptance", "confirm_premise"}}
 	for _, item := range steps {
+		if item.id == "acceptance" {
+			if err := applyProjectionCorruptionFault(ctx, s, projectionCorruptionFaultInput{WorkID: workID, Target: "workflow_instances", Field: "current_step", Value: item.id}); err != nil {
+				return err
+			}
+		}
 		version, err := workflowCurrentVersion(ctx, s, workID)
 		if err != nil {
 			return err
@@ -1713,6 +1907,18 @@ func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string
 		events = append(events, workflowEventWithActor(workID+":fixture-step:"+item.id, WorkflowActionCompleted, workID, actorRefForCorpus(actor), payload))
 		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version - int64(len(events)) + 1}}); err != nil {
 			return err
+		}
+		if item.id == "planning" {
+			contractVersion, contractErr := workflowCurrentVersion(ctx, s, workID)
+			if contractErr != nil {
+				return contractErr
+			}
+			contractPayload := map[string]any{"work_id": workID, "expected_version": contractVersion, "resulting_version": contractVersion + 1, "contract_version": 1, "premise": "corpus premise", "outcome_predicates": predicates, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []any{}, "law_boundary_version": 1, "architecture_binding": corpusArchitectureBinding(), "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
+			contractEvent := workflowEventWithActor(workID+":fixture-contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contractPayload)
+			contractEvent.PayloadVersion = 3
+			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): contractVersion}}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1995,6 +2201,8 @@ func workflowFailureObservationKind(err error) string {
 	switch failure.Kind {
 	case KindStaleAttempt:
 		return string(KindOperationConflict)
+	case KindInvalidPayload:
+		return "invalid_input"
 	default:
 		return string(failure.Kind)
 	}
@@ -2013,6 +2221,8 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 			kind := string(failure.Kind)
 			if failure.Kind == KindStaleAttempt {
 				kind = string(KindOperationConflict)
+			} else if failure.Kind == KindInvalidPayload {
+				kind = "invalid_input"
 			}
 			if available, ok := result["workflow_action_available"].(bool); ok && !available {
 				kind = string(KindInvalidTransition)
@@ -2051,31 +2261,32 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		if projection.Contract != nil {
 			contract["version"] = projection.Contract.Version
 			contract["premise"] = projection.Contract.Premise
-			contract["outcome_kind"] = projection.Contract.OutcomeKind
-			contract["outcome_payload"] = projection.Contract.OutcomePayload
+			contract["outcome_predicates"] = projection.Contract.OutcomePredicates
 			contract["required"] = true
 			contract["required_evidence"] = projection.Contract.RequiredEvidence
 			contract["route_conventions"] = projection.Contract.RouteConventions
 			contract["spec_mandate"] = projection.Contract.SpecMandate
 			contract["rigor_class"] = projection.Contract.RigorClass
-			if projection.Contract.OutcomeKind == "check" {
+			if len(projection.Contract.OutcomePredicates) != 0 && projection.Contract.OutcomePredicates[0].OutcomeKind == "check" {
 				var predicate map[string]any
-				if json.Unmarshal([]byte(projection.Contract.OutcomePayload), &predicate) == nil {
+				if json.Unmarshal([]byte(projection.Contract.OutcomePredicates[0].OutcomePayload), &predicate) == nil {
 					if check, ok := predicate["check_ref"].(string); ok {
 						contract["outcome"] = "check:" + strings.TrimPrefix(check, "check:")
 					}
 				}
 			}
-			if projection.Contract.OutcomeKind == "outcome" {
+			if len(projection.Contract.OutcomePredicates) != 0 && projection.Contract.OutcomePredicates[0].OutcomeKind == "outcome" {
 				var predicate map[string]any
-				if json.Unmarshal([]byte(projection.Contract.OutcomePayload), &predicate) == nil {
+				if json.Unmarshal([]byte(projection.Contract.OutcomePredicates[0].OutcomePayload), &predicate) == nil {
 					if allowed, ok := predicate["allowed"].([]any); ok && len(allowed) == 1 {
 						contract["outcome"] = fmt.Sprint(allowed[0])
 					}
 				}
 			}
 			contract["premise_hash"] = projection.Contract.Premise
-			contract["outcome_hash"] = projection.Contract.OutcomePayload
+			if len(projection.Contract.OutcomePredicates) != 0 {
+				contract["outcome_hash"] = projection.Contract.OutcomePredicates[0].OutcomePayload
+			}
 			var contractPayload []byte
 			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowContractApproved).Scan(&contractPayload); err == nil {
 				var typed map[string]any
@@ -2159,11 +2370,15 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT decision FROM workflow_decision_records WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&decision); err == nil {
 			observation.Authority["decision_record"] = map[string]any{"operator_accepted": decision == "accepted_decision" || decision == "insufficient_evidence"}
 		} else if projection.Contract != nil {
-			var outcome map[string]any
-			if json.Unmarshal([]byte(projection.Contract.OutcomePayload), &outcome) == nil {
+			for _, predicate := range projection.Contract.OutcomePredicates {
+				var outcome map[string]any
+				if json.Unmarshal([]byte(predicate.OutcomePayload), &outcome) != nil {
+					continue
+				}
 				if record, ok := outcome["decision_record"].(map[string]any); ok {
 					decision, _ = record["decision"].(string)
 					observation.Authority["decision_record"] = map[string]any{"operator_accepted": decision == "accepted_decision" || decision == "insufficient_evidence"}
+					break
 				}
 			}
 		}

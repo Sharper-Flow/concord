@@ -5885,9 +5885,11 @@ const GeneratedPayloadSchemaDocument = `{
                 "observed_drift": {},
                 "operation_id": {},
                 "outcome": {},
+                "outcome_predicates": {},
                 "payload": {},
                 "pending_decisions": {},
                 "pending_questions": {},
+                "predicate_id": {},
                 "premise": {},
                 "project_ids": {},
                 "proposed_route_conventions": {},
@@ -6260,12 +6262,37 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
-        "outcome_kind": {
-          "$ref": "#/$defs/short"
-        },
-        "outcome_payload": {
-          "maxLength": 16384,
-          "type": "string"
+        "outcome_predicates": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "ordinal": {
+                "maximum": 7,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "outcome_payload": {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              "predicate_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "predicate_id",
+              "ordinal",
+              "outcome_kind",
+              "outcome_payload"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
         },
         "premise": {
           "$ref": "#/$defs/short"
@@ -6318,8 +6345,7 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "version",
         "premise",
-        "outcome_kind",
-        "outcome_payload",
+        "outcome_predicates",
         "required_evidence",
         "route_conventions",
         "spec_mandate",

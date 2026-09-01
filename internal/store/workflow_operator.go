@@ -130,10 +130,6 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	if predicateErr != nil {
 		return nil, predicateErr
 	}
-	if len(contract.OutcomePredicates) != 0 {
-		contract.OutcomeKind = contract.OutcomePredicates[0].OutcomeKind
-		contract.OutcomePayload = contract.OutcomePredicates[0].OutcomePayload
-	}
 	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 	if err != nil {
 		return nil, err
@@ -155,6 +151,10 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 
 func workflowOperatorQuestion(workID string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract, actionID string) *WorkflowOperatorQuestion {
 	premise := boundedQuestionText(contract.Premise, 256)
+	outcomeKinds := make([]string, 0, len(contract.OutcomePredicates))
+	for _, predicate := range contract.OutcomePredicates {
+		outcomeKinds = append(outcomeKinds, predicate.OutcomeKind)
+	}
 	return &WorkflowOperatorQuestion{
 		ActionID: actionID,
 		Prompt:   fmt.Sprintf("Choose how to proceed with the approved workflow checkpoint for %s.", workID),
@@ -167,7 +167,7 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 		AllowMultiple:         false,
 		AllowCustom:           false,
 		PremiseSummary:        premise,
-		ContractSummary:       fmt.Sprintf("contract v%d; outcome %s", contract.Version, boundedQuestionText(contract.OutcomeKind, 128)),
+		ContractSummary:       fmt.Sprintf("contract v%d; outcomes %s", contract.Version, boundedQuestionText(strings.Join(outcomeKinds, ", "), 128)),
 		DecisionContextDigest: ComputeWorkflowDecisionContextDigest(workID, workVersion, definition, contract, actionID),
 	}
 }
@@ -281,10 +281,6 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, request.WorkID, contract.Version)
 	if err != nil {
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract predicates are unavailable", false, "rebuild projections from the event log")
-	}
-	if len(contract.OutcomePredicates) != 0 {
-		contract.OutcomeKind = contract.OutcomePredicates[0].OutcomeKind
-		contract.OutcomePayload = contract.OutcomePredicates[0].OutcomePayload
 	}
 	step := workflowStep(entry.Definition, currentStep)
 	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {

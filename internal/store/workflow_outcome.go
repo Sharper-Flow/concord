@@ -475,10 +475,14 @@ func EvaluateWorkflowOutcome(approved, delivered OutcomePredicate, context Workf
 	if err != nil {
 		return WorkflowOutcomeEvaluation{}, err
 	}
-	if err := ValidateWorkflowPredicateForDefinition(registered.Definition, approved); err != nil {
+	return evaluateWorkflowOutcomePredicateCore(approved, delivered, context, registered.Definition)
+}
+
+func evaluateWorkflowOutcomePredicateCore(approved, delivered OutcomePredicate, context WorkflowOutcomeEvaluationContext, definition WorkflowDefinition) (WorkflowOutcomeEvaluation, error) {
+	if err := ValidateWorkflowPredicateForDefinition(definition, approved); err != nil {
 		return WorkflowOutcomeEvaluation{}, err
 	}
-	if err := ValidateWorkflowPredicateForDefinition(registered.Definition, delivered); err != nil {
+	if err := ValidateWorkflowPredicateForDefinition(definition, delivered); err != nil {
 		return WorkflowOutcomeEvaluation{}, err
 	}
 	if err := ValidateWorkflowPredicate(approved); err != nil {

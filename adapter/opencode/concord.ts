@@ -172,8 +172,8 @@ class AdapterFailure extends Error {
   constructor(readonly kind: string, readonly reason: string, message: string, readonly effect: "none" | "possible" | "partial" = "none", readonly recovery = effect === "none" ? "contact_operator" : "reconcile_operation") { super(message) }
 }
 
-function failureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, fallbackReason: string, effect: "none" | "possible" | "partial" = "none") {
-  if (error instanceof AdapterFailure) return adapterError(toolName, operation, requestID, error.kind, error.reason, error.message, error.effect, error.recovery)
+function failureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, fallbackReason: string, effect: "none" | "possible" | "partial" = "none", forcedEffect?: "none" | "possible" | "partial", forcedRecovery?: string) {
+  if (error instanceof AdapterFailure) return adapterError(toolName, operation, requestID, error.kind, error.reason, error.message, forcedEffect ?? error.effect, forcedRecovery ?? error.recovery)
   return adapterError(toolName, operation, requestID, "transport_failure", fallbackReason, String(error), effect, effect === "none" ? "contact_operator" : "reconcile_operation")
 }
 
@@ -347,7 +347,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: context.worktree, issued_at: new Date().toISOString() }
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
     if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")
-    try { result = await run(approvedInput) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible") }
+    try { result = await run(approvedInput) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible", "possible", "reconcile_operation") }
     try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
     if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", "post-approval response failed the TS7 contract", "possible", "reconcile_operation", salvageDetails(result.stdout))
   }
@@ -393,12 +393,20 @@ function encodeHostResult(toolName: string, operation: string, requestID: string
   return { title: toolName, output, metadata: {} }
 }
 
+async function encodeHostToolResult(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<ToolResult> {
+  if (Buffer.byteLength(JSON.stringify(envelope)) > maxEnvelopeBytes) {
+    const oversized = adapterError(toolName, args.operation, `${context.sessionID}-${context.messageID}`, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, "possible", "reconcile_operation")
+    return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, await reconcileUnknownEffect(toolName, args, context, oversized))
+  }
+  return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, envelope)
+}
+
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, await invokeConcordOperation(toolName, args, context))
+  return encodeHostToolResult(toolName, args, context, await invokeConcordOperation(toolName, args, context))
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  return encodeHostResult("concord_work_transition", args.operation, `${context.sessionID}-${context.messageID}`, await executeWorkTransition(args, context))
+  return encodeHostToolResult("concord_work_transition", args, context, await executeWorkTransition(args, context))
 }
 
 type WorkStartArgs = {

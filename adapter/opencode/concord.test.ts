@@ -284,6 +284,57 @@ test("post-approval possible failures use the same reconciliation wrapper", asyn
   expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
 })
 
+test("transport failures reconcile the request work ID", async () => {
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [{ id: "work-1", kind: "task", title: "Task", lifecycle: "in_progress", version: 2 }] },
+  })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return calls === 2 ? { exitCode: 1, stdout: "", stderr: "broken pipe" } : { exitCode: 0, stdout: JSON.stringify(readback), stderr: "" }
+  } })
+  expect(calls).toBe(4)
+  expect(result.error.details.reconciled).toEqual({ found: true, lifecycle: "in_progress", version: 2 })
+  expect(result.error.details.salvaged).toBeUndefined()
+})
+
+test("post-approval runner failures reconcile the request work ID", async () => {
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 4) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }
+    if (calls === 3) throw new Error("runner failed after approval")
+    return { exitCode: 0, stdout: JSON.stringify(readback), stderr: "" }
+  } })
+  expect(calls).toBe(5)
+  expect(result.error.effect_state).toBe("possible")
+  expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
+})
+
+test("oversized mutation envelopes reconcile the request work ID", async () => {
+  const oversized = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
+    evidence_refs: Array.from({ length: 32 }, (_, index) => ({
+      kind: "artifact", authority: "core", locator_kind: "id", locator: `${index}-${"x".repeat(2040)}`,
+    })),
+  })
+  expect(validateGeneratedEnvelope(oversized)).toBe(true)
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
+  let calls = 0
+  const result: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? oversized : readback), stderr: "" }
+  } })
+  expect(calls).toBe(4)
+  expect(result.error.kind).toBe("malformed_response")
+  expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
+})
+
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
 const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory, abort: controller.signal, ask })
 const rawHostResult = async (result: Promise<string | { output: string }>) => {

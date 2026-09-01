@@ -821,6 +821,9 @@ type productRenamedPayload struct {
 type productStageChangedPayload struct {
 	StageMaturity           string `json:"stage_maturity"`
 	StageAudienceCommitment string `json:"stage_audience_commitment"`
+	Reason                  string `json:"reason,omitempty"`
+	ExpectedVersion         int64  `json:"expected_version,omitempty"`
+	ResultingVersion        int64  `json:"resulting_version,omitempty"`
 }
 
 type projectCreatedPayload struct {

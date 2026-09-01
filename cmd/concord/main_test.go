@@ -390,6 +390,46 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	}
 }
 
+func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "stage-update-product", "stage-update-project")
+	runOperatorJSON(t, dbPath, []string{"product-stage-update"}, map[string]any{
+		"product_id": "stage-update-product", "stage_maturity": "alpha", "stage_audience_commitment": "operator_only",
+		"reason": "CD-0091 alpha rung manifest satisfied", "expected_version": 2,
+	})
+	s2, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	var gotKind string
+	if err := s2.DatabaseForTesting().QueryRow(`SELECT kind FROM domain_events WHERE kind='product.stage_changed' AND subject_id='stage-update-product'`).Scan(&gotKind); err != nil {
+		t.Fatalf("no product.stage_changed event: %v", err)
+	}
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var maturity, audience string
+	var version int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT stage_maturity, stage_audience_commitment, version FROM products WHERE id='stage-update-product'`).Scan(&maturity, &audience, &version); err != nil {
+		t.Fatal(err)
+	}
+	if maturity != "alpha" || audience != "operator_only" || version != 3 {
+		t.Fatalf("stage after CLI update: %s/%s v%d", maturity, audience, version)
+	}
+	// A refusal stays typed: the closed enum is enforced before an event lands.
+	var out, errOut bytes.Buffer
+	t.Setenv(dbOverrideEnv, dbPath)
+	if code := runWithInput([]string{"product-stage-update"}, strings.NewReader(`{"product_id":"stage-update-product","stage_maturity":"ga","stage_audience_commitment":"operator_only","expected_version":3}`), &out, &errOut); code == 0 {
+		t.Fatal("invalid maturity must exit non-zero")
+	}
+	if !strings.Contains(errOut.String(), "accepted Product stage values") {
+		t.Fatalf("stderr=%q", errOut.String())
+	}
+}
+
 func TestResourceCreateCLIRecordsExpectedEvent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "resource-create-product", "resource-create-project")

@@ -123,6 +123,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "domain-resource-attachments-replace", TwoWord: "domain resource-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments replaces the complete Domain-to-resource edge set; it does not append", Enums: "none"},
 	{Canonical: "project-create", TwoWord: "project create", RequiredFields: requiredFields(field("project_id"), field("display_name"), field("product_id"), field("role"), field("expected_product_version")), Optional: "reason", Enums: "role: primary | secondary"},
 	{Canonical: "product-project-add", TwoWord: "product project-add", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("role"), field("expected_version")), Optional: "reason", Enums: "role: primary | secondary"},
+	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason; cite the satisfied rung manifest (CD-0091) when raising maturity", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
@@ -961,6 +962,27 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		result, err := s.ClearProductKnowledgeHome(ctx, store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		})
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "product-stage-update":
+		var request struct {
+			ProductID               string `json:"product_id"`
+			StageMaturity           string `json:"stage_maturity"`
+			StageAudienceCommitment string `json:"stage_audience_commitment"`
+			Reason                  string `json:"reason"`
+			ExpectedVersion         int64  `json:"expected_version"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		result, err := s.ChangeProductStage(ctx, store.ProductStageChange{
+			ProductID: request.ProductID, StageMaturity: request.StageMaturity, StageAudienceCommitment: request.StageAudienceCommitment,
+			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
 		if err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())

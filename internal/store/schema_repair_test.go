@@ -33,6 +33,9 @@ func schemaObjects(t *testing.T, db *sql.DB) map[string]bool {
 		}
 		names[name] = true
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate schema objects: %v", err)
+	}
 	return names
 }
 

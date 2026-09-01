@@ -36,6 +36,7 @@
         "internal/store.DeriveWorkflowReady",
         "internal/store.DeriveWorkflowReadyWithReader",
         "internal/store.EvaluateWorkflowOutcome",
+        "internal/store.EvaluateWorkflowOutcomePredicateSet",
         "internal/store.ObserveWorkflowCompletionInput",
         "internal/store.OperatorTakeover",
         "internal/store.ReadWorkflow",
@@ -54,19 +55,21 @@
         "internal/store.claimStepObserved",
         "internal/store.compareSubjectSets",
         "internal/store.compareTokenSets",
+        "internal/store.evaluateWorkflowOutcomePredicateCore",
         "internal/store.predicateStringSet",
         "internal/store.productRowStepRequiresApproval",
         "internal/store.projectionColumns",
         "internal/store.quoteSQLiteIdentifier",
         "internal/store.readWorkflowStalenessWarnings",
         "internal/store.setContains",
+        "internal/store.workflowOutcomeDefinition",
         "internal/store.workflowResumePreflight",
         "internal/store.workflowResumePreflightWithRegistry",
         "internal/store.workflowStartPreflight",
         "internal/store.workflowStartPreflightWithRegistry",
         "internal/store.writeHashValue"
       ],
-      "reason": "CD-0013 D11 keeps the public workflow-action surface reserved until the engine registers and ships, so no CLI verb reaches the engine by design. The engine itself is not unproven: the 48-scenario corpus in scenarios/workflow-engine.v1.json executes it against authoritative state. Exposing it is the act that makes these reachable."
+      "reason": "CD-0013 D11 keeps the public workflow-action surface reserved until the engine registers and ships, so no CLI verb reaches the engine by design. The engine itself is not unproven: the 53-scenario corpus in scenarios/workflow-engine.v1.json executes it against authoritative state. Exposing it is the act that makes these reachable."
     },
     {
       "id": "point-in-time-reconstruction-no-operator-verb",

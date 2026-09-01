@@ -3291,6 +3291,142 @@ DROP INDEX IF EXISTS epic_entries_by_child;
 DROP TABLE epic_entries;
 		`,
 	},
+	{
+		Version: 61,
+		Name:    "workflow_contract_predicates",
+		SQL: `
+PRAGMA defer_foreign_keys = ON;
+
+CREATE TEMP TABLE workflow_contracts_v61_backup AS
+SELECT work_id,contract_version,'predicate:primary' AS predicate_id,0 AS ordinal,outcome_kind,outcome_payload
+FROM workflow_contracts;
+CREATE TEMP TABLE workflow_candidate_sets_v61_backup AS SELECT * FROM workflow_candidate_sets;
+CREATE TEMP TABLE workflow_premise_confirmations_v61_backup AS SELECT * FROM workflow_premise_confirmations;
+CREATE TEMP TABLE workflow_contract_law_revisions_v61_backup AS SELECT * FROM workflow_contract_law_revisions;
+CREATE TEMP TABLE workflow_architecture_bindings_v61_backup AS SELECT * FROM workflow_architecture_bindings;
+CREATE TEMP TABLE workflow_contract_affected_domains_v61_backup AS SELECT * FROM workflow_contract_affected_domains;
+CREATE TEMP TABLE workflow_contract_domain_modifications_v61_backup AS SELECT * FROM workflow_contract_domain_modifications;
+CREATE TEMP TABLE workflow_contract_domain_relation_modifications_v61_backup AS SELECT * FROM workflow_contract_domain_relation_modifications;
+CREATE TEMP TABLE workflow_law_addition_reservations_v61_backup AS SELECT * FROM workflow_law_addition_reservations;
+CREATE TEMP TABLE workflow_contract_law_additions_v61_backup AS SELECT * FROM workflow_contract_law_additions;
+CREATE TEMP TABLE workflow_contract_verification_obligations_v61_backup AS SELECT * FROM workflow_contract_verification_obligations;
+CREATE TEMP TABLE workflow_contract_law_modifications_v61_backup AS SELECT * FROM workflow_contract_law_modifications;
+CREATE TEMP TABLE workflow_overlap_resolutions_v61_backup AS SELECT * FROM workflow_overlap_resolutions;
+
+CREATE TABLE workflow_contracts_v61_new (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    contract_version INTEGER NOT NULL,
+    premise TEXT NOT NULL,
+    consequence_class TEXT NOT NULL CHECK(consequence_class IN ('internal_sqlite','cross_authority','external_effect')),
+    required_evidence TEXT NOT NULL CHECK(json_valid(required_evidence) AND json_type(required_evidence)='array'),
+    route_conventions TEXT NOT NULL CHECK(json_valid(route_conventions) AND json_type(route_conventions)='array'),
+    approved_at TEXT NOT NULL,
+    approved_by TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    superseded_by INTEGER,
+    spec_mandate TEXT NOT NULL CHECK(json_valid(spec_mandate) AND json_type(spec_mandate)='array'),
+    rigor_class TEXT NOT NULL DEFAULT 'prototype_internal',
+    law_modifies TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(law_modifies) AND json_type(law_modifies)='array' AND json_array_length(law_modifies) BETWEEN 0 AND 32),
+    law_boundary_version INTEGER NOT NULL DEFAULT 0 CHECK(law_boundary_version IN (0,1)),
+    PRIMARY KEY(work_id, contract_version),
+    FOREIGN KEY(work_id, superseded_by) REFERENCES workflow_contracts_v61_new(work_id, contract_version) ON DELETE RESTRICT,
+    CHECK(contract_version > 0 AND contract_version <= 2147483647),
+    CHECK(length(premise) BETWEEN 1 AND 4096),
+    CHECK(json_array_length(required_evidence) BETWEEN 0 AND 7),
+    CHECK(json_array_length(route_conventions) BETWEEN 0 AND 16),
+    CHECK(json_array_length(spec_mandate) BETWEEN 0 AND 32)
+);
+INSERT INTO workflow_contracts_v61_new(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version)
+SELECT work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version
+FROM workflow_contracts;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+DELETE FROM workflow_overlap_resolutions;
+DELETE FROM workflow_contract_law_additions;
+DELETE FROM workflow_contract_verification_obligations;
+DELETE FROM workflow_contract_domain_relation_modifications;
+DELETE FROM workflow_contract_domain_modifications;
+DELETE FROM workflow_contract_affected_domains;
+DELETE FROM workflow_contract_law_modifications;
+DELETE FROM workflow_law_addition_reservations;
+DELETE FROM workflow_contract_law_revisions;
+DELETE FROM workflow_premise_confirmations;
+DELETE FROM workflow_candidate_sets;
+DELETE FROM workflow_architecture_bindings;
+DELETE FROM workflow_contracts;
+DROP TABLE workflow_contracts;
+ALTER TABLE workflow_contracts_v61_new RENAME TO workflow_contracts;
+
+CREATE TABLE workflow_contract_predicates (
+    work_id          TEXT    NOT NULL,
+    contract_version INTEGER NOT NULL,
+    predicate_id     TEXT    NOT NULL,
+    ordinal          INTEGER NOT NULL,
+    outcome_kind     TEXT    NOT NULL CHECK(outcome_kind IN ('exists','absent','outcome','check')),
+    outcome_payload  TEXT    NOT NULL CHECK(json_valid(outcome_payload) AND json_type(outcome_payload)='object'),
+    PRIMARY KEY(work_id, contract_version, predicate_id),
+    FOREIGN KEY(work_id, contract_version)
+        REFERENCES workflow_contracts(work_id, contract_version) ON DELETE RESTRICT,
+    UNIQUE(work_id, contract_version, ordinal),
+    CHECK(ordinal BETWEEN 0 AND 7),
+    CHECK(predicate_id GLOB 'predicate:*' AND length(predicate_id) BETWEEN 11 AND 128)
+);
+INSERT INTO workflow_contract_predicates SELECT * FROM workflow_contracts_v61_backup;
+INSERT INTO workflow_candidate_sets SELECT * FROM workflow_candidate_sets_v61_backup;
+INSERT INTO workflow_premise_confirmations SELECT * FROM workflow_premise_confirmations_v61_backup;
+INSERT INTO workflow_contract_law_revisions SELECT * FROM workflow_contract_law_revisions_v61_backup;
+INSERT INTO workflow_architecture_bindings SELECT * FROM workflow_architecture_bindings_v61_backup;
+INSERT INTO workflow_contract_affected_domains SELECT * FROM workflow_contract_affected_domains_v61_backup;
+INSERT INTO workflow_contract_domain_modifications SELECT * FROM workflow_contract_domain_modifications_v61_backup;
+INSERT INTO workflow_contract_domain_relation_modifications SELECT * FROM workflow_contract_domain_relation_modifications_v61_backup;
+INSERT INTO workflow_law_addition_reservations SELECT * FROM workflow_law_addition_reservations_v61_backup;
+INSERT INTO workflow_contract_law_additions SELECT * FROM workflow_contract_law_additions_v61_backup;
+INSERT INTO workflow_contract_verification_obligations SELECT * FROM workflow_contract_verification_obligations_v61_backup;
+INSERT INTO workflow_contract_law_modifications SELECT * FROM workflow_contract_law_modifications_v61_backup;
+INSERT INTO workflow_overlap_resolutions SELECT * FROM workflow_overlap_resolutions_v61_backup;
+
+CREATE TRIGGER workflow_contracts_guard_insert BEFORE INSERT ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_guard_update BEFORE UPDATE ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_guard_delete BEFORE DELETE ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_rigor_class_insert
+BEFORE INSERT ON workflow_contracts FOR EACH ROW
+WHEN NEW.rigor_class NOT IN (
+    'prototype_internal', 'prototype_trusted', 'prototype_public', 'prototype_safety_critical',
+    'production_internal', 'production_trusted', 'production_public', 'production_safety_critical',
+    'critical_internal', 'critical_trusted', 'critical_public', 'critical_safety_critical'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow contract rigor class is not a declared maturity-audience composition');
+END;
+CREATE TRIGGER workflow_contracts_rigor_class_update
+BEFORE UPDATE OF rigor_class ON workflow_contracts FOR EACH ROW
+WHEN NEW.rigor_class NOT IN (
+    'prototype_internal', 'prototype_trusted', 'prototype_public', 'prototype_safety_critical',
+    'production_internal', 'production_trusted', 'production_public', 'production_safety_critical',
+    'critical_internal', 'critical_trusted', 'critical_public', 'critical_safety_critical'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'workflow contract rigor class is not a declared maturity-audience composition');
+END;
+CREATE TRIGGER workflow_contract_predicates_guard_insert BEFORE INSERT ON workflow_contract_predicates FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_predicates is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_predicates_guard_update BEFORE UPDATE ON workflow_contract_predicates FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_predicates is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_predicates_guard_delete BEFORE DELETE ON workflow_contract_predicates FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_predicates is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+DELETE FROM fold_guard WHERE active = 1;
+DROP TABLE workflow_contracts_v61_backup;
+DROP TABLE workflow_candidate_sets_v61_backup;
+DROP TABLE workflow_premise_confirmations_v61_backup;
+DROP TABLE workflow_contract_law_revisions_v61_backup;
+DROP TABLE workflow_architecture_bindings_v61_backup;
+DROP TABLE workflow_contract_affected_domains_v61_backup;
+DROP TABLE workflow_contract_domain_modifications_v61_backup;
+DROP TABLE workflow_contract_domain_relation_modifications_v61_backup;
+DROP TABLE workflow_law_addition_reservations_v61_backup;
+DROP TABLE workflow_contract_law_additions_v61_backup;
+DROP TABLE workflow_contract_verification_obligations_v61_backup;
+DROP TABLE workflow_contract_law_modifications_v61_backup;
+DROP TABLE workflow_overlap_resolutions_v61_backup;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -14,6 +14,7 @@ func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64,
 
 func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor, payload json.RawMessage) int64 {
 	t.Helper()
+	payload = testApprovalPayload(actionID, payload)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

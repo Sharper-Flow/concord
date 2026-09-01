@@ -61,7 +61,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 			struct {
 				query string
 				args  []any
-			}{`INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'D7 boundary','check','{"kind":"check","check_ref":"check:d7","immutable_subject_ref":"commit:d7","expected_result":"pass"}','internal_sqlite','[]','[]','2026-08-19T00:00:00Z',?,'[]','[]',1,'prototype_internal')`, []any{id, actorRef}},
+			}{`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'D7 boundary','internal_sqlite','[]','[]','2026-08-19T00:00:00Z',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:d7","immutable_subject_ref":"commit:d7","expected_result":"pass"}')`, []any{id, actorRef, id}},
 			struct {
 				query string
 				args  []any

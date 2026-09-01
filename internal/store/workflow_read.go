@@ -28,8 +28,7 @@ type WorkflowReadDefinition struct {
 type WorkflowReadContract struct {
 	Version             int64                        `json:"version"`
 	Premise             string                       `json:"premise"`
-	OutcomeKind         string                       `json:"outcome_kind"`
-	OutcomePayload      string                       `json:"outcome_payload"`
+	OutcomePredicates   []WorkflowReadPredicate      `json:"outcome_predicates"`
 	RequiredEvidence    []string                     `json:"required_evidence"`
 	RouteConventions    []string                     `json:"route_conventions"`
 	SpecMandate         []string                     `json:"spec_mandate"`
@@ -38,6 +37,37 @@ type WorkflowReadContract struct {
 	RigorClass          string                       `json:"rigor_class"`
 	ChangesProductTruth bool                         `json:"changes_product_truth"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+}
+
+type WorkflowReadPredicate struct {
+	PredicateID    string `json:"predicate_id"`
+	Ordinal        int    `json:"ordinal"`
+	OutcomeKind    string `json:"outcome_kind"`
+	OutcomePayload string `json:"outcome_payload"`
+}
+
+type workflowPredicateQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func readWorkflowContractPredicates(ctx context.Context, queryer workflowPredicateQueryer, workID string, contractVersion int64) ([]WorkflowReadPredicate, error) {
+	rows, err := queryer.QueryContext(ctx, `SELECT predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? ORDER BY ordinal`, workID, contractVersion)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract predicates", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	result := []WorkflowReadPredicate{}
+	for rows.Next() {
+		var predicate WorkflowReadPredicate
+		if err := rows.Scan(&predicate.PredicateID, &predicate.Ordinal, &predicate.OutcomeKind, &predicate.OutcomePayload); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow contract predicate", true, "retry once the database is readable", err)
+		}
+		result = append(result, predicate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow contract predicates", true, "retry once the database is readable", err)
+	}
+	return result, nil
 }
 
 func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (RegisteredDefinition, error) {
@@ -149,7 +179,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies, &contract.RigorClass)
+	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass)
 	if err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
@@ -158,6 +188,10 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, s.db, request.WorkID, contract.Version)
+		if err != nil {
+			return out, err
+		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, s.db, request.WorkID, contract.Version)
 		if err != nil {
@@ -377,7 +411,7 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 	var contract WorkflowReadContract
 	var required, routes, mandates string
 	var modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return nil, newFailure(KindInvariantViolation, "workflow_read", "workflow history contract arrays are malformed", false, "rebuild projections from the event log")
 		}
@@ -385,6 +419,10 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
+		if err != nil {
+			return nil, err
+		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, workID, contract.Version)
 		if err != nil {

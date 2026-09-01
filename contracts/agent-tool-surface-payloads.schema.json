@@ -536,8 +536,7 @@
       "required": [
         "version",
         "premise",
-        "outcome_kind",
-        "outcome_payload",
+        "outcome_predicates",
         "required_evidence",
         "route_conventions",
         "spec_mandate",
@@ -550,12 +549,37 @@
         "premise": {
           "$ref": "#/$defs/short"
         },
-        "outcome_kind": {
-          "$ref": "#/$defs/short"
-        },
-        "outcome_payload": {
-          "type": "string",
-          "maxLength": 16384
+        "outcome_predicates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "predicate_id",
+              "ordinal",
+              "outcome_kind",
+              "outcome_payload"
+            ],
+            "properties": {
+              "predicate_id": {
+                "$ref": "#/$defs/id"
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7
+              },
+              "outcome_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "outcome_payload": {
+                "type": "string",
+                "maxLength": 16384
+              }
+            }
+          }
         },
         "required_evidence": {
           "type": "array",
@@ -3062,9 +3086,11 @@
                 "operation_id": {},
                 "mode": {},
                 "outcome": {},
+                "outcome_predicates": {},
                 "pending_decisions": {},
                 "pending_questions": {},
                 "payload": {},
+                "predicate_id": {},
                 "premise": {},
                 "project_ids": {},
                 "proposed_route_conventions": {},

@@ -151,7 +151,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,outcome_kind,outcome_payload,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, req.Work).Scan(&contract.Version, &contract.Premise, &contract.OutcomeKind, &contract.OutcomePayload, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, req.Work).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return out, newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
@@ -159,6 +159,10 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, req.Work, contract.Version)
+		if err != nil {
+			return out, err
+		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, req.Work, contract.Version)
 		if err != nil {

@@ -112,15 +112,15 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   if (!isRecord(contract)) {
     return failure("mandate_unapproved", `work ${request.workId} has no pinned workflow contract, so no required end-state has been approved to dispatch against`)
   }
-  const outcomeKind = contract.outcome_kind
-  const outcomePayload = contract.outcome_payload
+  const outcomePredicates = contract.outcome_predicates
   const workflowStep = pinned.workflow_step
-  if (typeof outcomeKind !== "string" || typeof outcomePayload !== "string" || typeof workflowStep !== "string") {
-    return failure("transport_failure", `work ${request.workId} pinned contract did not carry a typed outcome_kind, outcome_payload, and workflow_step`)
+  if (!Array.isArray(outcomePredicates) || outcomePredicates.length === 0 || typeof workflowStep !== "string") {
+    return failure("transport_failure", `work ${request.workId} pinned contract did not carry typed outcome_predicates and workflow_step`)
   }
+  const outcomePayload = JSON.stringify(outcomePredicates)
 
   const task = [
-    `Deliver the approved required end-state of kind "${outcomeKind}" for work ${request.workId}, at workflow step "${workflowStep}".`,
+    `Deliver the approved required end-state predicates for work ${request.workId}, at workflow step "${workflowStep}".`,
     "",
     "Approved end-state mandate:",
     outcomePayload,

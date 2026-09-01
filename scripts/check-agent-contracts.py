@@ -266,7 +266,7 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
     relation_ids = {item["id"] for item in fixture["relations"]}
     required = {
         "capture": {"payload", "title", "value_statement", "project_ids"},
-        "approve_contract": {"payload", "contract_version", "premise", "outcome", "route_conventions"},
+        "approve_contract": {"payload", "contract_version", "premise", "outcome_predicates", "route_conventions"},
         "revise_candidates": {"payload", "contract_version", "candidate_kind", "candidate_refs", "added", "removed"},
         "supersede_contract": {"payload", "new_contract_version", "supersede_reason", "audit_evidence"},
         "replace_outcome": {"payload", "outcome", "evidence_refs"},
@@ -547,14 +547,14 @@ def check_workflow_contracts() -> list[str]:
         scenarios = corpus["scenarios"]
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append("scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
-        if len(scenarios) != 48:
-            findings.append(f"scenarios/workflow-engine.v1.json: expected 48 scenarios, got {len(scenarios)}")
+        if len(scenarios) != 53:
+            findings.append(f"scenarios/workflow-engine.v1.json: expected 53 scenarios, got {len(scenarios)}")
         ids = [item.get("id") for item in scenarios]
         numbers = [item.get("scenario_number") for item in scenarios]
         if len(set(ids)) != len(ids) or any(not isinstance(item, str) or not item for item in ids):
             findings.append("scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
-        if numbers != list(range(1, 49)):
-            findings.append("scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..48")
+        if numbers != list(range(1, 54)):
+            findings.append("scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..53")
         targets = set(contract.get("targets", []))
         ops = set(contract.get("ops", []))
         nested_ids: list[str] = []

@@ -76,8 +76,8 @@
     },
     "scenarios": {
       "type": "array",
-      "minItems": 48,
-      "maxItems": 48,
+      "minItems": 53,
+      "maxItems": 53,
       "items": {
         "$ref": "#/$defs/scenario"
       }
@@ -387,6 +387,9 @@
           "$ref": "#/$defs/jsonValue"
         },
         "subjects": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "surface": {
           "$ref": "#/$defs/jsonValue"
         },
         "allowed": {
@@ -896,6 +899,35 @@
         },
         "outcome_payload": {
           "$ref": "#/$defs/jsonObject"
+        },
+        "outcome_predicates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"],
+            "properties": {
+              "predicate_id": {
+                "type": "string",
+                "pattern": "^predicate:.+$",
+                "minLength": 11,
+                "maxLength": 128
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7
+              },
+              "outcome_kind": {
+                "enum": ["exists", "absent", "outcome", "check"]
+              },
+              "outcome_payload": {
+                "$ref": "#/$defs/jsonObject"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "required_evidence": {
           "type": "array",
@@ -1847,6 +1879,47 @@
             }
           ]
         },
+        "outcome_predicates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"],
+            "properties": {
+              "predicate_id": {"type": "string", "pattern": "^predicate:.+$", "minLength": 11, "maxLength": 128},
+              "ordinal": {"type": "integer", "minimum": 0, "maximum": 7},
+              "outcome_kind": {"enum": ["exists", "absent", "outcome", "check"]},
+              "outcome_payload": {"$ref": "#/$defs/jsonObject"}
+            }
+          }
+        },
+        "verdicts": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["predicate_id", "verdict_kind"],
+            "properties": {
+              "predicate_id": {"type": "string", "pattern": "^predicate:.+$", "minLength": 11, "maxLength": 128},
+              "verdict_kind": {"enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+              "incomparable_with_approved": {"type": "boolean"}
+            }
+          }
+        },
+        "approval_prerequisites": {"type": "boolean"},
+        "record_verdict_prerequisites": {"type": "boolean"},
+        "predicate_id": {"$ref": "#/$defs/id"},
+        "verdict_kind": {"enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+        "evaluation_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/id"}
+        },
         "route_conventions": {
           "type": "array",
           "minItems": 0,
@@ -2422,7 +2495,7 @@
         "scenario_number": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 48
+            "maximum": 53
         },
         "mechanism": {
           "$ref": "#/$defs/short"

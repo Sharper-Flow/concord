@@ -219,7 +219,11 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 
 func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, actionID string, version int64, key string) {
 	t.Helper()
-	input := json.RawMessage(`{"work_id":"` + workID + `","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"` + actionID + `","idempotency_key":"` + key + `"}`)
+	fields := ""
+	if actionID == "record_verdict" {
+		fields = `,"fields":{"predicate_id":"predicate:primary"}`
+	}
+	input := json.RawMessage(`{"work_id":"` + workID + `","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"` + actionID + `"` + fields + `,"idempotency_key":"` + key + `"}`)
 	response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", input)
 	if response.Outcome != OutcomeOK {
 		if response.Error != nil {

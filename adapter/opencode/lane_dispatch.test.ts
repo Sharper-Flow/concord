@@ -59,7 +59,7 @@ const continuityEnvelope = (overrides: Partial<{ pinned: Record<string, unknown>
       product_identity: [PRODUCT_ID],
       workflow_step: WORKFLOW_STEP,
       contract: {
-        version: 1, premise: "Reachability test", outcome_kind: OUTCOME_KIND, outcome_payload: OUTCOME_PAYLOAD,
+        version: 1, premise: "Reachability test", outcome_predicates: [{ predicate_id: "predicate:primary", ordinal: 0, outcome_kind: OUTCOME_KIND, outcome_payload: OUTCOME_PAYLOAD }],
         required_evidence: [], route_conventions: [], spec_mandate: [], changes_product_truth: false,
       },
       spec_mandate: [], pending_operator_decision: null, latest_checkpoint: null, unresolved_failure: null,

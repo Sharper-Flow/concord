@@ -177,19 +177,33 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		}
 	}
 
-	// Clause 4: verdict presence and the complete pinned actor tuple.
-	verdict, err := latestWorkflowVerdict(ctx, tx, event.SubjectID)
+	// Clause 4: every approved predicate has one latest verdict at this contract
+	// version, with the complete pinned actor tuple and durable evidence.
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, event.SubjectID, contract.Version)
 	if err != nil {
 		return err
 	}
-	if verdict == nil || verdict.ContractVersion != contract.Version {
-		return workflowClauseFailure(KindMissingEvidence, 4, "workflow verdict is missing for the approved contract", "provide_evidence")
+	verdictByPredicate := make(map[string]*workflowVerdictRecordedPayload, len(verdicts))
+	for i := range verdicts {
+		verdictByPredicate[verdicts[i].PredicateID] = &verdicts[i]
 	}
-	if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
-		return workflowClauseError(err, 4)
+	for _, predicate := range contract.Predicates {
+		verdict := verdictByPredicate[predicate.PredicateID]
+		if verdict == nil {
+			return workflowClauseFailure(KindMissingEvidence, 4, "workflow verdict is missing for approved predicate "+predicate.PredicateID, "provide_evidence")
+		}
+		if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
+			return workflowClauseError(err, 4)
+		}
+		if err := verifyVerdictEvidence(ctx, tx, event.SubjectID, verdict.EvaluationEvidence); err != nil {
+			return workflowClauseError(err, 4)
+		}
 	}
-	if err := verifyVerdictEvidence(ctx, tx, event.SubjectID, verdict.EvaluationEvidence); err != nil {
-		return workflowClauseError(err, 4)
+	for _, verdict := range verdicts {
+		if !containsPredicateID(contract.Predicates, verdict.PredicateID) {
+			// CD-0006 R1: delivery cannot answer an unapproved contract.
+			return workflowClauseFailure(KindOutcomeMismatch, 6, "delivered predicate "+verdict.PredicateID+" is not approved by the contract", "contact_operator")
+		}
 	}
 
 	// Clause 5: premise confirmation is an operator approval, not a payload bit.
@@ -206,8 +220,11 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 
 	// Clause 6: the folded evaluator verdict is the authority.  Incomparable,
 	// weaker, and non-success verdicts are never coerced into completion.
-	if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
-		return workflowClauseFailure(KindOutcomeMismatch, 6, "delivered outcome is weaker or incomparable with the approved outcome", "contact_operator")
+	for _, predicate := range contract.Predicates {
+		verdict := verdictByPredicate[predicate.PredicateID]
+		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
+			return workflowClauseFailure(KindOutcomeMismatch, 6, "delivered outcome is weaker or incomparable with the approved outcome", "contact_operator")
+		}
 	}
 	if err := verifyBlockingStaleness(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence); err != nil {
 		return workflowClauseError(err, 6)
@@ -266,6 +283,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 
 type workflowCompletionContractData struct {
 	Version             int64
+	Predicates          []WorkflowReadPredicate
 	RequiredEvidence    []string
 	SpecMandate         []string
 	LawModifies         []string
@@ -292,7 +310,7 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
 	var result workflowCompletionContractData
 	var required, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,required_evidence,spec_mandate,law_modifies,law_boundary_version,outcome_kind,outcome_payload FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&result.Version, &required, &mandates, &modifies, &result.LawBoundaryVersion, &result.OutcomeKind, &result.OutcomePayload); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,required_evidence,spec_mandate,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&result.Version, &required, &mandates, &modifies, &result.LawBoundaryVersion); err != nil {
 		if err == sql.ErrNoRows {
 			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
@@ -304,6 +322,13 @@ func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry Defini
 	if err := json.Unmarshal([]byte(mandates), &result.SpecMandate); err != nil || json.Unmarshal([]byte(modifies), &result.LawModifies) != nil {
 		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
 	}
+	var predicateErr error
+	result.Predicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, result.Version)
+	if predicateErr != nil || len(result.Predicates) == 0 {
+		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "rebuild projections from the event log")
+	}
+	result.OutcomeKind = result.Predicates[0].OutcomeKind
+	result.OutcomePayload = result.Predicates[0].OutcomePayload
 	var bindingErr error
 	result.ArchitectureBinding, bindingErr = readWorkflowArchitectureBinding(ctx, tx, workID, result.Version)
 	if bindingErr != nil {
@@ -313,17 +338,14 @@ func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry Defini
 	if err != nil {
 		return result, WorkflowDefinition{}, err
 	}
-	if definition.Definition.OutcomeSchema.DefaultKind != "" && result.OutcomeKind != string(definition.Definition.OutcomeSchema.DefaultKind) {
-		// The payload's kind is still decoded below; this check only rejects a
-		// contract that disagrees with a pinned family default.
-		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved outcome kind disagrees with the pinned definition", false, "reread_entities")
-	}
-	approved, err := DecodeWorkflowPredicate([]byte(result.OutcomePayload))
-	if err != nil || string(approved.Kind) != result.OutcomeKind {
-		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
-	}
-	if err := ValidateWorkflowPredicateForDefinition(definition.Definition, approved); err != nil {
-		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is outside the pinned definition", false, "reread_entities")
+	for _, item := range result.Predicates {
+		approved, decodeErr := DecodeWorkflowPredicate([]byte(item.OutcomePayload))
+		if decodeErr != nil || string(approved.Kind) != item.OutcomeKind {
+			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
+		}
+		if err := ValidateWorkflowPredicateForDefinition(definition.Definition, approved); err != nil {
+			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is outside the pinned definition", false, "reread_entities")
+		}
 	}
 	return result, definition.Definition, nil
 }
@@ -560,6 +582,43 @@ func latestWorkflowVerdict(ctx context.Context, tx *sql.Tx, workID string) (*wor
 		return nil, newFailure(KindInvariantViolation, "complete_workflow", "workflow verdict payload is malformed", false, "reread_entities")
 	}
 	return &verdict, nil
+}
+
+func latestWorkflowVerdicts(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64) ([]workflowVerdictRecordedPayload, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT payload,payload_version FROM domain_events v WHERE v.subject_type='work_item' AND v.subject_id=? AND v.kind=? AND json_extract(v.payload,'$.contract_version')=? AND NOT EXISTS (SELECT 1 FROM domain_events newer WHERE newer.subject_type=v.subject_type AND newer.subject_id=v.subject_id AND newer.kind=v.kind AND json_extract(newer.payload,'$.contract_version')=json_extract(v.payload,'$.contract_version') AND (CASE WHEN newer.payload_version=1 THEN 'predicate:primary' ELSE json_extract(newer.payload,'$.predicate_id') END)=(CASE WHEN v.payload_version=1 THEN 'predicate:primary' ELSE json_extract(v.payload,'$.predicate_id') END) AND newer.seq>v.seq) ORDER BY v.seq`, workID, WorkflowVerdictRecorded, contractVersion)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	result := []workflowVerdictRecordedPayload{}
+	for rows.Next() {
+		var raw []byte
+		var payloadVersion int
+		if err := rows.Scan(&raw, &payloadVersion); err != nil {
+			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdict", true, "retry once the database is readable", err)
+		}
+		var verdict workflowVerdictRecordedPayload
+		if err := json.Unmarshal(raw, &verdict); err != nil {
+			return nil, newFailure(KindInvariantViolation, "complete_workflow", "workflow verdict payload is malformed", false, "reread_entities")
+		}
+		if payloadVersion == 1 {
+			verdict.PredicateID = "predicate:primary"
+		}
+		result = append(result, verdict)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdicts", true, "retry once the database is readable", err)
+	}
+	return result, nil
+}
+
+func containsPredicateID(predicates []WorkflowReadPredicate, predicateID string) bool {
+	for _, predicate := range predicates {
+		if predicate.PredicateID == predicateID {
+			return true
+		}
+	}
+	return false
 }
 
 // WorkflowChangedRefsDigest is the deterministic digest used by callers that

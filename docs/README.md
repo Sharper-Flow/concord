@@ -57,7 +57,7 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 | [`agent-result-envelope.md`](./agent-result-envelope.md) + [`agent-tool-envelope.schema.json`](../contracts/agent-tool-envelope.schema.json) | **Accepted TS7, amended by issue #43:** strict `ok|pending|partial|error` envelopes, producer-validated closed results, typed recovery/evidence, authenticated pagination, and bounded output. |
 | [`agent-tool-surface-evolution.md`](./agent-tool-surface-evolution.md) | **Accepted TS8, amended by CD-0042:** one generated current manifest identified by exact digest; static registration, strict generation, fail-closed mismatch, and explicit first-go-live evolution trigger. |
 | [`agent-tool-surface-measurement.md`](./agent-tool-surface-measurement.md) | **Accepted TS9, amended by CD-0042:** pre-go-live PM1/TS1 deterministic evidence, strict schemas, authority/transaction/negative/conformance proof; model trials and telemetry are research only before go-live. |
-| [`terminal-launcher-contract.md`](./terminal-launcher-contract.md) | **Accepted C18 contract; S1 and issue #51 S2/S3 slice implemented:** read-only Product launcher — screen set, navigation graph, knowledge-in-context, ambient Product context, identity-only launch handoff with CD-0031 core session boot, no-poll refresh model, Bubble Tea v2 adapter, and Product-only query scope. Replacement readiness remains unclaimed. |
+| [`terminal-launcher-contract.md`](./terminal-launcher-contract.md) | **Accepted C18 contract; S1, S2 including the Domain section, and S3 implemented:** read-only Product launcher — screen set, navigation graph, knowledge-in-context, ambient Product context, identity-only launch handoff with CD-0031 core session boot, no-poll refresh model, Bubble Tea v2 adapter, and Product-only query scope. The replacement-ready floor is satisfied; see Current status. |
 | [`product-row-contract.md`](./product-row-contract.md) | **Accepted C14:** five-group Product-row glance projection covering identity, stage, reliance, action counts, and one deterministic focus item. |
 | [`product-coordination-view.md`](./product-coordination-view.md) | **Accepted C17:** Product coordination drill-down behind the C14 row: a structural Q8 relation tree plus a ranked Q5/Q4 work table, with bounded Product-scoped reads and visible incomplete coverage. |
 | [`managed-resource-inventory.md`](./managed-resource-inventory.md) | **Accepted C15:** first-class resource identity, singular Product owner, consumer links, explicit stage, typed locators/work links, and native execution authority. |
@@ -158,6 +158,16 @@ it; that shape is what Concord's design structurally prevents.
 > is **retired**. [`rollout-plan.md`](./rollout-plan.md) §3/§5 and the
 > "Advance healthy" subset alias are retained as historical record and lesson
 > evidence, not as active gates.
+>
+> **Operator decision (2026-09-01, issue #685).** The replacement-ready floor is
+> satisfied. [`floor-readiness.v1.json`](./floor-readiness.v1.json) records 40
+> satisfied conditions, zero outstanding, zero unmeasured, and one item out of
+> scope (`fc3-lane-behavioral-evals`, retired by CD-0058); the last open
+> condition closed on 2026-08-22 when 5e3b900 (issue #373) proved the launcher
+> S2 Domain panel against a real store. Both maturity rungs hold:
+> [`maturity-readiness.v1.json`](./maturity-readiness.v1.json) (alpha) and
+> [`maturity-readiness.beta.v1.json`](./maturity-readiness.beta.v1.json) (beta)
+> carry no outstanding item.
 
 CD-0002/CD-0003 remain the accepted storage baseline as narrowed by PM2 and PM3:
 **one global local SQLite authority** holds one generic authoritative event log
@@ -192,8 +202,9 @@ CD-0041 makes Product law and architectural concordance Priority 1. It replaces
 opaque component authority with canonical Domains, binds Product-changing work
 to exact Domain/law footprints, requires version-pinned resolution for concurrent
  Domain overlap, establishes Initiative as the Product grouping kind, and retains CD-0002/
-CD-0011 SQLite authority. Its runtime mechanisms remain follow-up work; this
-constitutional record does not claim the floor is satisfied.
+CD-0011 SQLite authority. Its runtime mechanisms are implemented and verified in
+[`floor-readiness.v1.json`](./floor-readiness.v1.json); the constitutional record
+itself carries no floor claim.
 CD-0042 amends the pre-go-live agent-surface path: the generated manifest digest is
 the only current identity, obsolete compatibility machinery is removed, and first
 go-live must define any future compatibility and measurement law.

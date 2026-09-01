@@ -348,7 +348,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ac59d08ea80d2e324cb2dc07a4a0506a38f9ed32c03bc7badfad64ecb5696c41",
+      "sha256": "sha256:88a59717c511600cbb5d9b0caff9d66da72433098d4fa15dfae880ac20cc3acf",
       "status": "accepted",
       "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
       "tags": [
@@ -638,7 +638,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:2a9cab77c1b31ed92401a0703acfd308aebcceb7a08aed635dd84b5d46b60de4",
+      "sha256": "sha256:75a71cdd8427ff9abe1187b13f28c460b47784a53f7528b8a186fed6f9cdd3d9",
       "status": "accepted",
       "summary": "Chooses Bubble Tea v2 behind an isolated adapter and fixes Product-only launcher query scope.",
       "tags": [
@@ -3480,7 +3480,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5080e4580c6570d07a8fa2f74866523cb574712803370b73fc228a3f2171877a",
+      "sha256": "sha256:f4fc9de74a61a9cad6c54556a6b8c98f79cb01bdf75d6b2ba5f2cf47cb9ea65f",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -4045,7 +4045,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:0889522a9dda05c47cc2a7f512b4da5706e7488684a92d3d6ea8f2ae61fec98d",
+      "sha256": "sha256:362ae27b07db6eeea2614dd1fa046218ddc46454a995842bad3991827dce6e0f",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -4584,7 +4584,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:65d20104859ee82b1e067634b9856eb5321c6352ae7049e891f5c4f47223de40",
+      "sha256": "sha256:831bc0e26b033fac1980c548a1aecde691458339b72843a11cf6284eb9a06a41",
       "status": "accepted",
       "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
       "tags": [

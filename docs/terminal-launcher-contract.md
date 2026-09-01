@@ -3,14 +3,19 @@
 **Status:** Accepted under [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md),
 amended by CD-0041.
 **Implementation status:** S1 portfolio wiring shipped through issue #45 and PR #48.
-Issue #51 implements the S2 Product coordination view, S3 Work detail, scoped
-knowledge/search, explicit refresh, and identity-only OpenCode handoff. The
-replacement-ready floor remains unclaimed; this slice is not replacement-ready.
+S2 Product coordination view, S3 Work detail, scoped knowledge/search, explicit
+refresh, and identity-only OpenCode handoff shipped through issue #51; the S2
+Domain section followed, proved against a real store by 5e3b900 (issue #373).
+The replacement-ready floor is satisfied; see
+[`floor-readiness.v1.json`](./floor-readiness.v1.json) and [`README.md`](./README.md)
+Current status.
 
-**CD-0041 implementation gap:** issue #51's shipped S2/S3 views predate canonical
+**CD-0041 implementation status:** issue #51's shipped S2/S3 views predate canonical
 Domains. The amended S2 contract below requires Product → Domain navigation,
 current Domain law, typed architecture relations, and unresolved overlap. That
-runtime work remains outstanding and no floor satisfaction is inferred here.
+runtime work shipped: 5e3b900 (issue #373) proved the S2 Domain panel against a
+real store, and [`floor-readiness.v1.json`](./floor-readiness.v1.json) records
+the satisfied floor conditions.
 
 This document is the accepted C18 launcher contract. CD-0014 records the rendering
 spike, exact dependency inventory, evidence gate, and Product-only query scope.

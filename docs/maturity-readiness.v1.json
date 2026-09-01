@@ -33,8 +33,11 @@
       "condition": "a2",
       "title": "A released binary opens a database migrated by a newer worktree",
       "requirement": "A released binary opens a store whose schema a newer worktree migrated, proven by a passing test. Tracked by the linked issue until the fix and its test land.",
-      "state": "outstanding",
-      "issue": 637
+      "state": "satisfied",
+      "evidence": [
+        { "kind": "go_test", "value": "internal/store.TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory" },
+        { "kind": "go_test", "value": "internal/store.TestRepairMigrationIsIdempotentOnAFreshDatabase" }
+      ]
     },
     {
       "id": "a2-adapter-version-skew",
@@ -42,7 +45,7 @@
       "title": "An adapter and core version skew fails typed, not opaque",
       "requirement": "An adapter running against a newer core returns a typed version-skew result with a restart recovery action, not an opaque malformed-core-response, proven by a passing test.",
       "state": "outstanding",
-      "issue": 641
+      "issue": 645
     },
     {
       "id": "a2-main-checkout-scope",

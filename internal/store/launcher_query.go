@@ -35,16 +35,24 @@ type LauncherWork struct {
 	Urgency      string
 	CreatedAt    string
 	UpdatedAt    string
+	TerminalAt   string
 	ProjectCount int
 	Blocked      bool
 	Ready        bool
+	Terminal     bool
 	Blockers     []LauncherBlocker
 }
 
 type LauncherProductResult struct {
 	ResultMeta
-	Works []LauncherWork
-	Edges []RelationEdge
+	// Works is the active drill-down segment, ordered by the accepted
+	// launcher keys (urgency, priority, created_at DESC, id). TerminalWorks
+	// is the completed-history segment ordered by terminal_time DESC, id, so
+	// the drill-down renders active work first (C18 R5) and reaches terminal
+	// history by scrolling.
+	Works         []LauncherWork
+	TerminalWorks []LauncherWork
+	Edges         []RelationEdge
 }
 
 type LauncherWorkRequest struct {
@@ -267,6 +275,35 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 		out.Works = out.Works[:limit]
 		out.Omissions = append(out.Omissions, "Product work omitted by launcher limit")
 	}
+	// The completed-history drill-down segment. It is one grouped read in the
+	// same transaction, not a per-work fan-out, and readiness is not computed
+	// for terminal items: their marker is the terminal state itself.
+	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
+		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?)
+		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
+		ORDER BY w.terminal_time DESC,w.id LIMIT ?`, req.Product, req.Product, limit+1)
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "launcher.product", "cannot read Product terminal work", true, "retry once the database is readable", err)
+	}
+	for trows.Next() {
+		var item LauncherWork
+		if err := trows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt, &item.ProjectCount); err != nil {
+			trows.Close()
+			return out, err
+		}
+		item.Terminal = terminalState(item.Lifecycle)
+		out.TerminalWorks = append(out.TerminalWorks, item)
+	}
+	if err := trows.Close(); err != nil {
+		return out, err
+	}
+	if err := trows.Err(); err != nil {
+		return out, err
+	}
+	if len(out.TerminalWorks) > limit {
+		out.TerminalWorks = out.TerminalWorks[:limit]
+		out.Omissions = append(out.Omissions, "Product terminal work omitted by launcher limit")
+	}
 	// All Product edges are read in the same transaction as the rows. The
 	// blocked_by edge is a display inverse of a stored blocks edge, not a stored
 	// relation. It carries the inverse label the relation vocabulary declares for
@@ -325,6 +362,9 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	}
 	if out.Works == nil {
 		out.Works = []LauncherWork{}
+	}
+	if out.TerminalWorks == nil {
+		out.TerminalWorks = []LauncherWork{}
 	}
 	if out.Edges == nil {
 		out.Edges = []RelationEdge{}

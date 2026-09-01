@@ -530,6 +530,55 @@ func TestS2AndS3RenderUnavailableForegroundReadState(t *testing.T) {
 	}
 }
 
+func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+		Ranked: []launcher.RankedWork{
+			{ID: "work-1", Kind: "task", Title: "Live", Lifecycle: "needed", Priority: 1, Ready: true},
+			{ID: "work-2", Kind: "bug", Title: "Done", Lifecycle: "completed", Priority: 2, Terminal: true, TerminalAt: "2026-08-05T00:00:00Z"},
+		},
+	}
+	p := &port{state: snapshot}
+	core := launcher.New(p)
+	core.RestoreSnapshot(snapshot)
+	m := New(core, context.Background(), Profile{})
+	rendered := m.Render()
+	for _, want := range []string{
+		"kind=task", "kind=bug",
+		"+READY", "-TERMINAL",
+		"terminal=2026-08-05T00:00:00Z",
+		"lifecycle=completed",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("drill-down line missing %q: %q", want, rendered)
+		}
+	}
+	if again := m.Render(); again != rendered {
+		t.Fatalf("drill-down render changed between frames:\n%s\n%s", rendered, again)
+	}
+}
+
+func TestS2DegradedDrillDownNeverRendersAuthoritativeEmpty(t *testing.T) {
+	for _, focus := range []launcher.S2Panel{launcher.S2PanelBlocked, launcher.S2PanelNext} {
+		snapshot := launcher.Snapshot{
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+			PanelFocus: focus, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit",
+		}
+		p := &port{state: snapshot}
+		core := launcher.New(p)
+		core.RestoreSnapshot(snapshot)
+		m := New(core, context.Background(), Profile{})
+		rendered := m.Render()
+		if !strings.Contains(rendered, "unavailable: Product work omitted by launcher limit") {
+			t.Fatalf("degraded %s drill-down lost its typed state: %q", focus, rendered)
+		}
+		if strings.Contains(rendered, "authoritative-empty") {
+			t.Fatalf("degraded %s drill-down rendered an authoritative-empty list: %q", focus, rendered)
+		}
+	}
+}
+
 // authorityPort serves S1 rows until the authority is marked unreachable, then
 // returns the typed unavailable state the store port produces alongside its
 // error.

@@ -2,7 +2,7 @@ import { clientRef } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
-import { errorEnvelopeForLane, readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope } from "./dispatch"
+import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 
 type ToolContext = {
   sessionID: string
@@ -27,10 +27,19 @@ type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>
 type HostConcordEnvelope = CoreConcordEnvelope | AgentResultEnvelope
 
-export interface ChildRunnerOptions { cwd?: string; env?: Record<string, string>; onStdoutLine?: (line: string) => Promise<void> }
-export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions): Promise<{ exitCode: number; stdout: string; stderr: string }> }
+export interface ChildRunnerOptions { cwd?: string; env?: Record<string, string>; onStdoutLine?: (line: string, metadata?: RunLineMetadata | null) => Promise<void>; runSessionObservation?: RunSessionObservation }
+export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions): Promise<{ exitCode: number; stdout: string; stderr: string; runSessionObservation?: RunSessionObservation }> }
 
-async function readChildStdout(stream: ReadableStream<Uint8Array>, onLine?: (line: string) => Promise<void>): Promise<string> {
+function appendOutputTail(current: string, text: string): string {
+  const combined = current + text
+  if (Buffer.byteLength(combined) <= MAX_OUTPUT_BYTES) return combined
+  const bytes = Buffer.from(combined)
+  let start = bytes.length - MAX_OUTPUT_BYTES
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++
+  return bytes.subarray(start).toString()
+}
+
+export async function readChildStdout(stream: ReadableStream<Uint8Array>, onLine?: (line: string, metadata?: RunLineMetadata | null) => Promise<void>, observation = createRunSessionObservation()): Promise<{ stdout: string; runSessionObservation: RunSessionObservation }> {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let output = ""
@@ -39,21 +48,27 @@ async function readChildStdout(stream: ReadableStream<Uint8Array>, onLine?: (lin
     const { done, value } = await reader.read()
     if (done) break
     const text = decoder.decode(value, { stream: true })
-    output += text
+    output = appendOutputTail(output, text)
     pending += text
     for (;;) {
       const newline = pending.indexOf("\n")
       if (newline < 0) break
       const line = pending.slice(0, newline)
       pending = pending.slice(newline + 1)
-      if (onLine && line.trim()) await onLine(line)
+      if (line.trim()) {
+        const metadata = observeRunSessionLine(observation, line)
+        if (onLine) await onLine(line, metadata)
+      }
     }
   }
   const final = decoder.decode()
-  output += final
+  output = appendOutputTail(output, final)
   pending += final
-  if (onLine && pending.trim()) await onLine(pending)
-  return output
+  if (pending.trim()) {
+    const metadata = observeRunSessionLine(observation, pending)
+    if (onLine) await onLine(pending, metadata)
+  }
+  return { stdout: output, runSessionObservation: observation }
 }
 
 const defaultRunner: ChildRunner = {
@@ -72,8 +87,8 @@ const defaultRunner: ChildRunner = {
     await child.stdin.end()
     const stderrPromise = new Response(child.stderr).text()
     try {
-      const [stdout, stderr, exitCode] = await Promise.all([readChildStdout(child.stdout, options?.onStdoutLine), stderrPromise, child.exited])
-      return { exitCode, stdout, stderr }
+      const [captured, stderr, exitCode] = await Promise.all([readChildStdout(child.stdout, options?.onStdoutLine, options?.runSessionObservation), stderrPromise, child.exited])
+      return { exitCode, stdout: captured.stdout, stderr, runSessionObservation: captured.runSessionObservation }
     } catch (error) {
       child.kill()
       await child.exited
@@ -675,14 +690,14 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       await rollbackBeforeLaunch("work_start was cancelled before the child launch")
       throw new AdapterFailure("cancelled", "cancelled_after_prepare", "work_start was cancelled before the child launch")
     }
-    const observeRunLine = async (line: string) => {
-      let metadata
-      try { metadata = readRunLineMetadata(line) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_run_stream", String(error), sessionID ? "partial" : "none", sessionID ? "reconcile_operation" : "contact_operator") }
-      if (!metadata) return
-      if (sessionID && metadata.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
+    const runSessionObservation = createRunSessionObservation()
+    const observeRunLine = async (line: string, metadata?: RunLineMetadata | null) => {
+      const observed = metadata === undefined ? observeRunSessionLine(runSessionObservation, line) : metadata
+      if (!observed) return
+      if (sessionID && observed.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
       if (!sessionID) {
-        sessionID = metadata.session_id
-        await recordLaunch("running", "", "", metadata.session_id)
+        sessionID = observed.session_id
+        await recordLaunch("running", "", "", observed.session_id)
         sessionIdentityRecorded = true
       }
     }
@@ -704,6 +719,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
         cwd: bootstrap.worktree.path,
         env: { CONCORD_SELECTED_PRODUCT_ID: bootstrap.product_id, CONCORD_SELECTED_WORK_ID: bootstrap.work_id },
         onStdoutLine: observeRunLine,
+        runSessionObservation,
       })
     } catch (error) {
       if (!sessionID) {
@@ -720,12 +736,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       if (failure.effect === "none") throw new AdapterFailure(failure.kind, `${failure.reason}_unknown_effect`, failure.message, "possible", "reconcile_operation")
       throw failure
     }
-    let runRead: ReturnType<typeof readRunSessionMetadata>
-    try {
-      runRead = readRunSessionMetadata(run.stdout)
-    } catch (error) {
-      throw new AdapterFailure("malformed_response", "malformed_run_stream", String(error), "possible", "reconcile_operation")
-    }
+    const runRead = readRunSessionMetadata(run.runSessionObservation ?? runSessionObservation)
     const runMetadata = runRead.ok ? runRead.metadata : null
     if (runMetadata && sessionID && runMetadata.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
     if (runMetadata && !sessionID) sessionID = runMetadata.session_id

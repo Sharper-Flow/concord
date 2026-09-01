@@ -1,0 +1,5 @@
+{
+  "id": "CD-0091",
+  "reason": "The ladder is process law about the evidence that promotes a Product's maturity and audience claim. It governs how a Product is matured, not runtime behaviour, so no executable surface exists to bind. It is declared prose-only rather than left undeclared.",
+  "state": "out_of_scope"
+}

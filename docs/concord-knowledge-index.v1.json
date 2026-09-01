@@ -2873,6 +2873,29 @@
       "title": "A per-turn runtime continuity hook re-pins orchestrator context"
     },
     {
+      "date": "2026-08-31T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0091",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0091-maturity-promotion-ladder.md",
+      "product_wide_rationale": "Defines the evidence bar that promotes a Product's maturity and audience commitment. It governs how this Product is matured, not how it behaves, so no runtime Domain owns it.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:367f0e2d8303d6c71a270c4e140323e8566cc9946a130c70f7b4bd1a4601615b",
+      "status": "accepted",
+      "summary": "Defines the maturity and audience-commitment promotion ladder as evidence claims that reuse the floor-readiness mechanism. Records Concord at prototype and operator_only.",
+      "tags": [
+        "governance",
+        "maturity"
+      ],
+      "title": "Maturity and audience-commitment promotion ladder"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -4339,7 +4362,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:d77c0878d3967925f4776d7893a51c6159632c38e64b508adfa67e6ecdd3e2a5",
+      "sha256": "sha256:8e8f6886b5b254edf04f61c2c4134a9a209fa08883a75d14bca2c99adaa0c951",
       "status": "published",
       "summary": "Sequences the public bootstrap and Concord development coordination under CD-0007 and CD-0089 while retaining replacement-readiness evidence.",
       "tags": [

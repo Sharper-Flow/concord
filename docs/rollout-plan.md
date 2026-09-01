@@ -99,6 +99,11 @@ No global adoption sequence, mandatory pre-adoption exercise, rollback restricti
 retirement sequence, or migration record applies unless a later decision accepts a
 bounded need.
 
+[CD-0091](./decisions/CD-0091-maturity-promotion-ladder.md) is one such accepted
+bounded need. It defines the evidence bar that promotes a Product's maturity and
+audience commitment above the replacement-ready floor. It imposes no schedule, so
+the demand-driven model above still holds.
+
 ## 5. Related authority
 
 | Document | Role |
@@ -108,6 +113,7 @@ bounded need.
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
 | [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Historical pre-readiness authority, superseded only by CD-0089 at its self-hosting boundary. |
 | [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination after the issue #600 bootstrap exception. |
+| [`decisions/CD-0091-maturity-promotion-ladder.md`](./decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion ladder above the replacement-ready floor. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
 | [`storage-spine-slice.md`](./storage-spine-slice.md) | First implementation acceptance slice. |

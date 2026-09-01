@@ -37,7 +37,6 @@ const internalCallPatterns = [
 ]
 
 type ChatMessageInput = { sessionID?: string; agent?: string }
-type TransformInput = { sessionID?: string }
 type TransformOutput = { system: string[] }
 
 export function createAgentSwitchNotice() {
@@ -64,10 +63,9 @@ export function createAgentSwitchNotice() {
   }
 
   return {
-    chatMessage: async (input: ChatMessageInput): Promise<void> => {
+    chatMessage: async (input: unknown): Promise<void> => {
       try {
-        const sessionID = input?.sessionID
-        const agent = input?.agent
+        const { sessionID, agent } = (input ?? {}) as ChatMessageInput
         if (typeof sessionID !== "string" || !sessionID) return
         if (typeof agent !== "string" || !agent) return
 
@@ -81,9 +79,9 @@ export function createAgentSwitchNotice() {
       }
     },
 
-    transform: async (input: TransformInput, output: TransformOutput): Promise<void> => {
+    transform: async (input: unknown, output: TransformOutput): Promise<void> => {
       try {
-        const sessionID = input?.sessionID
+        const sessionID = ((input ?? {}) as { sessionID?: unknown }).sessionID
         if (typeof sessionID !== "string" || !sessionID) return
 
         const notice = pendingNotice.get(sessionID)

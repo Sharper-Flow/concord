@@ -36,7 +36,7 @@ SOURCE = {
 
 ALLOWED_RECORD = {"id", "state", "evidence", "issue", "reason"}
 ALLOWED_ANCHOR = {"kind", "value"}
-ANCHOR_KINDS = {"go_test", "scenario", "validator", "generated"}
+ANCHOR_KINDS = {"go_test", "scenario", "validator", "generated", "adapter_test"}
 
 sys.path.insert(0, str(ROOT / "scripts"))
 from coverage_state import (  # noqa: E402

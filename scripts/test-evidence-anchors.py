@@ -100,6 +100,37 @@ def test_unparseable_module_proves_nothing(tmp: Path) -> None:
     assert anchors.nested_invocations(module) == set()
 
 
+
+def test_adapter_test_anchor_resolves() -> None:
+    findings: list[str] = []
+    anchors.check_anchor(
+        {"kind": "adapter_test", "value": "adapter/opencode/concord.test.ts#a read answered by a newer core contract is typed as version skew"},
+        "prefix",
+        findings,
+    )
+    assert findings == [], findings
+
+
+def test_adapter_test_anchor_rejects_unknown_test() -> None:
+    findings: list[str] = []
+    anchors.check_anchor(
+        {"kind": "adapter_test", "value": "adapter/opencode/concord.test.ts#no such test is registered"},
+        "prefix",
+        findings,
+    )
+    assert any("does not resolve" in f for f in findings), findings
+
+
+def test_adapter_test_anchor_rejects_foreign_path() -> None:
+    findings: list[str] = []
+    anchors.check_anchor(
+        {"kind": "adapter_test", "value": "adapter/elsewhere/concord.test.ts#a read answered by a newer core contract is typed as version skew"},
+        "prefix",
+        findings,
+    )
+    assert any("must read" in f for f in findings), findings
+
+
 def main() -> int:
     import tempfile
 

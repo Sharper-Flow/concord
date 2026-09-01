@@ -66,7 +66,7 @@
               "additionalProperties": false,
               "required": ["kind", "value"],
               "properties": {
-                "kind": { "type": "string", "enum": ["go_test", "scenario", "validator", "generated"] },
+                "kind": { "type": "string", "enum": ["go_test", "scenario", "validator", "generated", "adapter_test"] },
                 "value": { "type": "string", "minLength": 3, "maxLength": 512 }
               }
             }

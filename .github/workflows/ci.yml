@@ -33,6 +33,8 @@ jobs:
           bun-version: 1.4.0
       - name: Validate public content
         run: python3 scripts/check-public-content.py
+      - name: Test the adapter suite
+        run: bun test adapter/opencode/
       - name: Validate documentation links
         run: python3 scripts/check-doc-links.py
       - name: Validate agent instructions

@@ -611,9 +611,9 @@ func s2PanelLines(panel launcher.S2Panel, expanded bool, stack launcher.S2Answer
 		case launcher.S2PanelDomain:
 			return domainSummaryLines(stack.Domain.Domain)
 		case launcher.S2PanelBlocked:
-			return blockedSummaryLines(stack.Blocked.Work)
+			return blockedSummaryLines(stack.Blocked.Work, snapshot)
 		case launcher.S2PanelNext:
-			return nextSummaryLines(stack.Next.Work)
+			return nextSummaryLines(stack.Next.Work, snapshot)
 		}
 	}
 	switch panel {
@@ -624,7 +624,7 @@ func s2PanelLines(panel launcher.S2Panel, expanded bool, stack launcher.S2Answer
 		lines = append(lines, relationLines(snapshot.Relations)...)
 		return lines
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
-		return append([]string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked)...)
+		return append([]string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked, snapshot)...)
 	default:
 		return nil
 	}
@@ -651,9 +651,9 @@ func domainSummaryLines(summary launcher.S2DomainSummary) []string {
 	return []string{"DOMAIN: unresolved overlap: " + strings.Join(parts, "; ")}
 }
 
-func blockedSummaryLines(item *launcher.RankedWork) []string {
+func blockedSummaryLines(item *launcher.RankedWork, snapshot launcher.Snapshot) []string {
 	if item == nil {
-		return []string{"BLOCKED: authoritative-empty"}
+		return []string{"BLOCKED: " + drillDownEmptyState(snapshot)}
 	}
 	state := rankedMarker(item)
 	blockers := make([]string, 0, len(item.Blockers))
@@ -663,21 +663,37 @@ func blockedSummaryLines(item *launcher.RankedWork) []string {
 	return []string{"BLOCKED: " + item.ID + " " + item.Title + " marker=" + state + " blockers=" + strings.Join(blockers, ",")}
 }
 
-func nextSummaryLines(item *launcher.RankedWork) []string {
+func nextSummaryLines(item *launcher.RankedWork, snapshot launcher.Snapshot) []string {
 	if item == nil {
-		return []string{"NEXT: authoritative-empty"}
+		return []string{"NEXT: " + drillDownEmptyState(snapshot)}
 	}
 	return []string{"NEXT: " + rankedMarker(item) + " " + item.ID + " " + item.Title}
 }
 
+// drillDownEmptyState types the empty drill-down answer so a degraded source
+// never renders as an authoritative-empty list.
+func drillDownEmptyState(snapshot launcher.Snapshot) string {
+	if snapshot.Coverage != "" && snapshot.Coverage != "authoritative" {
+		reason := strings.TrimPrefix(snapshot.StatusMessage, "unavailable: ")
+		if reason == "" {
+			reason = snapshot.Coverage
+		}
+		return "unavailable: " + reason
+	}
+	return "authoritative-empty"
+}
+
 func rankedMarker(item *launcher.RankedWork) string {
-	if item.Blocked {
+	switch item.Readiness() {
+	case "terminal":
+		return "-TERMINAL"
+	case "blocked":
 		return "!BLOCKED"
-	}
-	if item.Ready {
+	case "ready":
 		return "+READY"
+	default:
+		return "~ACTIVE"
 	}
-	return "~ACTIVE"
 }
 
 func relationLines(relations launcher.RelationTree) []string {
@@ -703,9 +719,9 @@ func relationLines(relations launcher.RelationTree) []string {
 	return lines
 }
 
-func rankedLines(ranked []launcher.RankedWork) []string {
+func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot) []string {
 	if len(ranked) == 0 {
-		return []string{"WORK: authoritative-empty"}
+		return []string{"WORK: " + drillDownEmptyState(snapshot)}
 	}
 	lines := make([]string, 0, len(ranked))
 	for i, item := range ranked {
@@ -713,7 +729,15 @@ func rankedLines(ranked []launcher.RankedWork) []string {
 		if urgency == "" {
 			urgency = "standard"
 		}
-		lines = append(lines, fmtInt(i+1)+" "+rankedMarker(&item)+" "+item.ID+" "+item.Title+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+" projects="+fmtInt(item.ProjectCount))
+		terminal := ""
+		if item.TerminalAt != "" {
+			terminal = " terminal=" + item.TerminalAt
+		}
+		kind := item.Kind
+		if kind == "" {
+			kind = "-"
+		}
+		lines = append(lines, fmtInt(i+1)+" "+rankedMarker(&item)+" "+item.ID+" "+item.Title+" kind="+kind+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+terminal+" projects="+fmtInt(item.ProjectCount))
 		for _, blocker := range item.Blockers {
 			external := ""
 			if blocker.External {

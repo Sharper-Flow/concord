@@ -65,8 +65,13 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 
 func snapshotFromProduct(result store.LauncherProductResult, product string, section launcher.Section) launcher.Snapshot {
 	s := launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: product, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...)}
-	s.Ranked = make([]launcher.RankedWork, 0, len(result.Works))
+	s.Ranked = make([]launcher.RankedWork, 0, len(result.Works)+len(result.TerminalWorks))
 	for _, item := range result.Works {
+		s.Ranked = append(s.Ranked, mapWork(item))
+	}
+	// The terminal drill-down tail follows the active segment in the store's
+	// deterministic order; both segments are already ordered per read.
+	for _, item := range result.TerminalWorks {
 		s.Ranked = append(s.Ranked, mapWork(item))
 	}
 	s.Relations = relationTree(result.Edges, 3, result.Authority)
@@ -119,7 +124,7 @@ func snapshotFromWork(result store.LauncherWorkResult, product, work string, sec
 }
 
 func mapWork(item store.LauncherWork) launcher.RankedWork {
-	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready}
+	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
 	for _, blocker := range item.Blockers {
 		out.Blockers = append(out.Blockers, launcher.Blocker{ID: blocker.ID, Title: blocker.Title, Authority: blocker.Authority, Age: blocker.Age, External: blocker.External, ConditionID: blocker.ConditionID})
 	}

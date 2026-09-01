@@ -99,3 +99,53 @@ func TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection(t *testing.T) {
 		t.Fatalf("absent registry must render typed unavailable, not empty: %#v", snapshot.Domains)
 	}
 }
+
+func TestProductReadAppendsTerminalDrillDownTail(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(context.Background(), filepath.Join(dir, "launcher.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
+		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('drill','Drill','prototype','operator_only',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('drill-project','Drill project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO product_projects(product_id,project_id,role) VALUES ('drill','drill-project','primary');
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES
+		('drill-live','task','Live work','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z',NULL),
+		('drill-done','bug','Done work','completed',1,1,'2026-08-01T00:00:00Z','2026-08-04T00:00:00Z','2026-08-04T00:00:00Z');
+		INSERT INTO work_projects(work_id,project_id,role) VALUES ('drill-live','drill-project','primary'),('drill-done','drill-project','primary');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	port := New(s)
+	snapshot, err := port.Read(ctx, launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "drill", Limit: 20, Section: launcher.SectionRanked})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Coverage != "authoritative" || len(snapshot.Ranked) != 2 {
+		t.Fatalf("drill-down snapshot=%#v", snapshot)
+	}
+	live, done := snapshot.Ranked[0], snapshot.Ranked[1]
+	if live.ID != "drill-live" || live.Terminal || live.TerminalAt != "" || live.Readiness() != "ready" {
+		t.Fatalf("active drill-down item=%#v", live)
+	}
+	if done.ID != "drill-done" || !done.Terminal || done.TerminalAt != "2026-08-04T00:00:00Z" || done.Kind != "bug" || done.Readiness() != "terminal" {
+		t.Fatalf("terminal drill-down item=%#v", done)
+	}
+	// The store answer feeds the S2 summary contract: the terminal tail must
+	// not answer blocked/next.
+	stack := snapshot.S2AnswerStack()
+	if stack.Blocked.Work == nil || stack.Blocked.Work.ID != "drill-live" {
+		t.Fatalf("terminal tail supplied a coordination summary: %#v", stack)
+	}
+}

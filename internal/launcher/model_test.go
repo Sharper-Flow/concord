@@ -3,6 +3,7 @@ package launcher
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -177,6 +178,82 @@ func TestProductAndWorkProjectionCarriesTypedScreenSections(t *testing.T) {
 	work := Project(Snapshot{Screen: ScreenWork, AmbientProduct: "p-1", Section: SectionKnowledge, Detail: WorkDetail{Item: RankedWork{ID: "w-1", Title: "Next", Lifecycle: "needed"}}}, 80)
 	if work.Columns[0] != "Work" || len(work.Rows) != 1 || !strings.Contains(work.Header[len(work.Header)-1], "knowledge") {
 		t.Fatalf("work projection=%#v", work)
+	}
+}
+
+func TestRankedDrillDownProjectionIsDeterministicWithTerminalTail(t *testing.T) {
+	snapshot := Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{
+		{ID: "w-1", Kind: "task", Title: "First", Priority: 1, Urgency: "expedite", Lifecycle: "needed", Ready: true},
+		{ID: "w-2", Kind: "bug", Title: "Second", Priority: 2, Lifecycle: "needed", Blocked: true},
+		{ID: "w-3", Kind: "task", Title: "Done", Priority: 3, Lifecycle: "completed", Terminal: true, TerminalAt: "2026-08-05T00:00:00Z"},
+	}}
+	first, second := Project(snapshot, 80), Project(snapshot, 80)
+	wantColumns := []string{"Work", "Kind", "Priority", "Urgency", "Readiness", "Lifecycle", "TerminalAt", "Projects"}
+	if !reflect.DeepEqual(first.Columns, wantColumns) {
+		t.Fatalf("drill-down columns=%v", first.Columns)
+	}
+	if len(first.Rows) != len(snapshot.Ranked) {
+		t.Fatalf("drill-down rows=%#v", first.Rows)
+	}
+	for i := range first.Rows {
+		if !reflect.DeepEqual(first.Rows[i], second.Rows[i]) {
+			t.Fatalf("drill-down row %d changed between renders: %#v vs %#v", i, first.Rows[i], second.Rows[i])
+		}
+	}
+	if first.Rows[0][1] != "task" || first.Rows[0][4] != "ready" || first.Rows[0][6] != "-" {
+		t.Fatalf("ready row=%#v", first.Rows[0])
+	}
+	if first.Rows[1][1] != "bug" || first.Rows[1][4] != "blocked" {
+		t.Fatalf("blocked row=%#v", first.Rows[1])
+	}
+	if first.Rows[2][4] != "terminal" || first.Rows[2][6] != "2026-08-05T00:00:00Z" {
+		t.Fatalf("terminal row=%#v", first.Rows[2])
+	}
+}
+
+func TestRankedReadinessDerivesTerminalBeforeBlocked(t *testing.T) {
+	if got := (RankedWork{Terminal: true, Blocked: true, Ready: true}).Readiness(); got != "terminal" {
+		t.Fatalf("terminal readiness=%q", got)
+	}
+	if got := (RankedWork{Blocked: true}).Readiness(); got != "blocked" {
+		t.Fatalf("blocked readiness=%q", got)
+	}
+	if got := (RankedWork{Ready: true}).Readiness(); got != "ready" {
+		t.Fatalf("ready readiness=%q", got)
+	}
+	if got := (RankedWork{Lifecycle: "in_progress"}).Readiness(); got != "active" {
+		t.Fatalf("active readiness=%q", got)
+	}
+}
+
+func TestRankedDrillDownEmptyRendersTypedStateNotSilentBlank(t *testing.T) {
+	authoritative := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "authoritative"}, 80)
+	if len(authoritative.Rows) != 1 || authoritative.Rows[0][0] != "authoritative-empty" {
+		t.Fatalf("authoritative empty drill-down=%#v", authoritative.Rows)
+	}
+	degraded := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"}, 80)
+	if len(degraded.Rows) != 1 || degraded.Rows[0][0] != "unavailable: Product work omitted by launcher limit" {
+		t.Fatalf("degraded empty drill-down=%#v", degraded.Rows)
+	}
+	unreachable := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unreachable", StatusMessage: "database unavailable"}, 80)
+	if len(unreachable.Rows) != 1 || unreachable.Rows[0][0] != "unavailable: database unavailable" {
+		t.Fatalf("unreachable empty drill-down=%#v", unreachable.Rows)
+	}
+}
+
+func TestS2AnswerStackSummariesSkipTerminalDrillDownTail(t *testing.T) {
+	withActive := Snapshot{Screen: ScreenProduct, Ranked: []RankedWork{
+		{ID: "done", Title: "Done", Terminal: true, TerminalAt: "2026-08-01T00:00:00Z"},
+		{ID: "live", Title: "Live", Ready: true},
+	}}
+	stack := withActive.S2AnswerStack()
+	if stack.Blocked.Work == nil || stack.Blocked.Work.ID != "live" || stack.Next.Work == nil || stack.Next.Work.ID != "live" {
+		t.Fatalf("terminal tail supplied a coordination summary: %#v", stack)
+	}
+	onlyTerminal := Snapshot{Screen: ScreenProduct, Ranked: []RankedWork{{ID: "done", Title: "Done", Terminal: true}}}
+	stack = onlyTerminal.S2AnswerStack()
+	if stack.Blocked.Work != nil || stack.Next.Work != nil {
+		t.Fatalf("terminal-only drill-down must not answer blocked/next: %#v", stack)
 	}
 }
 

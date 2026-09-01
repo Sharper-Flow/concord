@@ -130,9 +130,26 @@ type RankedWork struct {
 	Priority                   int64
 	Urgency                    string
 	CreatedAt, UpdatedAt       string
+	TerminalAt                 string
 	ProjectCount               int
-	Blocked, Ready             bool
+	Blocked, Ready, Terminal   bool
 	Blockers                   []Blocker
+}
+
+// Readiness is the single derivation of the C14 drill-down readiness marker.
+// Terminal is checked first: a terminal item is not actionable, so blocker and
+// ready state do not apply to it.
+func (item RankedWork) Readiness() string {
+	switch {
+	case item.Terminal:
+		return "terminal"
+	case item.Blocked:
+		return "blocked"
+	case item.Ready:
+		return "ready"
+	default:
+		return "active"
+	}
 }
 
 type DomainRow struct {
@@ -444,14 +461,26 @@ func (m *Model) Snapshot() Snapshot {
 func (snapshot Snapshot) S2AnswerStack() S2AnswerStack {
 	stack := S2AnswerStack{Panels: S2PanelOrder()}
 	stack.Domain = S2PanelSummary{Panel: S2PanelDomain, Domain: domainSummary(snapshot.Domains)}
-	if len(snapshot.Ranked) > 0 {
-		stack.Blocked = S2PanelSummary{Panel: S2PanelBlocked, Work: &snapshot.Ranked[0]}
-		stack.Next = S2PanelSummary{Panel: S2PanelNext, Work: &snapshot.Ranked[0]}
+	// Blocked and Next answer active coordination only, so the terminal
+	// drill-down tail never supplies the summaries even though it shares the
+	// ranked list.
+	if next := firstActiveRanked(snapshot.Ranked); next != nil {
+		stack.Blocked = S2PanelSummary{Panel: S2PanelBlocked, Work: next}
+		stack.Next = S2PanelSummary{Panel: S2PanelNext, Work: next}
 	} else {
 		stack.Blocked.Panel = S2PanelBlocked
 		stack.Next.Panel = S2PanelNext
 	}
 	return stack
+}
+
+func firstActiveRanked(ranked []RankedWork) *RankedWork {
+	for i := range ranked {
+		if !ranked[i].Terminal {
+			return &ranked[i]
+		}
+	}
+	return nil
 }
 
 func domainSummary(section DomainSection) S2DomainSummary {

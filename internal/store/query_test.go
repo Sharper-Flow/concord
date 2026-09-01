@@ -143,6 +143,72 @@ func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
 	}
 }
 
+func TestLauncherProductDrillDownIncludesTerminalWork(t *testing.T) {
+	s := seedQueryFixture(t)
+	defer s.Close()
+	ctx := context.Background()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
+		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('other','Other','prototype','operator_only',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('other-project','Other project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO product_projects(product_id,project_id,role) VALUES ('other','other-project','primary');
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES
+		('done-recent','task','Recent done','completed',1,1,'2026-08-01T00:00:00Z','2026-08-05T00:00:00Z','2026-08-05T00:00:00Z'),
+		('done-old','bug','Old done','cancelled',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z'),
+		('done-tie','task','Tie done','superseded',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z'),
+		('foreign-done','task','Foreign done','completed',1,1,'2026-08-01T00:00:00Z','2026-08-09T00:00:00Z','2026-08-09T00:00:00Z');
+		INSERT INTO work_projects(work_id,project_id,role) VALUES
+		('done-recent','proj','primary'),('done-old','proj','primary'),('done-tie','proj','primary'),('foreign-done','other-project','primary');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "prod", Limit: 20, Depth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Works) != 2 {
+		t.Fatalf("active segment must stay unchanged: %#v", result.Works)
+	}
+	for _, item := range result.Works {
+		if item.Terminal || item.TerminalAt != "" {
+			t.Fatalf("active item carried terminal state: %#v", item)
+		}
+	}
+	wantOrder := []string{"done-recent", "done-old", "done-tie"}
+	if len(result.TerminalWorks) != len(wantOrder) {
+		t.Fatalf("terminal segment=%#v", result.TerminalWorks)
+	}
+	for i, id := range wantOrder {
+		item := result.TerminalWorks[i]
+		if item.ID != id || !item.Terminal || item.TerminalAt == "" || item.Ready || item.Blocked || len(item.Blockers) != 0 {
+			t.Fatalf("terminal item %d=%#v", i, item)
+		}
+	}
+	recent := result.TerminalWorks[0]
+	if recent.TerminalAt != "2026-08-05T00:00:00Z" || recent.Kind != "task" || recent.Title != "Recent done" || recent.ProjectCount != 1 {
+		t.Fatalf("terminal identity fields=%#v", recent)
+	}
+	for _, item := range result.TerminalWorks {
+		if item.ID == "foreign-done" {
+			t.Fatalf("terminal segment leaked another Product: %#v", result.TerminalWorks)
+		}
+	}
+	limited, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "prod", Limit: 2, Depth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited.TerminalWorks) != 2 || !containsString(limited.Omissions, "Product terminal work omitted by launcher limit") {
+		t.Fatalf("terminal truncation must stay visible: %#v omissions=%v", limited.TerminalWorks, limited.Omissions)
+	}
+}
+
 func TestLauncherProductDepthThreeRepresentativeP99(t *testing.T) {
 	if productRowSkipPerformanceUnderRace {
 		t.Skip("representative latency threshold is measured without race instrumentation")

@@ -43,13 +43,16 @@ func Project(snapshot Snapshot, _ int) Projection {
 		}
 	}
 	if snapshot.Screen == ScreenProduct && snapshot.Section != SectionDomains {
-		columns = []string{"Work", "Priority", "Urgency", "Lifecycle", "Blocked", "Projects"}
+		columns = []string{"Work", "Kind", "Priority", "Urgency", "Readiness", "Lifecycle", "TerminalAt", "Projects"}
 		for _, item := range snapshot.Ranked {
-			blocked := "no"
-			if item.Blocked {
-				blocked = "yes"
+			terminalAt := item.TerminalAt
+			if terminalAt == "" {
+				terminalAt = "-"
 			}
-			rows = append(rows, []string{item.ID + " " + item.Title, fmt.Sprintf("%d", item.Priority), item.Urgency, item.Lifecycle, blocked, fmt.Sprintf("%d", item.ProjectCount)})
+			rows = append(rows, []string{item.ID + " " + item.Title, item.Kind, fmt.Sprintf("%d", item.Priority), item.Urgency, item.Readiness(), item.Lifecycle, terminalAt, fmt.Sprintf("%d", item.ProjectCount)})
+		}
+		if len(snapshot.Ranked) == 0 {
+			rows = append(rows, drillDownStateRow(rankedSectionState(snapshot), columns))
 		}
 	}
 	if snapshot.Screen == ScreenWork {
@@ -135,6 +138,29 @@ func watermarkText(value string) string {
 		return "unknown"
 	}
 	return value
+}
+
+// rankedSectionState types the drill-down list state so a degraded source
+// never renders as an authoritative empty list.
+func rankedSectionState(snapshot Snapshot) string {
+	if snapshot.Coverage != "" && snapshot.Coverage != "authoritative" {
+		reason := strings.TrimPrefix(snapshot.StatusMessage, "unavailable: ")
+		if reason == "" {
+			reason = snapshot.Coverage
+		}
+		return "unavailable: " + reason
+	}
+	return "authoritative-empty"
+}
+
+// drillDownStateRow renders a list state as one row with the column arity the
+// section already declared, mirroring the Domains unavailable row.
+func drillDownStateRow(state string, columns []string) []string {
+	row := []string{state}
+	for i := 1; i < len(columns); i++ {
+		row = append(row, "-")
+	}
+	return row
 }
 func relianceText(value string) string {
 	if value == "" {

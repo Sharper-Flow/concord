@@ -41,6 +41,21 @@ var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
 	},
 }
 
+// mainCheckoutTerminalWorkOperations names the closed set of operations that
+// resolve from a registered Project's default checkout only when the work
+// item they address is terminal. worktree_reclaim joins it because a
+// terminal item holds no live implementation surface: reclaiming its
+// worktree retires an already-merged branch, so the main checkout may
+// retire it too (issue #674, amending CD-0092 D2 scope). Authorization
+// admits the operation and records the main-checkout grant; the planner
+// enforces terminality and refuses non-terminal work with the same
+// CD-0092 D2 refusal.
+var mainCheckoutTerminalWorkOperations = map[Capability]map[string]struct{}{
+	Capability("work_transition"): {
+		"worktree_reclaim": {},
+	},
+}
+
 type Clock func() time.Time
 type Service struct {
 	Store          *store.Store
@@ -199,6 +214,11 @@ type Authority struct {
 	ScopeVersion      string
 	CandidateProducts []string
 	ScopeSnapshot     map[string]any
+	// MainWorktree records that the grant resolved from the registered
+	// Project's default checkout rather than a linked worktree, so
+	// conditional main-checkout operations can enforce their conditions at
+	// planning time.
+	MainWorktree bool
 }
 
 type Invocation struct {
@@ -275,7 +295,8 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if resolved.MainWorktree {
 		_, capabilityAllowed := mainCheckoutAllowedCapabilities[in.RequiredCapability]
 		_, operationAllowed := mainCheckoutAllowedOperations[in.RequiredCapability][in.RequiredOperation]
-		if !capabilityAllowed && !operationAllowed {
+		_, terminalWorkAllowed := mainCheckoutTerminalWorkOperations[in.RequiredCapability][in.RequiredOperation]
+		if !capabilityAllowed && !operationAllowed && !terminalWorkAllowed {
 			return Authority{}, authorityRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)")
 		}
 	}
@@ -290,7 +311,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	}
 	projects := []string{resolved.ProjectID}
 	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
-	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: candidateProducts, ProjectScope: projects, ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot}, nil
+	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: candidateProducts, ProjectScope: projects, ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, MainWorktree: resolved.MainWorktree}, nil
 }
 
 // authorityRefusal marks the authorization boundary as a typed refusal.

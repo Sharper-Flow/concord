@@ -1663,6 +1663,21 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		// Issue #674 amends the CD-0092 D2 surface for this operation only:
+		// a main-checkout grant may reclaim once the work item is terminal,
+		// because terminal work holds no live implementation surface. The
+		// lifecycle read is tx-scoped and the grant is the in-transaction
+		// re-authorization, so the condition holds atomically with the
+		// reclamation; non-terminal work keeps the CD-0092 D2 refusal.
+		if grant.MainWorktree {
+			lifecycle, err := currentLifecycle(ctx, tx, in.WorkID)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if lifecycle != "completed" && lifecycle != "cancelled" {
+				return nil, nil, nil, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)
+			}
+		}
 		if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,

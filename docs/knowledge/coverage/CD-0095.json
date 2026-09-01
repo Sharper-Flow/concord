@@ -1,0 +1,10 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork"
+    }
+  ],
+  "id": "CD-0095",
+  "state": "satisfied"
+}

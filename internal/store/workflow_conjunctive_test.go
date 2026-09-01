@@ -102,3 +102,17 @@ func TestWorkflowOutcomePredicateSetRejectsUnapprovedDeliveredPredicate(t *testi
 		t.Fatalf("unapproved delivered predicate error = %v, want %s", err, KindOutcomeMismatch)
 	}
 }
+
+func TestWorkflowOutcomePredicateSetRejectsMissingApprovedPredicate(t *testing.T) {
+	definition := workflowFixtureDefinition(t, 1)
+	check := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"completed"}}
+	_, err := EvaluateWorkflowOutcomePredicateSet(
+		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}, {PredicateID: "predicate:required", Predicate: check}},
+		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}},
+		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}},
+	)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("uncovered approved predicate error = %v, want %s", err, KindMissingEvidence)
+	}
+}

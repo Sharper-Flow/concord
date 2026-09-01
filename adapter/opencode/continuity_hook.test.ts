@@ -29,7 +29,8 @@ function output(system: string): { system: string[] } {
 }
 
 test("plugin entry registers the continuity system transform", () => {
-  expect(pluginSource).toContain('"experimental.chat.system.transform": createContinuityTransform()')
+  expect(pluginSource).toContain("const continuityTransform = createContinuityTransform()")
+  expect(pluginSource).toContain("await continuityTransform(input, output)")
 })
 
 test("continuity transform keeps identical cached output byte-stable", async () => {

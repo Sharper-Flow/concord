@@ -28,8 +28,11 @@ import {
   work_start,
 } from "./concord"
 import { createContinuityTransform } from "./continuity-hook"
+import { createAgentSwitchNotice } from "./agent-switch-hook"
 
 export default async function ConcordAdapterPlugin() {
+  const continuityTransform = createContinuityTransform()
+  const agentSwitch = createAgentSwitchNotice()
   return {
     tool: {
       concord_product_view: product_view,
@@ -44,6 +47,10 @@ export default async function ConcordAdapterPlugin() {
       concord_work_compact: work_compact,
       concord_work_start: work_start,
     },
-    "experimental.chat.system.transform": createContinuityTransform(),
+    "chat.message": agentSwitch.chatMessage,
+    "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
+      await continuityTransform(input, output)
+      await agentSwitch.transform(input, output)
+    },
   }
 }

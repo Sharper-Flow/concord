@@ -371,16 +371,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "workflow_definition_version": workflowDefinitionVersion, "workflow_definition_digest": workflowDigestValue, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
 		})}, nil
 	case "approve_contract":
-		if rawOutcome, present := fields["outcome"]; present && string(rawOutcome) == "null" {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")
-		}
-		if rawPayload := workflowFieldRaw(fields, "payload"); len(rawPayload) != 0 {
-			var payloadFields map[string]json.RawMessage
-			if json.Unmarshal(rawPayload, &payloadFields) == nil {
-				if nestedOutcome, present := payloadFields["outcome"]; present && string(nestedOutcome) == "null" {
-					return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")
-				}
-			}
+		outcomePredicates, err := workflowContractOutcomePredicates(definition, fields)
+		if err != nil {
+			return nil, err
 		}
 		if route, ok := workflowFieldString(fields, "route_convention"); ok && route != "workflow_action" {
 			return nil, newFailure(KindInvariantViolation, "workflow_action", "route convention is not declared by the workflow action boundary", false, "use a declared route convention")
@@ -395,48 +388,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		for _, required := range workflowFieldStrings(fields, "required_route_conventions") {
 			if !contains(declaredRoutes, required) {
 				return nil, newFailure(KindInvariantViolation, "workflow_action", "required route convention is not declared by the contract", false, "declare every required route convention")
-			}
-		}
-		var actionGroundTruth map[string]any
-		if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
-			_ = json.Unmarshal(payload, &actionGroundTruth)
-		}
-		var outcomePredicates []workflowContractPredicatePayload
-		if rawPredicates := workflowFieldRaw(fields, "outcome_predicates"); len(rawPredicates) != 0 {
-			_ = json.Unmarshal(rawPredicates, &outcomePredicates)
-		} else {
-			_, hasLegacyOutcomeKind := fields["outcome_kind"]
-			_, hasLegacyOutcomePayload := fields["outcome_payload"]
-			_, hasLegacyOutcome := fields["outcome"]
-			if !hasLegacyOutcomeKind && !hasLegacyOutcomePayload && !hasLegacyOutcome {
-				outcomePredicates = []workflowContractPredicatePayload{}
-			} else {
-				outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
-				outcome := workflowFieldRaw(fields, "outcome")
-				if len(outcome) != 0 && string(outcome) != "null" {
-					var predicate map[string]any
-					if json.Unmarshal(outcome, &predicate) == nil {
-						outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
-					}
-				}
-				outcomePayload := workflowFieldRaw(fields, "outcome_payload")
-				if len(outcomePayload) == 0 {
-					outcomePayload = defaultWorkflowOutcome(definition, fields)
-				}
-				outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKindForVacuity, OutcomePayload: outcomePayload}}
-			}
-		}
-		for _, predicate := range outcomePredicates {
-			var groundTruth map[string]any
-			groundTruthValue := ""
-			if json.Unmarshal(predicate.OutcomePayload, &groundTruth) == nil {
-				groundTruthValue = workflowFieldStringDefaultMap(groundTruth, "ground_truth", "")
-			}
-			if groundTruthValue == "" {
-				groundTruthValue = workflowFieldStringDefaultMap(actionGroundTruth, "ground_truth", "")
-			}
-			if workflowOutcomePredicateVacuous(predicate.OutcomeKind, groundTruthValue) {
-				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
 			}
 		}
 		contractVersion := workflowFieldInt(fields, "contract_version", 1)
@@ -825,6 +776,63 @@ func defaultWorkflowOutcome(definition WorkflowDefinition, fields map[string]jso
 		return json.RawMessage(`{"kind":"outcome","allowed":["completed"]}`)
 	}
 	return json.RawMessage(`{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_result":"pass"}`)
+}
+
+func workflowContractOutcomePredicates(definition WorkflowDefinition, fields map[string]json.RawMessage) ([]workflowContractPredicatePayload, error) {
+	if rawOutcome, present := fields["outcome"]; present && string(rawOutcome) == "null" {
+		return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")
+	}
+	if rawPayload := workflowFieldRaw(fields, "payload"); len(rawPayload) != 0 {
+		var payloadFields map[string]json.RawMessage
+		if json.Unmarshal(rawPayload, &payloadFields) == nil {
+			if nestedOutcome, present := payloadFields["outcome"]; present && string(nestedOutcome) == "null" {
+				return nil, newFailure(KindInvariantViolation, "workflow_action", "planning requires an explicit outcome predicate", false, "supply the approved end-state predicate")
+			}
+		}
+	}
+	var actionGroundTruth map[string]any
+	if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
+		_ = json.Unmarshal(payload, &actionGroundTruth)
+	}
+	var outcomePredicates []workflowContractPredicatePayload
+	if rawPredicates := workflowFieldRaw(fields, "outcome_predicates"); len(rawPredicates) != 0 {
+		_ = json.Unmarshal(rawPredicates, &outcomePredicates)
+	} else {
+		_, hasLegacyOutcomeKind := fields["outcome_kind"]
+		_, hasLegacyOutcomePayload := fields["outcome_payload"]
+		_, hasLegacyOutcome := fields["outcome"]
+		if !hasLegacyOutcomeKind && !hasLegacyOutcomePayload && !hasLegacyOutcome {
+			outcomePredicates = []workflowContractPredicatePayload{}
+		} else {
+			outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
+			outcome := workflowFieldRaw(fields, "outcome")
+			if len(outcome) != 0 && string(outcome) != "null" {
+				var predicate map[string]any
+				if json.Unmarshal(outcome, &predicate) == nil {
+					outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
+				}
+			}
+			outcomePayload := workflowFieldRaw(fields, "outcome_payload")
+			if len(outcomePayload) == 0 {
+				outcomePayload = defaultWorkflowOutcome(definition, fields)
+			}
+			outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKindForVacuity, OutcomePayload: outcomePayload}}
+		}
+	}
+	for _, predicate := range outcomePredicates {
+		var groundTruth map[string]any
+		groundTruthValue := ""
+		if json.Unmarshal(predicate.OutcomePayload, &groundTruth) == nil {
+			groundTruthValue = workflowFieldStringDefaultMap(groundTruth, "ground_truth", "")
+		}
+		if groundTruthValue == "" {
+			groundTruthValue = workflowFieldStringDefaultMap(actionGroundTruth, "ground_truth", "")
+		}
+		if workflowOutcomePredicateVacuous(predicate.OutcomeKind, groundTruthValue) {
+			return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
+		}
+	}
+	return outcomePredicates, nil
 }
 
 func workflowOutcomePredicateVacuous(kind, groundTruth string) bool {

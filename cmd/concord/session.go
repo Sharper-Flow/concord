@@ -22,8 +22,58 @@ const (
 var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
 
 type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
-type sessionRunnerFunc func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
+type sessionRunnerFunc func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error
 type sessionAgentIdentityFunc func() error
+
+// sessionDirectoryFunc resolves the directory the session runs in from the
+// selected work's Project (CD-0093 D1). It is a parameter so tests can point
+// a session at an isolated directory; production wiring is
+// resolveSessionDirectory below.
+type sessionDirectoryFunc func(ctx context.Context, workID string) (string, error)
+
+// sessionDirectoryUnresolvedError reports a recorded canonical path that does
+// not resolve on this machine. CD-0093 D3 refuses the launch rather than
+// starting a session in a fallback directory, and the diagnostic names the
+// path so the operator can see which registration is stale.
+type sessionDirectoryUnresolvedError struct {
+	Path  string
+	Cause error
+}
+
+func (e *sessionDirectoryUnresolvedError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("session directory does not resolve: %s; cause: %v", e.Path, e.Cause)
+	}
+	return fmt.Sprintf("session directory does not resolve: %s", e.Path)
+}
+
+// resolveSessionDirectory is the production wiring for CD-0093 D1 and D3: it
+// reads the selected work's primary Project canonical path from the authority
+// store and verifies the path resolves on this machine. Every failure refuses;
+// no session starts in a fallback directory.
+func resolveSessionDirectory(ctx context.Context, workID string) (string, error) {
+	path, err := databasePath()
+	if err != nil {
+		return "", err
+	}
+	s, err := store.Open(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = s.Close() }()
+	directory, err := s.ProjectDirectoryForWork(ctx, workID)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(directory)
+	if err != nil {
+		return "", &sessionDirectoryUnresolvedError{Path: directory, Cause: err}
+	}
+	if !info.IsDir() {
+		return "", &sessionDirectoryUnresolvedError{Path: directory, Cause: fmt.Errorf("recorded canonical path is not a directory")}
+	}
+	return directory, nil
+}
 
 // sessionOrchestratorFunc verifies the orchestrator identity the session
 // requires and records the assertion as a domain event. CD-0061 D4 and D5
@@ -166,20 +216,26 @@ func runContinuityBlockCommandWithBootstrap(args []string, out, errOut io.Writer
 	return 0
 }
 
-func runOpenCode(ctx context.Context, argv, env []string, in io.Reader, out, errOut io.Writer) error {
+func runOpenCode(ctx context.Context, dir string, argv, env []string, in io.Reader, out, errOut io.Writer) error {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the sole caller builds fixed opencode argv values and this call does not invoke a shell.
+	// CD-0093 D1: the child's working directory is the session directory
+	// resolved from the selected work's Project. The interactive host carries
+	// no --dir flag; setting the process directory covers the project root
+	// and every relative path the session resolves.
+	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
 	return cmd.Run()
 }
 
-// runSessionCommand is the entry point for `concord session`. The three
-// injected callbacks (bootstrap, runner, identity) make the command
-// observable for tests; the orchestrator callback adds the durable
+// runSessionCommand is the entry point for `concord session`. The four
+// injected callbacks (directory, bootstrap, runner, identity) make the
+// command observable for tests; the orchestrator callback adds the durable
 // orchestrator assertion CD-0061 D4 requires. Production wiring is
-// hostLaneAgentIdentity and hostOrchestratorIdentity.
+// resolveSessionDirectory, hostLaneAgentIdentity and
+// hostOrchestratorIdentity.
 func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool,
-	bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
+	directory sessionDirectoryFunc, bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
 	identity sessionAgentIdentityFunc, orchestrator sessionOrchestratorFunc) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, "concord session: unsupported arguments")
@@ -192,6 +248,20 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
 	if !sessionIdentity.MatchString(productID) || (workID != "" && !sessionIdentity.MatchString(workID)) {
 		writeDiagnostic(errOut, "concord session: launcher identity is missing or invalid")
+		return 2
+	}
+	// CD-0093 D1 and D3: the session directory resolves from the selected
+	// work's Project before anything else the session does, and a session
+	// with no selected work has no owning Project, so no directory can be
+	// established. D3 refuses rather than starting a session in the
+	// launcher's inherited directory.
+	if workID == "" {
+		writeDiagnostic(errOut, "concord session: no selected work; the session directory resolves from the selected work's Project")
+		return 2
+	}
+	sessionDir, err := directory(context.Background(), workID)
+	if err != nil {
+		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
 	if err := identity(); err != nil {
@@ -211,20 +281,17 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: orchestrator definition resolved without an invocation handle")
 		return 2
 	}
-	prompt := "Concord identity: product_id=" + productID
-	if workID != "" {
-		path, err := databasePath()
-		if err != nil {
-			writeDiagnostic(errOut, err.Error())
-			return 1
-		}
-		packet, err := bootstrap(context.Background(), path, productID, workID)
-		if err != nil {
-			writeDiagnostic(errOut, "concord session: "+err.Error())
-			return 1
-		}
-		prompt = "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
+	path, err := databasePath()
+	if err != nil {
+		writeDiagnostic(errOut, err.Error())
+		return 1
 	}
+	packet, err := bootstrap(context.Background(), path, productID, workID)
+	if err != nil {
+		writeDiagnostic(errOut, "concord session: "+err.Error())
+		return 1
+	}
+	prompt := "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	// The session starts the host as the agent whose identity it just
 	// asserted and recorded, selecting it by the handle the host registers
 	// the resolved definition under. Omitting the selection — or selecting
@@ -232,7 +299,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// because the host answers an unselected name with the operator's
 	// default agent and exits zero (CD-0049 D2).
 	argv := []string{"opencode", "--agent", handle, "--prompt", prompt}
-	if err := runner(context.Background(), argv, os.Environ(), in, out, errOut); err != nil {
+	if err := runner(context.Background(), sessionDir, argv, os.Environ(), in, out, errOut); err != nil {
 		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
 		return 1
 	}

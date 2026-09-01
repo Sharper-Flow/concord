@@ -221,3 +221,73 @@ func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.
 		t.Fatalf("linked local resolution=%+v", resolved)
 	}
 }
+
+// locatorWorkEvent builds a work.created event for the session-directory
+// fixture; memberships arrive separately so a case can leave them out.
+func locatorWorkEvent(id string) Event {
+	payload, _ := json.Marshal(map[string]any{"work_kind": "task", "title": "Session directory " + id, "priority": 1})
+	return Event{EventID: "create-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 2, Payload: payload}
+}
+
+func locatorWorkSecondaryEvent(work, project string, expected int64) Event {
+	payload, _ := json.Marshal(map[string]any{"memberships": []map[string]string{{"project_id": project, "role": "secondary"}}, "expected_version": expected, "resulting_version": expected + 1})
+	return Event{EventID: "membership-secondary-" + work, Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: payload}
+}
+
+func locatorWorkMembershipEvent(work, project string, expected int64) Event {
+	payload, _ := json.Marshal(map[string]any{"memberships": []map[string]string{{"project_id": project, "role": "primary"}}, "expected_version": expected, "resulting_version": expected + 1})
+	return Event{EventID: "membership-" + work, Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: payload}
+}
+
+// CD-0093 D1/D3: the session-directory read names each missing authority as a
+// distinct typed failure, and returns the primary Project's canonical path
+// when every authority is present.
+func TestProjectDirectoryForWorkNamesEachMissingAuthority(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-sd"), locatorProjectEvent("project-sd"), locatorMembershipEvent("product-sd", "project-sd")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-sd"): 0, VersionRef(SubjectProject, "project-sd"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	// The fold requires every work to carry a membership, so the no-primary
+	// case is a work whose only membership is secondary.
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorWorkEvent("work-sd"), locatorWorkSecondaryEvent("work-sd", "project-sd", 1)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-sd"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		workID  string
+		wantErr string
+	}{
+		{"empty work ID", "", "work ID is required"},
+		{"unknown work", "work-none", "does not exist"},
+		{"no primary Project", "work-sd", "no primary Project"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := s.ProjectDirectoryForWork(ctx, tc.workID); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("ProjectDirectoryForWork(%q) err=%v, want %q", tc.workID, err, tc.wantErr)
+			}
+		})
+	}
+
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorWorkMembershipEvent("work-sd", "project-sd", 2)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-sd"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("primary Project without a canonical_path locator", func(t *testing.T) {
+		if _, err := s.ProjectDirectoryForWork(ctx, "work-sd"); err == nil || !strings.Contains(err.Error(), "no canonical_path locator") {
+			t.Fatalf("ProjectDirectoryForWork err=%v, want %q", err, "no canonical_path locator")
+		}
+	})
+
+	if err := s.AddProjectLocator(ctx, "project-sd", ProjectLocator{ID: "path-sd", Kind: LocatorCanonicalPath, Value: root}, 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ProjectDirectoryForWork(ctx, "work-sd")
+	if err != nil {
+		t.Fatalf("ProjectDirectoryForWork err=%v", err)
+	}
+	if got != root {
+		t.Fatalf("ProjectDirectoryForWork=%q want %q", got, root)
+	}
+}

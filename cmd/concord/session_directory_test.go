@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,11 +15,11 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// seedSessionAuthority registers a Product, a Project whose canonical_path is
-// the supplied directory, and a work item whose primary Project membership is
-// that Project — the store shape `concord session` resolves the session
-// directory from (CD-0093 D1).
-func seedSessionAuthority(t *testing.T, dbPath, dir string) {
+// seedSessionAuthorityState registers a Product, a Project, and work-661 with
+// the D3 failure authorities removable: secondaryOnly leaves the work with no
+// primary Project membership, and withLocator controls the canonical_path
+// locator.
+func seedSessionAuthorityState(t *testing.T, dbPath, dir string, secondaryOnly, withLocator bool) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := store.Open(ctx, dbPath)
@@ -36,11 +37,97 @@ func seedSessionAuthority(t *testing.T, dbPath, dir string) {
 		{EventID: "sd-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-b", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"display_name":"Project B"}`)},
 		{EventID: "sd-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"product_id":"product-1","project_id":"project-b","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-b"): 0}}))
+	// The fold requires work.created to carry its membership in the same
+	// operation, so the no-primary case is a work whose only membership is
+	// secondary rather than a work with none.
+	membership := store.Event{EventID: "sd-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-661", Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1}
+	if secondaryOnly {
+		membership.Payload = jsonRaw(`{"memberships":[{"project_id":"project-b","role":"secondary"}],"expected_version":1,"resulting_version":2}`)
+	} else {
+		membership.Payload = jsonRaw(`{"memberships":[{"project_id":"project-b","role":"primary"}],"expected_version":1,"resulting_version":2}`)
+	}
 	must(store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
 		{EventID: "sd-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-661", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Session directory work","priority":1}`)},
-		{EventID: "sd-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-661", Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-b","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+		membership,
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-661"): 0}}))
-	must(s.AddProjectLocator(ctx, "project-b", store.ProjectLocator{ID: "path-b", Kind: store.LocatorCanonicalPath, Value: dir}, 1))
+	if withLocator {
+		must(s.AddProjectLocator(ctx, "project-b", store.ProjectLocator{ID: "path-b", Kind: store.LocatorCanonicalPath, Value: dir}, 1))
+	}
+}
+
+// seedSessionAuthority registers the complete session-directory authority:
+// primary membership plus canonical_path locator.
+func seedSessionAuthority(t *testing.T, dbPath, dir string) {
+	t.Helper()
+	seedSessionAuthorityState(t, dbPath, dir, false, true)
+}
+
+// refuseSessionWithAuthority runs `concord session` for work-661 against the
+// production directory resolver with counting callbacks, and returns the exit
+// code, stderr, and the call counts.
+func refuseSessionWithAuthority(t *testing.T, dbPath string) (int, string, int, int, int) {
+	t.Helper()
+	t.Setenv("CONCORD_DB_PATH", dbPath)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-661")
+	identityCalls, runs, bootstrapCalls := 0, 0, 0
+	var out, errOut bytes.Buffer
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		resolveSessionDirectory,
+		func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil },
+		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+			runs++
+			return nil
+		},
+		func() error { identityCalls++; return nil },
+		func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil })
+	return code, errOut.String(), identityCalls, runs, bootstrapCalls
+}
+
+// The three CD-0093 D3 refusal cases: a work whose only membership is
+// secondary has no owning primary Project; a primary Project without a
+// canonical_path locator names the missing registration; a canonical path
+// that does not resolve on this machine refuses rather than starting a
+// session in a fallback directory. Every case refuses before the identity
+// callbacks, the packet, or the host.
+func TestSessionRefusesWhenDirectoryAuthorityIsMissing(t *testing.T) {
+	t.Run("no primary Project", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "concord-no-primary.db")
+		seedSessionAuthorityState(t, dbPath, t.TempDir(), true, true)
+		code, stderr, identityCalls, runs, bootstrapCalls := refuseSessionWithAuthority(t, dbPath)
+		if code != 2 || identityCalls != 0 || runs != 0 || bootstrapCalls != 0 {
+			t.Fatalf("code=%d identity=%d runs=%d bootstrap=%d stderr=%q", code, identityCalls, runs, bootstrapCalls, stderr)
+		}
+		if !strings.Contains(stderr, "no primary Project") {
+			t.Fatalf("diagnostic omits the missing primary Project: %q", stderr)
+		}
+	})
+	t.Run("no canonical_path locator", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "concord-no-locator.db")
+		seedSessionAuthorityState(t, dbPath, t.TempDir(), false, false)
+		code, stderr, identityCalls, runs, bootstrapCalls := refuseSessionWithAuthority(t, dbPath)
+		if code != 2 || identityCalls != 0 || runs != 0 || bootstrapCalls != 0 {
+			t.Fatalf("code=%d identity=%d runs=%d bootstrap=%d stderr=%q", code, identityCalls, runs, bootstrapCalls, stderr)
+		}
+		if !strings.Contains(stderr, "no canonical_path locator") {
+			t.Fatalf("diagnostic omits the missing canonical_path locator: %q", stderr)
+		}
+	})
+	t.Run("canonical path does not resolve", func(t *testing.T) {
+		stale := t.TempDir()
+		dbPath := filepath.Join(t.TempDir(), "concord-stale-path.db")
+		seedSessionAuthorityState(t, dbPath, stale, false, true)
+		if err := os.RemoveAll(stale); err != nil {
+			t.Fatal(err)
+		}
+		code, stderr, identityCalls, runs, bootstrapCalls := refuseSessionWithAuthority(t, dbPath)
+		if code != 2 || identityCalls != 0 || runs != 0 || bootstrapCalls != 0 {
+			t.Fatalf("code=%d identity=%d runs=%d bootstrap=%d stderr=%q", code, identityCalls, runs, bootstrapCalls, stderr)
+		}
+		if !strings.Contains(stderr, "session directory does not resolve") {
+			t.Fatalf("diagnostic omits the unresolved path: %q", stderr)
+		}
+	})
 }
 
 // writeHostDouble installs a fake `opencode` on PATH that behaves like the
@@ -174,6 +261,7 @@ func TestSessionOpensInTheSelectedWorkProjectDirectory(t *testing.T) {
 	t.Chdir(launcherDir)
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		resolveSessionDirectory,
 		func(context.Context, string, string, string) ([]byte, error) {
 			return sessionboot.Build("product-1", store.ContinuitySnapshot{
 				WorkID: "work-661", ProductIdentity: []string{"product-1"}, WorkflowStep: "start",

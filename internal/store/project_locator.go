@@ -184,6 +184,37 @@ func (s *Store) ProjectCanonicalPath(ctx context.Context, projectID string) (str
 	return normalized, nil
 }
 
+// ProjectDirectoryForWork returns the canonical path of the primary Project
+// that owns workID. It is CD-0093 D1's session-directory direction — the
+// inverse of ResolveProject, which answers which Project owns a directory.
+// A work that does not exist, a work with no primary Project membership, and
+// a primary Project with no canonical_path locator are distinct typed
+// failures so a refused launch names which authority is missing.
+func (s *Store) ProjectDirectoryForWork(ctx context.Context, workID string) (string, error) {
+	if s == nil || s.db == nil {
+		return "", newFailure(KindUnavailable, "session_directory", "store is not open", false, "open the authority database")
+	}
+	if workID == "" {
+		return "", newFailure(KindInvalidOperation, "session_directory", "work ID is required", false, "select work before starting a session")
+	}
+	exists, err := workExistsCore(ctx, s.db, workID)
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "session_directory", "cannot read the selected work", true, "retry once the database is readable", err)
+	}
+	if !exists {
+		return "", newFailure(KindUnknownScope, "session_directory", "selected work does not exist", false, "select work from the launcher")
+	}
+	var projectID string
+	err = s.db.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&projectID)
+	if err == sql.ErrNoRows {
+		return "", newFailure(KindUnknownScope, "session_directory", "selected work has no primary Project", false, "give the work a primary Project membership")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "session_directory", "cannot read the work's primary Project", true, "retry once the database is readable", err)
+	}
+	return s.ProjectCanonicalPath(ctx, projectID)
+}
+
 // LocateWorktree owns the branch, base, and path derivation used by native
 // worktree operations.
 func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref string) (WorktreeLocation, error) {

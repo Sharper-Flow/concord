@@ -16,6 +16,12 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+// sessionDirectoryAt builds a directory resolver that always answers the
+// supplied directory, for tests whose subject is not the resolution itself.
+func sessionDirectoryAt(dir string) sessionDirectoryFunc {
+	return func(context.Context, string) (string, error) { return dir, nil }
+}
+
 func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
@@ -29,12 +35,12 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 			RestartUnavailableReason: "typed restart is deliberately excluded", PendingMessages: 2,
 		})
 	}
-	runner := func(_ context.Context, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+	runner := func(_ context.Context, _ string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
 		argv = append([]string(nil), got...)
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code != 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, sessionDirectoryAt(t.TempDir()), bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
 	if bootstrapCalls != 1 {
@@ -63,9 +69,12 @@ func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
 		return nil, errors.New("manifest digest mismatch")
 	}
-	runner := func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil }
+	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+		runs++
+		return nil
+	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code == 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, sessionDirectoryAt(t.TempDir()), bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code == 0 {
 		t.Fatal("packet failure started session")
 	}
 	if runs != 0 || !strings.Contains(errOut.String(), "manifest digest mismatch") {
@@ -73,23 +82,34 @@ func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 	}
 }
 
-func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
+// TestProductOnlySessionRefusesWithoutAProjectDirectory covers CD-0093 D3:
+// a session with no selected work has no owning Project, so no session
+// directory can be resolved. The launch refuses before the resolver, the
+// identity callbacks, or the host run, rather than opening a session in
+// whatever directory the launcher inherited.
+func TestProductOnlySessionRefusesWithoutAProjectDirectory(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "")
-	bootstrapCalls := 0
-	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
-	var argv []string
-	runner := func(_ context.Context, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
-		argv = append([]string(nil), got...)
-		return nil
-	}
+	resolverCalls, identityCalls, runs, bootstrapCalls := 0, 0, 0, 0
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, func() error { return nil }, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil }); code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, errOut.String())
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		func(context.Context, string) (string, error) { resolverCalls++; return t.TempDir(), nil },
+		func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil },
+		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+			runs++
+			return nil
+		},
+		func() error { identityCalls++; return nil },
+		func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil })
+	if code != 2 {
+		t.Fatalf("exit=%d want 2; stderr=%q", code, errOut.String())
 	}
-	prompt := hostPrompt(t, argv)
-	if bootstrapCalls != 0 || prompt != "Concord identity: product_id=product-1" {
-		t.Fatalf("calls=%d prompt=%q", bootstrapCalls, prompt)
+	if resolverCalls != 0 || identityCalls != 0 || runs != 0 || bootstrapCalls != 0 {
+		t.Fatalf("resolver=%d identity=%d runs=%d bootstrap=%d; a session with no selected work must refuse before any of them",
+			resolverCalls, identityCalls, runs, bootstrapCalls)
+	}
+	if !strings.Contains(errOut.String(), "no selected work") {
+		t.Fatalf("diagnostic does not name the missing selection: %q", errOut.String())
 	}
 }
 
@@ -173,11 +193,14 @@ func TestSessionRefusesToStartWhenRequiredAgentIdentityIsAbsent(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
-	runner := func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil }
+	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+		runs++
+		return nil
+	}
 	identity := func() error { return verifyLaneAgentIdentity("", "", store.BuiltinLaneDefinitions()) }
 	var out, errOut bytes.Buffer
 
-	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, identity, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil })
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, sessionDirectoryAt(""), bootstrap, runner, identity, func(context.Context, string, string) (string, error) { return orchestratorAgentName, nil })
 	if code != 2 {
 		t.Fatalf("exit=%d, want 2", code)
 	}
@@ -221,9 +244,12 @@ func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 	orchestrator := recordOrchestratorIdentityAt(home, cwd, registryProbeFor(orchestratorAgentName))
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
-	runner := func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil }
+	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+		runs++
+		return nil
+	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, identity, orchestrator); code != 2 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, sessionDirectoryAt(cwd), bootstrap, runner, identity, orchestrator); code != 2 {
 		t.Fatalf("exit=%d, want 2; stderr=%q", code, errOut.String())
 	}
 	if runs != 0 || bootstrapCalls != 0 {
@@ -266,9 +292,12 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	orchestrator := recordOrchestratorIdentityAt(home, cwd, registryProbeFor(orchestratorAgentName))
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
-	runner := func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil }
+	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+		runs++
+		return nil
+	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, bootstrap, runner, identity, orchestrator); code != 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, sessionDirectoryAt(cwd), bootstrap, runner, identity, orchestrator); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
 	// bootstrap may run because workID is set; the durable-write check below
@@ -347,12 +376,13 @@ func TestSessionStartsTheOrchestratorAgentItAsserted(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord-selection.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	var argv []string
-	runner := func(_ context.Context, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+	runner := func(_ context.Context, _ string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
 		argv = append([]string(nil), got...)
 		return nil
 	}
 	var out, errOut bytes.Buffer
 	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		sessionDirectoryAt(cwd),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },
@@ -431,8 +461,9 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 
 	// First session — record an assertion against the current files.
 	if code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
+		sessionDirectoryAt(cwd),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
-		func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { return nil },
+		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error { return nil },
 		identity,
 		orchestrator,
 	); code != 0 {
@@ -466,8 +497,9 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 		t.Fatalf("digest unchanged after AGENTS.md mutation: %q", recomputedFromCurrent)
 	}
 	if code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
+		sessionDirectoryAt(cwd),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
-		func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { return nil },
+		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error { return nil },
 		identity,
 		orchestrator,
 	); code != 0 {
@@ -545,8 +577,12 @@ func TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle(t *testing.T) {
 	// the state a `disable: true` or a configuration-layer override leaves
 	// behind, which no on-disk check can see.
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		sessionDirectoryAt(cwd),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
-		func(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error { runs++; return nil },
+		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+			runs++
+			return nil
+		},
 		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },
 		recordOrchestratorIdentityAt(home, cwd, registryProbeFor("some-other-agent")),
 	)
@@ -630,15 +666,16 @@ func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.
 		[]byte("---\nname: op-session-renamed\nmode: all\n---\norchestrator body\n"))
 	t.Setenv("HOME", home)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
 	t.Setenv("CONCORD_DB_PATH", filepath.Join(t.TempDir(), "concord-renamed.db"))
 	var argv []string
-	runner := func(_ context.Context, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+	runner := func(_ context.Context, _ string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
 		argv = append([]string(nil), got...)
 		return nil
 	}
 	var out, errOut bytes.Buffer
 	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		sessionDirectoryAt(cwd),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func() error { return verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()) },

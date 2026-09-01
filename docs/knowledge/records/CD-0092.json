@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-01T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0092",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0092-main-checkout-capability-scope.md",
+  "product_wide_rationale": "Governs which agent capabilities the main checkout refuses. It is authority law spanning every Domain, so no runtime Domain owns it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:388be831b48f68f47e2e6b08ba805b8a5b17715fd80e49a95ad79a2db0c44124",
+  "status": "accepted",
+  "summary": "Scopes the main-checkout refusal by capability class: work_define resolves from the default checkout because it writes only Product state, while implementation-bearing capabilities stay refused. Amends CD-0072 D2 and CD-0008 D1 at that boundary.",
+  "tags": [
+    "authority",
+    "worktree-isolation"
+  ],
+  "title": "Main-checkout capability scope"
+}

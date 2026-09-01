@@ -42,15 +42,33 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 	return service
 }
 
-// CD-0008 D1: the main checkout is read-only. Every mutating capability,
-// including mutation enablers like cross_scope, is refused there.
+// CD-0008 D1 (amended by CD-0092 D2): the main checkout refuses every
+// implementation-bearing capability, including mutation enablers like
+// cross_scope, until a linked worktree claims it. work_define is allowed
+// because its writes land in the store, not a checkout path.
 func TestAuthorizeRefusesMutationOnMainWorktree(t *testing.T) {
-	mutating := []Capability{"work_define", "work_transition", "cross_scope"}
+	mutating := []Capability{"work_transition", "work_relate", "work_compact", "work_initiative", "cross_scope"}
 	for _, capability := range mutating {
 		service := trunkFirewallFixture(t, true)
 		_, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"})
 		if err == nil || !strings.Contains(err.Error(), "linked worktree") {
 			t.Fatalf("capability=%v expected main-worktree refusal, got err=%v", capability, err)
+		}
+	}
+}
+
+// CD-0092 D2/D3: work_define is a Product-state-only capability and resolves
+// from the main checkout. Each entry in the allowlist must grant there.
+func TestAuthorizeAllowsWorkDefineOnMainWorktree(t *testing.T) {
+	for _, capability := range []Capability{"product_read", "work_define"} {
+		service := trunkFirewallFixture(t, true)
+		invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"}
+		authority, err := service.Authorize(context.Background(), invocation)
+		if err != nil {
+			t.Fatalf("capability=%v expected grant on main checkout, got err=%v", capability, err)
+		}
+		if !containsCapability(authority.Capabilities, capability) {
+			t.Fatalf("capability=%v authority capabilities=%v", capability, authority.Capabilities)
 		}
 	}
 }

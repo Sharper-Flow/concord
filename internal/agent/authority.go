@@ -19,6 +19,17 @@ import (
 
 const defaultClockSkew = 2 * time.Minute
 
+// mainCheckoutAllowedCapabilities names the closed set of capabilities that
+// resolve from a registered Project's default checkout. product_read is
+// trivially read-only. work_define joins it because its operations write
+// Product state in the store and never touch a checkout path (CD-0092 D2).
+// The boundary is declared once here so future additions require a decision
+// naming the new capability's write surface (CD-0092 D3).
+var mainCheckoutAllowedCapabilities = map[Capability]struct{}{
+	Capability("product_read"): {},
+	Capability("work_define"):  {},
+}
+
 type Clock func() time.Time
 type Service struct {
 	Store          *store.Store
@@ -249,8 +260,10 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if !contains(policyProjects, resolved.ProjectID) {
 		return Authority{}, authorityRefusal("resolved Project is outside trusted client policy")
 	}
-	if resolved.MainWorktree && in.RequiredCapability != "product_read" {
-		return Authority{}, authorityRefusal("mutating authority requires a linked worktree; the main checkout is read-only")
+	if resolved.MainWorktree {
+		if _, ok := mainCheckoutAllowedCapabilities[in.RequiredCapability]; !ok {
+			return Authority{}, authorityRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)")
+		}
 	}
 	if !containsCapability(capabilityValues(policyCaps), in.RequiredCapability) {
 		return Authority{}, authorityRefusal("capability outside trusted client policy")

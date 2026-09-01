@@ -18871,5 +18871,318 @@
     {"id":"WF51-uncovered-conjunct","scenario_number":51,"mechanism":"completion refuses an uncovered approved predicate","initial_state":{"work":"work-alpha","approved":"two conjuncts","delivered":"one verdict"},"action":"complete","expected":{"assertions":[{"target":"communication","path":"error.kind","op":"eq","value":"missing_evidence"},{"target":"state","path":"work-alpha.state","op":"not_eq","value":"completed"},{"target":"effects","path":"workflow.completed","op":"absent"}]},"setup":{"fixture_refs":{"work_item":"work-alpha","actors":["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"],"definitions":["workflow.implementation"],"evidence":["evidence-verification","evidence-review"],"relations":[]},"event_history":[{"event_id":"wf51-created","kind":"work.created","work_id":"work-alpha","actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","occurred_at":"2026-08-09T00:00:00Z","payload_version":2,"payload":{"work_kind":"task","title":"WF51 uncovered fixture","priority":1}}],"projection":{"version":1,"state":"planned","current_step":"start","lifecycle":"planned"},"faults":[]},"request":{"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","definition_pin":{"ref":"workflow.implementation","version":1,"digest":"sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"},"expected_version":1,"action_id":"complete","fields":{"payload":{"work":"work-alpha","approved":"two conjuncts","delivered":"one verdict"},"title":"WF51 uncovered title","value_statement":"fixture value","project_ids":["project-1"],"contract_version":1,"premise":"fixture premise","impact_verdict":"non-breaking","complete_gate_prerequisites":{},"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"git:tree","subjects":["path:one"]}},{"predicate_id":"predicate:two","ordinal":1,"outcome_kind":"absent","outcome_payload":{"kind":"absent","surface":"git:tree","subjects":["path:two"],"distinguish_from":["archived"]}}],"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}]},"idempotency":{"key":"wf51-key","request_id":"wf51-request","operation_id":"wf51-operation","accepted_inputs_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"grant":{"principal_ref":"principal:operator","client_ref":"client:concord-1","agent_ref":"agent-engineer","session_ref":"session-executor","capability":"workflow_action","scope":"project-1"},"approval":{"required":true,"approval_ref":"approval:wf51","operation_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","consequence":"internal_sqlite","approving_actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc","evidence_refs":["evidence-review"]},"operation":{"op_id":"wf51-operation","attempt_epoch":1,"step_id":"complete","step_kind":"internal_sqlite","state":"pending"}},"observations":{"expected_reads":[{"target":"communication","path":"error.kind","op":"eq","value":"missing_evidence"}]}},
     {"id":"WF52-vacuous-conjunct","scenario_number":52,"mechanism":"approval refuses one vacuous absent fence","initial_state":{"work":"work-alpha","outcome":"absent fence beside exists deliverable","ground_truth":"legacy-absent"},"action":"approve_contract","expected":{"assertions":[{"target":"communication","path":"error.kind","op":"eq","value":"invariant_violation"},{"target":"effects","path":"contract_approved","op":"absent"}]},"setup":{"fixture_refs":{"work_item":"work-alpha","actors":["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"],"definitions":["workflow.implementation"],"evidence":["evidence-verification","evidence-review"],"relations":[]},"event_history":[{"event_id":"wf52-created","kind":"work.created","work_id":"work-alpha","actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","occurred_at":"2026-08-09T00:00:00Z","payload_version":2,"payload":{"work_kind":"task","title":"WF52 vacuous fixture","priority":1}}],"projection":{"version":1,"state":"planned","current_step":"start","lifecycle":"planned"},"faults":[]},"request":{"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","definition_pin":{"ref":"workflow.implementation","version":1,"digest":"sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"},"expected_version":1,"action_id":"approve_contract","fields":{"payload":{"work":"work-alpha","ground_truth":"legacy-absent"},"title":"WF52 vacuous title","value_statement":"fixture value","project_ids":["project-1"],"contract_version":1,"premise":"fixture premise","route_conventions":["route:implementation"],"approval_prerequisites":true,"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"domain/corpus-main","affected_domain_ids":["domain/corpus-main"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"outcome_predicates":[{"predicate_id":"predicate:deliverable","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"git:tree","subjects":["path:deliverable"]}},{"predicate_id":"predicate:fence","ordinal":1,"outcome_kind":"absent","outcome_payload":{"kind":"absent","surface":"git:tree","subjects":["path:legacy"],"distinguish_from":["archived"],"ground_truth":"legacy-absent"}}]},"idempotency":{"key":"wf52-key","request_id":"wf52-request","operation_id":"wf52-operation","accepted_inputs_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"grant":{"principal_ref":"principal:operator","client_ref":"client:concord-1","agent_ref":"agent-engineer","session_ref":"session-executor","capability":"workflow_action","scope":"project-1"},"approval":{"required":true,"approval_ref":"approval:wf52","operation_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","consequence":"internal_sqlite","approving_actor_ref":"actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc","evidence_refs":["evidence-review"]},"operation":{"op_id":"wf52-operation","attempt_epoch":1,"step_id":"planning","step_kind":"internal_sqlite","state":"pending"}},"observations":{"expected_reads":[{"target":"communication","path":"error.kind","op":"eq","value":"invariant_violation"}]}},
     {"id":"WF53-unapproved-delivered","scenario_number":53,"mechanism":"an unapproved predicate is refused when its verdict is recorded","initial_state":{"work":"work-alpha","approved":"predicate:approved","delivered":"predicate:unapproved"},"action":"record_verdict","expected":{"assertions":[{"target":"communication","path":"error.kind","op":"eq","value":"invalid_input"},{"target":"effects","path":"workflow.verdict_recorded","op":"absent"}]},"setup":{"fixture_refs":{"work_item":"work-alpha","actors":["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"],"definitions":["workflow.implementation"],"evidence":["evidence-verification","evidence-review"],"relations":[]},"event_history":[{"event_id":"wf53-created","kind":"work.created","work_id":"work-alpha","actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","occurred_at":"2026-08-09T00:00:00Z","payload_version":2,"payload":{"work_kind":"task","title":"WF53 unapproved fixture","priority":1}}],"projection":{"version":1,"state":"planned","current_step":"start","lifecycle":"planned"},"faults":[]},"request":{"actor_ref":"actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad","definition_pin":{"ref":"workflow.implementation","version":1,"digest":"sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"},"expected_version":1,"action_id":"record_verdict","fields":{"payload":{"work":"work-alpha"},"record_verdict_prerequisites":true,"outcome_predicates":[{"predicate_id":"predicate:approved","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"git:tree","subjects":["path:approved"]}}],"contract_version":1,"predicate_id":"predicate:unapproved","verdict_kind":"ok","evaluation_evidence":["evidence:review"]},"idempotency":{"key":"wf53-key","request_id":"wf53-request","operation_id":"wf53-operation","accepted_inputs_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"grant":{"principal_ref":"principal:operator","client_ref":"client:concord-1","agent_ref":"agent-engineer","session_ref":"session-executor","capability":"workflow_action","scope":"project-1"},"approval":{"required":false,"approval_ref":null},"operation":{"op_id":"wf53-operation","attempt_epoch":1,"step_id":"acceptance","step_kind":"internal_sqlite","state":"pending"}},"observations":{"expected_reads":[{"target":"communication","path":"error.kind","op":"eq","value":"invalid_input"}]}}
+     ,
+     {
+       "id": "WF54-verification-obligation-discharged",
+      "scenario_number": 54,
+      "mechanism": "completion clause 3 accepts evidence bound to the declared verification obligation",
+      "initial_state": {
+        "work": "work-alpha",
+        "approved": "verification proves spec:one",
+        "delivered": "verification proves spec:one"
+      },
+      "action": "complete",
+      "expected": {
+        "assertions": [
+          {
+            "target": "state",
+            "path": "work-alpha.state",
+            "op": "eq",
+            "value": "completed"
+          },
+          {
+            "target": "communication",
+            "path": "outcome",
+            "op": "eq",
+            "value": "ok"
+          },
+          {
+            "target": "effects",
+            "path": "workflow.completed",
+            "op": "nonempty"
+          }
+        ]
+      },
+      "setup": {
+        "fixture_refs": {
+          "work_item": "work-alpha",
+          "actors": [
+            "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+          ],
+          "definitions": [
+            "workflow.implementation"
+          ],
+          "evidence": [
+            "evidence-verification",
+            "evidence-review"
+          ],
+          "relations": []
+        },
+        "event_history": [
+          {
+            "event_id": "wf54-created",
+            "kind": "work.created",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 2,
+            "payload": {
+              "work_kind": "task",
+              "title": "WF54 verification obligation",
+              "priority": 1
+            }
+          }
+        ],
+        "projection": {
+          "version": 1,
+          "state": "planned",
+          "current_step": "start",
+          "lifecycle": "planned"
+        },
+        "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+        "definition_pin": {
+          "ref": "workflow.implementation",
+          "version": 1,
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
+        },
+        "expected_version": 1,
+        "action_id": "complete",
+        "fields": {
+          "payload": {
+            "work": "work-alpha",
+            "approved": "verification proves spec:one",
+            "delivered": "verification proves spec:one"
+          },
+          "title": "WF54 verification obligation",
+          "value_statement": "fixture value",
+          "project_ids": [
+            "project-1"
+          ],
+          "contract_version": 1,
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking",
+          "complete_gate_prerequisites": {
+            "payload": {
+              "verification_obligation_law": "spec:one",
+              "verification_obligation_subject": "spec:one"
+            }
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:corpus",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              }
+            }
+          ],
+          "verdicts": [
+            {
+              "predicate_id": "predicate:primary",
+              "verdict_kind": "ok"
+            }
+          ]
+        },
+        "idempotency": {
+          "key": "wf54-key",
+          "request_id": "wf54-request",
+          "operation_id": "wf54-operation",
+          "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "grant": {
+          "principal_ref": "principal:operator",
+          "client_ref": "client:concord-1",
+          "agent_ref": "agent-engineer",
+          "session_ref": "session-executor",
+          "capability": "workflow_action",
+          "scope": "project-1"
+        },
+        "approval": {
+          "required": true,
+          "approval_ref": "approval:wf54"
+        },
+        "operation": {
+          "op_id": "wf54-operation",
+          "attempt_epoch": 1,
+          "step_id": "complete",
+          "step_kind": "internal_sqlite",
+          "state": "pending"
+        }
+      },
+      "observations": {
+        "expected_reads": [
+          {
+            "target": "communication",
+            "path": "outcome",
+            "op": "eq",
+            "value": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "WF55-verification-obligation-missing",
+      "scenario_number": 55,
+      "mechanism": "completion clause 3 refuses evidence bound to the wrong law subject",
+      "initial_state": {
+        "work": "work-alpha",
+        "approved": "verification proves spec:one",
+        "delivered": "verification names evidence:verification"
+      },
+      "action": "complete",
+      "expected": {
+        "assertions": [
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "invariant_violation"
+          },
+          {
+            "target": "state",
+            "path": "work-alpha.state",
+            "op": "not_eq",
+            "value": "completed"
+          },
+          {
+            "target": "effects",
+            "path": "workflow.completed",
+            "op": "absent"
+          }
+        ]
+      },
+      "setup": {
+        "fixture_refs": {
+          "work_item": "work-alpha",
+          "actors": [
+            "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+          ],
+          "definitions": [
+            "workflow.implementation"
+          ],
+          "evidence": [
+            "evidence-verification",
+            "evidence-review"
+          ],
+          "relations": []
+        },
+        "event_history": [
+          {
+            "event_id": "wf55-created",
+            "kind": "work.created",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 2,
+            "payload": {
+              "work_kind": "task",
+              "title": "WF55 verification obligation",
+              "priority": 1
+            }
+          }
+        ],
+        "projection": {
+          "version": 1,
+          "state": "planned",
+          "current_step": "start",
+          "lifecycle": "planned"
+        },
+        "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+        "definition_pin": {
+          "ref": "workflow.implementation",
+          "version": 1,
+          "digest": "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"
+        },
+        "expected_version": 1,
+        "action_id": "complete",
+        "fields": {
+          "payload": {
+            "work": "work-alpha",
+            "approved": "verification proves spec:one",
+            "delivered": "verification names evidence:verification"
+          },
+          "title": "WF55 verification obligation",
+          "value_statement": "fixture value",
+          "project_ids": [
+            "project-1"
+          ],
+          "contract_version": 1,
+          "premise": "fixture premise",
+          "impact_verdict": "non-breaking",
+          "complete_gate_prerequisites": {
+            "payload": {
+              "verification_obligation_law": "spec:one",
+              "verification_obligation_subject": "evidence:verification"
+            }
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:corpus",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              }
+            }
+          ],
+          "verdicts": [
+            {
+              "predicate_id": "predicate:primary",
+              "verdict_kind": "ok"
+            }
+          ]
+        },
+        "idempotency": {
+          "key": "wf55-key",
+          "request_id": "wf55-request",
+          "operation_id": "wf55-operation",
+          "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "grant": {
+          "principal_ref": "principal:operator",
+          "client_ref": "client:concord-1",
+          "agent_ref": "agent-engineer",
+          "session_ref": "session-executor",
+          "capability": "workflow_action",
+          "scope": "project-1"
+        },
+        "approval": {
+          "required": true,
+          "approval_ref": "approval:wf55"
+        },
+        "operation": {
+          "op_id": "wf55-operation",
+          "attempt_epoch": 1,
+          "step_id": "complete",
+          "step_kind": "internal_sqlite",
+          "state": "pending"
+        }
+      },
+      "observations": {
+        "expected_reads": [
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "invariant_violation"
+          }
+        ]
+      }
+    }
   ]
 }

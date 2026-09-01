@@ -282,15 +282,16 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 }
 
 type workflowCompletionContractData struct {
-	Version             int64
-	Predicates          []WorkflowReadPredicate
-	RequiredEvidence    []string
-	SpecMandate         []string
-	LawModifies         []string
-	LawBoundaryVersion  int
-	OutcomeKind         string
-	OutcomePayload      string
-	ArchitectureBinding *WorkflowArchitectureBinding
+	Version                 int64
+	Predicates              []WorkflowReadPredicate
+	RequiredEvidence        []string
+	SpecMandate             []string
+	LawModifies             []string
+	LawBoundaryVersion      int
+	OutcomeKind             string
+	OutcomePayload          string
+	ArchitectureBinding     *WorkflowArchitectureBinding
+	VerificationObligations []WorkflowVerificationObligation
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {
@@ -333,6 +334,25 @@ func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry Defini
 	result.ArchitectureBinding, bindingErr = readWorkflowArchitectureBinding(ctx, tx, workID, result.Version)
 	if bindingErr != nil {
 		return result, WorkflowDefinition{}, bindingErr
+	}
+	obligationRows, err := tx.QueryContext(ctx, `SELECT law_id,obligation_id FROM workflow_contract_verification_obligations WHERE work_id=? AND contract_version=? ORDER BY law_id,obligation_id`, workID, result.Version)
+	if err != nil {
+		return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verification obligations", true, "retry once the database is readable", err)
+	}
+	for obligationRows.Next() {
+		var obligation WorkflowVerificationObligation
+		if err := obligationRows.Scan(&obligation.LawID, &obligation.ObligationID); err != nil {
+			obligationRows.Close()
+			return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verification obligation", true, "retry once the database is readable", err)
+		}
+		result.VerificationObligations = append(result.VerificationObligations, obligation)
+	}
+	if err := obligationRows.Err(); err != nil {
+		obligationRows.Close()
+		return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verification obligations", true, "retry once the database is readable", err)
+	}
+	if err := obligationRows.Close(); err != nil {
+		return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verification obligations", true, "retry once the database is readable", err)
 	}
 	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
 	if err != nil {
@@ -391,6 +411,15 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 		}
 		if count == 0 {
 			return newFailure(KindInvariantViolation, "complete_workflow", "declared spec mandate is not satisfied", false, "reread_entities")
+		}
+	}
+	for _, obligation := range contract.VerificationObligations {
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, obligation.ObligationID, obligation.LawID).Scan(&count); err != nil {
+			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect verification-obligation evidence", true, "retry once the database is readable", err)
+		}
+		if count == 0 {
+			return newFailure(KindInvariantViolation, "complete_workflow", "declared verification obligation is not satisfied", false, "provide_evidence")
 		}
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT target_work_id FROM workflow_impact_edges WHERE work_id=? AND edge_kind='modifies' ORDER BY edge_id`, workID)

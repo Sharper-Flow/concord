@@ -1,22 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestLifecycleTransitionAllowsMainCheckout"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestMainCheckoutLifecyclePreservesTerminalGates"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestMainCheckoutRefusesImplementationOperations"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestMainCheckoutAllowlistDeclaresBothSides"
-    }
-  ],
   "id": "CD-0093",
-  "state": "satisfied"
+  "issue": 661,
+  "state": "outstanding"
 }

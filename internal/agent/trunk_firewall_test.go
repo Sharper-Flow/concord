@@ -42,7 +42,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 	return service
 }
 
-// CD-0008 D1 (amended by CD-0092 D2 and CD-0093 D1): the main checkout
+// CD-0008 D1 (amended by CD-0092 D2 and CD-0094 D1): the main checkout
 // refuses implementation-bearing operations, including mutation enablers like
 // cross_scope, until a linked worktree claims them. work_define is allowed
 // because its writes land in the store, not a checkout path.

@@ -32,9 +32,9 @@ var mainCheckoutAllowedCapabilities = map[Capability]struct{}{
 
 // mainCheckoutAllowedOperations names the operation-scoped extension to the
 // capability allowlist. lifecycle writes one Product-state work.transitioned
-// event and never touches a checkout path or claims a worktree (CD-0093 D1/D2).
+// event and never touches a checkout path or claims a worktree (CD-0094 D1/D2).
 // The boundary remains declared once so each new operation requires a decision
-// naming its write surface (CD-0093 D3).
+// naming its write surface (CD-0094 D3).
 var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
 	Capability("work_transition"): {
 		"lifecycle": {},

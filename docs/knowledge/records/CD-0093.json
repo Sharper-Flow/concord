@@ -3,8 +3,8 @@
   "home_domain_id": "product-root:concord",
   "id": "CD-0093",
   "kind": "decision",
-  "path": "docs/decisions/CD-0093-operation-scoped-main-checkout-authority.md",
-  "product_wide_rationale": "Defines operation-scoped main-checkout authority for Product-state lifecycle transitions. It amends the product-wide authority boundary without assigning ownership to a runtime Domain.",
+  "path": "docs/decisions/CD-0093-session-start-resolves-the-project-directory.md",
+  "product_wide_rationale": "Governs what session start resolves before it runs the host. It binds the launcher, the session command, and Project identity together, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -12,13 +12,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0026491cea99a06d6dfbdc09444f3978955045df7bb3e67618ed30caada69036",
+  "sha256": "sha256:1829d062a791ce2f3e230ff9489e6044f41e5916adf6af9868d9c7103d6152ad",
   "status": "accepted",
-  "summary": "Allows work_transition.lifecycle from a registered Project's default checkout because it writes one Product-state event, while terminal gates and implementation-bearing refusals remain unchanged.",
+  "summary": "Session start resolves the selected work's Project canonical path and uses that one directory for agent resolution, the host registry probe, and execution, failing closed when any of them does not resolve. The host command stays fixed under CD-0078's reasoning, and the per-Project host environment gap is recorded rather than hidden.",
   "tags": [
-    "authority",
-    "worktree-isolation",
-    "lifecycle"
+    "launcher",
+    "session-boot"
   ],
-  "title": "Operation-scoped main-checkout authority"
+  "title": "Session start resolves the Project directory"
 }

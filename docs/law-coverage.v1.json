@@ -1551,6 +1551,16 @@
       "evidence": [
         {
           "kind": "go_test",
+          "value": "internal/agent.TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork"
+        }
+      ],
+      "id": "CD-0095",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
           "value": "internal/store.TestAcceptedQ1ToQ10Corpus"
         }
       ],

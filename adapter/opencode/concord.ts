@@ -19,6 +19,7 @@ function tool<T>(definition: T): T { return definition }
 
 const MAX_STDERR = 8192
 const MAX_WORK_START_OUTPUT_BYTES = 16_384
+const MAX_SALVAGE_BYTES = 16_384
 
 type HostToolArgs = Record<string, unknown> & { operation: string; input: Record<string, unknown> }
 type HostToolCall = { request: HostToolArgs }
@@ -163,8 +164,8 @@ function baseEnvelope(toolName: string, operation: string, requestID: string) {
   return { schema_version: "1.0", manifest_digest: manifestDigest, request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
 }
 
-function adapterError(toolName: string, operation: string, requestID: string, kind: string, reason: string, message: string, effect: "none" | "possible" | "partial" = "none", recovery = effect === "none" ? "retry_same_request" : "reconcile_operation") {
-  return { ...baseEnvelope(toolName, operation, requestID), error: { kind, retry_safe: effect === "none", recovery_action: { kind: recovery }, effect_state: effect, adapter_reason: reason, message } }
+function adapterError(toolName: string, operation: string, requestID: string, kind: string, reason: string, message: string, effect: "none" | "possible" | "partial" = "none", recovery = effect === "none" ? "retry_same_request" : "reconcile_operation", details?: Record<string, unknown>) {
+  return { ...baseEnvelope(toolName, operation, requestID), error: { kind, retry_safe: effect === "none", recovery_action: { kind: recovery }, effect_state: effect, adapter_reason: reason, message, ...(details ? { details } : {}) } }
 }
 
 class AdapterFailure extends Error {
@@ -192,6 +193,39 @@ function singleJSON(text: string): any {
   const parsed = JSON.parse(value)
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("core stdout was not a JSON object")
   return parsed
+}
+
+function saneWorkID(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+}
+
+function saneWorktreePath(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 4096 && value.startsWith("/")
+}
+
+function saneChangedRefs(value: unknown): value is Array<Record<string, string>> {
+  return Array.isArray(value) && value.length <= 32 && value.every((item) => record(item)
+    && typeof item.entity_kind === "string" && item.entity_kind.length > 0 && item.entity_kind.length <= 64
+    && typeof item.id === "string" && item.id.length > 0 && item.id.length <= 128
+    && typeof item.version === "string" && item.version.length > 0 && item.version.length <= 128
+    && Object.keys(item).every((key) => key === "entity_kind" || key === "id" || key === "version"))
+}
+
+function salvageFailedResponse(raw: string): Record<string, unknown> | undefined {
+  if (Buffer.byteLength(raw, "utf8") > MAX_SALVAGE_BYTES) return undefined
+  let parsed: unknown
+  try { parsed = JSON.parse(raw) } catch { return undefined }
+  if (!record(parsed)) return undefined
+  const salvaged: Record<string, unknown> = {}
+  if (saneWorkID(parsed.work_id)) salvaged.work_id = parsed.work_id
+  if (saneWorktreePath(parsed.worktree_path)) salvaged.worktree_path = parsed.worktree_path
+  if (saneChangedRefs(parsed.changed_refs)) salvaged.changed_refs = parsed.changed_refs
+  return Object.keys(salvaged).length > 0 ? salvaged : undefined
+}
+
+function salvageDetails(raw: string): Record<string, unknown> | undefined {
+  const salvaged = salvageFailedResponse(raw)
+  return salvaged ? { salvaged } : undefined
 }
 
 const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
@@ -265,14 +299,14 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
   if (result.exitCode !== 0 && !result.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", result.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
   let response: any
-  try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation") }
+  try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
   if (!validateCoreResponse(response, toolName, operation)) {
     if (isVersionSkew(response)) {
       const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${manifestDigest}; the adapter files were replaced on disk by a newer release while this session runs; restart the OpenCode session to load them`
       if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
       return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
     }
-    return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core response failed the generated TS7 contract", "possible", "reconcile_operation")
+    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", "core response failed the generated TS7 contract", "possible", "reconcile_operation", salvageDetails(result.stdout))
   }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
@@ -314,8 +348,8 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
     if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")
     try { result = await run(approvedInput) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible") }
-    try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation") }
-    if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", "post-approval response failed the TS7 contract", "possible", "reconcile_operation")
+    try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
+    if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", "post-approval response failed the TS7 contract", "possible", "reconcile_operation", salvageDetails(result.stdout))
   }
   return response as CoreConcordEnvelope;
 }

@@ -220,12 +220,28 @@ test("unknown-effect mutation errors do not expose failed response data", async 
   const invalidResponse: any = await runTransition(runnerWithContext(committed))
   expect(invalidResponse.error.kind).toBe("operation_conflict")
   expect(invalidResponse.error.effect_state).toBe("possible")
-  expect(invalidResponse.error.details).toBeUndefined()
+  expect(invalidResponse.error.details.salvaged).toMatchObject({ work_id: "work-1", changed_refs: [] })
 
   const malformedResponse: any = await runTransition(runnerWithContext({ exitCode: 0, stdout: "not-json", stderr: "" }))
   expect(malformedResponse.error.kind).toBe("malformed_response")
   expect(malformedResponse.error.effect_state).toBe("possible")
   expect(malformedResponse.error.details).toBeUndefined()
+})
+
+test("strict response failures salvage bounded entity identifiers", async () => {
+  const committed = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }],
+    next_valid_intents: [], work_id: "work-1", worktree_path: "/worktrees/work-1", unexpected_field: true,
+  })
+  const result: any = await runTransition(runnerWithContext(committed))
+  assertAdapterEnvelope(result)
+  expect(result.error.details.salvaged).toEqual({
+    work_id: "work-1",
+    worktree_path: "/worktrees/work-1",
+    changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }],
+  })
+  expect(result.outcome).toBe("error")
 })
 
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
@@ -448,8 +464,8 @@ test("generated and adapter validators reject unknown top-level fields for every
     adapter.configureConcordAdapter({ runner: runnerWithContext(unknown) })
     const result: any = await rawHostResult(tool.execute(args, contextFor()))
     assertAdapterEnvelope(result)
-    expect(result.error.kind).toBe("malformed_response")
-    expect(result.error.adapter_reason).toBe("malformed_core_response")
+    expect(result.error.kind).toBe(name === "ok" ? "malformed_response" : "operation_conflict")
+    expect(result.error.adapter_reason).toBe(name === "ok" ? "malformed_core_response" : "unknown_effect")
   }
 })
 

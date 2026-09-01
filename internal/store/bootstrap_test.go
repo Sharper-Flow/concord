@@ -805,7 +805,6 @@ func TestBootstrapGitLockRecoveryExcludesConcurrentReclaimers(t *testing.T) {
 	}
 }
 
-
 // #650: session-prepare reads C19 continuity unconditionally, so every
 // captured work item needs a workflow instance. Captures usually carry no
 // workflow_type_ref (CD-0035), so the bootstrap derives a kind-driven default

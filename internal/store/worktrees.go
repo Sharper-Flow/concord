@@ -387,7 +387,7 @@ type WorktreeDestroyRequest struct {
 	OperatorApprovalRef string
 	// Destructive declares that the approval also covers discarding the git
 	// safety gates.
-	Destructive bool
+	Destructive  bool
 	PrincipalRef string
 	RequestID    string
 	Now          time.Time

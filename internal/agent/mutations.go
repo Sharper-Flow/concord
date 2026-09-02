@@ -139,8 +139,8 @@ type worktreeTakeoverInput struct {
 	ExpectedTargetVersion int64 `json:"expected_target_version"`
 	// Approval carries the operator takeover override consumed for an
 	// active holder (CD-0096 D3 Take over).
-	Approval        *approvalInput `json:"approval"`
-	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
+	IdempotencyKey string         `json:"idempotency_key"`
 }
 type worktreeDestroyInput struct {
 	WorkID          string `json:"work_id"`
@@ -151,9 +151,9 @@ type worktreeDestroyInput struct {
 	// Destructive declares intent to remove without the clean-tree and
 	// merged-branch gates. It requires operator approval (CD-0096 D3
 	// Destroy).
-	Destructive     bool           `json:"destructive"`
-	Approval        *approvalInput `json:"approval"`
-	IdempotencyKey  string         `json:"idempotency_key"`
+	Destructive    bool           `json:"destructive"`
+	Approval       *approvalInput `json:"approval"`
+	IdempotencyKey string         `json:"idempotency_key"`
 }
 type researchRevisionInput struct {
 	Question string `json:"question"`
@@ -1752,12 +1752,12 @@ func (r runtime) planWorktreeRelease(ctx context.Context, base Envelope, raw []b
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		released, err := store.ReleaseSessionWorktreeTx(ctx, tx, store.WorktreeReleaseRequest{
-			Owner:                  store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
-			WorkID:                 in.WorkID,
-			ExpectedTargetVersion:  in.ExpectedTargetVersion,
-			PrincipalRef:           grant.PrincipalRef,
-			RequestID:              in.IdempotencyKey,
-			Now:                    r.Authority.now(),
+			Owner:                 store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
+			WorkID:                in.WorkID,
+			ExpectedTargetVersion: in.ExpectedTargetVersion,
+			PrincipalRef:          grant.PrincipalRef,
+			RequestID:             in.IdempotencyKey,
+			Now:                   r.Authority.now(),
 		})
 		if err != nil {
 			return nil, nil, nil, err

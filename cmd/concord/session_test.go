@@ -497,40 +497,12 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	}
 }
 
-// recordOrchestratorIdentityAt mirrors hostOrchestratorIdentity but takes
-// an explicit home and probe so tests can place agent definitions in temp
-// dirs and verify the assertion end-to-end without touching the operator's
-// real installation. The dir it receives is the session's resolved
-// directory, exactly as production wiring supplies it.
+// recordOrchestratorIdentityAt binds the real assertion path to a temporary
+// installation, so a test verifies production behavior rather than a copy of
+// it.
 func recordOrchestratorIdentityAt(home string, probe hostRegistryProbeFunc) sessionOrchestratorFunc {
 	return func(ctx context.Context, dir, productID, workID string) (string, error) {
-		assertion, handle, err := verifyOrchestratorIdentity(home, dir)
-		if err != nil {
-			return "", err
-		}
-		if err := verifyHostRegistersHandle(ctx, probe, dir, handle); err != nil {
-			return "", err
-		}
-		assertion.ProductID = productID
-		assertion.WorkID = workID
-		assertion.PrincipalRef = "principal/orchestrator"
-		assertion.ClientRef = "client/concord-session"
-		assertion.AgentRef = "agent/" + orchestratorAgentFileName
-		assertion.SessionRef = "session/" + productID
-		path, err := databasePath()
-		if err != nil {
-			return "", err
-		}
-		s, err := store.Open(ctx, path)
-		if err != nil {
-			return "", err
-		}
-		defer s.Close()
-		eventID := orchestratorAssertionEventID(productID, workID)
-		if _, err := s.RecordOrchestratorIdentityAssertion(ctx, eventID, time.Now().UTC(), assertion); err != nil {
-			return "", err
-		}
-		return handle, nil
+		return recordOrchestratorIdentity(ctx, home, probe, dir, productID, workID)
 	}
 }
 
@@ -669,5 +641,49 @@ func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.
 	}
 	if selected := selectedAgentName(t, argv); selected != "op-session-renamed" {
 		t.Fatalf("session selected agent %q, want the frontmatter name %q", selected, "op-session-renamed")
+	}
+}
+
+// The recorded agent reference is the handle the host runs the session as.
+//
+// The definition below carries `name: concord-1`, so the host registers it
+// under that name and the file stem stops resolving. Recording the stem, or
+// the file name, would attribute every session to an agent the host does not
+// have — and under a fail-closed agent scope, to one no client can present.
+func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName,
+		[]byte("---\nname: concord-1\nmode: primary\n---\n"))
+	dbPath := filepath.Join(t.TempDir(), "concord-handle.db")
+	t.Setenv("CONCORD_DB_PATH", dbPath)
+
+	handle, err := recordOrchestratorIdentity(context.Background(), home, registryProbeFor("concord-1"), cwd, "product-1", "")
+	if err != nil {
+		t.Fatalf("record assertion: %v", err)
+	}
+	if handle != "concord-1" {
+		t.Fatalf("handle=%q, want the frontmatter name", handle)
+	}
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var actor string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
+		`SELECT actor FROM domain_events WHERE kind = ?`, store.EventSessionOrchestratorIdentityAsserted).Scan(&actor); err != nil {
+		t.Fatalf("read assertion event: %v", err)
+	}
+	// The agent reference is hashed into the actor rather than stored beside
+	// it, so the derived reference is what proves which agent was recorded.
+	want := store.DeriveWorkflowActorRef("principal/orchestrator", "client/concord-session", "agent/concord-1", "session/product-1")
+	stem := store.DeriveWorkflowActorRef("principal/orchestrator", "client/concord-session", "agent/"+orchestratorAgentFileName, "session/product-1")
+	if actor == stem {
+		t.Fatal("the assertion recorded the definition file name, not the handle the host runs")
+	}
+	if actor != want {
+		t.Fatalf("recorded actor=%q, want the actor derived from agent/concord-1", actor)
 	}
 }

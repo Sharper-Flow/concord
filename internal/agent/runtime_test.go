@@ -585,3 +585,44 @@ func contractOpFor(t *testing.T, tool, operation string) ContractOperation {
 	}
 	return op
 }
+
+// A coupled error kind carries its coupled recovery whatever the operator
+// proposed. The envelope law rejects any other pairing inside MarshalJSON,
+// so a proposal that disagrees with the coupling turns a typed refusal into
+// a marshalling failure that reaches the caller as a transport error (#715).
+func TestCoupledRecoveryWinsOverProposals(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		kind     string
+		proposed string
+		want     string
+	}{
+		{"operator prose is ignored for a coupled kind", "operation_conflict", "use the existing pinned workflow", "reconcile_operation"},
+		{"an allow-listed but wrong proposal loses to the coupling", "operation_conflict", "contact_operator", "reconcile_operation"},
+		{"budget refusals keep their typed ceiling recovery", "budget_refused", "retry later", "adjust_budget"},
+		{"cancellation keeps the retry pairing", "cancelled", "reread_entities", "retry_same_request"},
+		{"an uncoupled kind may still take an allow-listed proposal", "unauthorized", "contact_operator", "contact_operator"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := publicRecovery(testCase.kind, testCase.proposed)
+			if got != testCase.want {
+				t.Fatalf("publicRecovery(%q, %q) = %q, want %q", testCase.kind, testCase.proposed, got, testCase.want)
+			}
+		})
+	}
+}
+
+// The full chain from #715: a store failure whose kind maps to
+// operation_conflict, carrying operator prose as its recovery advice, must
+// still produce an envelope that encodes and names the coupled recovery.
+func TestProjectionConflictRefusalEncodes(t *testing.T) {
+	base := NewBase("req-1", "concord_work_transition", "worktree_retarget")
+	kind := mapFailureKind(store.KindProjectionConflict)
+	out := coreError(base, kind, "second active worktree claim exists", publicRecovery(kind, "use the existing pinned workflow"), false)
+	if _, err := out.Encode(); err != nil {
+		t.Fatalf("the typed refusal failed to encode: %v", err)
+	}
+	if out.Error.RecoveryAction.Kind != "reconcile_operation" {
+		t.Fatalf("recovery = %q, want reconcile_operation", out.Error.RecoveryAction.Kind)
+	}
+}

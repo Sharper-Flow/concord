@@ -900,7 +900,30 @@ func mapFailureKind(kind store.FailureKind) string {
 	}
 }
 
+// coupledRecovery names the recovery pairings the envelope law enforces in
+// validateTypedError. A paired kind cannot carry any other recovery, so the
+// coupling decides before any proposal is considered: operator prose and
+// allow-listed-but-wrong proposals both lose to it. A refusal that paired a
+// coupled kind with anything else failed inside MarshalJSON and reached the
+// caller as a transport error instead of the typed refusal it was (#715).
+var coupledRecovery = map[string]string{
+	"ambiguous_scope":    "resolve_ambiguity",
+	"stale_context":      "refresh_context",
+	"version_conflict":   "reread_entities",
+	"missing_evidence":   "provide_evidence",
+	"limit_exceeded":     "reduce_limit",
+	"budget_refused":     "adjust_budget",
+	"invalid_cursor":     "restart_query",
+	"operation_conflict": "reconcile_operation",
+	"outcome_mismatch":   "contact_operator",
+	"cancelled":          "retry_same_request",
+	"timeout":            "retry_same_request",
+}
+
 func publicRecovery(kind, proposed string) string {
+	if coupled, ok := coupledRecovery[kind]; ok {
+		return coupled
+	}
 	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 	if allowed[proposed] {
 		return proposed

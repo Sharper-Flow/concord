@@ -119,7 +119,11 @@ func TestWorktreeRetargetRefusesCrossWorkWithTypedOwnershipConflict(t *testing.T
 	}
 
 	// The session's current item is work-1; naming work-2 is a takeover
-	// without authority, refused typed with owner and recovery action.
+	// without authority, refused typed with owner and recovery action. The
+	// class rides operation_conflict (CD-0096 D3 compromise), and the
+	// envelope law couples that kind to reconcile_operation, so the store's
+	// contact_operator proposal loses and the refusal stays deliverable
+	// rather than failing to marshal (#715).
 	refused := retargetInvoke(t, s, service, grant, map[string]any{
 		"work_id": "work-2", "expected_version": 2, "expected_target_version": 1, "idempotency_key": "rt-2",
 	})
@@ -132,8 +136,11 @@ func TestWorktreeRetargetRefusesCrossWorkWithTypedOwnershipConflict(t *testing.T
 	if !strings.Contains(refused.Error.Message, "work-1") || !strings.Contains(refused.Error.Message, "session-1") || !strings.Contains(refused.Error.Message, "takeover") {
 		t.Fatalf("error.message=%q, want owner identity and takeover naming", refused.Error.Message)
 	}
-	if refused.Error.RecoveryAction.Kind != "contact_operator" {
-		t.Fatalf("recovery=%q, want contact_operator", refused.Error.RecoveryAction.Kind)
+	if refused.Error.RecoveryAction.Kind != "reconcile_operation" {
+		t.Fatalf("recovery=%q, want reconcile_operation", refused.Error.RecoveryAction.Kind)
+	}
+	if _, err := refused.Encode(); err != nil {
+		t.Fatalf("the typed ownership refusal failed to encode: %v", err)
 	}
 	// The binding is unchanged.
 	target, found, err := s.SessionWorktreeTarget(context.Background(), store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})

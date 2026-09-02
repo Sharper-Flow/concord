@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-02T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0097",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0097-bounded-parallel-predecessor-migration.md",
+  "product_wide_rationale": "Governs cross-system authority, identity, replay, knowledge curation, trusted client policy growth, and cutover for a Product migrating from the predecessor while both systems stay writable. No runtime Domain owns migration authority.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:998b635d54e703e0fb8c1d08ba2aaacacfb3a44f654ed0e353e7ae24192d016b",
+  "status": "accepted",
+  "summary": "Accepts a bounded parallel migration mode for one Product: the operator declares it, the predecessor stays installed, writable, and usable, and it remains the live authority for every migrated surface (specifications, active work, terminal history, wisdom, reflections) until the operator records cutover. Items keep predecessor identity as provenance across repeated harvests, replay applies deterministic effects or idempotent no-ops, conflicts refuse typed naming the owning source, and knowledge curation records every drop. Trusted client policy grows by the additive client-policy-expand command that preserves every existing grant and the stored principal. Cutover changes authority, never installation.",
+  "tags": [
+    "migration",
+    "predecessor",
+    "client-policy",
+    "cutover"
+  ],
+  "title": "Allow bounded parallel predecessor migration"
+}

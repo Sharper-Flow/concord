@@ -755,13 +755,32 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const runRead = readRunSessionMetadata(result.stdout)
   if (!runRead.ok) return errorEnvelope(lane, packet, "error", "error", `worker output ${runStreamRefusalMessage[runRead.refusal]}`, runStreamRefusalRecovery[runRead.refusal])
   const runMetadata = runRead.metadata
+  return completeWorkerAttempt(lane, packet, runMetadata.session_id, result.stdout, options, signal)
+}
+
+// completeWorkerAttempt admits a finished worker: it reads executing-model and
+// executing-agent evidence from the worker session export, resolves the report,
+// signs the dispatch and terminal assertions, and records the attempt outcome.
+//
+// It takes the worker session identifier and the result body as parameters
+// because the host, not the adapter, runs the worker between dispatch and
+// completion (CD-0097 D5).
+export async function completeWorkerAttempt(
+  lane: AgentLane,
+  packet: AgentLanePacket,
+  workerSessionID: string,
+  resultBody: string,
+  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string },
+  signal: AbortSignal,
+): Promise<AgentResultEnvelope> {
+  const binary = options.binary ?? "opencode"
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultRunner
   let exported: { exitCode: number; stdout: string; stderr: string }
-  try { exported = await readbackRunner.run([binary, "export", runMetadata.session_id, "--sanitize"], "", signal) } catch (error) {
+  try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
   }
   if (exported.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output", "reconcile_operation")
-  const readback = readExportSessionMetadata(exported.stdout, runMetadata.session_id)
+  const readback = readExportSessionMetadata(exported.stdout, workerSessionID)
   if (!readback) return errorEnvelope(lane, packet, "error", "error", "OpenCode session export did not contain one typed executing-model readback", "reconcile_operation")
   // The adapter names the lane executor; the host owns which model executes
   // it (CD-0058 D1). Because the host may also substitute the agent itself —
@@ -776,7 +795,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const base = baseEnvelope(lane, packet, "ok")
   base.readback_model = readback.readback_model
   base.session_id = readback.session_id
-  const envelope = withHostBoundedOutput(base, result.stdout)
+  const envelope = withHostBoundedOutput(base, resultBody)
   if (!envelope) return errorEnvelope(lane, packet, "error", "error", "worker result exceeds the pinned host output limit", "adjust_budget")
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
@@ -794,7 +813,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
   // or bound to another packet is a typed failure, never a completion.
-  const resolution = resolveWorkerReport(result.stdout, packet)
+  const resolution = resolveWorkerReport(resultBody, packet)
   const terminal: { verb: "worker-complete"; report: AgentLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     "detail" in resolution
       ? { verb: "worker-fail", failure_kind: "invalid_report", detail: resolution.detail.slice(0, MAX_FAILURE_DETAIL_BYTES) }
@@ -888,7 +907,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation")
     failed.readback_model = readback.readback_model
     failed.session_id = readback.session_id
-    return withHostBoundedOutput(failed, result.stdout) ?? failed
+    return withHostBoundedOutput(failed, resultBody) ?? failed
   }
 
   const completionFailure = await recordWorkerEvent(cliRunner, cli, "worker-complete", {

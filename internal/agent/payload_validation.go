@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 func ValidateOperationPayload(tool, operation string, data []byte, result bool) error {
@@ -113,6 +114,42 @@ func ValidatePayloadSchema(name string, data []byte) error {
 		return fmt.Errorf("trailing JSON")
 	}
 	return validateSchemaValue(value, schema, root, "$")
+}
+
+var (
+	envelopeSchemaOnce  sync.Once
+	envelopeSchemaValue map[string]any
+)
+
+func envelopeSchemaDocument() map[string]any {
+	envelopeSchemaOnce.Do(func() {
+		decoder := json.NewDecoder(strings.NewReader(GeneratedEnvelopeSchemaDocument))
+		decoder.UseNumber()
+		if err := decoder.Decode(&envelopeSchemaValue); err != nil {
+			panic(fmt.Sprintf("generated envelope schema document is not JSON: %v", err))
+		}
+	})
+	return envelopeSchemaValue
+}
+
+// ValidateGeneratedEnvelope checks one marshalled envelope against the
+// generated TS7 envelope schema, the same contracts/agent-tool-envelope.schema.json
+// projection the generated adapter validator enforces. The producer calls it
+// through Envelope.Validate so a wire shape the declared law does not name
+// fails closed instead of reaching agents as an untyped reconciliation.
+func ValidateGeneratedEnvelope(data []byte) error {
+	var value any
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
+		return err
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("trailing JSON")
+	}
+	document := envelopeSchemaDocument()
+	return validateSchemaValue(value, document, document, "$")
 }
 
 func validateSchemaValue(value any, schema map[string]any, root map[string]any, path string) error {

@@ -410,8 +410,15 @@ func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("cross approved response=%+v err=%v", approved, err)
 	}
-	if approved.ResolvedScope == nil || len(approved.ResolvedScope.ProductIDs) != 2 || approved.ResolvedScope.ProductIDs[0] != "product-1" || approved.ResolvedScope.ProductIDs[1] != "product-2" {
-		t.Fatalf("resulting Product scope=%+v", approved.ResolvedScope)
+	// The derived cross-product set is authority bookkeeping: it binds the
+	// stored idempotency snapshot, while resolved_scope carries only the
+	// members the envelope law declares.
+	var snapshot string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "cross-approved").Scan(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(snapshot, `"product_ids":["product-1","product-2"]`) {
+		t.Fatalf("stored authorized scope snapshot=%s", snapshot)
 	}
 	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE title='Cross'`); count != 1 {
 		t.Fatalf("approved capture work count=%d", count)
@@ -623,8 +630,14 @@ func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) 
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved supersede=%+v err=%v", approved, err)
 	}
-	if approved.ResolvedScope == nil || len(approved.ResolvedScope.ProductIDs) != 2 {
-		t.Fatalf("supersede scope=%+v", approved.ResolvedScope)
+	// Cross-product derivation is witnessed by the stored authority
+	// snapshot; resolved_scope stays closed to the envelope law's members.
+	var snapshot string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "disjoint-supersede").Scan(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(snapshot, `"product_ids":["product-a","product-b"]`) {
+		t.Fatalf("supersede authorized scope snapshot=%s", snapshot)
 	}
 	if lifecycle := workLifecycle(t, s, "work-a"); lifecycle != "superseded" {
 		t.Fatalf("superseded lifecycle=%s", lifecycle)

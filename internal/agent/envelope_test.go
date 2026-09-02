@@ -98,6 +98,9 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	coreError := NewCoreError(NewBase("req-702-e", "concord_work_browse", "list"), TypedError{Kind: "unreachable", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
+	// The envelope law couples the unreachable error kind to unreachable
+	// envelope authority; an authoritative envelope cannot carry it.
+	coreError.Authority = AuthorityUnreachable
 	errorEncoded, err := coreError.Encode()
 	if err != nil {
 		t.Fatal(err)

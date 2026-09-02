@@ -557,16 +557,10 @@ func scopeFromMap(scope map[string]any) *Scope {
 	if value, ok := scope["product_id"].(string); ok {
 		result.ProductID = value
 	}
-	if value, ok := scope["product_ids"].([]any); ok {
-		for _, item := range value {
-			if text, ok := item.(string); ok {
-				result.ProductIDs = append(result.ProductIDs, text)
-			}
-		}
-	}
-	if value, ok := scope["product_ids"].([]string); ok {
-		result.ProductIDs = append(result.ProductIDs, value...)
-	}
+	// product_ids stays out of the wire scope: it is derived authority
+	// bookkeeping (deriveMutationProducts, approval scope bindings, stored
+	// idempotency snapshots), and the envelope schema closes resolved_scope
+	// to product_id, project_ids, work_ids, and scope_version.
 	if value, ok := scope["project_ids"].([]any); ok {
 		for _, item := range value {
 			if text, ok := item.(string); ok {
@@ -2756,7 +2750,9 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	}
 	response := NewOKMutation(base, payload, changed, intents)
 	if err := response.Validate(); err != nil {
-		return coreError(base, "malformed_response", fmt.Sprintf("mutation result envelope is invalid: %v", err), "contact_operator", false)
+		type envelopeWire Envelope
+		dbg, _ := json.Marshal(envelopeWire(response))
+		return coreError(base, "malformed_response", fmt.Sprintf("mutation result envelope is invalid: %v; envelope=%s", err, dbg), "contact_operator", false)
 	}
 	type envelopeWire Envelope
 	encoded, err := json.Marshal(envelopeWire(response))

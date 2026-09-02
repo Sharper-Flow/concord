@@ -59,9 +59,11 @@ const (
 	OperationCompleted OperationState = "completed"
 )
 
+// Scope is the wire form of resolved_scope. Its members are exactly the
+// members the envelope schema declares; an identifier set the core derives
+// for authority or approval bookkeeping must not leak onto this struct.
 type Scope struct {
 	ProductID    string   `json:"product_id,omitempty"`
-	ProductIDs   []string `json:"product_ids,omitempty"`
 	ProjectIDs   []string `json:"project_ids,omitempty"`
 	WorkIDs      []string `json:"work_ids,omitempty"`
 	ScopeVersion string   `json:"scope_version,omitempty"`
@@ -338,6 +340,22 @@ func (e *Envelope) UnmarshalJSON(data []byte) error {
 }
 func (e Envelope) Encode() ([]byte, error) { return json.Marshal(e) }
 func (e Envelope) Validate() error {
+	if err := e.validateInvariants(); err != nil {
+		return err
+	}
+	// The declared envelope law is the generated TS7 schema, the same
+	// projection the adapter validates against. The structural checks above
+	// pre-screen; this walk is the closed-world check that refuses any wire
+	// member the schema does not name. It renders through the plain wire
+	// form so validation cannot recurse through MarshalJSON.
+	type wire Envelope
+	encoded, err := json.Marshal(wire(e))
+	if err != nil {
+		return err
+	}
+	return ValidateGeneratedEnvelope(encoded)
+}
+func (e Envelope) validateInvariants() error {
 	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" {
 		return errors.New("invalid envelope identity")
 	}

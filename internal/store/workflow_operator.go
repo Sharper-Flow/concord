@@ -226,7 +226,7 @@ func ValidateWorkflowOperatorSelection(ctx context.Context, s *Store, workID str
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot re-read workflow version", true, "retry once the database is readable", err)
 	}
 	if version != expectedVersion {
-		return versionConflict(SubjectWorkItem, workID, expectedVersion, version, false)
+		return versionConflict(SubjectWorkItem, workID, expectedVersion, version, true)
 	}
 	return nil
 }
@@ -289,7 +289,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "decision context digest is stale or forged", false, "refresh_context")
 	}
 	if workVersion != request.ExpectedVersion {
-		return versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, workVersion, false)
+		return versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, workVersion, true)
 	}
 	return nil
 }

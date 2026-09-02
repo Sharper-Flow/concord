@@ -154,7 +154,7 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	}
 	priorMigrations := migrations[:len(migrations)-1]
 	for _, migration := range priorMigrations {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {

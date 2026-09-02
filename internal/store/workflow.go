@@ -435,7 +435,14 @@ func advanceWorkflowVersion(ctx context.Context, tx *sql.Tx, event Event, fields
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify workflow subject version", true, "retry once the database is readable", err)
 	}
 	if count != 1 {
-		return versionConflict(SubjectWorkItem, event.SubjectID, *fields.ExpectedVersion, 0, false)
+		// The update matched nothing, which is either a moved version or an
+		// absent subject. Read which, so the refusal carries the live version
+		// when one exists rather than a placeholder zero.
+		current, exists, versionErr := projectionVersion(ctx, tx, SubjectWorkItem, event.SubjectID)
+		if versionErr != nil {
+			return versionErr
+		}
+		return versionConflict(SubjectWorkItem, event.SubjectID, *fields.ExpectedVersion, current, exists)
 	}
 	return nil
 }

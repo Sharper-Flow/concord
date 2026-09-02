@@ -1711,7 +1711,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Lifecycle: w.Lifecycle, Version: 1, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}

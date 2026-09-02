@@ -18,6 +18,51 @@ type migration struct {
 	Version int
 	Name    string
 	SQL     string
+	// Applies decides whether this step's SQL runs against the database in
+	// front of it. A repair for a divergence only some histories carry answers
+	// false where the divergence is absent, and the step still records as
+	// applied so the manifest stays dense. A nil value always runs.
+	Applies func(context.Context, queryer) (bool, error)
+}
+
+// migrationRunner is the narrow surface one migration step needs: read the
+// schema it is about to change, then change it.
+type migrationRunner interface {
+	queryer
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// applyMigration runs one step's SQL when the step applies to the database in
+// front of it. The runner and every replay share this, so a conditional step
+// stays conditional wherever it runs.
+func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
+	if m.Applies != nil {
+		applies, err := m.Applies(ctx, q)
+		if err != nil {
+			return err
+		}
+		if !applies {
+			return nil
+		}
+	}
+	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
+		return wrapFailure(KindUnavailable, "migrate",
+			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
+			"correct the migration definition", err)
+	}
+	return nil
+}
+
+// columnPresent reports whether a table already holds a column. A repair that
+// adds a column needs it because SQLite has no conditional ADD COLUMN.
+func columnPresent(ctx context.Context, q queryer, table, column string) (bool, error) {
+	var present int
+	if err := q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&present); err != nil {
+		return false, wrapFailure(KindUnavailable, "migrate",
+			"cannot inspect "+table+"."+column, true, "confirm the database is readable", err)
+	}
+	return present > 0, nil
 }
 
 // migrations is the ordered manifest. Append new steps; never rewrite applied
@@ -3555,6 +3600,25 @@ ALTER TABLE bootstrap_operations DROP COLUMN launch_process_pid;
 ALTER TABLE bootstrap_operations DROP COLUMN launch_process_start;
 		`,
 	},
+	{
+		Version: 67,
+		Name:    "repair_durable_operations_contract_digest",
+		SQL: `
+-- Migration 7 was edited in place to add this column, and migration 16, which
+-- had added the column it replaced, was reduced to SELECT 1. A database created
+-- before that edit reports the current schema version, passes the manifest
+-- check through the shipped-variant entry for migration 7, and fails every
+-- insert into durable_operations with "no such column".
+--
+-- The default is empty because the rows that predate the column recorded no
+-- digest. Every writer supplies the value, so the default reaches no new row.
+ALTER TABLE durable_operations ADD COLUMN contract_digest TEXT NOT NULL DEFAULT '';
+		`,
+		Applies: func(ctx context.Context, q queryer) (bool, error) {
+			present, err := columnPresent(ctx, q, "durable_operations", "contract_digest")
+			return !present, err
+		},
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -3718,10 +3782,8 @@ func migrateOnce(ctx context.Context, db *sql.DB, clock ...func() time.Time) err
 				return rollback(err)
 			}
 		}
-		if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "migrate",
-				fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
-				"correct the migration definition", err))
+		if err := applyMigration(ctx, tx, m); err != nil {
+			return rollback(err)
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,

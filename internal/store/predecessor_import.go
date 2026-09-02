@@ -54,6 +54,38 @@ func (s *Store) EventIDExists(ctx context.Context, eventID string) (bool, error)
 	return eventIDExists(ctx, s.db, eventID)
 }
 
+// FirstWorkEventByOtherActor returns the first durable event on a work
+// subject whose actor differs from the excluded actor, ordered by the log
+// sequence. The predecessor import uses it as the CD-0097 D4 conflict probe:
+// any event another actor appended to an imported work item is a Concord-side
+// change to an item the predecessor still owns, and the migration must refuse
+// naming the owning source instead of overwriting either side. Found is false
+// when every event on the subject carries the excluded actor.
+func (s *Store) FirstWorkEventByOtherActor(ctx context.Context, workID, excludedActor string) (kind, actor string, found bool, err error) {
+	if workID == "" {
+		return "", "", false, newFailure(KindInvalidOperation, "work_event_by_other_actor",
+			"work id is empty", false, "supply a non-empty work id")
+	}
+	if excludedActor == "" {
+		return "", "", false, newFailure(KindInvalidOperation, "work_event_by_other_actor",
+			"excluded actor is empty", false, "supply a non-empty excluded actor")
+	}
+	row := s.db.QueryRowContext(ctx,
+		`SELECT kind, actor FROM domain_events
+		 WHERE subject_type=? AND subject_id=? AND actor<>?
+		 ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, excludedActor)
+	var eventKind, eventActor string
+	if err := row.Scan(&eventKind, &eventActor); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", false, nil
+		}
+		return "", "", false, wrapFailure(KindUnavailable, "work_event_by_other_actor",
+			"cannot probe work events for foreign actors", true,
+			"retry once the database is readable", err)
+	}
+	return eventKind, eventActor, true, nil
+}
+
 func eventIDExists(ctx context.Context, q queryer, eventID string) (bool, error) {
 	if eventID == "" {
 		return false, newFailure(KindInvalidOperation, "event_id_exists",

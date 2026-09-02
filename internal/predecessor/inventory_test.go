@@ -206,6 +206,7 @@ func TestInventoryJSONShape(t *testing.T) {
 		SourceSystem  string          `json:"source_system"`
 		CapturedAt    time.Time       `json:"captured_at"`
 		Totals        Totals          `json:"totals"`
+		Surfaces      []SurfaceReport `json:"surfaces"`
 		Projects      []ProjectReport `json:"projects"`
 	}{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
@@ -219,5 +220,90 @@ func TestInventoryJSONShape(t *testing.T) {
 	}
 	if len(decoded.Projects) != 2 {
 		t.Fatalf("decoded Projects length = %d, want 2", len(decoded.Projects))
+	}
+	if len(decoded.Surfaces) != 5 {
+		t.Fatalf("decoded Surfaces length = %d, want 5", len(decoded.Surfaces))
+	}
+}
+
+// TestInventoryPreflightSurfaces pins the CD-0097 D2 preflight enumeration:
+// every mode surface appears exactly once in route-table order with its
+// inclusion, count, and capture gap, and the counts derive from the totals.
+func TestInventoryPreflightSurfaces(t *testing.T) {
+	report := Inventory(buildSyntheticSnapshot())
+
+	want := []SurfaceReport{
+		{Surface: SurfaceSpecifications, Inclusion: InclusionExcluded, Count: 0,
+			Route:      "arrives as source material; a specification becomes Product law only through the knowledge procedure",
+			CaptureGap: "the sanctioned harvest does not capture specifications"},
+		{Surface: SurfaceActiveWork, Inclusion: InclusionIncluded, Count: 56,
+			Route: "imports through `predecessor import` under the existing safeguards; the predecessor keeps authority until cutover"},
+		{Surface: SurfaceTerminalHistory, Inclusion: InclusionExcluded, Count: 15,
+			Route:      "stays captured in the validated snapshot; importing it as a read-only record is the mode's bounded extension",
+			CaptureGap: "totals only; per-change terminal entries are not captured"},
+		{Surface: SurfaceWisdom, Inclusion: InclusionExcluded, Count: 3,
+			Route: "migrates as curation input under the knowledge-formalization procedure; every drop records a reason"},
+		{Surface: SurfaceReflections, Inclusion: InclusionExcluded, Count: 1,
+			Route: "migrate as research source material under the same provenance rule as wisdom"},
+	}
+	if !reflect.DeepEqual(report.Surfaces, want) {
+		t.Fatalf("Surfaces = %+v, want %+v", report.Surfaces, want)
+	}
+}
+
+// TestInventoryPreflightSurfacesDeterministicAcrossRuns pins the repeated-run
+// contract: two projections of the same snapshot produce identical surfaces
+// blocks, so a repeated migration run reports a stable preflight inventory.
+func TestInventoryPreflightSurfacesDeterministicAcrossRuns(t *testing.T) {
+	snapshot := buildSyntheticSnapshot()
+	first, err := json.Marshal(Inventory(snapshot).Surfaces)
+	if err != nil {
+		t.Fatalf("marshal first surfaces: %v", err)
+	}
+	second, err := json.Marshal(Inventory(snapshot).Surfaces)
+	if err != nil {
+		t.Fatalf("marshal second surfaces: %v", err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("surfaces differ across runs:\nfirst=%s\nsecond=%s", first, second)
+	}
+}
+
+// TestSurfaceVocabularyClosedSet pins the mode's closed surface vocabulary:
+// every route-table entry is distinct, and membership checks agree with it.
+func TestSurfaceVocabularyClosedSet(t *testing.T) {
+	names := ModeSurfaceNames()
+	if len(names) != 5 {
+		t.Fatalf("ModeSurfaceNames length = %d, want 5", len(names))
+	}
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
+			t.Fatalf("duplicate surface %q in route table", name)
+		}
+		seen[name] = true
+		if _, ok := SurfaceRouteFor(name); !ok {
+			t.Fatalf("SurfaceRouteFor(%q) found no route, want one", name)
+		}
+	}
+	for _, outside := range []string{"sessions", "conversations", "", "active-work", "Advance"} {
+		if _, ok := SurfaceRouteFor(outside); ok {
+			t.Fatalf("SurfaceRouteFor(%q) found a route, want none", outside)
+		}
+	}
+	// Exactly one surface is importable: active work.
+	importable := 0
+	for _, name := range ModeSurfaceNames() {
+		route, ok := SurfaceRouteFor(name)
+		if !ok {
+			t.Fatalf("SurfaceRouteFor(%q) found no route, want one", name)
+		}
+		if route.Importable {
+			importable++
+		}
+	}
+	activeRoute, ok := SurfaceRouteFor(SurfaceActiveWork)
+	if importable != 1 || !ok || !activeRoute.Importable {
+		t.Fatalf("importable surfaces = %d, want exactly active_work", importable)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
@@ -47,6 +48,7 @@ type importRequest struct {
 	Product         importProductDecl   `json:"product"`
 	Projects        []importProjectDecl `json:"projects"`
 	SelectChangeIDs []string            `json:"select_change_ids"`
+	Surfaces        []string            `json:"surfaces"`
 	DryRun          bool                `json:"dry_run"`
 }
 
@@ -68,20 +70,31 @@ type importProjectDecl struct {
 	Role              string `json:"role"`
 }
 
-// importedWork reports one work item the import created or counted.
+// importedWork reports one work item the import created or counted. Status
+// distinguishes a fresh import from an idempotent no-op, including a change
+// that left the snapshot's active set since the previous harvest.
 type importedWork struct {
 	ChangeID         string   `json:"change_id"`
 	WorkID           string   `json:"work_id"`
 	ExternalRef      string   `json:"external_ref"`
+	Status           string   `json:"status"`
 	PredecessorPhase string   `json:"predecessor_phase"`
 	CompletedGates   []string `json:"predecessor_completed_gates"`
 }
 
+// importedWork status values.
+const (
+	workStatusImported        = "imported"
+	workStatusAlreadyImported = "already_imported"
+)
+
 // importReport is the bounded JSON report the verb emits on stdout. Totals and
 // per-work-item fields are present on every successful or idempotent report;
-// dry_run adds the flag without changing the shape.
+// dry_run adds the flag without changing the shape. NoOp marks the typed
+// no-op result a repeated migration run returns when nothing changed.
 type importReport struct {
 	DryRun           bool           `json:"dry_run"`
+	NoOp             bool           `json:"no_op"`
 	ProductsCreated  int            `json:"products_created"`
 	ProjectsCreated  int            `json:"projects_created"`
 	WorkImported     int            `json:"work_imported"`
@@ -115,6 +128,19 @@ func runPredecessorImport(raw []byte, s *store.Store, out, errOut io.Writer) int
 
 	resolved, err := resolveImportSelection(snapshot, &request)
 	if err != nil {
+		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		return 1
+	}
+
+	// Reconcile deferred selections and probe for conflicts before any
+	// write: a selected change that left the active set since the previous
+	// harvest is a no-op when its import already exists, and a Concord-side
+	// change to an imported item refuses the run naming the owning source.
+	if err := reconcileDeferredSelection(ctx, s, resolved); err != nil {
+		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		return 1
+	}
+	if err := probeSelectionConflicts(ctx, s, resolved); err != nil {
 		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
 		return 1
 	}
@@ -201,6 +227,41 @@ func validateImportRequest(request *importRequest) error {
 		return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
 			Detail: fmt.Sprintf("projects must declare exactly one primary role, found %d", primaryCount)}
 	}
+	return validateImportSurfaces(request)
+}
+
+// validateImportSurfaces enforces the CD-0097 surface contract before the
+// snapshot is read. An omitted surfaces list means active work, the mode's
+// importable surface. A named surface must be inside the mode's five-surface
+// set, and only importable surfaces pass: every other mode surface migrates
+// by its own route, so requesting it through the import refuses typed.
+func validateImportSurfaces(request *importRequest) error {
+	if request.Surfaces == nil {
+		request.Surfaces = []string{predecessor.SurfaceActiveWork}
+	}
+	if len(request.Surfaces) == 0 {
+		return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+			Detail: "surfaces must name at least one surface when provided"}
+	}
+	seen := make(map[string]bool, len(request.Surfaces))
+	for _, surface := range request.Surfaces {
+		if seen[surface] {
+			return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+				Detail: fmt.Sprintf("surfaces entry %q duplicates an earlier entry", surface)}
+		}
+		seen[surface] = true
+		route, ok := predecessor.SurfaceRouteFor(surface)
+		if !ok {
+			return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+				Detail:         fmt.Sprintf("surfaces entry %q is outside the parallel migration mode; the mode covers %s", surface, strings.Join(predecessor.ModeSurfaceNames(), ", ")),
+				RecoveryAction: "name only surfaces the mode enumerates; the preflight inventory lists them with routes"}
+		}
+		if !route.Importable {
+			return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+				Detail:         fmt.Sprintf("surfaces entry %q does not import: %s", surface, route.Route),
+				RecoveryAction: "use the surface's own route; only active_work imports through this verb"}
+		}
+	}
 	return nil
 }
 
@@ -219,7 +280,32 @@ type resolvedImport struct {
 	// selectedChanges is the ordered list of snapshot active changes the
 	// import will import. Order matches the request's select_change_ids.
 	selectedChanges []selectedChange
+	// deferredChanges are selections the snapshot no longer reports as
+	// active, non-terminal work: a change that reached a terminal phase or
+	// left the active set since the previous harvest. The predecessor stays
+	// writable under CD-0097, so these are harvest drift, not request
+	// errors; reconcileDeferredSelection decides no-op versus refusal by
+	// probing the durable import event for each.
+	deferredChanges []deferredChange
+	// alreadyImportedChanges is populated by reconcileDeferredSelection with
+	// deferred selections whose import already exists. They count as
+	// already_imported and never reach the write path.
+	alreadyImportedChanges []selectedChange
 }
+
+// deferredChange is one selected change the snapshot reports as terminal or
+// absent, carried with the reason for deterministic diagnostics.
+type deferredChange struct {
+	selectedChange
+	reason string
+}
+
+// Deferred-selection reasons. The wording is load-bearing: it names the
+// harvest drift the parallel mode tolerates for already-imported work.
+const (
+	deferredTerminal = "terminal"
+	deferredAbsent   = "absent"
+)
 
 // selectedChange carries the per-work immutable inputs the import uses to
 // build the work.created and work.memberships_replaced events.
@@ -282,11 +368,6 @@ func resolveImportSelection(snapshot predecessor.Snapshot, request *importReques
 						Detail:         fmt.Sprintf("select_change_ids entry %q belongs to snapshot project %q which is not declared in projects", changeID, projectID),
 						RecoveryAction: "declare every snapshot project the selected changes belong to"}
 				}
-				if isTerminalActiveChangeStatus(change.Status) {
-					return nil, &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
-						Detail:         fmt.Sprintf("select_change_ids entry %q has terminal phase %q in snapshot project %q", changeID, change.Status, projectID),
-						RecoveryAction: "select only active, non-terminal changes"}
-				}
 				declaredProjectID := ""
 				for _, candidate := range request.Projects {
 					if candidate.SnapshotProjectID == projectID {
@@ -294,19 +375,30 @@ func resolveImportSelection(snapshot predecessor.Snapshot, request *importReques
 						break
 					}
 				}
-				resolved.selectedChanges = append(resolved.selectedChanges, selectedChange{
+				selected := selectedChange{
 					ChangeID:       change.ChangeID,
 					SnapshotPhase:  change.Status,
 					CompletedGates: append([]string(nil), change.CompletedGates...),
 					ProjectID:      declaredProjectID,
-				})
+				}
+				if isTerminalActiveChangeStatus(change.Status) {
+					// Under the parallel mode the predecessor keeps moving:
+					// a selected change that reached a terminal phase since
+					// the previous harvest is deferred, not refused here.
+					resolved.deferredChanges = append(resolved.deferredChanges, deferredChange{selected, deferredTerminal})
+					found = true
+					continue
+				}
+				resolved.selectedChanges = append(resolved.selectedChanges, selected)
 				found = true
 			}
 		}
 		if !found {
-			return nil, &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
-				Detail:         fmt.Sprintf("select_change_ids entry %q is not an active change in any declared snapshot project", changeID),
-				RecoveryAction: "select only change ids the snapshot enumerates as active"}
+			// The change is absent from every active set. It may have become
+			// terminal since the previous harvest, so defer it the same way;
+			// a first-run typo resolves to the same refusal it always did
+			// once the store probe finds no import for it.
+			resolved.deferredChanges = append(resolved.deferredChanges, deferredChange{selectedChange{ChangeID: changeID}, deferredAbsent})
 		}
 	}
 	return resolved, nil
@@ -325,6 +417,78 @@ var terminalActiveChangeStatuses = map[string]bool{
 
 func isTerminalActiveChangeStatus(status string) bool {
 	return terminalActiveChangeStatuses[status]
+}
+
+// reconcileDeferredSelection resolves each deferred selection against the
+// durable log. An import that already exists makes the selection an
+// idempotent no-op: the predecessor's terminal state is its own history,
+// recorded in the validated snapshot, and the existing Concord projection is
+// left untouched. A deferred selection with no existing import keeps the
+// first-run refusal: terminal and absent changes are not active work.
+func reconcileDeferredSelection(ctx context.Context, s *store.Store, resolved *resolvedImport) error {
+	for _, deferred := range resolved.deferredChanges {
+		exists, probeErr := s.EventIDExists(ctx, importEventID("work", deferred.ChangeID))
+		if probeErr != nil {
+			return wrapOperatorFailure(store.KindUnavailable, "cannot probe existing import event for deferred selection", probeErr)
+		}
+		if exists {
+			resolved.alreadyImportedChanges = append(resolved.alreadyImportedChanges, deferred.selectedChange)
+			continue
+		}
+		switch deferred.reason {
+		case deferredTerminal:
+			return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+				Detail:         fmt.Sprintf("select_change_ids entry %q has terminal phase %q in the snapshot", deferred.ChangeID, deferred.SnapshotPhase),
+				RecoveryAction: "select only active, non-terminal changes; terminal history stays captured in the validated snapshot"}
+		default:
+			return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+				Detail:         fmt.Sprintf("select_change_ids entry %q is not an active change in any declared snapshot project", deferred.ChangeID),
+				RecoveryAction: "select only change ids the snapshot enumerates as active"}
+		}
+	}
+	return nil
+}
+
+// probeSelectionConflicts enforces CD-0097 D4 before any write: a Concord-side
+// change to an item the predecessor still owns is a conflict, not an input.
+// Every already-imported selection is probed for an event another actor
+// appended; the first conflict refuses the run and names the owning source,
+// so neither system's version is overwritten or merged silently.
+func probeSelectionConflicts(ctx context.Context, s *store.Store, resolved *resolvedImport) error {
+	for _, change := range resolved.selectedChanges {
+		exists, probeErr := s.EventIDExists(ctx, importEventID("work", change.ChangeID))
+		if probeErr != nil {
+			return wrapOperatorFailure(store.KindUnavailable, "cannot probe existing import event for conflict check", probeErr)
+		}
+		if exists {
+			if err := refuseOnForeignWorkEvent(ctx, s, change); err != nil {
+				return err
+			}
+		}
+	}
+	for _, change := range resolved.alreadyImportedChanges {
+		if err := refuseOnForeignWorkEvent(ctx, s, change); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// refuseOnForeignWorkEvent probes one imported work item for events by any
+// actor other than the import operator and returns the typed conflict when
+// one exists.
+func refuseOnForeignWorkEvent(ctx context.Context, s *store.Store, change selectedChange) error {
+	kind, actor, found, probeErr := s.FirstWorkEventByOtherActor(ctx, importWorkID(change.ChangeID), importOperatorActor)
+	if probeErr != nil {
+		return wrapOperatorFailure(store.KindUnavailable, "cannot probe imported work for Concord-side changes", probeErr)
+	}
+	if !found {
+		return nil
+	}
+	return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+		Detail: fmt.Sprintf("conflict on %q: the imported work item %s carries the Concord-side event %q by actor %q while the predecessor remains the live authority",
+			"advance:"+change.ChangeID, importWorkID(change.ChangeID), kind, actor),
+		RecoveryAction: "drop the change from select_change_ids until cutover, or record the cutover decision for the Product; the migration never merges or overwrites either side"}
 }
 
 // executePredecessorImport applies the validated request to the store. Each
@@ -371,15 +535,26 @@ func executePredecessorImport(ctx context.Context, s *store.Store, request *impo
 	report.ImportedProjects = append(report.ImportedProjects, createdProjectIDs...)
 	report.AlreadyImported += alreadyProjectCount
 
-	importedCount, alreadyImported, err := writeSelectedWork(ctx, s, request, resolved)
+	importedIDs, alreadyIDs, err := writeSelectedWork(ctx, s, request, resolved)
 	if err != nil {
 		return err
 	}
-	report.WorkImported = importedCount
-	report.AlreadyImported += alreadyImported
+	report.WorkImported = len(importedIDs)
+	// Deferred selections whose import already exists are idempotent no-ops:
+	// each counts once, matching the per-work accounting of the write path.
+	report.AlreadyImported += len(alreadyIDs) + len(resolved.alreadyImportedChanges)
 
 	// Populate the work report regardless of import mode: a re-run still
 	// reports the change → work_id mapping the operator needs to navigate.
+	// Status separates fresh imports from no-ops, including deferred
+	// selections whose import predates the current harvest.
+	statuses := make(map[string]string, len(resolved.selectedChanges))
+	for _, change := range resolved.selectedChanges {
+		statuses[change.ChangeID] = workStatusAlreadyImported
+	}
+	for _, changeID := range importedIDs {
+		statuses[changeID] = workStatusImported
+	}
 	for _, change := range resolved.selectedChanges {
 		gates := change.CompletedGates
 		if gates == nil {
@@ -389,6 +564,21 @@ func executePredecessorImport(ctx context.Context, s *store.Store, request *impo
 			ChangeID:         change.ChangeID,
 			WorkID:           importWorkID(change.ChangeID),
 			ExternalRef:      "advance:" + change.ChangeID,
+			Status:           statuses[change.ChangeID],
+			PredecessorPhase: change.SnapshotPhase,
+			CompletedGates:   gates,
+		})
+	}
+	for _, change := range resolved.alreadyImportedChanges {
+		gates := change.CompletedGates
+		if gates == nil {
+			gates = []string{}
+		}
+		report.Work = append(report.Work, importedWork{
+			ChangeID:         change.ChangeID,
+			WorkID:           importWorkID(change.ChangeID),
+			ExternalRef:      "advance:" + change.ChangeID,
+			Status:           workStatusAlreadyImported,
 			PredecessorPhase: change.SnapshotPhase,
 			CompletedGates:   gates,
 		})
@@ -396,6 +586,7 @@ func executePredecessorImport(ctx context.Context, s *store.Store, request *impo
 	sort.SliceStable(report.Work, func(i, j int) bool {
 		return report.Work[i].ChangeID < report.Work[j].ChangeID
 	})
+	report.NoOp = report.ProductsCreated == 0 && report.ProjectsCreated == 0 && report.WorkImported == 0
 	return nil
 }
 
@@ -622,9 +813,12 @@ func writeSecondaryProjects(ctx context.Context, s *store.Store, request *import
 
 // writeSelectedWork appends one work.created + work.memberships_replaced pair
 // per selected change. Each pair uses deterministic event ids derived from the
-// predecessor change_id so a re-run is idempotent.
-func writeSelectedWork(ctx context.Context, s *store.Store, request *importRequest, resolved *resolvedImport) (imported, already int, err error) {
+// predecessor change_id so a re-run is idempotent. The returned slices name
+// the change ids freshly imported and the ones already durable.
+func writeSelectedWork(ctx context.Context, s *store.Store, request *importRequest, resolved *resolvedImport) (imported, already []string, err error) {
 	_ = request
+	imported = []string{}
+	already = []string{}
 	for _, change := range resolved.selectedChanges {
 		workID := importWorkID(change.ChangeID)
 		// Pre-check: an already-imported work item means the deterministic
@@ -632,10 +826,10 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 		// pay for the whole-tx duplicate path on a hot re-run.
 		exists, eventErr := s.EventIDExists(ctx, importEventID("work", change.ChangeID))
 		if eventErr != nil {
-			return 0, 0, wrapOperatorFailure(store.KindUnavailable, "cannot probe existing import-advance event", eventErr)
+			return nil, nil, wrapOperatorFailure(store.KindUnavailable, "cannot probe existing import-advance event", eventErr)
 		}
 		if exists {
-			already++
+			already = append(already, change.ChangeID)
 			continue
 		}
 		valueStatement := fmt.Sprintf("Migrated from Advance predecessor change %s (phase %s, %s). Re-contract before execution.", change.ChangeID, change.SnapshotPhase, importOperatorActor)
@@ -689,12 +883,12 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 		})
 		if txErr != nil {
 			if isDuplicateEvent(txErr) {
-				already++
+				already = append(already, change.ChangeID)
 				continue
 			}
-			return 0, 0, txErr
+			return nil, nil, txErr
 		}
-		imported++
+		imported = append(imported, change.ChangeID)
 	}
 	return imported, already, nil
 }

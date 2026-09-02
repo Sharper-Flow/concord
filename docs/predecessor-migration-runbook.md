@@ -70,6 +70,22 @@ concord predecessor inventory <<< '{"snapshot_path": "<absolute snapshot path>"}
 The inventory validates the snapshot fail-closed and enumerates it. A snapshot
 that fails validation is not importable.
 
+The inventory report is also the preflight inventory CD-0097 D2 requires. Its
+`surfaces` block names every mode surface with a classification, a count, and
+the structural capture gap where one exists:
+
+- **specifications** — excluded. The sanctioned harvest does not capture them;
+  they arrive as source material through the knowledge procedure.
+- **active_work** — included. It is the surface `predecessor import` moves.
+- **terminal_history** — excluded. The snapshot carries totals only; the
+  validated snapshot stays the historical record.
+- **wisdom** — excluded. It migrates as curation input.
+- **reflections** — excluded. They migrate as research source material.
+
+Run the inventory before any import. A surface the inventory does not
+enumerate does not migrate, and an import request naming a surface outside the
+mode refuses before import starts.
+
 Validated example: the Corded per-Product capture of 2026-08-30 (1 active
 change, 23 archived, 0 closed, 4 wisdom entries, 11 enumerated reflections)
 validated through the inventory verb on first use.
@@ -98,6 +114,37 @@ Operation order:
 5. **Verify**: re-run the same import. An idempotent report (`already_imported`
    totals, no new work) plus a `predecessor inventory` diff against the
    selection is the completion evidence.
+
+### Parallel mode mechanics
+
+The import carries CD-0097's replay and refusal rules for every run. A
+Product under the bounded parallel mode relies on them, because the
+predecessor stays writable and keeps the live authority until cutover.
+
+- **Surfaces.** `surfaces` names the requested surfaces. An omitted list means
+  `active_work`, the only importable surface. A surface outside the mode's
+  five-surface set refuses typed before import starts. A mode surface that
+  migrates by its own route refuses typed with that route: specifications
+  arrive through the knowledge procedure, terminal history stays in the
+  validated snapshot, wisdom moves through curation, and reflections arrive
+  as research source material.
+- **Idempotent replay.** A repeated run with an unchanged harvest returns a
+  typed no-op report: `no_op` is true and every work entry carries
+  `already_imported`. A newer harvest imports newly selected changes as
+  deterministic new effects. Every migrated item keeps one identity across
+  harvests: the deterministic work id, `external_ref: advance:<change_id>`,
+  the `predecessor-migrated` tag, and the `operator:predecessor-import` actor.
+- **Harvest drift.** The predecessor keeps moving under the mode. A selected
+  change that turned terminal or left the active set since the last harvest
+  reports `already_imported` when its import exists. The same drift on a
+  first run keeps the typed refusal, because terminal and absent changes are
+  not active work.
+- **Conflicts refuse typed.** A Concord-side change to an imported item is a
+  conflict, not an input. The next run refuses before any write, names the
+  owning source (`advance:<change_id>`), and reports the foreign event and
+  actor. The migration never merges or overwrites either side. Drop the
+  change from `select_change_ids` until cutover, or record the cutover
+  decision for the Product.
 
 ## After import
 

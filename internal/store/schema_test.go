@@ -55,7 +55,7 @@ func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:60] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-20T00:00:00Z"); err != nil {
@@ -158,7 +158,7 @@ func TestMigrateV39ToV40BackfillsLawModificationsAndGuardsOverlapAuthority(t *te
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:39] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-19T00:00:00Z"); err != nil {
@@ -222,7 +222,7 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:18] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-10T00:00:00Z"); err != nil {
@@ -280,7 +280,7 @@ func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testin
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:19] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-10T00:00:00Z"); err != nil {
@@ -332,7 +332,7 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:20] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {
@@ -377,7 +377,7 @@ func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:22] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {
@@ -433,7 +433,7 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:25] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {
@@ -446,7 +446,7 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 	// this v25-shape test. Migrations 43 and 44 have their own coverage in
 	// TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows.
 	for _, migration := range migrations[25:42] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-22T00:00:00Z"); err != nil {
@@ -499,7 +499,7 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:43] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-22T00:00:00Z"); err != nil {
@@ -557,7 +557,7 @@ func TestMigrateV36ToV37AddsWorkflowLawRevisionProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:36] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-17T00:00:00Z"); err != nil {
@@ -595,7 +595,7 @@ func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testin
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:8] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-08T00:00:00Z"); err != nil {
@@ -639,7 +639,7 @@ func TestMigrateV27ToV28PreservesImpactNoticesWithSourceOwnedEdges(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:27] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-13T00:00:00Z"); err != nil {
@@ -709,7 +709,7 @@ func TestMigrateV7ToV8PreservesValidMultiParentRelations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:7] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-07T00:00:00Z"); err != nil {
@@ -1103,7 +1103,7 @@ func TestMigration49RejectsInvalidPreMigrationRows(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, migration := range migrations[:48] {
-				if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+				if err := applyMigration(ctx, db, migration); err != nil {
 					t.Fatalf("migration %d: %v", migration.Version, err)
 				}
 				if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-25T00:00:00Z"); err != nil {
@@ -1144,7 +1144,7 @@ func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:48] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-25T00:00:00Z"); err != nil {
@@ -1399,7 +1399,7 @@ func openV55(t *testing.T, name string) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:55] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
@@ -1449,7 +1449,7 @@ func openV54(t *testing.T, name string) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:54] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
@@ -1508,7 +1508,7 @@ func openV53(t *testing.T, name string) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:53] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
@@ -1632,7 +1632,7 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	// Stop after migration 43 so the concord_routing_policy_manifest_digest()
 	// DEFAULT is live and the column is still present.
 	for _, migration := range migrations[:43] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d (%s): %v", migration.Version, migration.Name, err)
 		}
 		if _, err := db.ExecContext(ctx,
@@ -1672,7 +1672,7 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	// Apply migration 44 and confirm the five CD-0058 columns are gone, the
 	// pre-existing row survives with its readback_model intact, and the
 	// fold triggers are reinstalled.
-	if _, err := db.ExecContext(ctx, migrations[43].SQL); err != nil {
+	if err := applyMigration(ctx, db, migrations[43]); err != nil {
 		t.Fatalf("migration %d (%s): %v", migrations[43].Version, migrations[43].Name, err)
 	}
 	if _, err := db.ExecContext(ctx,
@@ -1685,7 +1685,7 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	// way so the head assertion below keeps meaning what it says: the replay
 	// reached the current schema, not merely the migration this test opened on.
 	for _, m := range migrations[44:] {
-		if _, err := db.ExecContext(ctx, m.SQL); err != nil {
+		if err := applyMigration(ctx, db, m); err != nil {
 			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
 		}
 		if _, err := db.ExecContext(ctx,
@@ -1753,7 +1753,7 @@ func TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind(t *te
 	}
 	appliedAt := "2026-08-23T00:00:00Z"
 	for _, migration := range migrations[:45] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d (%s): %v", migration.Version, migration.Name, err)
 		}
 		if _, err := db.ExecContext(ctx,
@@ -1883,7 +1883,7 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 	}
 	appliedAt := "2026-08-23T00:00:00Z"
 	for _, migration := range migrations[:47] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d (%s): %v", migration.Version, migration.Name, err)
 		}
 		if _, err := db.ExecContext(ctx,
@@ -2025,7 +2025,7 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 	// upgrade: every later migration must still apply on top of the rebuilt
 	// table.
 	for _, m := range migrations[48:] {
-		if _, err := db.ExecContext(ctx, m.SQL); err != nil {
+		if err := applyMigration(ctx, db, m); err != nil {
 			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
 		}
 		if _, err := db.ExecContext(ctx,
@@ -2074,7 +2074,7 @@ func TestMigrationReplayFromScratchReachesHead(t *testing.T) {
 	}
 	appliedAt := "2026-08-23T00:00:00Z"
 	for _, m := range migrations {
-		if _, err := db.ExecContext(ctx, m.SQL); err != nil {
+		if err := applyMigration(ctx, db, m); err != nil {
 			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
 		}
 		if _, err := db.ExecContext(ctx,

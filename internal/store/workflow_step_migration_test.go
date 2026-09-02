@@ -40,7 +40,7 @@ func TestStepMigrationRewritesPlaceholderRowsOnAPopulatedStore(t *testing.T) {
 	}
 
 	for _, migration := range migrations[:index] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 	}

@@ -878,7 +878,7 @@ func TestMigrateV14ToV15PreservesExistingData(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:14] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-08T00:00:00Z"); err != nil {

@@ -23,7 +23,7 @@ func openMigratedTo(t *testing.T, path string, n int) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:n] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {

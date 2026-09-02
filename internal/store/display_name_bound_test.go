@@ -23,7 +23,7 @@ func openV49(t *testing.T, name string) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, migration := range migrations[:49] {
-		if _, err := db.ExecContext(ctx, migration.SQL); err != nil {
+		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-10T00:00:00Z"); err != nil {

@@ -163,7 +163,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		return workflowPinFailure("workflow action request does not match the current definition step")
 	}
 	if request.ExpectedVersion > 0 && request.ExpectedVersion != version {
-		return versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, false)
+		return versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
 	}
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")

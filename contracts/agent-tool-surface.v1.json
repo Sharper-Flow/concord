@@ -41,7 +41,8 @@
         "concord_work_browse.scope",
         "concord_work_browse.resource_claims",
         "concord_work_browse.messages",
-        "concord_work_browse.worktree_audit"
+        "concord_work_browse.worktree_audit",
+        "concord_work_browse.worktree_inspect"
       ]
     },
     {
@@ -100,7 +101,8 @@
         "concord_work_transition.workflow_action",
         "concord_work_transition.worktree_claim",
         "concord_work_transition.worktree_reclaim",
-        "concord_work_transition.worktree_retarget"
+        "concord_work_transition.worktree_retarget",
+        "concord_work_transition.worktree_verify"
       ]
     },
     {
@@ -367,6 +369,27 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "limit",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_browse.worktree_inspect",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "CD-0096.R1",
+      "input_schema": "#/schemas/work_browse_worktree_inspect_input",
+      "result_schema": "#/schemas/worktree_inspect_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "none",
         "output_bytes": 51200,
         "versions": [
           "1.0"
@@ -972,6 +995,27 @@
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_transition.worktree_verify",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_worktree_verify_input",
+      "result_schema": "#/schemas/worktree_verify_result",
+      "capability": "work_transition",
+      "consequence": "claim",
       "approval": "none",
       "metadata": {
         "context": "ambient",
@@ -1626,6 +1670,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_retarget_input",
       "closed": true
     },
+    "work_transition_worktree_verify_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_verify_input",
+      "closed": true
+    },
     "work_define_research_pack_create_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_pack_create_input",
       "closed": true
@@ -1702,8 +1750,20 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_audit_input",
       "closed": true
     },
+    "work_browse_worktree_inspect_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_inspect_input",
+      "closed": true
+    },
     "worktree_audit_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_page",
+      "closed": true
+    },
+    "worktree_inspect_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_inspect_result",
+      "closed": true
+    },
+    "worktree_verify_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_verify_result",
       "closed": true
     },
     "work_define_observation_record_input": {
@@ -1807,6 +1867,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:93cbca3b0618e7a3f4e2f07efb0b18f0b35990372c8c7797ca5c519e555105aa",
-  "digest": "sha256:0396ed87e404a47d2cbf482bfc21616628bee91326220323f764de7223c14791"
+  "payload_digest": "sha256:7e84191ab9fe2a40fb98c2d921eb69b17de8d96c1de33611690e4178692bc557",
+  "digest": "sha256:2b39c286c3e7735814d5e66f8342baf691ad9f30eb1716900199926c4a0d3347"
 }

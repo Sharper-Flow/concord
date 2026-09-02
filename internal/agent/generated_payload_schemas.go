@@ -4013,6 +4013,41 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_browse_worktree_inspect_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "mode": {
+          "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
+          "enum": [
+            "status",
+            "diff",
+            "file"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2)."
+        }
+      },
+      "required": [
+        "work_id",
+        "mode"
+      ],
+      "type": "object"
+    },
     "work_compact_lesson_publish_input": {
       "additionalProperties": false,
       "properties": {
@@ -6207,6 +6242,38 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_worktree_verify_input": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D3: the work item whose active same-Project worktree the command runs in. The worktree derives from the session's Project and work identity; no path input exists (CD-0096 D2)."
+        }
+      },
+      "required": [
+        "work_id",
+        "command",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "worker_packet": {
       "additionalProperties": false,
       "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
@@ -6683,6 +6750,168 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "root",
         "drift"
+      ],
+      "type": "object"
+    },
+    "worktree_inspect_result": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "content": {
+          "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
+          "maxLength": 16384,
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "status",
+            "diff",
+            "file"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "mode",
+        "content",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "worktree_verify_result": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "changed_refs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            },
+            "required": [
+              "entity_kind",
+              "id",
+              "version"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "command": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "exit_code": {
+          "description": "The command's exit code; -1 reports a command that could not start.",
+          "maximum": 255,
+          "minimum": -1,
+          "type": "integer"
+        },
+        "lease_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "next_valid_intents": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "tool": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "output": {
+          "description": "The bounded combined output of the run. Output beyond the bound is dropped, never dumped.",
+          "maxLength": 16384,
+          "type": "string"
+        },
+        "output_truncated": {
+          "type": "boolean"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tracked_files_changed": {
+          "description": "CD-0096 D3: true when tracked files changed while the lease was held, in which case typed completion refused.",
+          "type": "boolean"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "lease_id",
+        "command",
+        "exit_code",
+        "output",
+        "output_truncated",
+        "tracked_files_changed"
       ],
       "type": "object"
     }

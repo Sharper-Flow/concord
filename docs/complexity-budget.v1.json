@@ -23,11 +23,11 @@
       "state": "unmeasured",
       "reason": "The dispatch remains a flat action vocabulary. Extracting contract predicate validation lowered the measured score from 183 to 163 without moving an action arm."
     },
-    {
-      "function": "internal/agent.(runtime).read",
-      "measured": 214,
-      "state": "unmeasured",
-      "reason": "Flat dispatch over 29 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 208 to 214 when concord_work_browse added the worktree audit read arm."
-    }
+  {
+   "function": "internal/agent.(runtime).read",
+   "measured": 220,
+   "state": "unmeasured",
+   "reason": "Flat dispatch over 30 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 214 to 220 when concord_work_browse added the CD-0096 worktree inspect arm."
+  }
   ]
 }

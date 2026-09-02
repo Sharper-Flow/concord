@@ -117,6 +117,13 @@ type worktreeRetargetInput struct {
 	ExpectedTargetVersion int64  `json:"expected_target_version"`
 	IdempotencyKey        string `json:"idempotency_key"`
 }
+type worktreeVerifyInput struct {
+	WorkID string `json:"work_id"`
+	// Command is the bounded argv that runs in the derived worktree under
+	// the exclusive lease. A shell command string is never accepted.
+	Command        []string `json:"command"`
+	IdempotencyKey string   `json:"idempotency_key"`
+}
 type researchRevisionInput struct {
 	Question string `json:"question"`
 	ScopeIn  any    `json:"scope_in"`
@@ -1697,6 +1704,82 @@ func (r runtime) planWorktreeRetarget(ctx context.Context, base Envelope, raw []
 	return Envelope{}, nil, false
 }
 
+// mutateWorktreeVerify plans concord_work_transition.worktree_verify
+// (CD-0096 D3 Verify tier, part 3a of #689). The requested command runs
+// between the lease transaction and its release, so the effect cannot sit
+// inside executeMutation's single transaction: the store owns both lease
+// transactions and the command execution, and this planner owns the budget
+// ceiling, the envelope, and the idempotency record. The worktree derives
+// from the session's Project and the work identity; no path input exists
+// (CD-0096 D2).
+func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+	var in worktreeVerifyInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err
+	}
+	// CD-0038 D3: the ceiling is admitted after the idempotency lookup the
+	// Invoke path already ran, so a refused budget records no effect and
+	// never starts the command.
+	if r.Budget.CeilingRefused {
+		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
+	}
+	project := r.Envelope.AmbientProjectID
+	if project == "" {
+		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil
+	}
+	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
+	scope := map[string]any{"work_ids": []string{in.WorkID}}
+	products, err := r.deriveMutationProducts(ctx, scope)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	scope["product_ids"] = products
+	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_inspect", QueryID: "CD-0096.R1", ReasonCode: "inspect_verified_worktree", RequiredFields: []string{"work_id", "mode"}}}
+	leaseID := digest + ":worktree-verify:" + in.WorkID
+	result, err := r.Store.VerifyWorktree(ctx, store.WorktreeVerifyRequest{
+		Owner:        store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
+		WorkID:       in.WorkID,
+		ProjectID:    project,
+		Command:      in.Command,
+		LeaseID:      leaseID,
+		PrincipalRef: grant.PrincipalRef,
+		RequestID:    in.IdempotencyKey,
+		Now:          r.Authority.now(),
+	})
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"work_id": result.WorkID, "project_id": result.ProjectID, "branch": result.Branch, "path": result.Path,
+		"lease_id": result.LeaseID, "command": result.Command, "exit_code": result.ExitCode,
+		"output": result.Output, "output_truncated": result.OutputTruncated, "tracked_files_changed": result.TrackedFilesChanged,
+		"changed_refs":       mutationResultChangedRefs([]ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}),
+		"next_valid_intents": mutationResultIntents(intents),
+	})
+	changed := []ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}
+	base.ResolvedScope = scopeFromMap(scope)
+	response := r.mutationResult(base, payload, changed, intents)
+	if response.Outcome == OutcomeError {
+		return response, nil
+	}
+	changedJSON, _ := json.Marshal(changed)
+	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
+	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
+			Key:                     store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey},
+			CanonicalDigest:         digest,
+			OperationID:             "mutation-" + digest[7:31],
+			ResultPayload:           string(payload),
+			ChangedRefs:             string(changedJSON),
+			AuthorizedScopeSnapshot: string(authorizedScope),
+			ObservedAt:              r.Authority.now(),
+		})
+	}); err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	return response, nil
+}
+
 // planWorktreeReclaim plans concord_work_transition.worktree_reclaim.
 func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in worktreeReclaimInput
@@ -1887,6 +1970,9 @@ func (r runtime) planRestoreSuperseded(ctx context.Context, base Envelope, raw [
 func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
+	}
+	if op.ID == "concord_work_transition.worktree_verify" {
+		return r.mutateWorktreeVerify(ctx, base, raw, grant, op)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {

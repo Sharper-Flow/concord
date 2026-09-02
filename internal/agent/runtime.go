@@ -176,6 +176,14 @@ type worktreeAuditInput struct {
 	Budget    budgetInput `json:"budget"`
 }
 
+type worktreeInspectInput struct {
+	WorkID string `json:"work_id"`
+	Mode   string `json:"mode"`
+	// Path is the relative file selector for file mode. It selects inside
+	// the identity-derived worktree (CD-0096 D2), never a worktree path.
+	Path string `json:"path"`
+}
+
 type researchReadInput struct {
 	ProductID string    `json:"product_id"`
 	PackID    string    `json:"pack_id"`
@@ -862,6 +870,15 @@ func mapFailureKind(kind store.FailureKind) string {
 		// owning session and the recovery action; operation_conflict carries
 		// the class until the takeover surface mints its own envelope kind.
 		return "operation_conflict"
+	case store.KindWorktreeLeaseHeld:
+		// CD-0096 D3 Verify: exclusivity is coordination, not authority. The
+		// message names the holding session; the refusal recorded nothing,
+		// so the retry is safe.
+		return "operation_conflict"
+	case store.KindWorktreeVerifyMutated:
+		// CD-0096 D3 Verify: a verifier that edited its subject verifies
+		// nothing. The lease is already released; completion refuses typed.
+		return "operation_conflict"
 	case store.KindProjectionConflict:
 		// A projection identity another row already holds (a second active
 		// worktree claim, a locator-drifted worktree) is a coordination
@@ -1139,6 +1156,24 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		}
 		meta := store.ResultMeta{QueryID: "PM1.Q16", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{ProductID: in.ProductID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"class", "path"}}
 		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"root": audit.Root, "drift": audit.Drift})
+	case "concord_work_browse.worktree_inspect":
+		var in worktreeInspectInput
+		if err := decodeOperationInput(input, &in); err != nil {
+			return base, err
+		}
+		// CD-0096 D3 Inspect: the worktree resolves through the session's
+		// Project anchor and the work item's folded entry. No path input
+		// exists, no lease is taken, and the persistent target never moves.
+		project := r.Envelope.AmbientProjectID
+		if project == "" {
+			return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil
+		}
+		inspect, err := r.Store.InspectWorktree(ctx, store.WorktreeInspectRequest{WorkID: in.WorkID, ProjectID: project, Mode: in.Mode, Path: in.Path})
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		meta := store.ResultMeta{QueryID: "CD-0096.R1", ContractVersion: "CD-0096/1.0", ResolvedScope: store.ResolvedScope{ProductID: r.Envelope.SelectedProductID, ProjectID: project, WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"mode"}}
+		return r.resultEnvelope(base, meta, r.scope(meta), inspect)
 	case "concord_work_trace.history":
 		var in historyInput
 		if err := decodeOperationInput(input, &in); err != nil {

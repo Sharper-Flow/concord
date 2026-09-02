@@ -126,6 +126,11 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return []byte("M file\n"), nil
 		}
 		return nil, nil
+	case join == "diff HEAD":
+		if g.dirty[dir] {
+			return []byte("M file\n"), nil
+		}
+		return nil, nil
 	case join == "symbolic-ref refs/remotes/origin/HEAD":
 		if g.defaultRef == "" {
 			return nil, fmt.Errorf("no origin HEAD")

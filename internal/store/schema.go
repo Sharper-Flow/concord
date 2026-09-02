@@ -3482,6 +3482,24 @@ END
 WHERE current_step = 'start';
 		`,
 	},
+	{
+		Version: 64,
+		Name:    "trusted_client_policy_bounds_the_agent",
+		SQL: `
+-- A trusted client bounded the Products and Projects an invocation could
+-- reach, but not the agents it could claim to be. The agent reference arrived
+-- from the caller and was written into authority verbatim, so one registered
+-- client could assert any agent identity, and attribution recorded whatever
+-- string it was handed.
+--
+-- The agent now has the same policy standing as the Product and the Project.
+-- Existing clients receive an empty scope, which authorizes no agent at all:
+-- the scope is fail-closed, so a client must be re-registered with the agents
+-- it is permitted to present before its invocations are authorized again.
+ALTER TABLE agent_clients ADD COLUMN agent_scope_json TEXT NOT NULL DEFAULT '[]'
+    CHECK(json_valid(agent_scope_json) AND json_type(agent_scope_json)='array' AND json_array_length(agent_scope_json) <= 100);
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

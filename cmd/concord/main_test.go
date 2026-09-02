@@ -1115,7 +1115,7 @@ func registerCLIClient(t *testing.T, client string, publicKey ed25519.PublicKey,
 	runCLIJSON(t, []string{"client", "register"}, map[string]any{
 		"client_ref": client, "key_id": "key-1", "principal_ref": "operator-1",
 		"public_key": base64.StdEncoding.EncodeToString(publicKey), "capabilities": []string{"product_read"},
-		"product_scope": []string{productID}, "project_scope": []string{projectID},
+		"product_scope": []string{productID}, "project_scope": []string{projectID}, "agent_scope": []string{"agent-1"},
 	})
 }
 

@@ -88,7 +88,7 @@ mkdir -p workspace/concord-demo
 git -C workspace/concord-demo init --quiet
 printf '%s\n' 'base64:nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A=' | secret-tool store --label='Concord demo client' service concord account demo-client
 
-printf '%s\n' '{"client_ref":"demo-client","key_id":"demo-key-1","principal_ref":"demo-operator","public_key":"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=","capabilities":["product_read"],"product_scope":["demo-product"],"project_scope":["demo-project"]}' | concord client-register
+printf '%s\n' '{"client_ref":"demo-client","key_id":"demo-key-1","principal_ref":"demo-operator","public_key":"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=","capabilities":["product_read"],"product_scope":["demo-product"],"project_scope":["demo-project"],"agent_scope":["demo-agent"]}' | concord client-register
 printf '%s\n' '{"product_id":"demo-product","display_name":"Demo Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only","project_id":"demo-project","project_display_name":"Demo Repository","role":"primary"}' | concord product-create
 printf '%s\n' '{"project_id":"demo-project","locator_id":"demo-path","kind":"canonical_path","value":"workspace/concord-demo","expected_version":1}' | concord project-locator-add
 ```
@@ -96,6 +96,11 @@ printf '%s\n' '{"project_id":"demo-project","locator_id":"demo-path","kind":"can
 The three commands print one JSON result each. Use the `changed_refs` versions
 from the Product result when composing later setup mutations; the example's
 new Project version is `1`, so its locator mutation uses `expected_version: 1`.
+`agent_scope` names the agents this client may present. It is fail-closed: an
+agent absent from the scope is refused, and a client registered with an empty
+scope authorizes none. Name each agent the adapter presents, which is the
+OpenCode agent name, not its definition file name.
+
 After installing the adapter, run an adapter tool from that repository. It
 resolves the matching locator and scope, then invokes the tool after core
 authorization.

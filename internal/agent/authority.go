@@ -122,6 +122,7 @@ type TrustedClientPolicy struct {
 	Capabilities []Capability
 	ProductScope []string
 	ProjectScope []string
+	AgentScope   []string
 }
 
 func (s *Service) RegisterTrustedClient(ctx context.Context, registration ClientRegistration) error {
@@ -133,22 +134,24 @@ func (s *Service) RegisterTrustedClient(ctx context.Context, registration Client
 	}
 	now := s.now().Format(time.RFC3339Nano)
 	policy := canonicalPolicy(registration.Policy)
-	return s.Store.RegisterTrustedClient(ctx, store.TrustedClientRecord{ClientRef: registration.ClientRef, Status: "active", PrincipalRef: registration.Policy.PrincipalRef, CapabilitiesJSON: policy.capabilities, ProductScopeJSON: policy.products, ProjectScopeJSON: policy.projects}, store.TrustedClientKeyRecord{ClientRef: registration.ClientRef, KeyID: registration.KeyID, PublicKey: []byte(registration.PublicKey), Status: "active"}, now)
+	return s.Store.RegisterTrustedClient(ctx, store.TrustedClientRecord{ClientRef: registration.ClientRef, Status: "active", PrincipalRef: registration.Policy.PrincipalRef, CapabilitiesJSON: policy.capabilities, ProductScopeJSON: policy.products, ProjectScopeJSON: policy.projects, AgentScopeJSON: policy.agents}, store.TrustedClientKeyRecord{ClientRef: registration.ClientRef, KeyID: registration.KeyID, PublicKey: []byte(registration.PublicKey), Status: "active"}, now)
 }
 
-type canonicalPolicyJSON struct{ capabilities, products, projects string }
+type canonicalPolicyJSON struct{ capabilities, products, projects, agents string }
 
 func canonicalPolicy(policy TrustedClientPolicy) canonicalPolicyJSON {
 	caps := normalizeStrings(capabilityStrings(policy.Capabilities))
 	products := normalizeStrings(policy.ProductScope)
 	projects := normalizeStrings(policy.ProjectScope)
+	agents := normalizeStrings(policy.AgentScope)
 	a, _ := json.Marshal(caps)
 	b, _ := json.Marshal(products)
 	c, _ := json.Marshal(projects)
-	return canonicalPolicyJSON{string(a), string(b), string(c)}
+	d, _ := json.Marshal(agents)
+	return canonicalPolicyJSON{string(a), string(b), string(c), string(d)}
 }
 func validTrustedPolicy(policy TrustedClientPolicy) bool {
-	if !bounded(policy.PrincipalRef, 1, 128) || len(policy.Capabilities) > 32 || len(policy.ProductScope) > 100 || len(policy.ProjectScope) > 100 || !unique(capabilityStrings(policy.Capabilities)) || !unique(policy.ProductScope) || !unique(policy.ProjectScope) {
+	if !bounded(policy.PrincipalRef, 1, 128) || len(policy.Capabilities) > 32 || len(policy.ProductScope) > 100 || len(policy.ProjectScope) > 100 || len(policy.AgentScope) > 100 || !unique(capabilityStrings(policy.Capabilities)) || !unique(policy.ProductScope) || !unique(policy.ProjectScope) || !unique(policy.AgentScope) {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
@@ -162,7 +165,7 @@ func validTrustedPolicy(policy TrustedClientPolicy) bool {
 			return false
 		}
 	}
-	for _, value := range append(append([]string{}, policy.ProductScope...), policy.ProjectScope...) {
+	for _, value := range append(append(append([]string{}, policy.ProductScope...), policy.ProjectScope...), policy.AgentScope...) {
 		if !bounded(value, 1, 128) {
 			return false
 		}
@@ -178,7 +181,7 @@ func (s *Service) UpdateTrustedClientPolicy(ctx context.Context, clientRef strin
 		return errors.New("invalid trusted client policy")
 	}
 	p := canonicalPolicy(policy)
-	return s.Store.UpdateTrustedClientPolicy(ctx, clientRef, store.TrustedClientRecord{PrincipalRef: policy.PrincipalRef, CapabilitiesJSON: p.capabilities, ProductScopeJSON: p.products, ProjectScopeJSON: p.projects}, s.now().Format(time.RFC3339Nano))
+	return s.Store.UpdateTrustedClientPolicy(ctx, clientRef, store.TrustedClientRecord{PrincipalRef: policy.PrincipalRef, CapabilitiesJSON: p.capabilities, ProductScopeJSON: p.products, ProjectScopeJSON: p.projects, AgentScopeJSON: p.agents}, s.now().Format(time.RFC3339Nano))
 }
 func (s *Service) RotateClientKey(ctx context.Context, registration ClientRegistration) error {
 	if err := s.authorityReady("agent_rotate_key"); err != nil {
@@ -267,9 +270,16 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if in.ManifestDigest != ManifestDigest {
 		return Authority{}, authorityRefusal("manifest digest mismatch")
 	}
-	var policyCaps, policyProducts, policyProjects []string
-	if json.Unmarshal([]byte(client.CapabilitiesJSON), &policyCaps) != nil || json.Unmarshal([]byte(client.ProductScopeJSON), &policyProducts) != nil || json.Unmarshal([]byte(client.ProjectScopeJSON), &policyProjects) != nil {
+	var policyCaps, policyProducts, policyProjects, policyAgents []string
+	if json.Unmarshal([]byte(client.CapabilitiesJSON), &policyCaps) != nil || json.Unmarshal([]byte(client.ProductScopeJSON), &policyProducts) != nil || json.Unmarshal([]byte(client.ProjectScopeJSON), &policyProjects) != nil || json.Unmarshal([]byte(client.AgentScopeJSON), &policyAgents) != nil {
 		return Authority{}, authorityRefusal("invalid client authority policy")
+	}
+	// The agent reference arrives from the caller and is written into
+	// attribution, so the trusted client must name the agents it may present.
+	// An empty scope authorizes none: a client registered before the agent
+	// scope existed must be re-registered rather than trusted by default.
+	if !contains(policyAgents, in.AgentRef) {
+		return Authority{}, authorityRefusal("agent outside trusted client policy")
 	}
 	resolved, err := s.ProjectResolver(ctx, tx, in.Directory, in.Worktree)
 	if err != nil {
@@ -351,13 +361,13 @@ func capabilityValues(values []string) []Capability {
 	}
 	return out
 }
+
+// normalizeStrings sorts a scope list and always returns a non-nil slice, so a
+// scope with no members serializes as the empty JSON array the policy columns
+// require rather than as null.
 func normalizeStrings(values []string) []string {
-	out := append([]string(nil), values...)
-	for i := range out {
-		if out[i] == "" {
-			continue
-		}
-	}
+	out := make([]string, 0, len(values))
+	out = append(out, values...)
 	for i := 1; i < len(out); i++ {
 		for j := i; j > 0 && out[j] < out[j-1]; j-- {
 			out[j], out[j-1] = out[j-1], out[j]

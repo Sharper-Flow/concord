@@ -116,6 +116,7 @@ func TestWorkerDispatchCapabilityIsInTheClientPolicyAllowList(t *testing.T) {
 		Capabilities: []Capability{CapabilityWorkerDispatch, "work_transition"},
 		ProductScope: []string{"product-1"},
 		ProjectScope: []string{"project-1"},
+		AgentScope:   testFixtureAgents,
 	}
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{
 		ClientRef: "client-cd0059", KeyID: "key-cd0059", PublicKey: publicKey, Policy: policy,

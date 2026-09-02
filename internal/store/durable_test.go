@@ -146,7 +146,7 @@ func TestDurableBarrierAfterRegisterTrustedClientTruncatesWal(t *testing.T) {
 	}
 	defer s.Close()
 
-	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("RegisterTrustedClient: %v", err)
 	}
 

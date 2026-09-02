@@ -242,10 +242,17 @@ func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref strin
 
 // ResolveCommitSHA pins a repository ref to one full commit SHA.
 func ResolveCommitSHA(ctx context.Context, repo, ref string) (string, error) {
+	return resolveCommitSHARunner(ctx, ExecGitRunner{}, repo, ref)
+}
+
+// resolveCommitSHARunner is the runner-parameterized core, so callers that
+// already hold a GitRunner seam (the worktree claim and retarget routes)
+// resolve the base commit through their own runner.
+func resolveCommitSHARunner(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {
 	if repo == "" || strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n\r\x00") {
 		return "", newFailure(KindInvalidOperation, "worktree_locate", "ref starts with a dash or contains whitespace or NUL", false, "supply one rev-syntax ref")
 	}
-	out, err := ExecGitRunner{}.Run(ctx, repo, "rev-parse", "--verify", ref+"^{commit}")
+	out, err := runner.Run(ctx, repo, "rev-parse", "--verify", ref+"^{commit}")
 	if err != nil {
 		return "", newFailure(KindGitUnreachable, "worktree_locate", fmt.Sprintf("cannot resolve %s to a commit in %s", ref, repo), false, "supply a ref that resolves to one commit")
 	}

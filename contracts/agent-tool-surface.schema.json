@@ -111,10 +111,10 @@
         }
       }
     },
-    "operations": {
-      "type": "array",
-      "minItems": 48,
-      "maxItems": 59,
+  "operations": {
+    "type": "array",
+    "minItems": 48,
+    "maxItems": 60,
       "items": {
         "type": "object",
         "additionalProperties": false,

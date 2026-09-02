@@ -877,3 +877,312 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	}
 	return WorktreeAudit{Root: root, Drift: drift}, nil
 }
+
+// Session worktree retargeting (CD-0096). The effective target is the tree
+// later Concord operations resolve through; it is distinct from the host
+// process directory, which never changes (CD-0096 D1). The target derives
+// from registered Project and work identity only — no operation in this
+// section accepts a worktree path from a caller (CD-0096 D2).
+
+// SessionWorktreeOwner identifies the agent session an effective target
+// belongs to. The tuple matches the authority grant identity; principal_ref
+// is derived from the registered client (CD-0080 D1) and needs no separate
+// column for ownership.
+type SessionWorktreeOwner struct {
+	ClientRef  string `json:"client_ref"`
+	AgentRef   string `json:"agent_ref"`
+	SessionRef string `json:"session_ref"`
+}
+
+// SessionWorktreeTarget is the durable effective-target binding of one
+// session. TargetVersion is the optimistic-concurrency pin: every retarget
+// must name the version it expects, and a mismatch fails closed because a
+// silently re-derived target is a directory change no one authorized
+// (CD-0096 D5).
+type SessionWorktreeTarget struct {
+	SessionWorktreeOwner
+	WorkID        string `json:"work_id"`
+	ProjectID     string `json:"project_id"`
+	Branch        string `json:"branch"`
+	Path          string `json:"path"`
+	State         string `json:"state"`
+	TargetVersion int64  `json:"target_version"`
+	PrincipalRef  string `json:"principal_ref"`
+	ClaimedAt     string `json:"claimed_at"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+const (
+	sessionTargetActive   = "active"
+	sessionTargetReleased = "released"
+)
+
+// WorktreeRetargetRequest drives the in-session retarget. WorktreeRoot is the
+// Concord worktree root (the parent worktree-locate policy derives from);
+// callers read it from the store path, the request carries it so the
+// tx-scoped core never touches the store handle (single-connection
+// invariant).
+type WorktreeRetargetRequest struct {
+	Owner  SessionWorktreeOwner
+	WorkID string
+	// ExpectedWorkVersion is the work item's version pin, consumed only when
+	// the retarget must create the canonical worktree (the claim bumps the
+	// work version). Adopting an existing verified worktree does not bump it.
+	ExpectedWorkVersion int64
+	// ExpectedTargetVersion is the session's target pin. Zero means the
+	// session holds no target yet; any other value must match the stored
+	// target_version exactly, or the retarget fails closed.
+	ExpectedTargetVersion int64
+	WorktreeRoot          string
+	PrincipalRef          string
+	RequestID             string
+	OpID                  string
+	Now                   time.Time
+	Runner                GitRunner
+}
+
+// RetargetSessionWorktree adopts or creates the current work item's canonical
+// worktree and records it as the session's persistent effective target. The
+// write owns its transaction.
+func (s *Store) RetargetSessionWorktree(ctx context.Context, req WorktreeRetargetRequest) (SessionWorktreeTarget, error) {
+	if s == nil || s.db == nil {
+		return SessionWorktreeTarget{}, newFailure(KindUnavailable, "worktree_retarget", "store is not open", false, "open the authority database")
+	}
+	if req.WorktreeRoot == "" {
+		req.WorktreeRoot = filepath.Join(filepath.Dir(s.Path()), "worktrees")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_retarget", "cannot begin retarget", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	transaction := &Transaction{tx: tx, clock: s.Clock}
+	out, err := RetargetSessionWorktreeTx(ctx, transaction, req)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_retarget", "cannot commit retarget", true, "retry the same operation with the same op id", err)
+	}
+	return out, nil
+}
+
+// RetargetSessionWorktreeTx is the retarget on an existing transaction, so
+// the agent tool surface can compose it with its idempotency envelope.
+func RetargetSessionWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeRetargetRequest) (SessionWorktreeTarget, error) {
+	tx, err := transactionSQL(transaction, "worktree_retarget")
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if req.Now.IsZero() {
+		req.Now = transaction.now()
+	}
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	return retargetSessionWorktreeRawTx(ctx, transaction, tx, req, runner)
+}
+
+func retargetSessionWorktreeRawTx(ctx context.Context, transaction *Transaction, tx *sql.Tx, req WorktreeRetargetRequest, runner GitRunner) (SessionWorktreeTarget, error) {
+	if req.OpID == "" || req.WorkID == "" || req.PrincipalRef == "" || req.RequestID == "" || req.WorktreeRoot == "" {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidOperation, "worktree_retarget", "retarget operation is missing identity fields", false, "supply op, work, principal, and request ids")
+	}
+	if err := validateSessionWorktreeOwner(req.Owner); err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if req.ExpectedTargetVersion < 0 {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidOperation, "worktree_retarget", "expected target version cannot be negative", false, "supply the session's current target version or zero")
+	}
+
+	// Active work only: a terminal work item holds no live implementation
+	// surface, and its worktree is the reclaim route's subject, not a target.
+	var lifecycle string
+	err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
+	if err == sql.ErrNoRows {
+		return SessionWorktreeTarget{}, newFailure(KindUnknownScope, "worktree_retarget", "work item does not exist", false, "select one existing work item")
+	}
+	if err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_retarget", "cannot read the work item", true, "retry once the database is readable", err)
+	}
+	if lifecycle != "needed" && lifecycle != "in_progress" {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidTransition, "worktree_retarget", "work item is "+lifecycle+", so it holds no retargetable worktree", false, "retarget active work, or reclaim a terminal work item's worktree")
+	}
+
+	existing, found, err := sessionWorktreeTargetRowTx(ctx, tx, req.Owner)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if found {
+		if req.ExpectedTargetVersion != existing.TargetVersion {
+			return SessionWorktreeTarget{}, newFailure(KindVersionConflict, "worktree_retarget",
+				fmt.Sprintf("session target version is %d, request pinned %d", existing.TargetVersion, req.ExpectedTargetVersion), false, "reread the session target and retry with its current version")
+		}
+		if existing.State == sessionTargetActive && existing.WorkID != req.WorkID {
+			return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
+				fmt.Sprintf("session %s is bound to work %s; adopting work %s is a takeover (CD-0096 D3)", sessionOwnerLabel(req.Owner), existing.WorkID, req.WorkID), false, "release the current binding or obtain an operator takeover override")
+		}
+	} else if req.ExpectedTargetVersion != 0 {
+		return SessionWorktreeTarget{}, newFailure(KindVersionConflict, "worktree_retarget",
+			fmt.Sprintf("session holds no target but the request pinned version %d", req.ExpectedTargetVersion), false, "retry with expected_target_version 0 for a first binding")
+	}
+
+	// One active holder per work item: the in-session route and the CD-0088
+	// bootstrap route converge on one owner (CD-0096 D6).
+	holder, held, err := sessionWorktreeHolderTx(ctx, tx, req.WorkID, req.Owner)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if held {
+		return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
+			fmt.Sprintf("worktree of work %s is held by session %s; adopting it is a takeover (CD-0096 D3)", req.WorkID, sessionOwnerLabel(holder)), false, "contact_operator")
+	}
+	launchSession, launchActive, err := activeBootstrapLaunchTx(ctx, tx, req.WorkID)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if launchActive && launchSession != req.Owner.SessionRef {
+		return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
+			fmt.Sprintf("worktree of work %s is held by the launched session %s; adopting it is a takeover (CD-0096 D3)", req.WorkID, launchSession), false, "contact_operator")
+	}
+
+	// The canonical target comes from identity, never from input: the work's
+	// primary Project locates the repository, and the locator policy derives
+	// branch and path (CD-0096 D2, worktree-locate).
+	var projectID string
+	err = tx.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, req.WorkID).Scan(&projectID)
+	if err == sql.ErrNoRows {
+		return SessionWorktreeTarget{}, newFailure(KindUnknownScope, "worktree_retarget", "work has no primary Project", false, "capture the work against a Project before retargeting")
+	}
+	if err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_retarget", "cannot read the work's primary Project", true, "retry once the database is readable", err)
+	}
+	branch := "work/" + req.WorkID
+	canonicalPath := filepath.Join(req.WorktreeRoot, projectID, req.WorkID)
+
+	entries, err := worktreeEntriesTx(ctx, tx, req.WorkID)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	var adopted *WorktreeEntry
+	for i, candidate := range entries {
+		if candidate.ProjectID == projectID && candidate.State == worktreeEntryActive {
+			adopted = &entries[i]
+			break
+		}
+	}
+	target := SessionWorktreeTarget{SessionWorktreeOwner: req.Owner, WorkID: req.WorkID, ProjectID: projectID, Branch: branch, Path: canonicalPath, State: sessionTargetActive, PrincipalRef: req.PrincipalRef, ClaimedAt: req.Now.Format(time.RFC3339Nano), UpdatedAt: req.Now.Format(time.RFC3339Nano)}
+	if adopted != nil {
+		// Adopt the verified locator. A stored path the locator policy no
+		// longer derives is drift, not a target (CD-0096 D2).
+		if adopted.Path != canonicalPath || adopted.Branch != branch {
+			return SessionWorktreeTarget{}, newFailure(KindProjectionConflict, "worktree_retarget",
+				fmt.Sprintf("stored worktree %s (%s) no longer matches the derived canonical target %s (%s)", adopted.Path, adopted.Branch, canonicalPath, branch), false, "reconcile the existing worktree claim before retargeting")
+		}
+	} else {
+		// Create the canonical worktree through the claim's own atomic
+		// create-verify route on this transaction. The base commit comes
+		// from the Project's repository at HEAD, resolved through git facts
+		// only — no caller input reaches the claim intent.
+		repoRoot, resErr := worktreeRepoRootTx(ctx, tx, WorktreeClaimRequest{ProjectID: projectID})
+		if resErr != nil {
+			return SessionWorktreeTarget{}, resErr
+		}
+		baseSHA, shaErr := resolveCommitSHARunner(ctx, runner, repoRoot, "HEAD")
+		if shaErr != nil {
+			return SessionWorktreeTarget{}, shaErr
+		}
+		result, claimErr := ClaimWorktreeTx(ctx, transaction, WorktreeClaimRequest{
+			OpID: req.OpID, WorkID: req.WorkID, ProjectID: projectID,
+			Branch: branch, BaseSHA: baseSHA, Path: canonicalPath,
+			RepoRoot:     repoRoot,
+			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
+			ExpectedVersion: req.ExpectedWorkVersion, Now: req.Now, Runner: runner,
+		})
+		if claimErr != nil {
+			return SessionWorktreeTarget{}, claimErr
+		}
+		target.Path = result.Entry.Path
+	}
+
+	if found {
+		target.TargetVersion = existing.TargetVersion + 1
+		target.ClaimedAt = existing.ClaimedAt
+		if _, err := tx.ExecContext(ctx, `UPDATE session_worktree_targets SET work_id=?,project_id=?,branch=?,path=?,state=?,target_version=?,principal_ref=?,updated_at=? WHERE client_ref=? AND agent_ref=? AND session_ref=?`,
+			target.WorkID, target.ProjectID, target.Branch, target.Path, target.State, target.TargetVersion, target.PrincipalRef, target.UpdatedAt, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef); err != nil {
+			return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_retarget", "cannot update session target", true, "retry the same operation with the same op id", err)
+		}
+		return target, nil
+	}
+	target.TargetVersion = 1
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_worktree_targets(client_ref,agent_ref,session_ref,work_id,project_id,branch,path,state,target_version,principal_ref,claimed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, target.WorkID, target.ProjectID, target.Branch, target.Path, target.State, target.TargetVersion, target.PrincipalRef, target.ClaimedAt, target.UpdatedAt); err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_retarget", "cannot persist session target", true, "retry the same operation with the same op id", err)
+	}
+	return target, nil
+}
+
+// SessionWorktreeTarget reads the session's current effective target. The
+// second return is false when the session holds no target row.
+func (s *Store) SessionWorktreeTarget(ctx context.Context, owner SessionWorktreeOwner) (SessionWorktreeTarget, bool, error) {
+	if s == nil || s.db == nil {
+		return SessionWorktreeTarget{}, false, newFailure(KindUnavailable, "worktree_retarget", "store is not open", false, "open the authority database")
+	}
+	return sessionWorktreeTargetRowTx(ctx, s.db, owner)
+}
+
+func validateSessionWorktreeOwner(owner SessionWorktreeOwner) error {
+	for label, value := range map[string]string{"client ref": owner.ClientRef, "agent ref": owner.AgentRef, "session ref": owner.SessionRef} {
+		if len(value) < 2 || len(value) > 128 {
+			return newFailure(KindInvalidOperation, "worktree_retarget", "session identity is missing a bounded "+label, false, "supply the client, agent, and session identity of the calling session")
+		}
+	}
+	return nil
+}
+
+func sessionWorktreeTargetRowTx(ctx context.Context, q queryer, owner SessionWorktreeOwner) (SessionWorktreeTarget, bool, error) {
+	var target SessionWorktreeTarget
+	err := q.QueryRowContext(ctx, `SELECT client_ref,agent_ref,session_ref,work_id,project_id,branch,path,state,target_version,principal_ref,claimed_at,updated_at FROM session_worktree_targets WHERE client_ref=? AND agent_ref=? AND session_ref=?`,
+		owner.ClientRef, owner.AgentRef, owner.SessionRef).Scan(&target.ClientRef, &target.AgentRef, &target.SessionRef, &target.WorkID, &target.ProjectID, &target.Branch, &target.Path, &target.State, &target.TargetVersion, &target.PrincipalRef, &target.ClaimedAt, &target.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return SessionWorktreeTarget{}, false, nil
+	}
+	if err != nil {
+		return SessionWorktreeTarget{}, false, wrapFailure(KindUnavailable, "worktree_retarget", "cannot read session target", true, "retry once the database is readable", err)
+	}
+	return target, true, nil
+}
+
+// sessionWorktreeHolderTx reports the session actively targeting workID,
+// excluding the requesting owner (its own binding is handled above).
+func sessionWorktreeHolderTx(ctx context.Context, tx *sql.Tx, workID string, owner SessionWorktreeOwner) (SessionWorktreeOwner, bool, error) {
+	var holder SessionWorktreeOwner
+	err := tx.QueryRowContext(ctx, `SELECT client_ref,agent_ref,session_ref FROM session_worktree_targets WHERE work_id=? AND state='active' AND NOT (client_ref=? AND agent_ref=? AND session_ref=?)`,
+		workID, owner.ClientRef, owner.AgentRef, owner.SessionRef).Scan(&holder.ClientRef, &holder.AgentRef, &holder.SessionRef)
+	if err == sql.ErrNoRows {
+		return SessionWorktreeOwner{}, false, nil
+	}
+	if err != nil {
+		return SessionWorktreeOwner{}, false, wrapFailure(KindUnavailable, "worktree_retarget", "cannot read session target holders", true, "retry once the database is readable", err)
+	}
+	return holder, true, nil
+}
+
+// activeBootstrapLaunchTx reports whether a CD-0088 bootstrap launch is live
+// for the work item, and the launched session's identity when it is. A live
+// child session owns the worktree it runs in.
+func activeBootstrapLaunchTx(ctx context.Context, tx *sql.Tx, workID string) (string, bool, error) {
+	var sessionID string
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(launch_session_id,'') FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','completed') AND launch_state IN ('prepared','running')`, workID).Scan(&sessionID)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, wrapFailure(KindUnavailable, "worktree_retarget", "cannot read bootstrap launches", true, "retry once the database is readable", err)
+	}
+	return sessionID, true, nil
+}
+
+func sessionOwnerLabel(owner SessionWorktreeOwner) string {
+	return owner.ClientRef + "/" + owner.AgentRef + "/" + owner.SessionRef
+}

@@ -4262,6 +4262,37 @@
         }
       }
     },
+    "work_transition_worktree_retarget_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "description": "CD-0096 D2: the current work item whose canonical worktree the session adopts. The target path derives from registered Project and work identity; no path input exists.",
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "description": "The work item's version pin, consumed when the retarget must create the canonical worktree.",
+          "$ref": "#/$defs/version"
+        },
+        "expected_target_version": {
+          "description": "CD-0096 D5: the session's effective-target version pin. Zero for a first binding; any other value must match the stored version exactly or the retarget fails closed.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
     "research_revision_input": {
       "type": "object",
       "additionalProperties": false,

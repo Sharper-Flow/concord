@@ -6,7 +6,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/concord.test.ts#work start refuses before any effect when the host exposed no server URL"
+      "value": "adapter/opencode/concord.test.ts#work start refuses before any effect when the host handed the plugin no client"
     },
     {
       "kind": "adapter_test",

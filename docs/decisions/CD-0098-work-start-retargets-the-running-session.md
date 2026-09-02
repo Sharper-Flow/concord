@@ -6,7 +6,8 @@
   identity checks that guard a retarget; issue #689
 - **Approval:** The operator approved this replacement in-session on 2026-09-02
   and directed that a worktree never requires a relaunch.
-- **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0102, issue #689
+- **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0102, CD-0103, issue #689
+- **Amended by:** CD-0103 at the D3 turn-end clause
 - **Amends:** CD-0096 D6 and CD-0088 D4 at their launch clauses
 - **Preserves:** The `session-prepare` directory refusal, the lane definition
   check, and the read-back identity assertion
@@ -56,9 +57,11 @@ The default checkout must be clean before the move. The move carries no
 changes. Uncommitted work stays where it is, and Concord refuses rather than
 moving a dirty tree it did not author.
 
-The move waits for the current turn to end, because a move during a turn splits
-one turn across two directories. After the move, `work_start` reads the session
-directory back and refuses success unless it is the claimed worktree.
+The retarget takes effect from the next turn: a running turn resolves its paths
+before the move lands. CD-0103 amends this clause, which previously claimed the
+route waits for a turn boundary it does not offer. After the move, `work_start`
+reads the session directory back and refuses success unless it is the claimed
+worktree.
 
 ### D4. Identity guarantees now guard the retarget
 
@@ -112,8 +115,9 @@ least able to see it.
 author that work and cannot attribute it. The refusal keeps the operator's
 uncommitted work where the operator left it.
 
-**Move without waiting for the turn to end.** Rejected because a turn that
-starts in one directory and ends in another resolves paths in both.
+**Move without regard for the turn boundary.** Rejected because a turn that
+starts in one directory and ends in another resolves paths in both. CD-0103
+records why the outcome holds without a wait the route does not offer.
 
 ## Verification
 

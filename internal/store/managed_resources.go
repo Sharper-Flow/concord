@@ -265,7 +265,19 @@ func foldManagedResourceConsumerAdded(ctx context.Context, tx *sql.Tx, event Eve
 	}
 	var declared string
 	if err := tx.QueryRowContext(ctx, `SELECT environments FROM managed_resources WHERE resource_id=? AND version=?`, p.ResourceID, p.ExpectedVersion).Scan(&declared); err == sql.ErrNoRows {
-		return newFailure(KindVersionConflict, "fold_event", "managed resource is missing or has a different version", false, "reload the resource and retry with its current version")
+		// The pinned row is absent, which says either the resource does not
+		// exist or it moved on. Those need different answers, so read the live
+		// version and report the one that happened.
+		var live int64
+		switch scanErr := tx.QueryRowContext(ctx, `SELECT version FROM managed_resources WHERE resource_id=?`, p.ResourceID).Scan(&live); {
+		case scanErr == sql.ErrNoRows:
+			return newFailure(KindProjectionNotFound, "fold_event", "managed resource "+p.ResourceID+" does not exist", false, "create the resource before pinning its version")
+		case scanErr != nil:
+			return wrapFailure(KindUnavailable, "fold_event", "cannot read the current managed resource version", true, "retry once the database is readable", scanErr)
+		}
+		f := newFailure(KindVersionConflict, "fold_event", fmt.Sprintf("managed resource %s has version %d, want %d", p.ResourceID, live, p.ExpectedVersion), false, "reload the resource and retry with its current version")
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: "managed_resource", SubjectID: p.ResourceID, Version: live}}
+		return f
 	} else if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect managed resource version", true, "retry once the database is readable", err)
 	}

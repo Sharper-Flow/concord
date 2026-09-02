@@ -289,7 +289,7 @@ func bumpVersion(ctx context.Context, tx *sql.Tx, table string, event Event, exp
 		// fold_event subjects share the SubjectWorkItem/SubjectProduct/SubjectProject
 		// vocabulary; carry the typed current version so the agent layer does not
 		// have to parse the human detail string.
-		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: event.SubjectType, SubjectID: event.SubjectID, Version: current, Exists: true}}
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: event.SubjectType, SubjectID: event.SubjectID, Version: current}}
 		return f
 	}
 	result, err := tx.ExecContext(ctx, "UPDATE "+table+" SET version = ?, updated_at = ? WHERE id = ? AND version = ?", //nolint:gosec // all callers use products, projects, or work_items and every value stays parameter-bound.

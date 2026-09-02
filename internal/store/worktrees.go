@@ -1156,15 +1156,20 @@ func bindSessionWorktreeRawTx(ctx context.Context, transaction *Transaction, tx 
 	}
 	if found {
 		if req.ExpectedTargetVersion != existing.TargetVersion {
-			return SessionWorktreeTarget{}, newFailure(KindVersionConflict, "worktree_retarget",
+			f := newFailure(KindVersionConflict, "worktree_retarget",
 				fmt.Sprintf("session target version is %d, request pinned %d", existing.TargetVersion, req.ExpectedTargetVersion), false, "reread the session target and retry with its current version")
+			f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectSession, SubjectID: sessionOwnerLabel(req.Owner), Version: existing.TargetVersion}}
+			return SessionWorktreeTarget{}, f
 		}
 		if !mode.transfer && existing.State == sessionTargetActive && existing.WorkID != req.WorkID {
 			return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
 				fmt.Sprintf("session %s is bound to work %s; adopting work %s is a takeover (CD-0096 D3)", sessionOwnerLabel(req.Owner), existing.WorkID, req.WorkID), false, "release the current binding or obtain an operator takeover override")
 		}
 	} else if req.ExpectedTargetVersion != 0 {
-		return SessionWorktreeTarget{}, newFailure(KindVersionConflict, "worktree_retarget",
+		// No binding exists, so no live version can be reported back. The
+		// refusal names the absence rather than claiming a conflict it cannot
+		// substantiate.
+		return SessionWorktreeTarget{}, newFailure(KindProjectionNotFound, "worktree_retarget",
 			fmt.Sprintf("session holds no target but the request pinned version %d", req.ExpectedTargetVersion), false, "retry with expected_target_version 0 for a first binding")
 	}
 
@@ -1423,8 +1428,10 @@ func ReleaseSessionWorktreeTx(ctx context.Context, transaction *Transaction, req
 			fmt.Sprintf("session binding targets work %s, request named work %s", existing.WorkID, req.WorkID), false, "release the binding's own work item")
 	}
 	if req.ExpectedTargetVersion != existing.TargetVersion {
-		return SessionWorktreeTarget{}, newFailure(KindVersionConflict, "worktree_release",
+		f := newFailure(KindVersionConflict, "worktree_release",
 			fmt.Sprintf("session target version is %d, request pinned %d", existing.TargetVersion, req.ExpectedTargetVersion), false, "reread the session target and retry with its current version")
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectSession, SubjectID: sessionOwnerLabel(req.Owner), Version: existing.TargetVersion}}
+		return SessionWorktreeTarget{}, f
 	}
 	if existing.State != sessionTargetActive {
 		return SessionWorktreeTarget{}, newFailure(KindInvalidTransition, "worktree_release", "session target binding is already released", false, "retarget before releasing")

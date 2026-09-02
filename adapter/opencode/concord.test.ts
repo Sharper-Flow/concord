@@ -861,16 +861,16 @@ const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; la
     hostControlPlane().bind(undefined)
     return moved
   }
-  hostControlPlane().bind("http://host.invalid", async (url, init) => {
-    if (url.pathname.endsWith("/move-session")) {
-      moved.push(JSON.parse(String(init.body)))
+  hostControlPlane().bind({
+    post: async ({ body }) => {
+      moved.push(body as Record<string, unknown>)
       const status = options.moveStatus ?? 204
-      return new Response(status === 204 ? null : (options.moveBody ?? ""), { status })
-    }
-    return new Response(JSON.stringify({ id: "session-1", directory: options.landedDirectory ?? WORKTREE }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    })
+      return { response: new Response(status === 204 ? null : (options.moveBody ?? ""), { status }) }
+    },
+    get: async () => ({
+      data: { id: "session-1", directory: options.landedDirectory ?? WORKTREE },
+      response: new Response(null, { status: 200 }),
+    }),
   })
   return moved
 }
@@ -894,14 +894,14 @@ test("work start retargets the calling session and records the claim before the 
 // no other route into the worktree. The refusal therefore belongs in front of
 // the capture: an operator who cannot start work should not be left holding a
 // work item and a claim to reconcile as well.
-test("work start refuses before any effect when the host exposed no server URL", async () => {
+test("work start refuses before any effect when the host handed the plugin no client", async () => {
   bindRetargetRoute({ unbound: true })
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).not.toBe("ok")
   expect(result.error.effect_state).toBe("none")
-  expect(result.error.message).toContain("this host exposed no server URL")
+  expect(result.error.message).toContain("this host handed the plugin no client")
   expect(result.error.message).toContain("host version")
   // The remedy travels with the refusal, because the condition is one the
   // operator repairs by starting the session differently.
@@ -914,9 +914,10 @@ test("work start refuses before any effect when the host exposed no server URL",
 })
 
 test("work start refuses before any effect when the host control plane cannot be reached", async () => {
-  hostControlPlane().bind("http://host.invalid", async () => {
+  const unreachable = async () => {
     throw new Error("Unable to connect. Is the computer able to access the url?")
-  })
+  }
+  hostControlPlane().bind({ get: unreachable, post: unreachable })
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))

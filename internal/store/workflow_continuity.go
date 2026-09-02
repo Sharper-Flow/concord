@@ -139,12 +139,17 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		pinned := *req.ExpectedTargetVersion
 		if found {
 			if binding.TargetVersion != pinned {
-				return out, newFailure(KindVersionConflict, "C19.Continuity",
+				f := newFailure(KindVersionConflict, "C19.Continuity",
 					fmt.Sprintf("pinned session target version %d is stale, the store holds %d", pinned, binding.TargetVersion), false, "reread the session target and retry with its current version")
+				f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectSession, SubjectID: sessionOwnerLabel(*req.Owner), Version: binding.TargetVersion}}
+				return out, f
 			}
 		} else if pinned != 0 {
-			return out, newFailure(KindVersionConflict, "C19.Continuity",
-				fmt.Sprintf("pinned session target version %d is stale, the session holds no target", pinned), false, "reread the session target and retry with its current version")
+			// The session holds no binding at all, so there is no live target
+			// version to re-read. Naming the absence is the answer a caller can
+			// act on; a version conflict here could name nothing.
+			return out, newFailure(KindProjectionNotFound, "C19.Continuity",
+				fmt.Sprintf("the session holds no target, so pinned version %d cannot be confirmed", pinned), false, "retry with expected_target_version 0, or retarget first")
 		}
 	}
 	if req.Owner != nil {

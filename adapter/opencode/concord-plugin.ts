@@ -27,18 +27,20 @@ import {
   work_compact,
   work_start,
 } from "./concord"
+import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 
-// The plugin factory is the only place the host hands over its own server URL,
-// and CD-0098 D2 makes the move-session route on that server a requirement of
-// work start. Binding it here is what lets the tool path reach the route.
-type ConcordPluginInput = { serverUrl?: URL | string }
-
-export default async function ConcordAdapterPlugin(input?: ConcordPluginInput) {
-  hostControlPlane().bind(input?.serverUrl)
+// The plugin factory is the only place the host hands over its own client, and
+// CD-0098 D2 makes the move-session route a requirement of work start. Binding
+// the client here is what lets the tool path reach the route. The host type is
+// imported rather than restated, so a member the adapter needs cannot go
+// missing from a local description of it. The import is type-only and erases,
+// which keeps the adapter free of a runtime dependency on a host package.
+export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>) {
+  hostControlPlane().bind(input)
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {

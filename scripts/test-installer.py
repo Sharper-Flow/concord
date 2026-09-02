@@ -999,5 +999,54 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         self.assertEqual(derived, installer.ADAPTER_FILES)
 
 
+class StandaloneInstallerTest(unittest.TestCase):
+    """The documented procedure runs the installer with no checkout present.
+
+    docs/installation.md tells the operator to download concord-installer.py
+    from the release and run it. The release tarball ships the binary, the
+    adapter modules, and the skills, but not the installer, so nothing else is
+    on disk beside that one file.
+
+    Every other test here reaches the installer through `scripts/`, where a
+    read of a sibling checkout resolves by accident of location. That is why a
+    module-scope read of `../adapter/opencode` shipped in fourteen releases
+    without a failure: the suite never stood where the operator stands.
+    """
+
+    def run_standalone(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "concord-installer.py"
+            script.write_bytes(SCRIPT.read_bytes())
+            return subprocess.run(
+                [sys.executable, str(script), *arguments],
+                text=True,
+                capture_output=True,
+                cwd=tmp,
+            )
+
+    def test_help_runs_with_no_checkout_present(self) -> None:
+        result = self.run_standalone("--help")
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_status_runs_with_no_checkout_present(self) -> None:
+        result = self.run_standalone("status")
+        # status may report nothing installed; it must not fail to start.
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("NameError", result.stderr)
+
+    def test_a_failure_to_derive_reports_its_cause(self) -> None:
+        """The raise path must name the module, not NameError.
+
+        InstallerError is raised inside derive_adapter_files but defined later
+        in the module. A caller after import sees the real class, which is why
+        test_unresolvable_entry_import_refuses passes. A module-scope caller
+        sees NameError instead, so the one context that fails is the one that
+        cannot say why.
+        """
+        result = self.run_standalone("--help")
+        self.assertNotIn("NameError", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

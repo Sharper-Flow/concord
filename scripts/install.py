@@ -42,6 +42,10 @@ RELATIVE_IMPORT_RE = re.compile(r'(?:from\s+|import\(\s*)([\'"])(\.[^\'"]+)\1')
 PLUGIN_ENTRY_FILE = "concord-plugin.ts"
 
 
+class InstallerError(Exception):
+    """An actionable refusal that must not leave a partial installation."""
+
+
 def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
     """Derive the deployable adapter set from the entry's import graph.
 
@@ -68,7 +72,38 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
     return tuple(sorted(shipped))
 
 
-ADAPTER_FILES = derive_adapter_files(Path(__file__).resolve().parent.parent / "adapter" / "opencode")
+# The adapter set this installer manages. It is a literal, not a read of a
+# sibling checkout, because the published installer ships alone: release.yml
+# copies this file to concord-installer.py and the operator downloads that one
+# file, so nothing else is on disk beside it.
+#
+# ADAPTER_FILES also constrains which paths a recorded manifest may name during
+# status and uninstall, when no bundle has been downloaded. It is therefore a
+# property of the installer, and cannot be derived from the archive it installs.
+#
+# derive_adapter_files remains the authority for this value. Regenerate with:
+#
+#     python3 -c "import sys; sys.path.insert(0, 'scripts'); import install; \
+#         print(install.derive_adapter_files(__import__('pathlib').Path('adapter/opencode')))"
+#
+# test_real_checkout_derivation_includes_the_plugin_entry compares this literal
+# against the live import graph and fails when the two drift.
+ADAPTER_FILES = (
+    "agent-switch-hook.ts",
+    "concord-plugin.ts",
+    "concord.ts",
+    "continuity-hook.ts",
+    "credentials.ts",
+    "dispatch-window.ts",
+    "dispatch.ts",
+    "generated-agent-lanes.ts",
+    "generated-contract-tests.ts",
+    "generated-contracts.ts",
+    "lane_dispatch.ts",
+    "move-session.ts",
+    "packet.ts",
+    "task-result.ts",
+)
 INSTRUCTION_FILES = (
     "README.md",
     "asking.md",
@@ -114,10 +149,6 @@ class ConfigPlan:
     text: str
     changed: bool
     managed_fragment: str | None
-
-
-class InstallerError(Exception):
-    """An actionable refusal that must not leave a partial installation."""
 
 
 def paths_for(root: Path | None) -> Paths:

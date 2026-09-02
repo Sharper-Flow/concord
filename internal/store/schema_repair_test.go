@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +139,69 @@ func TestShippedVariantTableIsFrozen(t *testing.T) {
 		if len(got) != count {
 			t.Fatalf("migration %d records %d shipped variants, frozen at %d", version, len(got), count)
 		}
+	}
+}
+
+// The compatibility floor is the highest breaking migration applied, and every
+// migration after it is additive by declaration. A binary defining the floor
+// must open a database that has run later additive migrations.
+func TestManifestAdmitsLaterAdditiveMigrations(t *testing.T) {
+	floor := 0
+	for _, m := range migrations {
+		if m.Breaking && m.Version > floor {
+			floor = m.Version
+		}
+	}
+	if floor == 0 {
+		t.Fatal("no breaking migration declared; the floor would never rise")
+	}
+
+	// A database that ran two migrations this binary does not define: one
+	// additive, which must not raise the floor, and nothing breaking.
+	applied := map[int]appliedMigration{}
+	for _, m := range migrations {
+		applied[m.Version] = appliedMigration{Checksum: m.checksum(), Breaking: m.Breaking}
+	}
+	applied[CurrentSchemaVersion()+1] = appliedMigration{Checksum: "future-additive", Breaking: false}
+	applied[CurrentSchemaVersion()+2] = appliedMigration{Checksum: "future-additive-2", Breaking: false}
+	if err := checkManifest(applied); err != nil {
+		t.Fatalf("later additive migrations must not refuse this binary: %v", err)
+	}
+
+	// One breaking migration this binary does not define closes the door, and
+	// the refusal names the version the operator needs.
+	applied[CurrentSchemaVersion()+3] = appliedMigration{Checksum: "future-breaking", Breaking: true}
+	err := checkManifest(applied)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindSchemaUnsupported {
+		t.Fatalf("breaking future migration err=%v, want schema_unsupported", err)
+	}
+	if !strings.Contains(failure.Detail, strconv.Itoa(CurrentSchemaVersion()+3)) {
+		t.Fatalf("refusal %q must name the version the database requires", failure.Detail)
+	}
+	if !failure.RetrySafe {
+		t.Fatal("a refusal that writes nothing must be retry safe")
+	}
+}
+
+// A manifest written before the compatibility column existed carries no bits.
+// Absent must read as breaking, so such a database keeps exactly the refusal
+// it had before this mechanism landed.
+func TestManifestWithoutCompatibilityColumnReadsAsBreaking(t *testing.T) {
+	db := openMigrated(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
+		t.Fatalf("stage a pre-column manifest: %v", err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate must re-add the column and succeed: %v", err)
+	}
+	var breaking int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE breaking = 1`).Scan(&breaking); err != nil {
+		t.Fatalf("read the restored column: %v", err)
+	}
+	if breaking != CurrentSchemaVersion() {
+		t.Fatalf("restored rows breaking=%d, want all %d rows breaking", breaking, CurrentSchemaVersion())
 	}
 }

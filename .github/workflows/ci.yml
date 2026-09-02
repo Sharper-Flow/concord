@@ -58,6 +58,10 @@ jobs:
         run: python3 scripts/check-project-tooling.py
       - name: Validate durable tier
         run: python3 scripts/check-durable-tier.py
+      - name: Validate migration compatibility declarations
+        run: python3 scripts/check-migration-compatibility.py
+      - name: Test migration compatibility classifier
+        run: python3 scripts/test-migration-compatibility.py
       - name: Validate predecessor operational coverage
         run: python3 scripts/check-predecessor-coverage.py
       - name: Validate agent tool-surface contracts

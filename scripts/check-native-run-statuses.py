@@ -25,7 +25,7 @@ def load_json(root: Path, relative: Path, findings: list[str]):
 
 
 def migration_block(source: str) -> str | None:
-    match = re.search(r'Version: 49,\s+Name:\s+"work_kind_and_native_run_vocabularies",\s+SQL: `(?P<sql>.*?)`,\s+\},', source, re.S)
+    match = re.search(r'Version:\s+49,\s+Name:\s+"work_kind_and_native_run_vocabularies",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},', source, re.S)
     return match.group("sql") if match else None
 
 

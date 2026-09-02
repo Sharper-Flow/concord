@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = Path("contracts/concord-knowledge-index.v1.schema.json")
 SCHEMA_SOURCE = Path("internal/store/schema.go")
 MIGRATION_RE = re.compile(
-    r'Version: 56,\s+Name:\s+"archived_work_kind_vocabulary",\s+SQL: `(?P<sql>.*?)`,\s+\},',
+    r'Version:\s+56,\s+Name:\s+"archived_work_kind_vocabulary",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},',
     re.S,
 )
 

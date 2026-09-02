@@ -524,18 +524,30 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 		t.Fatal(err)
 	}
 	var claimsBefore, entriesBefore, eventsBefore int
-	s.db.QueryRow(`SELECT count(*) FROM worktree_claims`).Scan(&claimsBefore)
-	s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesBefore)
-	s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore)
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_claims`).Scan(&claimsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := s.WorktreeAudit(ctx, "product-w", 100); err != nil {
 		t.Fatal(err)
 	}
 
 	var claimsAfter, entriesAfter, eventsAfter int
-	s.db.QueryRow(`SELECT count(*) FROM worktree_claims`).Scan(&claimsAfter)
-	s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesAfter)
-	s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter)
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_claims`).Scan(&claimsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+		t.Fatal(err)
+	}
 	if claimsAfter != claimsBefore || entriesAfter != entriesBefore || eventsAfter != eventsBefore {
 		t.Fatalf("audit mutated state: claims %d->%d entries %d->%d events %d->%d", claimsBefore, claimsAfter, entriesBefore, entriesAfter, eventsBefore, eventsAfter)
 	}

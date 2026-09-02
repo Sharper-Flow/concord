@@ -695,6 +695,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Capabilities []string `json:"capabilities"`
 			ProductScope []string `json:"product_scope"`
 			ProjectScope []string `json:"project_scope"`
+			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
@@ -704,7 +705,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		for i, v := range request.Capabilities {
 			caps[i] = agent.Capability(v)
 		}
-		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope}); err != nil {
+		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}

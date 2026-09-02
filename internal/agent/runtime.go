@@ -170,6 +170,12 @@ type resourceClaimsInput struct {
 	Budget      budgetInput `json:"budget"`
 }
 
+type worktreeAuditInput struct {
+	ProductID string      `json:"product_id"`
+	Page      pageInput   `json:"page"`
+	Budget    budgetInput `json:"budget"`
+}
+
 type researchReadInput struct {
 	ProductID string    `json:"product_id"`
 	PackID    string    `json:"pack_id"`
@@ -1109,6 +1115,20 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		}
 		meta := store.ResultMeta{QueryID: "PM1.Q14", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"sent_at"}}
 		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
+	case "concord_work_browse.worktree_audit":
+		var in worktreeAuditInput
+		if err := decodeOperationInput(input, &in); err != nil {
+			return base, err
+		}
+		if in.ProductID == "" {
+			in.ProductID = r.Envelope.SelectedProductID
+		}
+		audit, err := r.Store.WorktreeAudit(ctx, in.ProductID, r.boundedLimit(in.Page.Limit))
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		meta := store.ResultMeta{QueryID: "PM1.Q16", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{ProductID: in.ProductID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"class", "path"}}
+		return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"root": audit.Root, "drift": audit.Drift})
 	case "concord_work_trace.history":
 		var in historyInput
 		if err := decodeOperationInput(input, &in); err != nil {

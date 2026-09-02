@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:b2bb38b198ef78f3ccc7e2e17d8eb1a854392ff046f654dd5e4013122e6e7648`
-Payload schema digest: `sha256:6022ca9887fc58ca8c4dc914f4cb0f771cdad558e9428d1a43f346edea546399`
+Manifest digest: `sha256:c8e9f674b6f3753e5c58a3c5a281e9bf117cb27a419768cb87a4ed815dc7bf9c`
+Payload schema digest: `sha256:f23d4463160938665c7b0764bb741a110ca470797a6abf5c856c2d626ebdfef2`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -16,6 +16,7 @@ Envelope schema: `1.0`
 | `concord_work_browse.scope` | `read` | `PM1.Q6` | `product_read` | `read` | `always` |
 | `concord_work_browse.resource_claims` | `read` | `PM1.Q13` | `product_read` | `read` | `always` |
 | `concord_work_browse.messages` | `read` | `PM1.Q14` | `product_read` | `read` | `always` |
+| `concord_work_browse.worktree_audit` | `read` | `PM1.Q16` | `product_read` | `read` | `always` |
 | `concord_work_trace.history` | `read` | `PM1.Q7` | `product_read` | `read` | `always` |
 | `concord_work_trace.observations` | `read` | `CD-0030.R1` | `product_read` | `read` | `always` |
 | `concord_work_trace.external_observations` | `read` | `CD-0040.R1` | `product_read` | `read` | `always` |

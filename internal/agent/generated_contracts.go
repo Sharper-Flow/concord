@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:b2bb38b198ef78f3ccc7e2e17d8eb1a854392ff046f654dd5e4013122e6e7648"
+const ManifestDigest = "sha256:c8e9f674b6f3753e5c58a3c5a281e9bf117cb27a419768cb87a4ed815dc7bf9c"
 
 type OperationKind string
 
@@ -48,6 +48,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_browse.scope", Tool: "concord_work_browse", Operation: "scope", Kind: OperationKind("read"), QueryID: "PM1.Q6", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_scope_input", ResultSchema: "work_scope"},
 	{ID: "concord_work_browse.resource_claims", Tool: "concord_work_browse", Operation: "resource_claims", Kind: OperationKind("read"), QueryID: "PM1.Q13", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_resource_claims_input", ResultSchema: "resource_claims_page"},
 	{ID: "concord_work_browse.messages", Tool: "concord_work_browse", Operation: "messages", Kind: OperationKind("read"), QueryID: "PM1.Q14", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_messages_input", ResultSchema: "work_messages_page"},
+	{ID: "concord_work_browse.worktree_audit", Tool: "concord_work_browse", Operation: "worktree_audit", Kind: OperationKind("read"), QueryID: "PM1.Q16", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_worktree_audit_input", ResultSchema: "worktree_audit_page"},
 	{ID: "concord_work_trace.history", Tool: "concord_work_trace", Operation: "history", Kind: OperationKind("read"), QueryID: "PM1.Q7", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_trace_history_input", ResultSchema: "work_event_page"},
 	{ID: "concord_work_trace.observations", Tool: "concord_work_trace", Operation: "observations", Kind: OperationKind("read"), QueryID: "CD-0030.R1", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_observation_input", ResultSchema: "work_observation_page"},
 	{ID: "concord_work_trace.external_observations", Tool: "concord_work_trace", Operation: "external_observations", Kind: OperationKind("read"), QueryID: "CD-0040.R1", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "external_observation_input", ResultSchema: "external_observation_page"},
@@ -200,6 +201,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_browse_ready_input":                    {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kind", "page", "budget", "requested_budget_seconds"}},
 	"work_browse_resource_claims_input":          {Required: []string{"product_id"}, Properties: []string{"product_id", "resource_key", "page", "budget", "requested_budget_seconds"}},
 	"work_browse_scope_input":                    {Required: []string{"product_id"}, Properties: []string{"product_id", "project_id", "work_id", "page", "budget", "one_of", "requested_budget_seconds"}},
+	"work_browse_worktree_audit_input":           {Required: []string{"product_id"}, Properties: []string{"product_id", "page", "budget", "requested_budget_seconds"}},
 	"work_compact_lesson_publish_input":          {Required: []string{"work_id", "lesson_id", "title", "summary", "content", "idempotency_key"}, Properties: []string{"work_id", "lesson_id", "title", "summary", "content", "tags", "scopes", "evidence", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_compact_publish_input":                 {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
 	"work_compact_reconcile_input":               {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
@@ -240,6 +242,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_packet":                              {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
 	"workflow_contract":                          {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding"}},
 	"workflow_read":                              {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "stale_law_revision"}},
+	"worktree_audit_page":                        {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},
 }
 
 func ValidateGeneratedPayload(schemaName string, data []byte) error {

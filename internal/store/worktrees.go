@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -636,4 +637,243 @@ func worktreeEntryAfterReclaimTx(ctx context.Context, tx *sql.Tx, workID, projec
 		}
 	}
 	return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_reclaim", "reclaimed entry is not readable", true, "retry the read")
+}
+
+// Worktree drift classes (issue #675). Each class names one divergence
+// between the filesystem under the Concord worktree root, the durable claim
+// rows, and the folded work lifecycle.
+const (
+	// WorktreeDriftOrphan: a directory exists under the worktree root with no
+	// active claim pinned to it and no active entry at its path.
+	WorktreeDriftOrphan = "orphan"
+	// WorktreeDriftStaleClaim: a verified claim's pinned worktree no longer
+	// exists on disk.
+	WorktreeDriftStaleClaim = "stale_claim"
+	// WorktreeDriftStrandedNeeded: a work item at needed holds an active
+	// worktree entry whose path no longer exists, so no driver will notice.
+	WorktreeDriftStrandedNeeded = "stranded_needed"
+)
+
+// Typed recovery actions. Where a Concord operation owns the recovery, the
+// action names that operation; orphan removal has no typed owner and names
+// the host action.
+const (
+	WorktreeRecoveryRemoveOrphan = "remove_worktree"
+	WorktreeRecoveryReclaim      = "worktree_reclaim"
+	WorktreeRecoveryClaim        = "worktree_claim"
+)
+
+// worktreeIDNamePattern mirrors the agent surface's shared id definition
+// (contracts/agent-tool-surface-payloads.schema.json $defs/id). An orphan
+// directory whose name cannot be a work id reports no work_id rather than a
+// value the surface would refuse.
+var worktreeIDNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]*$`)
+
+// WorktreeDrift is one classified divergence with its typed recovery action.
+type WorktreeDrift struct {
+	Class          string `json:"class"`
+	ProjectID      string `json:"project_id"`
+	WorkID         string `json:"work_id,omitempty"`
+	Path           string `json:"path"`
+	ClaimState     string `json:"claim_state,omitempty"`
+	Lifecycle      string `json:"lifecycle,omitempty"`
+	RecoveryAction string `json:"recovery_action"`
+}
+
+// WorktreeAudit is the bounded result of one audit pass.
+type WorktreeAudit struct {
+	Root  string          `json:"root"`
+	Drift []WorktreeDrift `json:"drift"`
+}
+
+// WorktreeAudit enumerates on-disk worktrees under the Concord worktree root
+// (the database directory's worktrees/<project_id>/<work_id> convention owned
+// by LocateWorktree) against active claims, folded entries, and work
+// lifecycle, classifying every divergence (issue #675). It is a pure read:
+// it names the typed recovery action for each drift row and repairs nothing.
+//
+// A pending claim is intent, not verified fact — its worktree may simply not
+// be created yet, and retrying the claim reconciles it — so only verified
+// claims and active entries are audited. A stranded_needed row co-occurs with
+// its stale_claim row by design: the claim and the work item are different
+// subjects, and recovering the work requires both actions in order.
+//
+// Output is bounded by limit and ordered deterministically (class, project,
+// path), so a truncated pass is stable for the caller.
+func (s *Store) WorktreeAudit(ctx context.Context, productID string, limit int) (WorktreeAudit, error) {
+	if s == nil || s.db == nil {
+		return WorktreeAudit{}, newFailure(KindUnavailable, "worktree_audit", "store is not open", false, "open the authority database")
+	}
+	return worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), productID, limit)
+}
+
+func worktreeAudit(ctx context.Context, q queryer, root string, productID string, limit int) (WorktreeAudit, error) {
+	if productID == "" {
+		return WorktreeAudit{}, newFailure(KindUnknownScope, "worktree_audit", "worktree audit requires one Product scope", false, "select one Product before auditing worktrees")
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	var projects []string
+	projectRows, err := q.QueryContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`, productID)
+	if err != nil {
+		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read Product Projects", true, "retry once the database is readable", err)
+	}
+	defer projectRows.Close()
+	for projectRows.Next() {
+		var id string
+		if err := projectRows.Scan(&id); err != nil {
+			return WorktreeAudit{}, err
+		}
+		projects = append(projects, id)
+	}
+	if err := projectRows.Err(); err != nil {
+		return WorktreeAudit{}, err
+	}
+
+	type auditClaim struct {
+		workID, projectID, path, state string
+	}
+	claims := []auditClaim{}
+	claimRows, err := q.QueryContext(ctx, `SELECT c.work_id,c.project_id,c.pinned_path,c.state FROM worktree_claims c JOIN product_projects pp ON pp.project_id=c.project_id WHERE pp.product_id=? AND c.state IN ('pending','verified') ORDER BY c.pinned_path`, productID)
+	if err != nil {
+		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree claims", true, "retry once the database is readable", err)
+	}
+	defer claimRows.Close()
+	for claimRows.Next() {
+		var c auditClaim
+		if err := claimRows.Scan(&c.workID, &c.projectID, &c.path, &c.state); err != nil {
+			return WorktreeAudit{}, err
+		}
+		claims = append(claims, c)
+	}
+	if err := claimRows.Err(); err != nil {
+		return WorktreeAudit{}, err
+	}
+
+	type auditEntry struct {
+		workID, projectID, path string
+	}
+	entries := []auditEntry{}
+	entryRows, err := q.QueryContext(ctx, `SELECT e.set_id,e.project_id,e.path FROM worktree_entries e JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY e.path`, productID)
+	if err != nil {
+		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree entries", true, "retry once the database is readable", err)
+	}
+	defer entryRows.Close()
+	for entryRows.Next() {
+		var setID string
+		var e auditEntry
+		if err := entryRows.Scan(&setID, &e.projectID, &e.path); err != nil {
+			return WorktreeAudit{}, err
+		}
+		e.workID = strings.TrimPrefix(setID, worktreeSetPrefix)
+		entries = append(entries, e)
+	}
+	if err := entryRows.Err(); err != nil {
+		return WorktreeAudit{}, err
+	}
+
+	// Only needed-work ids with an active entry in this Product matter for the
+	// stranded class; the join answers exactly that set.
+	strandedIDs := map[string]bool{}
+	strandedRows, err := q.QueryContext(ctx, `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed'`, worktreeSetPrefix, productID)
+	if err != nil {
+		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read work lifecycle", true, "retry once the database is readable", err)
+	}
+	defer strandedRows.Close()
+	for strandedRows.Next() {
+		var id string
+		if err := strandedRows.Scan(&id); err != nil {
+			return WorktreeAudit{}, err
+		}
+		strandedIDs[id] = true
+	}
+	if err := strandedRows.Err(); err != nil {
+		return WorktreeAudit{}, err
+	}
+
+	claimedPaths := map[string]bool{}
+	for _, c := range claims {
+		claimedPaths[c.path] = true
+	}
+	enteredPaths := map[string]bool{}
+	for _, e := range entries {
+		enteredPaths[e.path] = true
+	}
+
+	exists := func(path string) (bool, error) {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, wrapFailure(KindUnavailable, "worktree_audit", "cannot inspect worktree path "+path, true, "retry once the worktree root is readable", err)
+		}
+		return true, nil
+	}
+
+	drift := []WorktreeDrift{}
+	// Orphan: on disk, claimed by nobody. Classes are appended in a fixed
+	// order over sorted inputs, so the result needs no explicit sort.
+	for _, projectID := range projects {
+		projectDir := filepath.Join(root, projectID)
+		dirs, err := os.ReadDir(projectDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot enumerate worktrees under "+projectDir, true, "retry once the worktree root is readable", err)
+		}
+		for _, dir := range dirs {
+			if !dir.IsDir() {
+				continue
+			}
+			path := filepath.Join(projectDir, dir.Name())
+			if claimedPaths[path] || enteredPaths[path] {
+				continue
+			}
+			row := WorktreeDrift{Class: WorktreeDriftOrphan, ProjectID: projectID, Path: path, RecoveryAction: WorktreeRecoveryRemoveOrphan}
+			if worktreeIDNamePattern.MatchString(dir.Name()) {
+				row.WorkID = dir.Name()
+			}
+			drift = append(drift, row)
+		}
+	}
+	// Stale claim: the verified locator points at a path the disk no longer
+	// holds. ReclaimWorktree reconciles exactly this shape (already_absent).
+	for _, c := range claims {
+		if c.state != worktreeStateVerified {
+			continue
+		}
+		present, err := exists(c.path)
+		if err != nil {
+			return WorktreeAudit{}, err
+		}
+		if present {
+			continue
+		}
+		drift = append(drift, WorktreeDrift{Class: WorktreeDriftStaleClaim, ProjectID: c.projectID, WorkID: c.workID, Path: c.path, ClaimState: worktreeStateVerified, RecoveryAction: WorktreeRecoveryReclaim})
+	}
+	// Stranded needed work: the entry still says active, the disk disagrees,
+	// and nothing is driving the work item to notice.
+	for _, e := range entries {
+		if !strandedIDs[e.workID] {
+			continue
+		}
+		present, err := exists(e.path)
+		if err != nil {
+			return WorktreeAudit{}, err
+		}
+		if present {
+			continue
+		}
+		drift = append(drift, WorktreeDrift{Class: WorktreeDriftStrandedNeeded, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: "needed", RecoveryAction: WorktreeRecoveryClaim})
+	}
+	if len(drift) > limit {
+		drift = drift[:limit]
+	}
+	return WorktreeAudit{Root: root, Drift: drift}, nil
 }

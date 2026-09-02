@@ -355,6 +355,24 @@
           ],
           "properties": {
             "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "worktree_audit"
+            },
+            "query_id": {
+              "const": "PM1.Q16"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
               "const": "concord_knowledge"
             },
             "operation": {
@@ -734,13 +752,14 @@
             "resource_claim",
             "resource_release",
             "unprocessed",
+            "worktree_audit",
             "worktree_claim",
             "worktree_reclaim"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14|15)|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "outcome": {
           "enum": [
@@ -1170,13 +1189,14 @@
             "resource_claim",
             "resource_release",
             "unprocessed",
+            "worktree_audit",
             "worktree_claim",
             "worktree_reclaim"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q([1-9]|1[01]|12|13|14|15)|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "reason_code": {
           "type": "string",

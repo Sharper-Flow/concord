@@ -59,7 +59,7 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 		t.Fatal(err)
 	}
 
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	return s, service, grant, repoRoot, baseSHA
 }
 

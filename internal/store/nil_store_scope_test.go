@@ -13,6 +13,10 @@ func TestUnopenedStoreScopeMethods(t *testing.T) {
 			_, err := s.ResourceClaims(ctx, "key-1", "prod-1", 10)
 			return err
 		}},
+		{"WorktreeAudit", func(s *Store) error {
+			_, err := s.WorktreeAudit(ctx, "prod-1", 10)
+			return err
+		}},
 		{"BlockedSessions", func(s *Store) error {
 			_, err := s.BlockedSessions(ctx, time.Time{}, nil, 10)
 			return err

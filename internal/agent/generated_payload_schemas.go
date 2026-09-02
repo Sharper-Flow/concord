@@ -3992,6 +3992,27 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_browse_worktree_audit_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
+        "product_id"
+      ],
+      "type": "object"
+    },
     "work_compact_lesson_publish_input": {
       "additionalProperties": false,
       "properties": {
@@ -6561,6 +6582,76 @@ const GeneratedPayloadSchemaDocument = `{
         "blocking_conditions",
         "impact_notices",
         "completion_warnings"
+      ],
+      "type": "object"
+    },
+    "worktree_audit_page": {
+      "additionalProperties": false,
+      "properties": {
+        "drift": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claim_state": {
+                "enum": [
+                  "verified"
+                ],
+                "type": "string"
+              },
+              "class": {
+                "enum": [
+                  "orphan",
+                  "stale_claim",
+                  "stranded_needed"
+                ],
+                "type": "string"
+              },
+              "lifecycle": {
+                "enum": [
+                  "needed"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "recovery_action": {
+                "enum": [
+                  "remove_worktree",
+                  "worktree_reclaim",
+                  "worktree_claim"
+                ],
+                "type": "string"
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "class",
+              "project_id",
+              "path",
+              "recovery_action"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "root": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "drift"
       ],
       "type": "object"
     }

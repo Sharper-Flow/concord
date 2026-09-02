@@ -3501,6 +3501,12 @@ CREATE UNIQUE INDEX worktree_verify_leases_one_held ON worktree_verify_leases(pa
 --
 -- Migrations are SQL and cannot reach the Go registry, so the mapping below
 -- is the registered start step of each family as of this version.
+--
+-- workflow_instances is fold-only, so the rewrite holds the fold guard open
+-- across it. Without the guard the trigger aborts, and the migration fails on
+-- exactly the populated stores that carry the rows it must repair.
+INSERT INTO fold_guard(active) VALUES(1);
+
 UPDATE workflow_instances SET current_step = CASE definition_ref
     WHEN 'workflow.implementation'     THEN 'proposal'
     WHEN 'workflow.break_fix'          THEN 'reproduce'
@@ -3512,6 +3518,8 @@ UPDATE workflow_instances SET current_step = CASE definition_ref
     ELSE current_step
 END
 WHERE current_step = 'start';
+
+DELETE FROM fold_guard;
 		`,
 	},
 	{

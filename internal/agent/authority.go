@@ -148,7 +148,18 @@ func canonicalPolicy(policy TrustedClientPolicy) canonicalPolicyJSON {
 	return canonicalPolicyJSON{string(a), string(b), string(c)}
 }
 func validTrustedPolicy(policy TrustedClientPolicy) bool {
-	if !bounded(policy.PrincipalRef, 1, 128) || len(policy.Capabilities) > 32 || len(policy.ProductScope) > 100 || len(policy.ProjectScope) > 100 || !unique(capabilityStrings(policy.Capabilities)) || !unique(policy.ProductScope) || !unique(policy.ProjectScope) {
+	if !bounded(policy.PrincipalRef, 1, 128) {
+		return false
+	}
+	return validPolicyGrants(policy)
+}
+
+// validPolicyGrants holds the policy dimensions an expansion shares with a
+// full statement: capability vocabulary, per-dimension bounds, uniqueness,
+// and scope-string bounds. The principal is deliberately absent because an
+// expansion cannot change it.
+func validPolicyGrants(policy TrustedClientPolicy) bool {
+	if len(policy.Capabilities) > 32 || len(policy.ProductScope) > 100 || len(policy.ProjectScope) > 100 || !unique(capabilityStrings(policy.Capabilities)) || !unique(policy.ProductScope) || !unique(policy.ProjectScope) {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
@@ -179,6 +190,64 @@ func (s *Service) UpdateTrustedClientPolicy(ctx context.Context, clientRef strin
 	}
 	p := canonicalPolicy(policy)
 	return s.Store.UpdateTrustedClientPolicy(ctx, clientRef, store.TrustedClientRecord{PrincipalRef: policy.PrincipalRef, CapabilitiesJSON: p.capabilities, ProductScopeJSON: p.products, ProjectScopeJSON: p.projects}, s.now().Format(time.RFC3339Nano))
+}
+
+// ExpandTrustedClientPolicy widens a trusted client policy additively
+// (CD-0097 D6). The additions union with the stored capabilities, Product
+// scope, and Project scope; every grant the client already holds survives
+// unchanged, and the stored principal is never touched. Restating the full
+// policy with a new principal stays on UpdateTrustedClientPolicy.
+func (s *Service) ExpandTrustedClientPolicy(ctx context.Context, clientRef string, additions TrustedClientPolicy) error {
+	if err := s.authorityReady("agent_expand_policy"); err != nil {
+		return err
+	}
+	if clientRef == "" || !validPolicyGrants(additions) {
+		return errors.New("invalid trusted client policy additions")
+	}
+	add := canonicalPolicy(additions)
+	return s.Store.MutateTrustedClientPolicy(ctx, clientRef, func(current store.TrustedClientRecord) (store.TrustedClientRecord, error) {
+		next := current
+		var err error
+		if next.CapabilitiesJSON, err = unionPolicyJSON("agent_expand_policy", "capabilities", current.CapabilitiesJSON, add.capabilities, 32); err != nil {
+			return current, err
+		}
+		if next.ProductScopeJSON, err = unionPolicyJSON("agent_expand_policy", "product scope", current.ProductScopeJSON, add.products, 100); err != nil {
+			return current, err
+		}
+		if next.ProjectScopeJSON, err = unionPolicyJSON("agent_expand_policy", "project scope", current.ProjectScopeJSON, add.projects, 100); err != nil {
+			return current, err
+		}
+		return next, nil
+	})
+}
+
+// unionPolicyJSON decodes both canonical JSON arrays, unions them without
+// duplicates in sorted order, and refuses when the union exceeds the
+// dimension's bound. A stored array that does not decode refuses typed rather
+// than being widened by guesswork.
+func unionPolicyJSON(op, dimension, currentJSON, additionsJSON string, bound int) (string, error) {
+	var current, additions []string
+	if err := json.Unmarshal([]byte(currentJSON), &current); err != nil {
+		return "", &store.Failure{Kind: store.KindInvalidOperation, Op: op, Detail: "stored " + dimension + " policy is unreadable", RecoveryAction: "restate the full policy with client-policy-update"}
+	}
+	if err := json.Unmarshal([]byte(additionsJSON), &additions); err != nil {
+		return "", &store.Failure{Kind: store.KindInvalidOperation, Op: op, Detail: dimension + " additions are unreadable", RecoveryAction: "restate the additions as a JSON array of strings"}
+	}
+	merged := normalizeStrings(append(append([]string(nil), current...), additions...))
+	deduped := merged[:0]
+	for i, value := range merged {
+		if i == 0 || value != merged[i-1] {
+			deduped = append(deduped, value)
+		}
+	}
+	if len(deduped) > bound {
+		return "", &store.Failure{Kind: store.KindInvalidOperation, Op: op, Detail: dimension + " union exceeds the policy bound of " + fmt.Sprint(bound), RecoveryAction: "split the expansion or restate the full policy with client-policy-update"}
+	}
+	out, err := json.Marshal(deduped)
+	if err != nil {
+		return "", &store.Failure{Kind: store.KindUnavailable, Op: op, Detail: "cannot encode the merged " + dimension + " policy", RecoveryAction: "retry the policy expansion"}
+	}
+	return string(out), nil
 }
 func (s *Service) RotateClientKey(ctx context.Context, registration ClientRegistration) error {
 	if err := s.authorityReady("agent_rotate_key"); err != nil {

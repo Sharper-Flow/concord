@@ -114,6 +114,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
+	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
 	{Canonical: "client-revoke", TwoWord: "client revoke", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "none"},
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
@@ -688,6 +689,26 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			caps[i] = agent.Capability(v)
 		}
 		if err := service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope}); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeOperatorResult(command, s, nil, nil, out, errOut)
+	case "client-policy-expand":
+		var request struct {
+			ClientRef    string   `json:"client_ref"`
+			Capabilities []string `json:"capabilities"`
+			ProductScope []string `json:"product_scope"`
+			ProjectScope []string `json:"project_scope"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		caps := make([]agent.Capability, len(request.Capabilities))
+		for i, v := range request.Capabilities {
+			caps[i] = agent.Capability(v)
+		}
+		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope}); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}

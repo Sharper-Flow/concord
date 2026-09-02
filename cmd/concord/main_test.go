@@ -356,6 +356,8 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord --help",
 		"concord client-register < JSON stdin",
 		"concord client register < JSON stdin",
+		"concord client-policy-expand < JSON stdin",
+		"concord client policy-expand < JSON stdin",
 		"concord product-create < JSON stdin",
 		"concord product create < JSON stdin",
 		"concord resource-create < JSON stdin",
@@ -709,6 +711,7 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"invoke"},
 		{"client-register"}, {"client", "register"},
 		{"client-policy-update"}, {"client", "policy-update"},
+		{"client-policy-expand"}, {"client", "policy-expand"},
 		{"client-key-rotate"}, {"client", "key-rotate"},
 		{"client-revoke"}, {"client", "revoke"},
 		{"project-locator-add"}, {"project", "locator-add"},
@@ -1680,4 +1683,90 @@ func containsString(values []string, want string) bool {
 func contains(m map[string]any, key string) bool {
 	_, ok := m[key]
 	return ok
+}
+
+// TestClientPolicyExpandCLIPreservesEveryExistingGrant pins CD-0097 D6 at the
+// operator boundary: the expand verb widens a trusted client policy by union,
+// both accepted command forms work, replay through the two-word form is
+// idempotent, and the stored row keeps every prior grant and the principal.
+func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	publicKey, _, err := ed25519.GenerateKey(cryptorand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runOperatorJSON(t, dbPath, []string{"client-register"}, map[string]any{
+		"client_ref": "client-1", "key_id": "key-1", "principal_ref": "human-1",
+		"public_key":    base64.StdEncoding.EncodeToString(publicKey),
+		"capabilities":  []string{"product_read", "work_define"},
+		"product_scope": []string{"product-1"},
+		"project_scope": []string{"project-1", "project-2"},
+	})
+	runOperatorJSON(t, dbPath, []string{"client-policy-expand"}, map[string]any{
+		"client_ref":    "client-1",
+		"capabilities":  []string{"cross_scope"},
+		"product_scope": []string{"pokeedge"},
+		"project_scope": []string{"pokeedge-main"},
+	})
+	runOperatorJSON(t, dbPath, []string{"client", "policy-expand"}, map[string]any{
+		"client_ref":    "client-1",
+		"product_scope": []string{"pokeedge"},
+	})
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var capabilitiesJSON, productsJSON, projectsJSON, principal string
+	row := s.DatabaseForTesting().QueryRow(`SELECT capabilities_json,product_scope_json,project_scope_json,principal_ref FROM agent_clients WHERE client_ref=?`, "client-1")
+	if err := row.Scan(&capabilitiesJSON, &productsJSON, &projectsJSON, &principal); err != nil {
+		t.Fatal(err)
+	}
+	var capabilities, products, projects []string
+	for _, decode := range []struct {
+		encoded string
+		target  *[]string
+	}{
+		{capabilitiesJSON, &capabilities},
+		{productsJSON, &products},
+		{projectsJSON, &projects},
+	} {
+		if err := json.Unmarshal([]byte(decode.encoded), decode.target); err != nil {
+			t.Fatalf("decode %q: %v", decode.encoded, err)
+		}
+	}
+	assertCLIStringSet := func(label string, got []string, want ...string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s = %v, want exactly %v", label, got, want)
+		}
+		for _, value := range want {
+			found := false
+			for _, candidate := range got {
+				if candidate == value {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s = %v, want exactly %v", label, got, want)
+			}
+		}
+	}
+	assertCLIStringSet("capabilities", capabilities, "product_read", "work_define", "cross_scope")
+	assertCLIStringSet("product scope", products, "product-1", "pokeedge")
+	assertCLIStringSet("project scope", projects, "project-1", "project-2", "pokeedge-main")
+	if principal != "human-1" {
+		t.Fatalf("principal = %q, want the stored principal human-1", principal)
+	}
+
+	var out, errOut bytes.Buffer
+	t.Setenv(dbOverrideEnv, dbPath)
+	if code := runWithInput([]string{"client-policy-expand"}, strings.NewReader(`{"client_ref":"client-1","capabilities":["root_everything"]}`), &out, &errOut); code == 0 {
+		t.Fatal("unknown capability was accepted")
+	}
+	if !strings.HasPrefix(errOut.String(), "concord client-policy-expand: ") {
+		t.Fatalf("diagnostic = %q, want the command-prefixed refusal", errOut.String())
+	}
 }
